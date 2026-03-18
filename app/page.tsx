@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import styles from "./page.module.css";
-// import { properties as staticProperties } from "./data/properties"; // Removed static import
+import { properties as staticProperties } from "./data/properties";
 import { getProperties } from "./lib/firebase/properties";
 import { Property } from "./data/properties";
 import { MapView } from "./components/MapView";
@@ -27,7 +27,8 @@ export default function Home() {
     async function fetchListings() {
       setIsLoading(true);
       const data = await getProperties();
-      setProperties(data);
+      // Fall back to static mock data if Firebase returns nothing
+      setProperties(data.length > 0 ? data : staticProperties);
       setIsLoading(false);
     }
     fetchListings();

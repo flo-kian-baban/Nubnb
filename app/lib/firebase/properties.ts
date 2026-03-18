@@ -1,16 +1,17 @@
-import { collection, doc, getDocs, getDoc, addDoc, updateDoc, deleteDoc, query, orderBy } from 'firebase/firestore';
-import { db } from './config';
+import { collection, doc, getDocs, getDoc, addDoc, updateDoc, deleteDoc, query } from 'firebase/firestore';
+import { db, isFirebaseConfigured } from './config';
 import { Property } from '@/app/data/properties'; // Use existing interface
 
 const COLLECTION_NAME = 'properties';
 
 export async function getProperties(): Promise<Property[]> {
+  if (!isFirebaseConfigured() || !db) return [];
   try {
     const q = query(collection(db, COLLECTION_NAME));
     const querySnapshot = await getDocs(q);
     const properties: Property[] = [];
-    querySnapshot.forEach((doc) => {
-      properties.push({ id: doc.id, ...doc.data() } as Property);
+    querySnapshot.forEach((docSnap) => {
+      properties.push({ id: docSnap.id, ...docSnap.data() } as Property);
     });
     return properties;
   } catch (error) {
@@ -20,6 +21,7 @@ export async function getProperties(): Promise<Property[]> {
 }
 
 export async function getProperty(id: string): Promise<Property | null> {
+  if (!isFirebaseConfigured() || !db) return null;
   try {
     const docRef = doc(db, COLLECTION_NAME, id);
     const docSnap = await getDoc(docRef);
@@ -37,6 +39,7 @@ export async function getProperty(id: string): Promise<Property | null> {
 }
 
 export async function addProperty(property: Omit<Property, 'id'>): Promise<string | null> {
+  if (!isFirebaseConfigured() || !db) return null;
   try {
     const docRef = await addDoc(collection(db, COLLECTION_NAME), property);
     return docRef.id;
@@ -47,6 +50,7 @@ export async function addProperty(property: Omit<Property, 'id'>): Promise<strin
 }
 
 export async function updateProperty(id: string, property: Partial<Property>): Promise<boolean> {
+  if (!isFirebaseConfigured() || !db) return false;
   try {
     const docRef = doc(db, COLLECTION_NAME, id);
     await updateDoc(docRef, property);
@@ -58,6 +62,7 @@ export async function updateProperty(id: string, property: Partial<Property>): P
 }
 
 export async function deleteProperty(id: string): Promise<boolean> {
+  if (!isFirebaseConfigured() || !db) return false;
   try {
     await deleteDoc(doc(db, COLLECTION_NAME, id));
     return true;
