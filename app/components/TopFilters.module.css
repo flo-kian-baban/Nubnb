@@ -1,0 +1,172 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 24px; /* Increased from 16px */
+}
+
+.searchWrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 16px;
+  color: #FFFFFF;
+  opacity: 0.6;
+  pointer-events: none;
+  transition: opacity var(--transition-fast);
+}
+
+.searchWrapper:focus-within .searchIcon {
+  opacity: 1;
+}
+
+.searchInput {
+  width: 100%;
+  height: 48px;
+  padding: 0 16px 0 48px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background-color: rgba(255, 255, 255, 0.05);
+  color: #FFFFFF;
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  outline: none;
+  box-shadow: var(--shadow-sm);
+  transition: all var(--transition-fast);
+}
+
+.searchInput:focus {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.05);
+}
+
+.searchInput::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+}
+
+.filtersRow {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.filterButton {
+  display: flex;
+  align-items: center;
+  justify-content: space-between; /* Push chevron to the right */
+  gap: 8px;
+  padding: 8px 16px;
+  height: 48px; /* Match input height for visual consistency */
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px; /* Match input border radius */
+  background-color: rgba(255, 255, 255, 0.05);
+  color: #FFFFFF;
+  font-size: 0.875rem;
+  font-weight: 500;
+  box-shadow: var(--shadow-sm);
+  transition: all var(--transition-fast);
+}
+
+.filterButtonLeft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filterButton:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.filterButton.active {
+  background-color: #FFFFFF; /* Stark contrast when open */
+  color: var(--brand-navy);
+  border-color: #FFFFFF;
+}
+
+.resultCount {
+  font-size: 0.875rem;
+  color: var(--text-on-navy-muted);
+  font-weight: 500;
+  padding-left: 4px;
+}
+
+.dropdownContainer {
+  position: relative;
+  flex: 1; /* Stretch evenly */
+  display: flex;
+}
+
+.chevronOpen {
+  transform: rotate(180deg);
+  transition: transform var(--transition-fast);
+}
+
+.dropdownMenu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 100%; /* Dropdown matches button width */
+  background-color: var(--brand-navy-light); /* Elevated Charcoal */
+  border-radius: 12px;
+  box-shadow: var(--shadow-float);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 100;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  animation: slideDown 0.15s ease-out forwards;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dropdownOption {
+  padding: 12px 16px;
+  text-align: left;
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  color: rgba(255, 255, 255, 0.9);
+  background-color: transparent;
+  transition: all var(--transition-fast);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.dropdownOption:last-child {
+  border-bottom: none;
+}
+
+.dropdownOption:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+  color: #FFFFFF;
+}
+
+.dropdownOption.selectedOption {
+  background-color: rgba(255, 255, 255, 0.1); /* Subtle highlight for selection */
+  color: #FFFFFF;
+  font-weight: 600;
+}
+
+.dropdownOption.selectedOption:hover {
+  background-color: rgba(255, 255, 255, 0.15);
+}

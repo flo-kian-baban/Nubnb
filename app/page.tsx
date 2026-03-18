@@ -1,66 +1,123 @@
-import Image from "next/image";
+"use client";
+
+import { useState, useEffect } from "react";
 import styles from "./page.module.css";
+// import { properties as staticProperties } from "./data/properties"; // Removed static import
+import { getProperties } from "./lib/firebase/properties";
+import { Property } from "./data/properties";
+import { MapView } from "./components/MapView";
+import { PropertyList } from "./components/PropertyList";
+import { TopFilters } from "./components/TopFilters";
+import { PropertyDetailPanel } from "./components/PropertyDetailPanel";
+import { ChevronRight } from "lucide-react";
 
 export default function Home() {
+  const [properties, setProperties] = useState<Property[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // Simple filter state (can be expanded later)
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCity, setSelectedCity] = useState("All Cities");
+  const [selectedGuests, setSelectedGuests] = useState("Any");
+
+  useEffect(() => {
+    async function fetchListings() {
+      setIsLoading(true);
+      const data = await getProperties();
+      setProperties(data);
+      setIsLoading(false);
+    }
+    fetchListings();
+  }, []);
+
+  const filteredProperties = properties.filter((p) => {
+    // 1. Text Search
+    const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          p.location.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    // 2. City Filter
+    const matchesCity = selectedCity === "All Cities" || p.location.includes(selectedCity);
+    
+    // 3. Guests Filter
+    let matchesGuests = true;
+    if (selectedGuests !== "Any") {
+       if (selectedGuests === "6+") {
+          matchesGuests = p.guests >= 6;
+       } else {
+          matchesGuests = p.guests >= parseInt(selectedGuests);
+       }
+    }
+
+    return matchesSearch && matchesCity && matchesGuests;
+  });
+
+  // Reverted auto-sort; we will now scroll to the item instead of reordering the DOM
+
+  const selectedProperty = properties.find(p => p.id === selectedId);
+
   return (
-    <div className={styles.page}>
-      <main className={styles.main}>
-        <Image
-          className={styles.logo}
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <main className={`${styles.container} ${selectedId ? styles.detailActive : ""}`}>
+      {isLoading && (
+        <div className={styles.loadingOverlay}>Loading properties...</div>
+      )}
+      {/* 
+        BACK HANDLE 
+        Appears from the left screen edge when detail mode is active, 
+        giving the user a hardware-like handle to pull the list back.
+      */}
+      <button 
+        className={styles.backHandle} 
+        onClick={() => setSelectedId(null)}
+        aria-label="Back to List"
+      >
+        <ChevronRight size={20} />
+      </button>
+
+      {/* LEFT PANEL (Browsing List) */}
+      <div className={styles.leftPanel}>
+        <div className={styles.header}>
+          <TopFilters 
+            searchQuery={searchQuery} 
+            setSearchQuery={setSearchQuery} 
+            selectedCity={selectedCity}
+            setSelectedCity={setSelectedCity}
+            selectedGuests={selectedGuests}
+            setSelectedGuests={setSelectedGuests}
+          />
+        </div>
+        
+        <div className={styles.scrollArea}>
+          <PropertyList
+            properties={filteredProperties}
+            hoveredId={hoveredId}
+            selectedId={selectedId}
+            onHover={setHoveredId}
+            onSelect={setSelectedId}
+          />
+        </div>
+      </div>
+
+      {/* RIGHT PANEL (MAP) */}
+      <div className={styles.rightPanel}>
+        <MapView
+          properties={filteredProperties}
+          hoveredId={hoveredId}
+          selectedId={selectedId}
+          onHover={setHoveredId}
+          onSelect={setSelectedId}
         />
-        <div className={styles.intro}>
-          <h1>To get started, edit the page.tsx file.</h1>
-          <p>
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className={styles.ctas}>
-          <a
-            className={styles.primary}
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className={styles.logo}
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className={styles.secondary}
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+      </div>
+
+      {/* DETAIL PANEL (Right Slide-In) */}
+      <div className={styles.detailPanel}>
+        <PropertyDetailPanel 
+          property={selectedProperty} 
+          onClose={() => setSelectedId(null)} 
+        />
+      </div>
+    </main>
   );
 }

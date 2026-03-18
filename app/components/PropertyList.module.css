@@ -1,0 +1,38 @@
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 32px; /* Increased rhythm/breathing room */
+}
+
+/* When a card is selected, dim all others */
+.list.hasSelection > div:not(.selectedCard) {
+  opacity: 0.4;
+  transform: scale(0.98);
+}
+
+.list > div {
+  transition: all var(--transition-premium);
+}
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  height: 300px;
+  color: var(--text-tertiary);
+  gap: 16px;
+}
+
+.emptyState h3 {
+  font-family: var(--font-serif);
+  color: var(--text-primary);
+  font-size: 1.25rem;
+  font-weight: 500;
+}
+
+.emptyState p {
+  font-size: 0.875rem;
+  max-width: 250px;
+}

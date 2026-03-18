@@ -1,0 +1,211 @@
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background-color: transparent;
+  border-radius: 16px;
+  overflow: hidden;
+  border: none;
+  cursor: pointer;
+  aspect-ratio: 4 / 3;
+  transition: all var(--transition-premium);
+}
+
+.card:hover, .card.hovered {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.15); /* Soft, premium lift shadow */
+}
+
+.card.selected {
+  transform: scale(1.02) translateY(-4px);
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.2);
+  z-index: 10;
+}
+
+/* Base gradient that sits under the content text for readability */
+.gradientOverlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 85%; /* Extended slightly higher for a smoother falloff */
+  background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.5) 60%, rgba(0,0,0,0) 100%);
+  z-index: 1;
+  pointer-events: none;
+}
+
+.imageContainer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  background-color: var(--brand-navy);
+}
+
+.image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform var(--transition-smooth);
+}
+
+.card:hover .image, .card.hovered .image {
+  transform: scale(1.05);
+}
+
+.badge {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  background-color: var(--brand-blue);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #FFFFFF;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  box-shadow: var(--shadow-sm);
+}
+
+.badge.booked {
+  color: #FFFFFF;
+  background-color: var(--text-tertiary);
+}
+
+.content {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end; /* This forces the bottomRow to the bottom of the card */
+}
+
+.statsNotch {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background-color: var(--brand-navy); /* matches panel background perfectly to simulate cutout */
+  padding: 16px 20px 16px 20px;
+  border-bottom-right-radius: 16px;
+  color: #FFFFFF;
+  z-index: 10;
+}
+
+/* Fillets for inverted rounded corners */
+.statsNotch::before,
+.statsNotch::after {
+  content: "";
+  position: absolute;
+  background-color: transparent;
+  width: 16px;
+  height: 16px;
+  border-top-left-radius: 16px;
+  box-shadow: -6px -6px 0 6px var(--brand-navy);
+  pointer-events: none;
+}
+
+.statsNotch::before {
+  top: 0;
+  right: -16px;
+}
+
+.statsNotch::after {
+  bottom: -16px;
+  left: 0;
+}
+
+.statItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.statItem svg {
+  color: var(--brand-blue);
+  opacity: 1;
+}
+
+.bottomRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.mainInfo {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 8px; /* Slightly more space between Title and Metadata */
+}
+
+.title {
+  font-family: var(--font-sans);
+  font-size: 1.375rem; /* Slightly smaller, more refined */
+  font-weight: 500;
+  color: #FFFFFF;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.meta {
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 400;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap; /* allow wrapping on small cards */
+  gap: 6px;
+  line-height: 1; /* For perfectly predictable baseline alignment */
+}
+
+.dot {
+  font-size: 10px;
+  opacity: 0.5;
+}
+
+.priceGroup {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 5px; /* Tighter gap between $3500 and NIGHT */
+  padding-bottom: 4px; /* Optical optical baseline nudge against the 0.8125rem font on the left */
+}
+
+.price {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 1.5rem; /* Emphasize price slightly more */
+  color: #FFFFFF;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.priceLabel {
+  font-size: 0.65rem;
+  color: rgba(255, 255, 255, 0.7);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  line-height: 1; /* Tighten for baseline alignment */
+}

@@ -1,33 +1,112 @@
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Colors */
+  --bg-primary: #F9EBEA; /* Very subtle warm pearl/rose tint for luxury */
+  --bg-secondary: #FFFFFF;
+  --bg-tertiary: #F0F0F0;
+  --bg-overlay: rgba(255, 255, 255, 0.85);
+  
+  /* Brand Theme Colors */
+  --brand-navy: #1A1A1D; /* Extremely Deep Grey, softer than pure black */
+  --brand-navy-light: #2A2A2D;
+  --brand-dark-blue: #153D6D; 
+  --brand-blue: #6599CD;
+  --brand-blue-hover: #5080B4;
+  
+  --text-primary: #1A1A1A;
+  --text-secondary: #5A5A5A;
+  --text-tertiary: #8C8C8C;
+  --text-on-navy: #FFFFFF;
+  --text-on-navy-muted: rgba(255, 255, 255, 0.7);
+  
+  --accent-sage: #8A9A8C;
+  --accent-sage-hover: #758677;
+  --accent-sage-light: #E8EDE9;
+  --accent-terracotta: #C97A63; /* Warmer, premium reserve button color */
+  --accent-terracotta-hover: #B56852;
+  
+  --border-light: #E5E5E5;
+  --border-medium: #D0D0D0;
+  --border-on-navy: rgba(255, 255, 255, 0.15);
+  
+  /* Shadows */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.12);
+  --shadow-float: 0 20px 48px rgba(0, 0, 0, 0.08), 0 0 1px rgba(0,0,0,0.1);
+
+  /* Typography */
+  --font-sans: var(--font-manrope), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-serif: var(--font-playfair), Georgia, serif;
+  
+  /* Layout */
+  --panel-width: 480px;
+  --header-height: 80px;
+  
+  /* Transitions */
+  --transition-fast: 0.15s ease;
+  --transition-smooth: 0.3s ease;
+  --transition-premium: 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+  --transition-os: 0.7s cubic-bezier(0.32, 0.72, 0, 1); /* Apple Core Animation feel */
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --bg-primary: #0F0F11; /* Very dark rich background */
+    --bg-secondary: #1C1C1E; /* Elevated cards */
+    --bg-tertiary: #2C2C2E;
+    --bg-overlay: rgba(15, 15, 17, 0.85);
+
+    --text-primary: #F0F0F0;
+    --text-secondary: #A0A0A0;
+    --text-tertiary: #707070;
+
+    --brand-navy: #0A0A0C; /* Keep it dark so white text remains legible */
+    --brand-navy-light: #1A1A1C;
+    --brand-dark-blue: #93B5DD;
+
+    --border-light: #2C2C2E;
+    --border-medium: #3C3C3E;
+    
+    --shadow-float: 0 20px 48px rgba(0, 0, 0, 0.5), 0 0 1px rgba(255,255,255,0.1);
   }
-}
-
-html,
-body {
-  max-width: 100vw;
-  overflow-x: hidden;
-}
-
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
 }
 
 * {
   box-sizing: border-box;
   padding: 0;
   margin: 0;
+}
+
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+
+/* Base interactive classes */
+.interactive {
+  transition: all var(--transition-fast);
+}
+
+.interactive:active {
+  transform: scale(0.98);
 }
 
 a {

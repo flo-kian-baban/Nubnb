@@ -1,141 +1,179 @@
-.page {
-  --background: #fafafa;
-  --foreground: #fff;
-
-  --text-primary: #000;
-  --text-secondary: #666;
-
-  --button-primary-hover: #383838;
-  --button-secondary-hover: #f2f2f2;
-  --button-secondary-border: #ebebeb;
-
-  display: flex;
-  min-height: 100vh;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-geist-sans);
-  background-color: var(--background);
+.container {
+  display: block; /* Removed flex */
+  position: relative;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background-color: var(--bg-primary);
 }
 
-.main {
-  display: flex;
-  min-height: 100vh;
-  width: 100%;
-  max-width: 800px;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: space-between;
-  background-color: var(--foreground);
-  padding: 120px 60px;
-}
-
-.intro {
+.leftPanel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--panel-width);
+  height: 100%;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  text-align: left;
-  gap: 24px;
+  background-color: var(--brand-navy);
+  color: var(--text-on-navy);
+  border-right: 1px solid var(--border-on-navy);
+  box-shadow: var(--shadow-sm);
+  z-index: 10;
+  transform: translateX(0);
+  transition: transform var(--transition-os); 
 }
 
-.intro h1 {
-  max-width: 320px;
-  font-size: 40px;
-  font-weight: 600;
-  line-height: 48px;
-  letter-spacing: -2.4px;
-  text-wrap: balance;
-  color: var(--text-primary);
+.rightPanel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: calc(100vw - var(--panel-width)); /* Fixed width! Never stretches */
+  height: 100%;
+  background-color: var(--bg-tertiary);
+  transform: translateX(0);
+  transition: transform var(--transition-os);
+  z-index: 0; /* Below Left and Detail panels */
+  overflow: hidden;
 }
 
-.intro p {
-  max-width: 440px;
-  font-size: 18px;
-  line-height: 32px;
-  text-wrap: balance;
-  color: var(--text-secondary);
+/* --- STATE: DETAIL ACTIVE --- */
+.container.detailActive .leftPanel {
+  transform: translateX(-100%); /* Hardware accelerated slide out */
+  pointer-events: none; 
 }
 
-.intro a {
-  font-weight: 500;
-  color: var(--text-primary);
+.container.detailActive .rightPanel {
+  /* Shifts left by exactly the panel width so the left edge touches the screen edge */
+  transform: translateX(calc(-1 * var(--panel-width)));
 }
 
-.ctas {
-  display: flex;
-  flex-direction: row;
-  width: 100%;
-  max-width: 440px;
-  gap: 16px;
-  font-size: 14px;
+/* The third panel that slides in from the right */
+.detailPanel {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: calc(100vw - var(--panel-width)); /* Exactly covers the void left by sliding Map */
+  height: 100%;
+  background-color: var(--bg-primary);
+  z-index: 20;
+  box-shadow: -16px 0 32px rgba(0,0,0,0.15); /* Stronger shadow over the map */
+  transform: translateX(100%);
+  transition: transform var(--transition-os);
 }
 
-.ctas a {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 40px;
-  padding: 0 16px;
-  border-radius: 128px;
-  border: 1px solid transparent;
-  transition: 0.2s;
+.container.detailActive .detailPanel {
+  transform: translateX(0);
+}
+
+/* The 'Back to List' Handle pulling from the left edge */
+.backHandle {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%) translateX(-100%);
+  background-color: var(--brand-navy);
+  color: #FFFFFF;
+  border: 1px solid var(--border-on-navy);
+  border-left: none;
+  border-radius: 0 12px 12px 0;
+  padding: 16px 8px;
   cursor: pointer;
-  width: fit-content;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 4px 0 12px rgba(0,0,0,0.15);
+  transition: all var(--transition-smooth);
+}
+
+.container.detailActive .backHandle {
+  transform: translateY(-50%) translateX(0);
+}
+
+.backHandle:hover {
+  background-color: var(--brand-blue);
+  padding-left: 12px;
+}
+
+/* Header inside the left panel */
+.header {
+  padding: 32px 32px 24px 32px; /* Increased top/side padding for breathing room */
+  border-bottom: 1px solid var(--border-on-navy);
+  background-color: var(--brand-navy);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.logo {
+  font-family: var(--font-serif);
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text-on-navy);
+  margin-bottom: 24px;
+}
+
+.scrollArea {
+  flex: 1;
+  overflow-y: auto;
+  padding: 32px; /* Increased from 24px */
+}
+
+/* Subtle custom scrollbar for left panel */
+.scrollArea::-webkit-scrollbar {
+  width: 6px;
+}
+
+.scrollArea::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollArea::-webkit-scrollbar-thumb {
+  background-color: var(--border-on-navy);
+  border-radius: 4px;
+}
+
+@media (max-width: 1024px) {
+  /* For tablet, panel might be a bit narrower */
+  .leftPanel {
+    width: 400px;
+  }
+}
+
+@media (max-width: 768px) {
+  /* On mobile, stack or allow bottom sheet overlay. 
+     For now, mapping simply flex-direction column. */
+  .container {
+    flex-direction: column-reverse; /* List at bottom, map at top */
+  }
+  
+  .leftPanel {
+    width: 100%;
+    height: 50vh;
+    border-right: none;
+    border-top: 1px solid var(--border-light);
+  }
+  
+  .rightPanel {
+    height: 50vh;
+    flex: none;
+  }
+}
+.loadingOverlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(4px);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
   font-weight: 500;
-}
-
-a.primary {
-  background: var(--text-primary);
-  color: var(--background);
-  gap: 8px;
-}
-
-a.secondary {
-  border-color: var(--button-secondary-border);
-}
-
-/* Enable hover only on non-touch devices */
-@media (hover: hover) and (pointer: fine) {
-  a.primary:hover {
-    background: var(--button-primary-hover);
-    border-color: transparent;
-  }
-
-  a.secondary:hover {
-    background: var(--button-secondary-hover);
-    border-color: transparent;
-  }
-}
-
-@media (max-width: 600px) {
-  .main {
-    padding: 48px 24px;
-  }
-
-  .intro {
-    gap: 16px;
-  }
-
-  .intro h1 {
-    font-size: 32px;
-    line-height: 40px;
-    letter-spacing: -1.92px;
-  }
-}
-
-@media (prefers-color-scheme: dark) {
-  .logo {
-    filter: invert();
-  }
-
-  .page {
-    --background: #000;
-    --foreground: #000;
-
-    --text-primary: #ededed;
-    --text-secondary: #999;
-
-    --button-primary-hover: #ccc;
-    --button-secondary-hover: #1a1a1a;
-    --button-secondary-border: #1a1a1a;
-  }
+  color: #333;
 }
