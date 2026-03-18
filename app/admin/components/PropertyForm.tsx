@@ -168,9 +168,10 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (!storage) { alert('Firebase Storage is not configured.'); return; }
 
     setIsUploadingImage(true);
-    const storageRef = ref(storage, `properties/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`);
+    const storageRef = ref(storage!, `properties/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`);
     const uploadTask = uploadBytesResumable(storageRef, file);
 
     uploadTask.on('state_changed', 
@@ -193,12 +194,13 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
   const handleMultipleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
+    if (!storage) { alert('Firebase Storage is not configured.'); return; }
 
     setIsUploadingMultiple(true);
 
     try {
       const uploadPromises = Array.from(files).map((file, index) => {
-        const storageRef = ref(storage, `properties/${Date.now()}_${index}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`);
+        const storageRef = ref(storage!, `properties/${Date.now()}_${index}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`);
         const uploadTask = uploadBytesResumable(storageRef, file);
         
         return new Promise<string>((resolve, reject) => {
