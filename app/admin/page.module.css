@@ -16,10 +16,6 @@
 
 /* ── Header ── */
 .header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px 40px;
   background: rgba(10, 10, 14, 0.85);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
@@ -29,10 +25,19 @@
   z-index: 50;
 }
 
+.headerInner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 16px 40px;
+}
+
 .headerLeft {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 16px;
 }
 
 .backBtn {
@@ -53,26 +58,18 @@
   background: rgba(255, 255, 255, 0.06);
 }
 
-.headerTitleGroup {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+.headerDivider {
+  width: 1px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .header h1 {
-  font-size: 20px;
-  font-weight: 700;
+  font-size: 16px;
+  font-weight: 600;
   margin: 0;
   color: #ffffff;
-  letter-spacing: -0.02em;
-}
-
-.headerSubtitle {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.35);
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  letter-spacing: -0.01em;
 }
 
 .headerRight {
@@ -82,8 +79,7 @@
 }
 
 /* ── Buttons ── */
-.btnPrimary,
-.btnOutline {
+.btnPrimary {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -94,9 +90,6 @@
   cursor: pointer;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   border: none;
-}
-
-.btnPrimary {
   background: #ffffff;
   color: #0a0a0c;
   box-shadow: 0 2px 8px rgba(255, 255, 255, 0.08);
@@ -107,16 +100,6 @@
   box-shadow: 0 4px 16px rgba(255, 255, 255, 0.12);
 }
 
-.btnOutline {
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-.btnOutline:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
-  border-color: rgba(255, 255, 255, 0.18);
-}
 
 /* ── Main ── */
 .main {

@@ -6,7 +6,7 @@ import { storage } from "@/app/lib/firebase/config";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { useState } from "react";
 import styles from "./PropertyForm.module.css";
-import { Plus, Trash2, X, ImageIcon, ImagePlus, Loader2, Link2, Star, ChevronDown } from "lucide-react";
+import { Plus, Trash2, X, ImageIcon, ImagePlus, Link2, Star, ChevronDown } from "lucide-react";
 
 import { CustomSelect } from "./CustomSelect";
 import { IconPicker } from "./IconPicker";
@@ -579,16 +579,16 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
           {/* --- Data Sources --- */}
           <div className={styles.section}>
             <h3>Data Sources</h3>
-            <p style={{ fontSize: '13px', color: '#999', marginBottom: '16px', marginTop: '-4px' }}>
+            <p className={styles.sectionHint}>
               Paste links to auto-fill property data, location, and availability.
             </p>
 
             {/* Airbnb Import */}
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#ccc', marginBottom: '8px' }}>🏠 Airbnb Listing</label>
+            <div className={styles.dataSourceGroup}>
+              <label className={styles.dataSourceLabel}>🏠 Airbnb Listing</label>
               <div className={styles.addInputGroup}>
                 <div style={{ position: 'relative', flex: 1 }}>
-                  <Link2 size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#666' }} />
+                  <Link2 size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#555' }} />
                   <input
                     type="url"
                     value={airbnbUrl}
@@ -596,7 +596,7 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
                     placeholder="https://www.airbnb.ca/rooms/..."
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleScrapeAirbnb(); } }}
                     disabled={isScraping}
-                    style={{ flex: 1, width: '100%', padding: '12px 12px 12px 36px', background: '#1a1a1a', border: '1px solid #333', color: '#fff', borderRadius: '8px', fontSize: '14px' }}
+                    className={`${styles.dataSourceInput} ${styles.dataSourceInputWithIcon}`}
                   />
                 </div>
                 <button
@@ -604,30 +604,21 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
                   className={styles.addBtnSmall}
                   onClick={handleScrapeAirbnb}
                   disabled={isScraping || !airbnbUrl.trim()}
-                  style={{ whiteSpace: 'nowrap', padding: '10px 20px', opacity: isScraping ? 0.6 : 1 }}
                 >
-                  {isScraping ? <Loader2 size={16} className="animate-spin" /> : <Link2 size={16} />}
+                  {isScraping ? <svg className={styles.spinner} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg> : <Link2 size={16} />}
                   {isScraping ? 'Scraping...' : 'Import'}
                 </button>
               </div>
               {scrapeMessage && (
-                <div style={{
-                  marginTop: '10px',
-                  padding: '10px 14px',
-                  borderRadius: '8px',
-                  fontSize: '13px',
-                  background: scrapeMessage.type === 'success' ? 'rgba(76, 175, 80, 0.12)' : 'rgba(244, 67, 54, 0.12)',
-                  color: scrapeMessage.type === 'success' ? '#66bb6a' : '#ef5350',
-                  border: `1px solid ${scrapeMessage.type === 'success' ? 'rgba(76, 175, 80, 0.25)' : 'rgba(244, 67, 54, 0.25)'}`,
-                }}>
+                <div className={`${styles.statusMessage} ${scrapeMessage.type === 'success' ? styles.statusSuccess : styles.statusError}`}>
                   {scrapeMessage.text}
                 </div>
               )}
             </div>
 
             {/* Google Maps Location */}
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#ccc', marginBottom: '8px' }}>📍 Google Maps Link</label>
+            <div className={styles.dataSourceGroup}>
+              <label className={styles.dataSourceLabel}>📍 Google Maps Link</label>
               <div className={styles.addInputGroup}>
                 <input
                   type="url"
@@ -636,29 +627,21 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
                   placeholder="https://maps.app.goo.gl/... or any Google Maps link"
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleParseGoogleMaps(); } }}
                   disabled={isParsingMaps}
-                  style={{ flex: 1, padding: '12px', background: '#1a1a1a', border: '1px solid #333', color: '#fff', borderRadius: '8px', fontSize: '14px' }}
+                  className={styles.dataSourceInput}
+                  style={{ flex: 1 }}
                 />
                 <button
                   type="button"
                   className={styles.addBtnSmall}
                   onClick={handleParseGoogleMaps}
                   disabled={isParsingMaps || !googleMapsUrl.trim()}
-                  style={{ whiteSpace: 'nowrap', padding: '10px 20px', opacity: isParsingMaps ? 0.6 : 1 }}
                 >
-                  {isParsingMaps ? <Loader2 size={16} className="animate-spin" /> : '📍'}
+                  {isParsingMaps ? <svg className={styles.spinner} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg> : '📍'}
                   {isParsingMaps ? 'Locating...' : 'Get Location'}
                 </button>
               </div>
               {mapsMessage && (
-                <div style={{
-                  marginTop: '10px',
-                  padding: '10px 14px',
-                  borderRadius: '8px',
-                  fontSize: '13px',
-                  background: mapsMessage.type === 'success' ? 'rgba(76, 175, 80, 0.12)' : 'rgba(244, 67, 54, 0.12)',
-                  color: mapsMessage.type === 'success' ? '#66bb6a' : '#ef5350',
-                  border: `1px solid ${mapsMessage.type === 'success' ? 'rgba(76, 175, 80, 0.25)' : 'rgba(244, 67, 54, 0.25)'}`,
-                }}>
+                <div className={`${styles.statusMessage} ${mapsMessage.type === 'success' ? styles.statusSuccess : styles.statusError}`}>
                   {mapsMessage.text}
                 </div>
               )}
@@ -666,14 +649,14 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
 
             {/* iCal URL */}
             <div>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#ccc', marginBottom: '8px' }}>📅 iCal URL (Availability)</label>
+              <label className={styles.dataSourceLabel}>📅 iCal URL (Availability)</label>
               <input
                 type="url"
                 name="icalUrl"
                 value={formData.icalUrl || ""}
                 onChange={handleChange}
                 placeholder="https://example.com/calendar.ics"
-                style={{ width: '100%', padding: '12px', background: '#1a1a1a', border: '1px solid #333', color: '#fff', borderRadius: '8px', fontSize: '14px' }}
+                className={styles.dataSourceInput}
               />
             </div>
           </div>
@@ -691,7 +674,7 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
                   
                   <label className={styles.uploadOverlay}>
                     {isUploadingImage ? (
-                      <Loader2 size={32} className={`animate-spin ${styles.uploadIcon}`} />
+                      <svg className={`${styles.spinner} ${styles.uploadIcon}`} width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
                     ) : (
                       <ImageIcon size={32} className={styles.uploadIcon} />
                     )}
@@ -724,7 +707,7 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
                   
                   <label className={styles.uploadCard}>
                     {isUploadingMultiple ? (
-                      <Loader2 size={24} className="animate-spin text-gray-400" />
+                      <svg className={styles.spinner} width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#999" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
                     ) : (
                       <ImagePlus size={24} className="text-gray-400" />
                     )}
@@ -860,7 +843,7 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
                 <input type="number" name="guests" value={formData.guests ?? 0} onChange={handleChange} required className={scrapeClass('guests')} />
               </div>
             </div>
-            <hr style={{ border: 'none', borderTop: '1px solid rgba(255,255,255,0.08)', margin: 0 }} />
+            <hr className={styles.sectionDivider} />
             <div className={styles.grid}>
               <div className={styles.field}>
                 <label>Base Price ({formData.currency || 'CAD'})</label>
@@ -895,7 +878,7 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
 
           {/* --- 3 Main Highlights (Accordion) --- */}
           {renderAccordionSection("highlights", "3 Main Highlights", (<>
-            <p style={{ fontSize: '13px', color: '#999', marginBottom: '12px', marginTop: '-4px' }}>
+            <p className={styles.sectionHint}>
               Top standout features shown as badges — e.g. &quot;City View&quot;, &quot;Park for Free&quot;, &quot;Self check-in&quot;
             </p>
             <div className={styles.listContainer}>
@@ -915,7 +898,8 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
                     onChange={(e) => setNewHighlight(e.target.value)}
                     placeholder="e.g. City skyline view"
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addHighlight(); } }}
-                    style={{ flex: 1, padding: '10px 12px', background: '#1a1a1a', border: '1px solid #333', color: '#fff', borderRadius: '8px' }}
+                    className={styles.dataSourceInput}
+                    style={{ flex: 1 }}
                   />
                   <button type="button" className={styles.addBtnSmall} onClick={addHighlight}>
                     <Plus size={16} /> Add
@@ -927,7 +911,7 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
 
           {/* --- What This Place Offers (Accordion) --- */}
           {renderAccordionSection("offers", "What This Place Offers", (<>
-            <p style={{ fontSize: '13px', color: '#999', marginBottom: '12px', marginTop: '-4px' }}>
+            <p className={styles.sectionHint}>
               Full amenity list grouped by category. ★ Star up to 6 items to feature them as top amenities on the property card.
               {currentAmenities.length > 0 && <span style={{ color: '#ffb400', marginLeft: '6px' }}>({currentAmenities.length}/6 starred)</span>}
             </p>
@@ -936,8 +920,8 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
             {(() => {
               const categories = [...new Set(currentOffers.map(o => o.category))];
               return categories.map(cat => (
-                <div key={cat} style={{ marginBottom: '16px' }}>
-                  <label style={{ fontSize: '13px', fontWeight: 600, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: '6px' }}>{cat}</label>
+                <div key={cat} className={styles.offerCategoryGroup}>
+                  <label className={styles.offerCategoryLabel}>{cat}</label>
                   {currentOffers.filter(o => o.category === cat).map((offer) => {
                     const realIdx = currentOffers.indexOf(offer);
                     return (
@@ -973,14 +957,15 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
               ));
             })()}
 
-            <div className={styles.addInputGroup} style={{ gap: '8px' }}>
+            <div className={styles.addInputGroup}>
               <input 
                 type="text" 
                 value={newOfferName} 
                 onChange={(e) => setNewOfferName(e.target.value)}
                 placeholder="e.g. Free parking on premises"
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addOffer(); } }}
-                style={{ flex: 1, padding: '10px 12px', background: '#1a1a1a', border: '1px solid #333', color: '#fff', borderRadius: '8px' }}
+                className={styles.dataSourceInput}
+                style={{ flex: 1 }}
               />
               <CustomSelect 
                 options={OFFER_CATEGORIES} 
@@ -995,7 +980,7 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
 
           {/* --- Terms & Rules (Accordion) --- */}
           {renderAccordionSection("terms", "Terms & Rules", (<>
-            <div className={styles.field} style={{ marginBottom: '16px' }}>
+            <div className={styles.field}>
               <label>Cancellation Policy</label>
               <input type="text" name="terms.cancellationPolicy" value={formData.terms?.cancellationPolicy || ""} onChange={handleChange} required placeholder="e.g. Firm - No Cancellation" />
             </div>
@@ -1019,7 +1004,7 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
               </label>
             </div>
 
-            <label style={{ marginTop: '16px', fontSize: '14px', fontWeight: '500', color: '#e0e0e0' }}>House Rules</label>
+            <label className={styles.dataSourceLabel} style={{ marginTop: '12px' }}>House Rules</label>
             <div className={styles.listContainer}>
               {currentRules.map((rule, i) => (
                 <div key={i} className={styles.listItem}>
@@ -1041,7 +1026,8 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
                       addRule();
                     }
                   }}
-                  style={{ flex: 1, padding: '10px 12px', background: '#1a1a1a', border: '1px solid #333', color: '#fff', borderRadius: '8px' }}
+                  className={styles.dataSourceInput}
+                  style={{ flex: 1 }}
                 />
                 <button type="button" className={styles.addBtnSmall} onClick={addRule}>
                   <Plus size={16} /> Add
@@ -1053,51 +1039,34 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
           {/* Reviews (read-only preview) */}
           {renderAccordionSection("reviews", `Reviews${formData.averageRating ? ` — ★ ${Number(formData.averageRating).toFixed(2)}` : ''}${formData.totalReviewCount ? ` (${formData.totalReviewCount})` : ''}`, (<>
             {formData.reviews && formData.reviews.length > 0 ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {formData.reviews.map((review: { reviewer: string; date: string; rating: number; text: string; avatar?: string }, idx: number) => (
-                  <div key={idx} style={{
-                    padding: '14px 16px',
-                    borderRadius: '10px',
-                    background: '#1a1a1a',
-                    border: '1px solid #2a2a2a',
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                  <div key={idx} className={styles.reviewCard}>
+                    <div className={styles.reviewHeader}>
                       {review.avatar ? (
-                        <img src={review.avatar} alt={review.reviewer} style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover' as const }} />
+                        <img src={review.avatar} alt={review.reviewer} className={styles.reviewAvatar} />
                       ) : (
-                        <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#6599CD', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.8rem' }}>
+                        <div className={styles.reviewAvatarFallback}>
                           {review.reviewer.charAt(0).toUpperCase()}
                         </div>
                       )}
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#e0e0e0' }}>{review.reviewer}</div>
-                        <div style={{ fontSize: '0.75rem', color: '#888' }}>{review.date}</div>
+                      <div className={styles.reviewMeta}>
+                        <div className={styles.reviewName}>{review.reviewer}</div>
+                        <div className={styles.reviewDate}>{review.date}</div>
                       </div>
-                      <div style={{ color: '#6599CD', display: 'flex', gap: '2px' }}>
+                      <div className={styles.reviewStars}>
                         {Array.from({ length: review.rating }).map((_, i) => (
-                          <span key={i} style={{ fontSize: '12px' }}>★</span>
+                          <span key={i}>★</span>
                         ))}
                       </div>
                       <button
                         type="button"
+                        className={styles.reviewDeleteBtn}
                         onClick={() => {
                           const updated = [...(formData.reviews || [])];
                           updated.splice(idx, 1);
                           setFormData(prev => ({ ...prev, reviews: updated }));
                         }}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          color: '#666',
-                          padding: '4px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          transition: 'color 0.2s',
-                        }}
-                        onMouseEnter={(e) => (e.currentTarget.style.color = '#e74c3c')}
-                        onMouseLeave={(e) => (e.currentTarget.style.color = '#666')}
                         title="Delete review"
                       >
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1108,12 +1077,12 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
                         </svg>
                       </button>
                     </div>
-                    <p style={{ margin: 0, fontSize: '0.85rem', color: '#aaa', lineHeight: 1.5 }}>{review.text}</p>
+                    <p className={styles.reviewText}>{review.text}</p>
                   </div>
                 ))}
               </div>
             ) : (
-              <div style={{ padding: '20px', textAlign: 'center', color: '#666', fontSize: '0.9rem' }}>
+              <div className={styles.emptyReviews}>
                 No reviews fetched yet. Scrape an Airbnb listing to import reviews.
               </div>
             )}

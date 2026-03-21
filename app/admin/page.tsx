@@ -132,25 +132,22 @@ export default function AdminPage() {
     <div className={styles.container}>
       {/* ── Header ── */}
       <header className={styles.header}>
-        <div className={styles.headerLeft}>
-          <Link href="/" className={styles.backBtn}>
-            <Home size={18} />
-            <span>View Site</span>
-          </Link>
-          <div className={styles.headerTitleGroup}>
-            <h1>Property Management</h1>
-            <span className={styles.headerSubtitle}>Admin Dashboard</span>
+        <div className={styles.headerInner}>
+          <div className={styles.headerLeft}>
+            <Link href="/" className={styles.backBtn}>
+              <Home size={16} />
+              <span>View Site</span>
+            </Link>
+            <div className={styles.headerDivider} />
+            <h1>Properties</h1>
           </div>
-        </div>
 
-        <div className={styles.headerRight}>
-          <button className={styles.btnOutline} onClick={handleSeedDatabase}>
-            Seed Data
-          </button>
-          <button className={styles.btnPrimary} onClick={handleAddNew}>
-            <Plus size={18} />
-            <span>Add Property</span>
-          </button>
+          <div className={styles.headerRight}>
+            <button className={styles.btnPrimary} onClick={handleAddNew}>
+              <Plus size={18} />
+              <span>Add Property</span>
+            </button>
+          </div>
         </div>
       </header>
 
