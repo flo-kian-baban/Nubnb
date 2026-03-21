@@ -108,6 +108,11 @@
   z-index: 20;
 }
 
+/* Hidden on desktop — only shown on mobile inside list view */
+.mobileFiltersInList {
+  display: none;
+}
+
 .logo {
   font-family: var(--font-serif);
   font-size: 1.5rem;
@@ -319,7 +324,24 @@
 
   /* Tighter header on mobile */
   .header {
-    padding: 16px 16px 12px 16px;
+    padding: 16px 16px 8px 16px;
+  }
+
+  /* Show the MapFilters inside list view header on mobile */
+  .mobileFiltersInList {
+    display: block;
+    position: relative;
+    margin-top: 10px;
+    z-index: 25;
+  }
+
+  /* Override MapFilters .bar from absolute to relative inside list header */
+  .mobileFiltersInList :global(.mapFiltersBar) {
+    position: relative;
+    top: 0;
+    left: 0;
+    transform: none;
+    width: 100%;
   }
 
   /* Tighter scroll area on mobile */

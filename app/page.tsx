@@ -182,6 +182,19 @@ export default function Home() {
             searchQuery={searchQuery}
             setSearchQuery={setSearchQuery}
           />
+          {/* Mobile only: show WHERE/WHO/WHEN below search */}
+          <div className={styles.mobileFiltersInList}>
+            <MapFilters
+              selectedCity={selectedCity}
+              setSelectedCity={setSelectedCity}
+              minGuests={minGuests}
+              setMinGuests={setMinGuests}
+              availStart={availStart}
+              setAvailStart={setAvailStart}
+              availEnd={availEnd}
+              setAvailEnd={setAvailEnd}
+            />
+          </div>
         </div>
 
         <div className={styles.scrollArea}>

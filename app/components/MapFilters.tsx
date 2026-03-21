@@ -84,7 +84,7 @@ export function MapFilters({
   const cityValue = selectedCity !== "All Cities" ? selectedCity : "Search destinations";
 
   return (
-    <div className={styles.bar} ref={barRef}>
+    <div className={`${styles.bar} mapFiltersBar`} ref={barRef}>
       <div className={styles.pill}>
         {/* ── Where ── hover opens, hovering another section replaces */}
         <div
