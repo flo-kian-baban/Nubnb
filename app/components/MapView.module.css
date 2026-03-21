@@ -124,3 +124,16 @@
 .expandedMarker {
   /* Appears instantly after zoom completes */
 }
+
+/* ── Logo watermark on map ─────────────── */
+.mapLogo {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  height: 48px;
+  width: auto;
+  opacity: 0.7;
+  pointer-events: none;
+  z-index: 5;
+  user-select: none;
+}

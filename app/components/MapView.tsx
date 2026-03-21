@@ -373,6 +373,8 @@ export function MapView({
           );
         })}
       </Map>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/logo-nubnb.png" alt="NUBNB" className={styles.mapLogo} />
     </div>
   );
 }
