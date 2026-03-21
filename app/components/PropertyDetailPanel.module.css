@@ -980,3 +980,202 @@
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(101, 153, 205, 0.3);
 }
+
+/* ═══════════════════════════════════════════
+   MOBILE RESPONSIVE
+   ═══════════════════════════════════════════ */
+@media (max-width: 768px) {
+  .container {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Top bar — tighter padding on mobile */
+  .topBar {
+    padding: 16px;
+  }
+
+  .closeBtn, .actionBtn {
+    width: 40px;
+    height: 40px;
+  }
+
+  /* Carousel — shorter on mobile */
+  .carouselContainer {
+    height: 35vh;
+    min-height: 240px;
+    max-height: 360px;
+  }
+
+  .carouselNav {
+    width: 36px;
+    height: 36px;
+  }
+
+  .carouselNavPrev { left: 12px; }
+  .carouselNavNext { right: 12px; }
+
+  .carouselIndicators {
+    bottom: 14px;
+  }
+
+  /* Thumbnails — smaller */
+  .galleryItem {
+    width: 72px;
+    height: 48px;
+    border-radius: 6px;
+  }
+
+  .thumbnailContainer {
+    padding: 12px 0 0;
+  }
+
+  .galleryThumbnails {
+    padding: 0 16px 10px 16px;
+    gap: 8px;
+  }
+
+  /* Body — single column, no sidebar alongside */
+  .body {
+    padding: 24px 16px 40px 16px;
+    flex-direction: column;
+    gap: 32px;
+  }
+
+  /* Sidebar — full width, no sticky, below content */
+  .sidebar {
+    width: 100%;
+    position: relative;
+    top: 0;
+  }
+
+  /* Title — smaller */
+  .title {
+    font-size: 1.75rem;
+    margin-bottom: 10px;
+  }
+
+  /* Location row — allow wrapping */
+  .locationRow {
+    flex-wrap: wrap;
+    font-size: 0.88rem;
+    gap: 4px;
+  }
+
+  /* Quick stat row — tighter */
+  .quickStatsRow {
+    padding: 16px 16px;
+    border-radius: 12px;
+  }
+
+  .statValue {
+    font-size: 1.4rem;
+  }
+
+  .statLabel {
+    font-size: 0.7rem;
+  }
+
+  .statDivider {
+    height: 28px;
+  }
+
+  /* Section spacing */
+  .section {
+    margin-bottom: 28px;
+  }
+
+  .divider {
+    margin: 24px 0;
+  }
+
+  /* Amenity grid — single column */
+  .amenityGrid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .amenityGridItem {
+    padding: 12px 14px;
+    border-radius: 10px;
+    font-size: 0.88rem;
+  }
+
+  /* Logistics grid — single column */
+  .logisticsGrid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .logisticItem {
+    padding: 16px;
+    border-radius: 10px;
+  }
+
+  /* Offers grid — single column */
+  .featuresContainer {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+
+  /* Rules grid — single column */
+  .rulesGrid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .ruleCard {
+    padding: 12px 14px;
+    border-radius: 10px;
+  }
+
+  /* Booking card — tighter */
+  .bookingCard {
+    padding: 20px;
+    border-radius: 16px;
+    gap: 16px;
+  }
+
+  .bookingHeader {
+    gap: 3px;
+  }
+
+  .amount {
+    font-size: 2rem;
+  }
+
+  .reserveBtn {
+    padding: 14px;
+    font-size: 1rem;
+    border-radius: 10px;
+  }
+
+  /* Day picker — smaller buttons on mobile */
+  .calendarDayPicker {
+    --rdp-day_button-height: 32px !important;
+    --rdp-day_button-width: 32px !important;
+    font-size: 0.8rem;
+  }
+
+  /* Review cards */
+  .reviewCard {
+    padding: 14px;
+  }
+
+  /* Highlight badges */
+  .highlightBadges {
+    gap: 6px;
+    margin-top: 12px;
+  }
+
+  .highlightBadge {
+    padding: 4px 10px;
+    font-size: 0.72rem;
+  }
+
+  /* Content scrollable */
+  .content {
+    flex: unset;
+    overflow-y: unset;
+  }
+}

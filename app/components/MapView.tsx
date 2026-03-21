@@ -179,7 +179,21 @@ export function MapView({
     } catch (err) {
       console.warn("Could not customize map layers", err);
     }
-  }, []);
+
+    // On mobile, fit bounds to show all properties
+    if (window.innerWidth <= 768 && properties.length > 0) {
+      const lngs = properties.map(p => p.coordinates[0]);
+      const lats = properties.map(p => p.coordinates[1]);
+      map.fitBounds(
+        [
+          [Math.min(...lngs), Math.min(...lats)],
+          [Math.max(...lngs), Math.max(...lats)],
+        ],
+        { padding: { top: 80, bottom: 100, left: 40, right: 40 }, duration: 0 }
+      );
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [properties]);
 
   // Auto-expand clusters at high zoom; collapse when zooming out
   useEffect(() => {

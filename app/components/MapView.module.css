@@ -121,9 +121,7 @@
   transition: transform 0.15s ease-out;
 }
 
-.expandedMarker {
-  /* Appears instantly after zoom completes */
-}
+/* Expanded markers inherit base marker styles */
 
 /* ── Logo watermark on map ─────────────── */
 .mapLogo {
@@ -136,4 +134,36 @@
   pointer-events: none;
   z-index: 5;
   user-select: none;
+}
+
+/* ═══════════════════════════════════════════
+   MOBILE RESPONSIVE
+   ═══════════════════════════════════════════ */
+@media (max-width: 768px) {
+  .mapContainer {
+    height: 100%;
+  }
+
+  .mapLogo {
+    height: 36px;
+    bottom: max(12px, env(safe-area-inset-bottom, 12px));
+    left: 12px;
+    opacity: 0.5;
+  }
+
+  /* Slightly larger touch targets */
+  .marker {
+    padding: 7px 14px;
+    font-size: 0.8rem;
+  }
+
+  .clusterMarker {
+    width: 44px;
+    height: 44px;
+  }
+
+  :global(.maplibregl-ctrl-group) {
+    margin-bottom: max(80px, calc(env(safe-area-inset-bottom, 20px) + 70px)) !important;
+    margin-right: 12px !important;
+  }
 }

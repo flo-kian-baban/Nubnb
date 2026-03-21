@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import styles from "./page.module.css";
 import { properties as staticProperties } from "./data/properties";
 import { getProperties } from "./lib/firebase/properties";
@@ -10,7 +10,7 @@ import { PropertyList } from "./components/PropertyList";
 import { TopFilters } from "./components/TopFilters";
 import { MapFilters } from "./components/MapFilters";
 import { PropertyDetailPanel } from "./components/PropertyDetailPanel";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Map, LayoutList } from "lucide-react";
 
 export default function Home() {
   const [properties, setProperties] = useState<Property[]>([]);
@@ -18,6 +18,26 @@ export default function Home() {
 
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // Mobile view toggle: 'list' or 'map'
+  const [mobileView, setMobileView] = useState<'list' | 'map'>('list');
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Detect mobile breakpoint
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth <= 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  const handleCloseDetail = useCallback(() => {
+    setSelectedId(null);
+  }, []);
+
+  const handleSelectProperty = useCallback((id: string | null) => {
+    setSelectedId(id);
+  }, []);
 
   // Filter state
   const [searchQuery, setSearchQuery] = useState("");
@@ -128,10 +148,17 @@ export default function Home() {
 
   const selectedProperty = properties.find((p) => p.id === selectedId);
 
+  // Build container class
+  const containerClass = [
+    styles.container,
+    selectedId ? styles.detailActive : "",
+    isMobile ? styles.isMobile : "",
+    isMobile && mobileView === 'map' ? styles.mobileMapView : "",
+    isMobile && mobileView === 'list' ? styles.mobileListView : "",
+  ].filter(Boolean).join(' ');
+
   return (
-    <main
-      className={`${styles.container} ${selectedId ? styles.detailActive : ""}`}
-    >
+    <main className={containerClass}>
       {isLoading && (
         <div className={styles.loadingOverlay}>Loading properties...</div>
       )}
@@ -139,10 +166,10 @@ export default function Home() {
         <div className={styles.availOverlay}>Checking availability...</div>
       )}
 
-      {/* BACK HANDLE */}
+      {/* BACK HANDLE — desktop only */}
       <button
         className={styles.backHandle}
-        onClick={() => setSelectedId(null)}
+        onClick={handleCloseDetail}
         aria-label="Back to List"
       >
         <ChevronRight size={20} />
@@ -163,7 +190,7 @@ export default function Home() {
             hoveredId={hoveredId}
             selectedId={selectedId}
             onHover={setHoveredId}
-            onSelect={setSelectedId}
+            onSelect={handleSelectProperty}
           />
         </div>
       </div>
@@ -185,17 +212,38 @@ export default function Home() {
           hoveredId={hoveredId}
           selectedId={selectedId}
           onHover={setHoveredId}
-          onSelect={setSelectedId}
+          onSelect={handleSelectProperty}
         />
       </div>
 
-      {/* DETAIL PANEL (Right Slide-In) */}
+      {/* DETAIL PANEL (Right Slide-In / Mobile Fullscreen) */}
       <div className={styles.detailPanel}>
         <PropertyDetailPanel
           property={selectedProperty}
-          onClose={() => setSelectedId(null)}
+          onClose={handleCloseDetail}
         />
       </div>
+
+      {/* MOBILE VIEW TOGGLE FAB */}
+      {isMobile && !selectedId && (
+        <button
+          className={styles.mobileViewToggle}
+          onClick={() => setMobileView(mobileView === 'list' ? 'map' : 'list')}
+          aria-label={mobileView === 'list' ? 'Show map' : 'Show listings'}
+        >
+          {mobileView === 'list' ? (
+            <>
+              <Map size={18} />
+              <span>Map</span>
+            </>
+          ) : (
+            <>
+              <LayoutList size={18} />
+              <span>List</span>
+            </>
+          )}
+        </button>
+      )}
     </main>
   );
 }

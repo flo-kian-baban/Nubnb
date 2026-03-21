@@ -209,5 +209,66 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  line-height: 1; /* Tighten for baseline alignment */
+  line-height: 1;
+}
+
+/* ═══════════════════════════════════════════
+   MOBILE RESPONSIVE
+   ═══════════════════════════════════════════ */
+@media (max-width: 768px) {
+  .card {
+    aspect-ratio: 16 / 10;
+    border-radius: 14px;
+  }
+
+  .content {
+    padding: 16px;
+  }
+
+  .title {
+    font-size: 1.15rem;
+    padding-right: 16px;
+  }
+
+  .meta {
+    font-size: 0.75rem;
+    gap: 4px;
+  }
+
+  .price {
+    font-size: 1.25rem;
+  }
+
+  .priceLabel {
+    font-size: 0.6rem;
+  }
+
+  .statsNotch {
+    padding: 12px 14px 12px 14px;
+    border-bottom-right-radius: 12px;
+  }
+
+  .statsNotch::before,
+  .statsNotch::after {
+    width: 12px;
+    height: 12px;
+    border-top-left-radius: 12px;
+    box-shadow: -5px -5px 0 5px var(--brand-navy);
+  }
+
+  .statsNotch::before {
+    right: -12px;
+  }
+
+  .statsNotch::after {
+    bottom: -12px;
+  }
+
+  .statItem {
+    font-size: 0.75rem;
+  }
+
+  .gradientOverlay {
+    height: 75%;
+  }
 }

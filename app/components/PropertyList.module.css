@@ -36,3 +36,17 @@
   font-size: 0.875rem;
   max-width: 250px;
 }
+
+/* ═══════════════════════════════════════════
+   MOBILE RESPONSIVE
+   ═══════════════════════════════════════════ */
+@media (max-width: 768px) {
+  .list {
+    gap: 20px;
+    padding-bottom: 80px; /* space for the floating FAB */
+  }
+
+  .emptyState {
+    height: 200px;
+  }
+}
