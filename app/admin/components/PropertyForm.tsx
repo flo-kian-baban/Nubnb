@@ -6,9 +6,10 @@ import { storage } from "@/app/lib/firebase/config";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { useState } from "react";
 import styles from "./PropertyForm.module.css";
-import { Plus, Trash2, X, ImageIcon, ImagePlus, Loader2, Link2 } from "lucide-react";
+import { Plus, Trash2, X, ImageIcon, ImagePlus, Loader2, Link2, Star, ChevronDown } from "lucide-react";
 
 import { CustomSelect } from "./CustomSelect";
+import { IconPicker } from "./IconPicker";
 
 const GTA_CITIES = [
   "Toronto, ON", "Mississauga, ON", "Brampton, ON", "Markham, ON",
@@ -26,7 +27,7 @@ const CANADIAN_PROVINCES = [
   "Northwest Territories", "Nunavut", "Yukon"
 ];
 
-const PROPERTY_TYPES = ["House", "Apartment", "Villa", "Penthouse", "Estate", "Residence", "Ranch", "Condo"];
+const PROPERTY_TYPES = ["House", "Apartment", "Villa", "Penthouse", "Estate", "Residence", "Ranch", "Condo", "Basement"];
 const PROPERTY_TYPE_TAGS = ["Entire home", "Entire condo", "Entire guest suite", "Private room", "Shared room"];
 const OFFER_CATEGORIES = [
   "Scenic views", "Bathroom", "Bedroom and laundry", "Entertainment",
@@ -49,12 +50,13 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
       price: 0,
       currency: "CAD",
       bedrooms: 0,
+      beds: 0,
       bathrooms: 0,
       guests: 0,
       coverImage: "",
       images: [],
-      type: "House",
-      propertyTypeTag: "Entire home",
+      type: "",
+      propertyTypeTag: "",
       highlights: [],
       amenities: [],
       offers: [],
@@ -86,6 +88,11 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
         rules: [],
       },
       coordinates: [0, 0],
+      reviews: [],
+      averageRating: 0,
+      totalReviewCount: 0,
+      airbnbUrl: "",
+      googleMapsUrl: "",
     }
   );
 
@@ -93,13 +100,113 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [isUploadingMultiple, setIsUploadingMultiple] = useState(false);
   const [newRule, setNewRule] = useState("");
-  const [newAmenity, setNewAmenity] = useState("");
   const [newHighlight, setNewHighlight] = useState("");
   const [newOfferName, setNewOfferName] = useState("");
   const [newOfferCategory, setNewOfferCategory] = useState("Bathroom");
-  const [airbnbUrl, setAirbnbUrl] = useState("");
+  const [airbnbUrl, setAirbnbUrl] = useState(initialData?.airbnbUrl || "");
   const [isScraping, setIsScraping] = useState(false);
   const [scrapeMessage, setScrapeMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [scrapeAttempted, setScrapeAttempted] = useState(false);
+  const [scrapedFields, setScrapedFields] = useState<Set<string>>(new Set());
+  const [googleMapsUrl, setGoogleMapsUrl] = useState(initialData?.googleMapsUrl || "");
+  const [isParsingMaps, setIsParsingMaps] = useState(false);
+  const [mapsMessage, setMapsMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
+
+  const toggleSection = (key: string) => {
+    setOpenSections(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  // Count unfilled required fields per section
+  const getUnfilledCount = (sectionKey: string): number => {
+    switch (sectionKey) {
+      case 'basic': {
+        let count = 0;
+        // Count total images (cover + additional); if < 6 that's 1 lacking input
+        const totalImages = (formData.coverImage ? 1 : 0) + (formData.images?.length || 0);
+        if (totalImages < 6) count++;
+        if (!formData.name?.trim()) count++;
+        if (!formData.location?.trim()) count++;
+        if (!formData.type?.trim()) count++;
+        if (!formData.propertyTypeTag?.trim()) count++;
+        if (!formData.description?.trim()) count++;
+        return count;
+      }
+      case 'location': {
+        let count = 0;
+        if (!formData.coordinates?.[1] && formData.coordinates?.[1] !== 0) count++;
+        if (!formData.coordinates?.[0] && formData.coordinates?.[0] !== 0) count++;
+        if (formData.coordinates?.[0] === 0 && formData.coordinates?.[1] === 0) count += 2;
+        if (!formData.addressDetails?.city?.trim()) count++;
+        if (!formData.addressDetails?.state?.trim()) count++;
+        if (!formData.addressDetails?.area?.trim()) count++;
+        if (!formData.addressDetails?.country?.trim()) count++;
+        if (!formData.details?.checkIn?.trim()) count++;
+        if (!formData.details?.checkOut?.trim()) count++;
+        return count;
+      }
+      case 'capacity': {
+        let count = 0;
+        if (!formData.bedrooms) count++;
+        if (!formData.beds) count++;
+        if (!formData.bathrooms) count++;
+        if (!formData.guests) count++;
+        if (!formData.price) count++;
+        if (!formData.priceInfo?.nightly) count++;
+        if (!formData.priceInfo?.weekly) count++;
+        if (!formData.priceInfo?.monthly) count++;
+        if (!formData.priceInfo?.weekend) count++;
+        if (!formData.priceInfo?.cleaningFee && formData.priceInfo?.cleaningFee !== 0) count++;
+        if (!formData.priceInfo?.minNights) count++;
+        return count;
+      }
+      case 'highlights': {
+        const hl = formData.highlights || [];
+        return Math.max(0, 3 - hl.length);
+      }
+      case 'offers': {
+        const offers = formData.offers || [];
+        return offers.length === 0 ? 1 : 0;
+      }
+      case 'terms': {
+        let count = 0;
+        if (!formData.terms?.cancellationPolicy?.trim()) count++;
+        if (!(formData.terms?.rules?.length)) count++;
+        return count;
+      }
+      default:
+        return 0;
+    }
+  };
+
+  const renderAccordionSection = (sectionKey: string, title: string, children: React.ReactNode) => {
+    const isOpen = !!openSections[sectionKey];
+    const unfilled = getUnfilledCount(sectionKey);
+    return (
+      <div className={styles.section} key={sectionKey}>
+        <div className={styles.accordionHeader} onClick={() => toggleSection(sectionKey)}>
+          <div className={styles.accordionHeaderLeft}>
+            <h3>{title}</h3>
+            {unfilled > 0 ? (
+              <span className={styles.accordionBadge}>{unfilled}</span>
+            ) : (
+              <span className={styles.accordionBadgeZero}>✓</span>
+            )}
+          </div>
+          <ChevronDown size={20} className={isOpen ? styles.accordionChevronOpen : styles.accordionChevron} />
+        </div>
+        <div className={`${styles.accordionBody} ${isOpen ? styles.accordionBodyOpen : ''}`}>
+          {children}
+        </div>
+      </div>
+    );
+  };
+
+  // Returns the CSS class for a field's scrape status
+  const scrapeClass = (fieldKey: string) => {
+    if (!scrapeAttempted) return '';
+    return scrapedFields.has(fieldKey) ? styles.scrapeSuccess : styles.scrapeFailed;
+  };
 
   const handleScrapeAirbnb = async () => {
     if (!airbnbUrl.trim() || !airbnbUrl.includes('airbnb')) {
@@ -118,7 +225,24 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
         const errData = await res.json();
         throw new Error(errData.error || 'Scraping failed');
       }
-      const data = await res.json();
+      const result = await res.json();
+      const data = result.data;
+
+      // Track which fields were successfully scraped
+      const filled = new Set<string>();
+      if (data.name) filled.add('name');
+      if (data.description) filled.add('description');
+      if (data.guests) filled.add('guests');
+      if (data.bedrooms) filled.add('bedrooms');
+      if (data.beds) filled.add('beds');
+      if (data.bathrooms) filled.add('bathrooms');
+      if (data.price) { filled.add('price'); filled.add('priceInfo.nightly'); }
+      if (data.propertyTypeTag) filled.add('propertyTypeTag');
+      if (data.checkIn) filled.add('details.checkIn');
+      if (data.checkOut) filled.add('details.checkOut');
+      if (data.highlights?.length) filled.add('highlights');
+      setScrapedFields(filled);
+      setScrapeAttempted(true);
 
       // Map scraped data into form fields
       setFormData(prev => ({
@@ -127,6 +251,7 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
         description: data.description || prev.description,
         guests: data.guests || prev.guests,
         bedrooms: data.bedrooms || prev.bedrooms,
+        beds: data.beds || prev.beds,
         bathrooms: data.bathrooms || prev.bathrooms,
         coverImage: data.coverImage || prev.coverImage,
         images: data.images?.length ? data.images : prev.images,
@@ -155,13 +280,76 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
           cancellationPolicy: prev.terms?.cancellationPolicy || 'Flexible',
           rules: data.rules?.length ? data.rules : prev.terms?.rules || [],
         },
+        reviews: data.reviews?.length ? data.reviews : prev.reviews || [],
+        averageRating: data.averageRating || prev.averageRating || 0,
+        totalReviewCount: data.totalReviewCount || prev.totalReviewCount || 0,
+        airbnbUrl: airbnbUrl || prev.airbnbUrl || '',
       }));
+
+      // Auto-open reviews accordion if reviews were scraped
+      if (data.reviews?.length) {
+        setOpenSections(prev => ({ ...prev, reviews: true }));
+      }
 
       setScrapeMessage({ type: 'success', text: `Imported data for "${data.name}". Review & edit below, then save.` });
     } catch (err) {
       setScrapeMessage({ type: 'error', text: err instanceof Error ? err.message : 'Scraping failed. Try again.' });
     } finally {
       setIsScraping(false);
+    }
+  };
+
+  const handleParseGoogleMaps = async () => {
+    if (!googleMapsUrl.trim()) {
+      setMapsMessage({ type: 'error', text: 'Please enter a Google Maps URL.' });
+      return;
+    }
+    if (!googleMapsUrl.includes('google') && !googleMapsUrl.includes('goo.gl') && !googleMapsUrl.includes('maps.app')) {
+      setMapsMessage({ type: 'error', text: 'Please enter a valid Google Maps link.' });
+      return;
+    }
+    setIsParsingMaps(true);
+    setMapsMessage(null);
+    try {
+      const res = await fetch('/api/parse-google-maps', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: googleMapsUrl }),
+      });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Failed to parse Google Maps URL');
+      }
+      const result = await res.json();
+      const data = result.data;
+
+      setFormData(prev => ({
+        ...prev,
+        coordinates: data.coordinates || prev.coordinates,
+        location: data.location || prev.location,
+        addressDetails: {
+          city: data.addressDetails?.city || prev.addressDetails?.city || '',
+          state: data.addressDetails?.state || prev.addressDetails?.state || '',
+          area: data.addressDetails?.area || prev.addressDetails?.area || '',
+          country: data.addressDetails?.country || prev.addressDetails?.country || '',
+        },
+        googleMapsUrl: googleMapsUrl || prev.googleMapsUrl || '',
+      }));
+
+      const parts = [
+        data.addressDetails?.city,
+        data.addressDetails?.state,
+        data.addressDetails?.area,
+        data.addressDetails?.country,
+      ].filter(Boolean);
+      setMapsMessage({
+        type: 'success',
+        text: `Location set: ${parts.join(', ')} (${data.lat?.toFixed(4)}, ${data.lng?.toFixed(4)})`,
+      });
+    } catch (err) {
+      setMapsMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to parse URL.' });
+    } finally {
+      setIsParsingMaps(false);
     }
   };
 
@@ -299,15 +487,19 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
     }));
   };
 
-  const addAmenity = () => {
-    if (!newAmenity.trim()) return;
+  const toggleOfferStarred = (offerName: string) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    setFormData((prev: any) => ({ ...prev, amenities: [...currentAmenities, newAmenity.trim()] }));
-    setNewAmenity("");
-  };
-  const removeAmenity = (index: number) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    setFormData((prev: any) => ({ ...prev, amenities: currentAmenities.filter((_, i) => i !== index) }));
+    setFormData((prev: any) => {
+      const current: string[] = prev.amenities || [];
+      if (current.includes(offerName)) {
+        // Unstar — remove from amenities
+        return { ...prev, amenities: current.filter(a => a !== offerName) };
+      } else if (current.length < 6) {
+        // Star — add to amenities (max 6)
+        return { ...prev, amenities: [...current, offerName] };
+      }
+      return prev; // Already at 6, do nothing
+    });
   };
 
   const addHighlight = () => {
@@ -339,11 +531,21 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
     setFormData((prev: any) => ({ ...prev, offers: newOffers }));
   };
 
+  const updateOfferIcon = (index: number, svg: string) => {
+    const newOffers = [...currentOffers];
+    newOffers[index] = { ...newOffers[index], icon: svg };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setFormData((prev: any) => ({ ...prev, offers: newOffers }));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
     
     const finalData = { ...formData };
+    // Always persist the latest external link state
+    if (airbnbUrl.trim()) finalData.airbnbUrl = airbnbUrl.trim();
+    if (googleMapsUrl.trim()) finalData.googleMapsUrl = googleMapsUrl.trim();
     if (!finalData.slug && finalData.name) {
       finalData.slug = finalData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
     }
@@ -374,54 +576,110 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
         
         <form onSubmit={handleSubmit} className={styles.form}>
           
-          {/* --- Airbnb Import --- */}
+          {/* --- Data Sources --- */}
           <div className={styles.section}>
-            <h3>Import from Airbnb</h3>
-            <p style={{ fontSize: '13px', color: '#999', marginBottom: '12px', marginTop: '-4px' }}>
-              Paste an Airbnb listing URL to auto-fill the form below.
+            <h3>Data Sources</h3>
+            <p style={{ fontSize: '13px', color: '#999', marginBottom: '16px', marginTop: '-4px' }}>
+              Paste links to auto-fill property data, location, and availability.
             </p>
-            <div className={styles.addInputGroup}>
-              <div style={{ position: 'relative', flex: 1 }}>
-                <Link2 size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#666' }} />
+
+            {/* Airbnb Import */}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#ccc', marginBottom: '8px' }}>🏠 Airbnb Listing</label>
+              <div className={styles.addInputGroup}>
+                <div style={{ position: 'relative', flex: 1 }}>
+                  <Link2 size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#666' }} />
+                  <input
+                    type="url"
+                    value={airbnbUrl}
+                    onChange={(e) => setAirbnbUrl(e.target.value)}
+                    placeholder="https://www.airbnb.ca/rooms/..."
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleScrapeAirbnb(); } }}
+                    disabled={isScraping}
+                    style={{ flex: 1, width: '100%', padding: '12px 12px 12px 36px', background: '#1a1a1a', border: '1px solid #333', color: '#fff', borderRadius: '8px', fontSize: '14px' }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  className={styles.addBtnSmall}
+                  onClick={handleScrapeAirbnb}
+                  disabled={isScraping || !airbnbUrl.trim()}
+                  style={{ whiteSpace: 'nowrap', padding: '10px 20px', opacity: isScraping ? 0.6 : 1 }}
+                >
+                  {isScraping ? <Loader2 size={16} className="animate-spin" /> : <Link2 size={16} />}
+                  {isScraping ? 'Scraping...' : 'Import'}
+                </button>
+              </div>
+              {scrapeMessage && (
+                <div style={{
+                  marginTop: '10px',
+                  padding: '10px 14px',
+                  borderRadius: '8px',
+                  fontSize: '13px',
+                  background: scrapeMessage.type === 'success' ? 'rgba(76, 175, 80, 0.12)' : 'rgba(244, 67, 54, 0.12)',
+                  color: scrapeMessage.type === 'success' ? '#66bb6a' : '#ef5350',
+                  border: `1px solid ${scrapeMessage.type === 'success' ? 'rgba(76, 175, 80, 0.25)' : 'rgba(244, 67, 54, 0.25)'}`,
+                }}>
+                  {scrapeMessage.text}
+                </div>
+              )}
+            </div>
+
+            {/* Google Maps Location */}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#ccc', marginBottom: '8px' }}>📍 Google Maps Link</label>
+              <div className={styles.addInputGroup}>
                 <input
                   type="url"
-                  value={airbnbUrl}
-                  onChange={(e) => setAirbnbUrl(e.target.value)}
-                  placeholder="https://www.airbnb.ca/rooms/..."
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleScrapeAirbnb(); } }}
-                  disabled={isScraping}
-                  style={{ flex: 1, width: '100%', padding: '12px 12px 12px 36px', background: '#1a1a1a', border: '1px solid #333', color: '#fff', borderRadius: '8px', fontSize: '14px' }}
+                  value={googleMapsUrl}
+                  onChange={(e) => setGoogleMapsUrl(e.target.value)}
+                  placeholder="https://maps.app.goo.gl/... or any Google Maps link"
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleParseGoogleMaps(); } }}
+                  disabled={isParsingMaps}
+                  style={{ flex: 1, padding: '12px', background: '#1a1a1a', border: '1px solid #333', color: '#fff', borderRadius: '8px', fontSize: '14px' }}
                 />
+                <button
+                  type="button"
+                  className={styles.addBtnSmall}
+                  onClick={handleParseGoogleMaps}
+                  disabled={isParsingMaps || !googleMapsUrl.trim()}
+                  style={{ whiteSpace: 'nowrap', padding: '10px 20px', opacity: isParsingMaps ? 0.6 : 1 }}
+                >
+                  {isParsingMaps ? <Loader2 size={16} className="animate-spin" /> : '📍'}
+                  {isParsingMaps ? 'Locating...' : 'Get Location'}
+                </button>
               </div>
-              <button
-                type="button"
-                className={styles.addBtnSmall}
-                onClick={handleScrapeAirbnb}
-                disabled={isScraping || !airbnbUrl.trim()}
-                style={{ whiteSpace: 'nowrap', padding: '10px 20px', opacity: isScraping ? 0.6 : 1 }}
-              >
-                {isScraping ? <Loader2 size={16} className="animate-spin" /> : <Link2 size={16} />}
-                {isScraping ? 'Scraping...' : 'Import'}
-              </button>
+              {mapsMessage && (
+                <div style={{
+                  marginTop: '10px',
+                  padding: '10px 14px',
+                  borderRadius: '8px',
+                  fontSize: '13px',
+                  background: mapsMessage.type === 'success' ? 'rgba(76, 175, 80, 0.12)' : 'rgba(244, 67, 54, 0.12)',
+                  color: mapsMessage.type === 'success' ? '#66bb6a' : '#ef5350',
+                  border: `1px solid ${mapsMessage.type === 'success' ? 'rgba(76, 175, 80, 0.25)' : 'rgba(244, 67, 54, 0.25)'}`,
+                }}>
+                  {mapsMessage.text}
+                </div>
+              )}
             </div>
-            {scrapeMessage && (
-              <div style={{
-                marginTop: '10px',
-                padding: '10px 14px',
-                borderRadius: '8px',
-                fontSize: '13px',
-                background: scrapeMessage.type === 'success' ? 'rgba(76, 175, 80, 0.12)' : 'rgba(244, 67, 54, 0.12)',
-                color: scrapeMessage.type === 'success' ? '#66bb6a' : '#ef5350',
-                border: `1px solid ${scrapeMessage.type === 'success' ? 'rgba(76, 175, 80, 0.25)' : 'rgba(244, 67, 54, 0.25)'}`,
-              }}>
-                {scrapeMessage.text}
-              </div>
-            )}
+
+            {/* iCal URL */}
+            <div>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#ccc', marginBottom: '8px' }}>📅 iCal URL (Availability)</label>
+              <input
+                type="url"
+                name="icalUrl"
+                value={formData.icalUrl || ""}
+                onChange={handleChange}
+                placeholder="https://example.com/calendar.ics"
+                style={{ width: '100%', padding: '12px', background: '#1a1a1a', border: '1px solid #333', color: '#fff', borderRadius: '8px', fontSize: '14px' }}
+              />
+            </div>
           </div>
 
-          {/* --- Basic Info --- */}
-          <div className={styles.section}>
-            <h3>Basic Info</h3>
+          {/* --- Basic Info (Accordion) --- */}
+          {renderAccordionSection("basic", "Basic Info", (<>
             <div className={styles.grid}>
               <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
                 <label>Cover Banner Image *</label>
@@ -485,7 +743,7 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
 
               <div className={styles.field}>
                 <label>Title</label>
-                <input type="text" name="name" value={formData.name || ""} onChange={handleChange} required placeholder="e.g. Modern Villa" />
+                <input type="text" name="name" value={formData.name || ""} onChange={handleChange} required placeholder="e.g. Modern Villa" className={scrapeClass('name')} />
               </div>
               <div className={styles.field}>
                 <label>Display Location *</label>
@@ -502,30 +760,141 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
                 <label>Type</label>
                 <CustomSelect 
                   options={PROPERTY_TYPES} 
-                  value={formData.type || "House"} 
+                  value={formData.type || ""} 
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   onChange={(val) => handleChange({ target: { name: 'type', value: val } } as any)} 
+                  placeholder="Select property type"
                 />
               </div>
               <div className={styles.field}>
                 <label>Property Tag</label>
                 <CustomSelect 
                   options={PROPERTY_TYPE_TAGS} 
-                  value={formData.propertyTypeTag || "Entire home"} 
+                  value={formData.propertyTypeTag || ""} 
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   onChange={(val) => handleChange({ target: { name: 'propertyTypeTag', value: val } } as any)} 
+                  placeholder="Select a tag"
                 />
               </div>
             </div>
             <div className={styles.field}>
               <label>Description</label>
-              <textarea name="description" value={formData.description || ""} onChange={handleChange} rows={5} required placeholder="Describe the property..." />
+              <textarea name="description" value={formData.description || ""} onChange={handleChange} rows={10} required placeholder="Describe the property..." className={scrapeClass('description')} />
             </div>
-          </div>
+          </>))}
 
-          {/* --- Highlights (Top Badges) --- */}
-          <div className={styles.section}>
-            <h3>Highlights (Max 3)</h3>
+          {/* --- Location (Accordion) --- */}
+          {renderAccordionSection("location", "Location", (<>
+            <div className={styles.grid}>
+              {/* Coordinates (auto-filled from Google Maps or manual) */}
+              <div className={styles.field}>
+                <label>Latitude</label>
+                <input 
+                  type="number" 
+                  step="any"
+                  value={formData.coordinates?.[1] || 0}
+                  onChange={(e) => setFormData(prev => ({ ...prev, coordinates: [prev.coordinates?.[0] || 0, parseFloat(e.target.value) || 0] }))}
+                  placeholder="e.g. 43.8561"
+                />
+              </div>
+              <div className={styles.field}>
+                <label>Longitude</label>
+                <input 
+                  type="number" 
+                  step="any"
+                  value={formData.coordinates?.[0] || 0}
+                  onChange={(e) => setFormData(prev => ({ ...prev, coordinates: [parseFloat(e.target.value) || 0, prev.coordinates?.[1] || 0] }))}
+                  placeholder="e.g. -79.3193"
+                />
+              </div>
+              <div className={styles.field}>
+                <label>City</label>
+                <input type="text" name="addressDetails.city" value={formData.addressDetails?.city || ""} onChange={handleChange} required />
+              </div>
+              <div className={styles.field}>
+                <label>State/Province *</label>
+                <CustomSelect 
+                  options={CANADIAN_PROVINCES} 
+                  value={formData.addressDetails?.state || ""} 
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  onChange={(val) => handleChange({ target: { name: 'addressDetails.state', value: val } } as any)} 
+                  placeholder="Select a province"
+                />
+              </div>
+              <div className={styles.field}>
+                <label>Area</label>
+                <input type="text" name="addressDetails.area" value={formData.addressDetails?.area || ""} onChange={handleChange} required />
+              </div>
+              <div className={styles.field}>
+                <label>Country</label>
+                <input type="text" name="addressDetails.country" value={formData.addressDetails?.country || ""} onChange={handleChange} required />
+              </div>
+              <div className={styles.field}>
+                <label>Check In Time</label>
+                <input type="text" name="details.checkIn" value={formData.details?.checkIn || ""} onChange={handleChange} required placeholder="e.g. 4:00 PM" className={scrapeClass('details.checkIn')} />
+              </div>
+              <div className={styles.field}>
+                <label>Check Out Time</label>
+                <input type="text" name="details.checkOut" value={formData.details?.checkOut || ""} onChange={handleChange} required placeholder="e.g. 11:00 AM" className={scrapeClass('details.checkOut')} />
+              </div>
+            </div>
+          </>))}
+
+          {/* --- Capacity & Pricing (Accordion) --- */}
+          {renderAccordionSection("capacity", "Capacity & Pricing", (<>
+            <div className={styles.grid}>
+              <div className={styles.field}>
+                <label>Bedrooms</label>
+                <input type="number" name="bedrooms" value={formData.bedrooms ?? 0} onChange={handleChange} required className={scrapeClass('bedrooms')} />
+              </div>
+              <div className={styles.field}>
+                <label>Beds</label>
+                <input type="number" name="beds" value={formData.beds ?? 0} onChange={handleChange} required className={scrapeClass('beds')} />
+              </div>
+              <div className={styles.field}>
+                <label>Bathrooms</label>
+                <input type="number" step="0.5" name="bathrooms" value={formData.bathrooms ?? 0} onChange={handleChange} required className={scrapeClass('bathrooms')} />
+              </div>
+              <div className={styles.field}>
+                <label>Max Guests</label>
+                <input type="number" name="guests" value={formData.guests ?? 0} onChange={handleChange} required className={scrapeClass('guests')} />
+              </div>
+            </div>
+            <hr style={{ border: 'none', borderTop: '1px solid rgba(255,255,255,0.08)', margin: 0 }} />
+            <div className={styles.grid}>
+              <div className={styles.field}>
+                <label>Base Price ({formData.currency || 'CAD'})</label>
+                <input type="number" name="price" value={formData.price ?? 0} onChange={handleChange} required className={scrapeClass('price')} />
+              </div>
+              <div className={styles.field}>
+                <label>Nightly Price</label>
+                <input type="number" name="priceInfo.nightly" value={formData.priceInfo?.nightly ?? 0} onChange={handleChange} required className={scrapeClass('priceInfo.nightly')} />
+              </div>
+              <div className={styles.field}>
+                <label>Weekly Price</label>
+                <input type="number" name="priceInfo.weekly" value={formData.priceInfo?.weekly ?? 0} onChange={handleChange} required />
+              </div>
+              <div className={styles.field}>
+                <label>Monthly Price</label>
+                <input type="number" name="priceInfo.monthly" value={formData.priceInfo?.monthly ?? 0} onChange={handleChange} required />
+              </div>
+              <div className={styles.field}>
+                <label>Weekend Price</label>
+                <input type="number" name="priceInfo.weekend" value={formData.priceInfo?.weekend ?? 0} onChange={handleChange} required />
+              </div>
+              <div className={styles.field}>
+                <label>Cleaning Fee</label>
+                <input type="number" name="priceInfo.cleaningFee" value={formData.priceInfo?.cleaningFee ?? 0} onChange={handleChange} required />
+              </div>
+              <div className={styles.field}>
+                <label>Min. Nights</label>
+                <input type="number" name="priceInfo.minNights" value={formData.priceInfo?.minNights ?? 0} onChange={handleChange} required />
+              </div>
+            </div>
+          </>))}
+
+          {/* --- 3 Main Highlights (Accordion) --- */}
+          {renderAccordionSection("highlights", "3 Main Highlights", (<>
             <p style={{ fontSize: '13px', color: '#999', marginBottom: '12px', marginTop: '-4px' }}>
               Top standout features shown as badges — e.g. &quot;City View&quot;, &quot;Park for Free&quot;, &quot;Self check-in&quot;
             </p>
@@ -554,143 +923,13 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
                 </div>
               )}
             </div>
-          </div>
+          </>))}
 
-          {/* --- Address Details & Settings --- */}
-          <div className={styles.section}>
-            <h3>Location & Settings</h3>
-            <div className={styles.grid}>
-              <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
-                <label>iCal URL (For Availability Checking)</label>
-                <input 
-                  type="url" 
-                  name="icalUrl" 
-                  value={formData.icalUrl || ""} 
-                  onChange={handleChange} 
-                  placeholder="https://example.com/calendar.ics" 
-                />
-              </div>
-              <div className={styles.field}>
-                <label>City</label>
-                <input type="text" name="addressDetails.city" value={formData.addressDetails?.city || ""} onChange={handleChange} required />
-              </div>
-              <div className={styles.field}>
-                <label>State/Province *</label>
-                <CustomSelect 
-                  options={CANADIAN_PROVINCES} 
-                  value={formData.addressDetails?.state || ""} 
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  onChange={(val) => handleChange({ target: { name: 'addressDetails.state', value: val } } as any)} 
-                  placeholder="Select a province"
-                />
-              </div>
-              <div className={styles.field}>
-                <label>Area</label>
-                <input type="text" name="addressDetails.area" value={formData.addressDetails?.area || ""} onChange={handleChange} required />
-              </div>
-              <div className={styles.field}>
-                <label>Country</label>
-                <input type="text" name="addressDetails.country" value={formData.addressDetails?.country || ""} onChange={handleChange} required />
-              </div>
-              <div className={styles.field}>
-                <label>Check In Time</label>
-                <input type="text" name="details.checkIn" value={formData.details?.checkIn || ""} onChange={handleChange} required placeholder="e.g. 4:00 PM" />
-              </div>
-              <div className={styles.field}>
-                <label>Check Out Time</label>
-                <input type="text" name="details.checkOut" value={formData.details?.checkOut || ""} onChange={handleChange} required placeholder="e.g. 11:00 AM" />
-              </div>
-            </div>
-          </div>
-
-          {/* --- Capacity & Pricing --- */}
-          <div className={styles.section}>
-            <h3>Capacity & Pricing</h3>
-            <div className={styles.grid}>
-              <div className={styles.field}>
-                <label>Bedrooms</label>
-                <input type="number" name="bedrooms" value={formData.bedrooms} onChange={handleChange} required />
-              </div>
-              <div className={styles.field}>
-                <label>Bathrooms</label>
-                <input type="number" step="0.5" name="bathrooms" value={formData.bathrooms} onChange={handleChange} required />
-              </div>
-              <div className={styles.field}>
-                <label>Max Guests</label>
-                <input type="number" name="guests" value={formData.guests} onChange={handleChange} required />
-              </div>
-              <div className={styles.field}>
-                <label>Base Price ({formData.currency || 'CAD'})</label>
-                <input type="number" name="price" value={formData.price} onChange={handleChange} required />
-              </div>
-              <div className={styles.field}>
-                <label>Nightly Price</label>
-                <input type="number" name="priceInfo.nightly" value={formData.priceInfo?.nightly} onChange={handleChange} required />
-              </div>
-              <div className={styles.field}>
-                <label>Weekly Price</label>
-                <input type="number" name="priceInfo.weekly" value={formData.priceInfo?.weekly} onChange={handleChange} required />
-              </div>
-              <div className={styles.field}>
-                <label>Monthly Price</label>
-                <input type="number" name="priceInfo.monthly" value={formData.priceInfo?.monthly} onChange={handleChange} required />
-              </div>
-              <div className={styles.field}>
-                <label>Weekend Price</label>
-                <input type="number" name="priceInfo.weekend" value={formData.priceInfo?.weekend} onChange={handleChange} required />
-              </div>
-              <div className={styles.field}>
-                <label>Cleaning Fee</label>
-                <input type="number" name="priceInfo.cleaningFee" value={formData.priceInfo?.cleaningFee} onChange={handleChange} required />
-              </div>
-              <div className={styles.field}>
-                <label>Min. Nights</label>
-                <input type="number" name="priceInfo.minNights" value={formData.priceInfo?.minNights} onChange={handleChange} required />
-              </div>
-            </div>
-          </div>
-
-          {/* --- Top Amenities (Card Badges) --- */}
-          <div className={styles.section}>
-            <h3>Top Amenities (Card Badges)</h3>
+          {/* --- What This Place Offers (Accordion) --- */}
+          {renderAccordionSection("offers", "What This Place Offers", (<>
             <p style={{ fontSize: '13px', color: '#999', marginBottom: '12px', marginTop: '-4px' }}>
-              3-4 short labels shown on the property card — e.g. &quot;Wifi&quot;, &quot;Free Parking&quot;, &quot;Pool&quot;
-            </p>
-            <div className={styles.listContainer}>
-              {currentAmenities.map((amenity, i) => (
-                <div key={i} className={styles.listItem}>
-                  <span>{amenity}</span>
-                  <button type="button" className={styles.iconBtn} onClick={() => removeAmenity(i)}>
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              ))}
-              <div className={styles.addInputGroup}>
-                <input 
-                  type="text" 
-                  value={newAmenity} 
-                  onChange={(e) => setNewAmenity(e.target.value)}
-                  placeholder="e.g. Infinity Pool"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      addAmenity();
-                    }
-                  }}
-                  style={{ flex: 1, padding: '10px 12px', background: '#1a1a1a', border: '1px solid #333', color: '#fff', borderRadius: '8px' }}
-                />
-                <button type="button" className={styles.addBtnSmall} onClick={addAmenity}>
-                  <Plus size={16} /> Add
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* --- What This Place Offers (Full Offers) --- */}
-          <div className={styles.section}>
-            <h3>What This Place Offers</h3>
-            <p style={{ fontSize: '13px', color: '#999', marginBottom: '12px', marginTop: '-4px' }}>
-              Full amenity list grouped by category. Toggle &quot;available&quot; to mark items as unavailable.
+              Full amenity list grouped by category. ★ Star up to 6 items to feature them as top amenities on the property card.
+              {currentAmenities.length > 0 && <span style={{ color: '#ffb400', marginLeft: '6px' }}>({currentAmenities.length}/6 starred)</span>}
             </p>
 
             {/* Group offers by category for display */}
@@ -703,12 +942,29 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
                     const realIdx = currentOffers.indexOf(offer);
                     return (
                       <div key={realIdx} className={styles.listItem} style={{ opacity: offer.available ? 1 : 0.4 }}>
+                        <input 
+                          type="checkbox" 
+                          checked={offer.available} 
+                          onChange={() => toggleOfferAvailable(realIdx)}
+                          className={styles.offerCheckbox}
+                        />
+                        <IconPicker
+                          currentIcon={offer.icon || ''}
+                          amenityName={offer.name}
+                          onSelect={(svg) => updateOfferIcon(realIdx, svg)}
+                        />
                         <span style={{ flex: 1, textDecoration: offer.available ? 'none' : 'line-through' }}>{offer.name}</span>
-                        <button type="button" className={styles.iconBtn} onClick={() => toggleOfferAvailable(realIdx)} title={offer.available ? 'Mark unavailable' : 'Mark available'} style={{ color: offer.available ? '#66bb6a' : '#999', marginRight: '4px', fontSize: '12px' }}>
-                          {offer.available ? '✓' : '✗'}
+                        <button 
+                          type="button" 
+                          className={`${styles.starBtn} ${currentAmenities.includes(offer.name) ? styles.starBtnActive : ''}`}
+                          onClick={() => toggleOfferStarred(offer.name)}
+                          title={currentAmenities.includes(offer.name) ? 'Remove from top amenities' : (currentAmenities.length >= 6 ? 'Max 6 starred' : 'Add to top amenities')}
+                          disabled={!currentAmenities.includes(offer.name) && currentAmenities.length >= 6}
+                        >
+                          <Star size={14} fill={currentAmenities.includes(offer.name) ? '#ffb400' : 'none'} />
                         </button>
-                        <button type="button" className={styles.iconBtn} onClick={() => removeOffer(realIdx)}>
-                          <X size={14} />
+                        <button type="button" className={styles.iconBtn} onClick={() => removeOffer(realIdx)} style={{ marginLeft: '6px' }}>
+                          <Trash2 size={14} />
                         </button>
                       </div>
                     );
@@ -735,11 +991,10 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
                 <Plus size={16} /> Add
               </button>
             </div>
-          </div>
+          </>))}
 
-          {/* --- Terms & Rules --- */}
-          <div className={styles.section}>
-            <h3>Terms & Rules</h3>
+          {/* --- Terms & Rules (Accordion) --- */}
+          {renderAccordionSection("terms", "Terms & Rules", (<>
             <div className={styles.field} style={{ marginBottom: '16px' }}>
               <label>Cancellation Policy</label>
               <input type="text" name="terms.cancellationPolicy" value={formData.terms?.cancellationPolicy || ""} onChange={handleChange} required placeholder="e.g. Firm - No Cancellation" />
@@ -793,7 +1048,76 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
                 </button>
               </div>
             </div>
-          </div>
+          </>))}
+
+          {/* Reviews (read-only preview) */}
+          {renderAccordionSection("reviews", `Reviews${formData.averageRating ? ` — ★ ${Number(formData.averageRating).toFixed(2)}` : ''}${formData.totalReviewCount ? ` (${formData.totalReviewCount})` : ''}`, (<>
+            {formData.reviews && formData.reviews.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {formData.reviews.map((review: { reviewer: string; date: string; rating: number; text: string; avatar?: string }, idx: number) => (
+                  <div key={idx} style={{
+                    padding: '14px 16px',
+                    borderRadius: '10px',
+                    background: '#1a1a1a',
+                    border: '1px solid #2a2a2a',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                      {review.avatar ? (
+                        <img src={review.avatar} alt={review.reviewer} style={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover' as const }} />
+                      ) : (
+                        <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#6599CD', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.8rem' }}>
+                          {review.reviewer.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#e0e0e0' }}>{review.reviewer}</div>
+                        <div style={{ fontSize: '0.75rem', color: '#888' }}>{review.date}</div>
+                      </div>
+                      <div style={{ color: '#6599CD', display: 'flex', gap: '2px' }}>
+                        {Array.from({ length: review.rating }).map((_, i) => (
+                          <span key={i} style={{ fontSize: '12px' }}>★</span>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = [...(formData.reviews || [])];
+                          updated.splice(idx, 1);
+                          setFormData(prev => ({ ...prev, reviews: updated }));
+                        }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          color: '#666',
+                          padding: '4px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          transition: 'color 0.2s',
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.color = '#e74c3c')}
+                        onMouseLeave={(e) => (e.currentTarget.style.color = '#666')}
+                        title="Delete review"
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                          <line x1="10" y1="11" x2="10" y2="17" />
+                          <line x1="14" y1="11" x2="14" y2="17" />
+                        </svg>
+                      </button>
+                    </div>
+                    <p style={{ margin: 0, fontSize: '0.85rem', color: '#aaa', lineHeight: 1.5 }}>{review.text}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ padding: '20px', textAlign: 'center', color: '#666', fontSize: '0.9rem' }}>
+                No reviews fetched yet. Scrape an Airbnb listing to import reviews.
+              </div>
+            )}
+          </>))}
 
           <div className={styles.actions}>
             <button type="button" className={styles.cancelBtn} onClick={onClose} disabled={isSaving}>Cancel</button>

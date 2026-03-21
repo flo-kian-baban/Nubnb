@@ -1,0 +1,361 @@
+/* ── Filter Pill — floating centered on the map ─── */
+
+.bar {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.pill {
+  display: flex;
+  align-items: stretch;
+  background-color: rgba(14, 15, 18, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  overflow: visible;
+  position: relative;
+  height: 56px;
+  min-width: 560px;
+}
+
+/* ── Section (Where / When / Who) ──────────────── */
+.section {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 24px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  flex: 1;
+  min-width: 0;
+  border-radius: 999px;
+}
+
+.section:first-child {
+  padding-left: 28px;
+}
+
+.sectionLast {
+  padding-right: 28px;
+}
+
+.section:hover {
+  background-color: transparent;
+}
+
+.sectionActive {
+  background-color: transparent;
+}
+
+.sectionLabel {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.95);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  margin-bottom: 3px;
+}
+
+.sectionValue {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.38);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.sectionValue.filled {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* ── Vertical Divider ──────────────────────────── */
+.divider {
+  width: 1px;
+  align-self: center;
+  height: 24px;
+  background-color: rgba(255, 255, 255, 0.12);
+  flex-shrink: 0;
+}
+
+/* ── Guests Panel (horizontal stepper dropdown) ── */
+.guestsPanel {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 0;
+  right: 0;
+  background-color: rgba(14, 15, 18, 0.96);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+  padding: 10px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  z-index: 200;
+  animation: slideDown 0.15s ease-out forwards;
+}
+
+.guestsPanelLabel {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  white-space: nowrap;
+}
+
+/* ── Stepper Controls ─────────────────────────── */
+.stepperControls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.stepperBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  padding: 0;
+  line-height: 1;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.stepperBtn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #fff;
+}
+
+.stepperBtn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.stepperCount {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #fff;
+  min-width: 24px;
+  text-align: center;
+}
+
+/* ── Calendar Popover ──────────────────────────── */
+.calendarPopover {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 0;
+  right: 0;
+  background-color: rgba(14, 15, 18, 0.96);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  padding: 16px;
+  display: flex;
+  justify-content: center;
+  z-index: 300;
+  animation: slideDown 0.15s ease-out forwards;
+}
+
+/* ── Calendar Theme ──────────────────────────── */
+.calendarDayPicker {
+  --rdp-accent-color: #ffffff !important;
+  --rdp-accent-background-color: rgba(255, 255, 255, 0.08) !important;
+  --rdp-background-color: rgba(255, 255, 255, 0.08) !important;
+  --rdp-outline: none !important;
+  --rdp-outline-selected: none !important;
+  --rdp-selected-border: none !important;
+  --rdp-today-color: #ffffff !important;
+  --rdp-selected-color: var(--brand-navy) !important;
+  --rdp-range_start-color: var(--brand-navy) !important;
+  --rdp-range_end-color: var(--brand-navy) !important;
+  --rdp-range_middle-color: rgba(255, 255, 255, 0.85) !important;
+  --rdp-range_start-date-background-color: #ffffff !important;
+  --rdp-range_end-date-background-color: #ffffff !important;
+  --rdp-range_start-background: rgba(255, 255, 255, 0.08) !important;
+  --rdp-range_end-background: rgba(255, 255, 255, 0.08) !important;
+  --rdp-range_middle-background-color: rgba(255, 255, 255, 0.08) !important;
+  --rdp-range_middle-foreground-color: rgba(255, 255, 255, 0.85) !important;
+  --rdp-day_button-border-radius: 50% !important;
+  --rdp-day_button-height: 36px !important;
+  --rdp-day_button-width: 36px !important;
+  --rdp-disabled-opacity: 0.18 !important;
+  --rdp-outside-opacity: 0.25 !important;
+  --rdp-nav_button-height: 28px !important;
+  --rdp-nav_button-width: 28px !important;
+  --rdp-chevron-disabled-opacity: 0.3 !important;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.88);
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 0.85rem;
+}
+
+.calendarDayPicker :global(.rdp-month_caption) {
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #ffffff;
+  padding-bottom: 6px;
+}
+
+.calendarDayPicker :global(.rdp-weekday) {
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.calendarDayPicker :global(.rdp-button_previous),
+.calendarDayPicker :global(.rdp-button_next) {
+  color: rgba(255, 255, 255, 0.5) !important;
+  border-radius: 8px;
+  transition: all 0.15s ease;
+}
+
+.calendarDayPicker :global(.rdp-button_previous):hover,
+.calendarDayPicker :global(.rdp-button_next):hover {
+  color: #ffffff !important;
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.calendarDayPicker :global(.rdp-chevron) {
+  fill: currentColor !important;
+}
+
+.calendarDayPicker :global(.rdp-day_button) {
+  border-radius: 50%;
+  font-weight: 400;
+  transition: all 0.12s ease;
+}
+
+.calendarDayPicker :global(.rdp-day):hover :global(.rdp-day_button) {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.calendarDayPicker :global(.rdp-today) :global(.rdp-day_button) {
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.calendarDayPicker :global(.rdp-range_start) :global(.rdp-day_button),
+.calendarDayPicker :global(.rdp-range_end) :global(.rdp-day_button) {
+  background-color: #ffffff !important;
+  color: var(--brand-navy) !important;
+  font-weight: 700;
+  border-radius: 50%;
+}
+
+.calendarDayPicker :global(.rdp-range_middle) :global(.rdp-day_button) {
+  background-color: transparent !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+  border-radius: 0;
+}
+
+.calendarDayPicker :global(.rdp-disabled) { opacity: 0.18; }
+.calendarDayPicker :global(.rdp-disabled) :global(.rdp-day_button) { cursor: not-allowed; }
+
+/* ── City Dropdown ───────────────────────────── */
+.dropdown {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 0;
+  right: 0;
+  background-color: rgba(14, 15, 18, 0.96);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 200;
+  animation: slideDown 0.15s ease-out forwards;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dropdownOption {
+  padding: 10px 16px;
+  text-align: left;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 0.8125rem;
+  color: rgba(255, 255, 255, 0.8);
+  background-color: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.dropdownOption:last-child {
+  border-bottom: none;
+}
+
+.dropdownOption:hover {
+  background-color: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+
+.dropdownOption.selected {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-weight: 600;
+}
+
+.dropdownOption.selected:hover {
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+/* ── Clear Button ────────────────────────────── */
+.clearBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+  margin-left: 4px;
+  margin-right: 12px;
+  align-self: center;
+}
+
+.clearBtn:hover {
+  background: rgba(255, 80, 80, 0.15);
+  border-color: rgba(255, 80, 80, 0.3);
+  color: #ff6b6b;
+}

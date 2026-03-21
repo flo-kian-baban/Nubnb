@@ -70,13 +70,13 @@
 .form {
   display: flex;
   flex-direction: column;
-  gap: 40px;
+  gap: 4px;
 }
 
 .section {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
 }
 
 .section h3 {
@@ -90,16 +90,104 @@
   letter-spacing: 0.1em;
 }
 
+/* Accordion header */
+.accordionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  padding: 16px 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  user-select: none;
+  transition: opacity 0.15s;
+}
+
+.accordionHeader:hover {
+  opacity: 0.85;
+}
+
+.accordionHeaderLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.accordionHeaderLeft h3 {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.accordionBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  background: rgba(244, 67, 54, 0.18);
+  color: #ef5350;
+}
+
+.accordionBadgeZero {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  background: rgba(76, 175, 80, 0.15);
+  color: #66bb6a;
+}
+
+.accordionChevron {
+  transition: transform 0.25s ease;
+  color: #888;
+  flex-shrink: 0;
+}
+
+.accordionChevronOpen {
+  transition: transform 0.25s ease;
+  color: #888;
+  flex-shrink: 0;
+  transform: rotate(180deg);
+}
+
+.accordionBody {
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transition: max-height 0.35s ease, opacity 0.25s ease, padding 0.25s ease;
+  padding: 0;
+}
+
+.accordionBodyOpen {
+  max-height: 5000px;
+  opacity: 1;
+  padding: 24px 0 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 28px;
+  gap: 24px;
 }
 
 .field {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .field label, .checkboxLabel {
@@ -630,6 +718,80 @@
   cursor: not-allowed;
   transform: none;
   box-shadow: none;
+}
+
+/* Offer included checkbox */
+.offerCheckbox {
+  width: 16px;
+  height: 16px;
+  accent-color: #66bb6a;
+  cursor: pointer;
+  margin-right: 12px;
+  flex-shrink: 0;
+}
+
+/* Offer SVG icon */
+.offerIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 10px;
+  flex-shrink: 0;
+  color: #fff;
+}
+
+.offerIcon svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+  stroke: currentColor;
+}
+
+/* Star button for top amenities */
+.starBtn {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #666;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px;
+  border-radius: 6px;
+  margin-left: 10px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  flex-shrink: 0;
+}
+
+.starBtn:hover:not(:disabled) {
+  color: #ffb400;
+  background: rgba(255, 180, 0, 0.08);
+  border-color: rgba(255, 180, 0, 0.3);
+  transform: scale(1.1);
+}
+
+.starBtnActive {
+  color: #ffb400 !important;
+  background: rgba(255, 180, 0, 0.12);
+  border-color: rgba(255, 180, 0, 0.35);
+}
+
+.starBtn:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+
+/* Scrape feedback borders */
+.scrapeSuccess {
+  border-color: rgba(76, 175, 80, 0.6) !important;
+  box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.15), inset 0 2px 4px rgba(0, 0, 0, 0.3) !important;
+}
+
+.scrapeFailed {
+  border-color: rgba(244, 67, 54, 0.6) !important;
+  box-shadow: 0 0 0 2px rgba(244, 67, 54, 0.15), inset 0 2px 4px rgba(0, 0, 0, 0.3) !important;
 }
 
 /* Scrollbar styling for modal */

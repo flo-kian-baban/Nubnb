@@ -28,13 +28,15 @@
   position: absolute;
   top: 0;
   right: 0;
-  width: calc(100vw - var(--panel-width)); /* Fixed width! Never stretches */
+  width: calc(100vw - var(--panel-width));
   height: 100%;
   background-color: var(--bg-tertiary);
   transform: translateX(0);
   transition: transform var(--transition-os);
-  z-index: 0; /* Below Left and Detail panels */
+  z-index: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 /* --- STATE: DETAIL ACTIVE --- */
@@ -98,7 +100,7 @@
 
 /* Header inside the left panel */
 .header {
-  padding: 32px 32px 24px 32px; /* Increased top/side padding for breathing room */
+  padding: 20px 24px 16px 24px;
   border-bottom: 1px solid var(--border-on-navy);
   background-color: var(--brand-navy);
   position: sticky;
@@ -176,4 +178,27 @@
   font-size: 18px;
   font-weight: 500;
   color: #333;
+}
+
+.availOverlay {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 20px;
+  background: rgba(10, 15, 30, 0.9);
+  backdrop-filter: blur(12px);
+  border-radius: 20px;
+  color: rgba(255,255,255,0.85);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  z-index: 9998;
+  border: 1px solid rgba(255,255,255,0.1);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }

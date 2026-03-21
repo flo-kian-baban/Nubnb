@@ -1,13 +1,13 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Property } from "../data/properties";
 import styles from "./PropertyDetailPanel.module.css";
 import { DayPicker, DateRange } from "react-day-picker";
 import "react-day-picker/style.css";
-import { format, differenceInDays } from "date-fns";
+import { format, differenceInDays, addDays, addYears, eachDayOfInterval, parseISO, isAfter, isBefore, startOfDay } from "date-fns";
 import { 
   X, Star, Share, Heart, Users, 
   MapPin, Clock, ShieldCheck, Check,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, ChevronDown
 } from "lucide-react";
 
 interface PropertyDetailPanelProps {
@@ -19,6 +19,63 @@ export function PropertyDetailPanel({ property, onClose }: PropertyDetailPanelPr
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [dateRange, setDateRange] = useState<DateRange | undefined>();
   const [availabilityStatus, setAvailabilityStatus] = useState<'idle' | 'checking' | 'available' | 'booked' | 'error'>('idle');
+  const [showFullDescription, setShowFullDescription] = useState(false);
+  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
+  
+  // iCal booked dates
+  const [bookedDates, setBookedDates] = useState<Date[]>([]);
+  const [calendarLoading, setCalendarLoading] = useState(false);
+  const lastFetchedIcalUrl = useRef<string | null | undefined>(null);
+
+  // Fetch booked dates from iCal when property changes
+  useEffect(() => {
+    if (!property?.icalUrl) {
+      setBookedDates([]);
+      lastFetchedIcalUrl.current = null;
+      return;
+    }
+
+    // Skip if we already fetched for this exact icalUrl
+    if (lastFetchedIcalUrl.current === property.icalUrl) return;
+
+    const fetchBookedDates = async () => {
+      setCalendarLoading(true);
+      try {
+        const res = await fetch('/api/fetch-booked-dates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ icalUrl: property.icalUrl }),
+        });
+
+        if (!res.ok) throw new Error('Failed to fetch');
+
+        const result = await res.json();
+        const dates: Date[] = [];
+
+        // Expand each booked range into individual Date objects
+        for (const range of result.data.bookedRanges) {
+          const start = parseISO(range.start);
+          const end = parseISO(range.end);
+          if (start >= end) continue;
+          // eachDayOfInterval is inclusive of start, exclusive-ish — we use addDays to stop before end (checkout day is available)
+          const days = eachDayOfInterval({ start, end: addDays(end, -1) });
+          dates.push(...days);
+        }
+
+        setBookedDates(dates);
+        lastFetchedIcalUrl.current = property.icalUrl;
+      } catch (err) {
+        console.error('Error fetching booked dates:', err);
+        setBookedDates([]);
+      } finally {
+        setCalendarLoading(false);
+      }
+    };
+
+    fetchBookedDates();
+  }, [property?.icalUrl]);
+
+  const oneYearFromNow = addYears(new Date(), 1);
 
   if (!property) return null;
 
@@ -33,6 +90,7 @@ export function PropertyDetailPanel({ property, onClose }: PropertyDetailPanelPr
     e.stopPropagation();
     setCurrentImageIndex((prev) => (prev - 1 + allImages.length) % allImages.length);
   };
+
 
   const handleCheckAvailability = async () => {
     if (!dateRange?.from || !dateRange?.to) {
@@ -62,10 +120,10 @@ export function PropertyDetailPanel({ property, onClose }: PropertyDetailPanelPr
         })
       });
 
-      const data = await res.json();
+      const result = await res.json();
 
-      if (res.ok) {
-        setAvailabilityStatus(data.available ? 'available' : 'booked');
+      if (res.ok && result.success) {
+        setAvailabilityStatus(result.data.available ? 'available' : 'booked');
       } else {
         setAvailabilityStatus('error');
       }
@@ -75,19 +133,22 @@ export function PropertyDetailPanel({ property, onClose }: PropertyDetailPanelPr
     }
   };
 
+  // Check if description is long enough to truncate
+  const descriptionIsLong = (property.description || '').length > 280;
+
   return (
     <div className={styles.container}>
       {/* Top Navigation / Actions */}
       <div className={styles.topBar}>
         <button className={styles.closeBtn} onClick={onClose} aria-label="Close details">
-          <X size={24} />
+          <X size={22} />
         </button>
         <div className={styles.actions}>
           <button className={styles.actionBtn}>
-            <Share size={20} />
+            <Share size={18} />
           </button>
           <button className={styles.actionBtn}>
-            <Heart size={20} />
+            <Heart size={18} />
           </button>
         </div>
       </div>
@@ -103,23 +164,21 @@ export function PropertyDetailPanel({ property, onClose }: PropertyDetailPanelPr
 
           {allImages.length > 1 && (
             <>
-              {/* Navigation Arrows */}
               <button 
                 className={`${styles.carouselNav} ${styles.carouselNavPrev}`}
                 onClick={prevImage}
                 aria-label="Previous image"
               >
-                <ChevronLeft size={24} />
+                <ChevronLeft size={22} />
               </button>
               <button 
                 className={`${styles.carouselNav} ${styles.carouselNavNext}`}
                 onClick={nextImage}
                 aria-label="Next image"
               >
-                <ChevronRight size={24} />
+                <ChevronRight size={22} />
               </button>
 
-              {/* Dot Indicators */}
               <div className={styles.carouselIndicators}>
                 {allImages.map((_, idx) => (
                   <button
@@ -160,16 +219,16 @@ export function PropertyDetailPanel({ property, onClose }: PropertyDetailPanelPr
         <div className={styles.body}>
           <div className={styles.mainContent}>
             {/* Title & Top Metadata */}
-            <div className={styles.headerSection}>
+            <div className={`${styles.headerSection} ${styles.animateIn}`} style={{ animationDelay: '0.05s' }}>
               {property.propertyTypeTag && (
                 <span className={styles.propertyTypeTag}>{property.propertyTypeTag}</span>
               )}
               <h1 className={styles.title}>{property.name}</h1>
               <div className={styles.locationRow}>
-                <MapPin size={18} className={styles.iconSubtle} />
-                <span>{property.addressDetails.area}, {property.addressDetails.city}</span>
+                <MapPin size={16} className={styles.iconSubtle} />
+                <span>{property.addressDetails?.area}, {property.addressDetails?.city}</span>
                 <span className={styles.dot}>•</span>
-                <Star size={18} fill="currentColor" className={styles.iconStar} />
+                <Star size={15} fill="currentColor" className={styles.iconStar} />
                 <span className={styles.ratingText}>4.98</span>
                 <span className={styles.reviews}>(124 reviews)</span>
               </div>
@@ -178,7 +237,7 @@ export function PropertyDetailPanel({ property, onClose }: PropertyDetailPanelPr
                 <div className={styles.highlightBadges}>
                   {property.highlights.map((hl, idx) => (
                     <span key={idx} className={styles.highlightBadge}>
-                      <Check size={14} /> {hl}
+                      <Check size={12} /> {hl}
                     </span>
                   ))}
                 </div>
@@ -187,8 +246,8 @@ export function PropertyDetailPanel({ property, onClose }: PropertyDetailPanelPr
 
             <div className={styles.divider} />
 
-            {/* Quick Stats Row */}
-            <div className={styles.quickStatsRow}>
+            {/* Quick Stats Row — 4 columns with Beds */}
+            <div className={`${styles.quickStatsRow} ${styles.animateIn}`} style={{ animationDelay: '0.12s' }}>
               <div className={styles.statItem}>
                 <span className={styles.statValue}>{property.guests}</span>
                 <span className={styles.statLabel}>Guests</span>
@@ -200,84 +259,130 @@ export function PropertyDetailPanel({ property, onClose }: PropertyDetailPanelPr
               </div>
               <div className={styles.statDivider} />
               <div className={styles.statItem}>
+                <span className={styles.statValue}>{property.beds || '—'}</span>
+                <span className={styles.statLabel}>Beds</span>
+              </div>
+              <div className={styles.statDivider} />
+              <div className={styles.statItem}>
                 <span className={styles.statValue}>{property.bathrooms}</span>
-                <span className={styles.statLabel}>Bathrooms</span>
+                <span className={styles.statLabel}>Baths</span>
               </div>
             </div>
 
             <div className={styles.divider} />
 
             {/* About */}
-            <div className={styles.section}>
-              <h2 className={styles.sectionTitle}>About this space</h2>
-              <p className={styles.descriptionText}>{property.description}</p>
+            <div className={`${styles.section} ${styles.animateIn}`} style={{ animationDelay: '0.18s' }}>
+              <h2 className={styles.sectionTitle}>
+                <span className={styles.sectionTitleAccent} />
+                About this space
+              </h2>
+              <p className={`${styles.descriptionText} ${!showFullDescription && descriptionIsLong ? styles.descriptionTruncated : ''}`}>
+                {property.description}
+              </p>
+              {descriptionIsLong && (
+                <button className={styles.showMoreBtn} onClick={() => setShowFullDescription(!showFullDescription)}>
+                  {showFullDescription ? 'Show less' : 'Show more'}
+                  <ChevronDown size={14} style={{ transform: showFullDescription ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s ease' }} />
+                </button>
+              )}
             </div>
 
-            {/* Top Amenities Grid */}
-            <div className={styles.section}>
-              <h2 className={styles.sectionTitle}>At a Glance</h2>
-              <div className={styles.highlightsGrid}>
-                {property.amenities.map((amenity, idx) => (
-                  <div key={idx} className={styles.highlightItem}>
-                    <div className={styles.highlightIconBg}>
-                      <Check size={18} className={styles.highlightIcon} />
+            {/* At a Glance — 2 col × 3 row grid with SVG icons */}
+            <div className={`${styles.section} ${styles.animateIn}`} style={{ animationDelay: '0.24s' }}>
+              <h2 className={styles.sectionTitle}>
+                <span className={styles.sectionTitleAccent} />
+                At a Glance
+              </h2>
+              <div className={styles.amenityGrid}>
+                {property.amenities.slice(0, 6).map((amenity, idx) => {
+                  // Try to find a matching offer with an SVG icon
+                  const matchingOffer = property.offers?.find(o => 
+                    o.name.toLowerCase() === amenity.toLowerCase() && o.icon
+                  );
+                  return (
+                    <div key={idx} className={styles.amenityGridItem}>
+                      {matchingOffer?.icon ? (
+                        <span className={styles.amenityGridIcon} dangerouslySetInnerHTML={{ __html: matchingOffer.icon }} />
+                      ) : (
+                        <Check size={18} className={styles.amenityGridIcon} />
+                      )}
+                      <span>{amenity}</span>
                     </div>
-                    <span>{amenity}</span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
-            {/* At a Glance Logistics */}
-            <div className={styles.section}>
-              <h2 className={styles.sectionTitle}>Things to Know</h2>
+            {/* Things to Know — Logistics */}
+            <div className={`${styles.section} ${styles.animateIn}`} style={{ animationDelay: '0.3s' }}>
+              <h2 className={styles.sectionTitle}>
+                <span className={styles.sectionTitleAccent} />
+                Things to Know
+              </h2>
               <div className={styles.logisticsGrid}>
                 <div className={styles.logisticItem}>
-                  <Clock size={20} className={styles.iconSubtle} />
-                  <div>
-                    <div className={styles.logisticLabel}>Check-in</div>
-                    <div className={styles.logisticValue}>After {property.details?.checkIn || '4:00 PM'}</div>
-                  </div>
+                  <Clock size={18} className={styles.logisticIconRow} />
+                  <div className={styles.logisticLabel}>Check-in</div>
+                  <div className={styles.logisticValue}>After {property.details?.checkIn || '4:00 PM'}</div>
                 </div>
                 <div className={styles.logisticItem}>
-                  <Clock size={20} className={styles.iconSubtle} />
-                  <div>
-                    <div className={styles.logisticLabel}>Checkout</div>
-                    <div className={styles.logisticValue}>Before {property.details?.checkOut || '11:00 AM'}</div>
-                  </div>
+                  <Clock size={18} className={styles.logisticIconRow} />
+                  <div className={styles.logisticLabel}>Checkout</div>
+                  <div className={styles.logisticValue}>Before {property.details?.checkOut || '11:00 AM'}</div>
                 </div>
                 <div className={styles.logisticItem}>
-                  <ShieldCheck size={20} className={styles.iconSubtle} />
-                  <div>
-                    <div className={styles.logisticLabel}>Cancellation</div>
-                    <div className={styles.logisticValue}>{property.terms?.cancellationPolicy || 'Firm'}</div>
-                  </div>
+                  <ShieldCheck size={18} className={styles.logisticIconRow} />
+                  <div className={styles.logisticLabel}>Cancellation</div>
+                  <div className={styles.logisticValue}>{property.terms?.cancellationPolicy || 'Firm'}</div>
                 </div>
               </div>
             </div>
 
             <div className={styles.divider} />
 
-            {/* What This Place Offers */}
+            {/* What This Place Offers — Open Categories with SVGs */}
             {property.offers && property.offers.length > 0 && (
-              <div className={styles.section}>
-                <h2 className={styles.sectionTitle}>What this place offers</h2>
+              <div className={`${styles.section} ${styles.animateIn}`} style={{ animationDelay: '0.36s' }}>
+                <h2 className={styles.sectionTitle}>
+                  <span className={styles.sectionTitleAccent} />
+                  What this place offers
+                </h2>
                 <div className={styles.featuresContainer}>
                   {(() => {
                     const categories = [...new Set(property.offers.map(o => o.category))];
-                    return categories.map((cat, idx) => (
-                      <div key={idx} className={styles.featureCategoryGroup}>
-                        <h3 className={styles.featureCategoryTitle}>{cat}</h3>
-                        <ul className={styles.featureList}>
-                          {property.offers.filter(o => o.category === cat).map((offer, idxi) => (
-                            <li key={idxi} className={offer.available ? styles.featureItemIncluded : styles.featureItemExcluded}>
-                              {offer.available ? <Check size={18} /> : <X size={18} className={styles.featureItemExcludedIcon} />}
-                              <span className={offer.available ? '' : styles.featureItemExcludedText}>{offer.name}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ));
+                    return categories.map((cat, idx) => {
+                      const items = property.offers.filter(o => o.category === cat);
+                      const hasMore = items.length > 5;
+                      const isExpanded = expandedCategories[cat] ?? false;
+                      const visibleItems = hasMore && !isExpanded ? items.slice(0, 5) : items;
+                      return (
+                        <div key={idx} className={styles.featureCategoryGroup}>
+                          <h3 className={styles.featureCategoryTitle}>{cat}</h3>
+                          <ul className={styles.featureList}>
+                            {visibleItems.map((offer, idxi) => (
+                              <li key={idxi} className={offer.available ? styles.featureItemIncluded : styles.featureItemExcluded}>
+                                {offer.icon ? (
+                                  <span className={styles.svgIcon} dangerouslySetInnerHTML={{ __html: offer.icon }} />
+                                ) : (
+                                  offer.available ? <Check size={18} /> : <X size={18} className={styles.featureItemExcludedIcon} />
+                                )}
+                                <span className={offer.available ? '' : styles.featureItemExcludedText}>{offer.name}</span>
+                              </li>
+                            ))}
+                          </ul>
+                          {hasMore && (
+                            <button 
+                              className={styles.readMoreBtn}
+                              onClick={() => setExpandedCategories(prev => ({ ...prev, [cat]: !prev[cat] }))}
+                            >
+                              {isExpanded ? 'Show less' : `Read more (${items.length - 5})`}
+                              <ChevronDown size={14} style={{ transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.25s ease' }} />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    });
                   })()}
                 </div>
               </div>
@@ -285,24 +390,71 @@ export function PropertyDetailPanel({ property, onClose }: PropertyDetailPanelPr
 
             {property.offers && property.offers.length > 0 && <div className={styles.divider} />}
 
-            {/* Terms & Rules */}
+            {/* Guest Reviews */}
+            {property.reviews && property.reviews.length > 0 && (
+              <div className={`${styles.section} ${styles.animateIn}`} style={{ animationDelay: '0.39s' }}>
+                <h2 className={styles.sectionTitle}>
+                  <span className={styles.sectionTitleAccent} />
+                  Guest Reviews
+                  {property.averageRating ? (
+                    <span className={styles.reviewHeaderMeta}>
+                      <Star size={14} fill="currentColor" />
+                      {property.averageRating.toFixed(2)}
+                      {property.totalReviewCount ? ` · ${property.totalReviewCount} reviews` : ''}
+                    </span>
+                  ) : null}
+                </h2>
+                <div className={styles.reviewsGrid}>
+                  {property.reviews.map((review, idx) => (
+                    <div key={idx} className={styles.reviewCard}>
+                      <div className={styles.reviewCardHeader}>
+                        {review.avatar ? (
+                          <img src={review.avatar} alt={review.reviewer} className={styles.reviewAvatar} />
+                        ) : (
+                          <div className={styles.reviewAvatarPlaceholder}>
+                            {review.reviewer.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <div className={styles.reviewMeta}>
+                          <span className={styles.reviewName}>{review.reviewer}</span>
+                          <span className={styles.reviewDate}>{review.date}</span>
+                        </div>
+                        <div className={styles.reviewStars}>
+                          {Array.from({ length: review.rating }).map((_, i) => (
+                            <Star key={i} size={12} fill="currentColor" />
+                          ))}
+                        </div>
+                      </div>
+                      <p className={styles.reviewText}>{review.text}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {property.reviews && property.reviews.length > 0 && <div className={styles.divider} />}
+
+            {/* House Rules — Card Layout */}
             {property.terms && (
-              <div className={styles.section}>
-                <h2 className={styles.sectionTitle}>House Rules</h2>
+              <div className={`${styles.section} ${styles.animateIn}`} style={{ animationDelay: '0.42s' }}>
+                <h2 className={styles.sectionTitle}>
+                  <span className={styles.sectionTitleAccent} />
+                  House Rules
+                </h2>
                 <div className={styles.rulesGrid}>
-                  <div className={styles.ruleItem}>
+                  <div className={styles.ruleCard}>
                     {property.terms.smokingAllowed ? <Check size={18} className={styles.ruleIconAllowed} /> : <X size={18} className={styles.ruleIconDenied} />}
                     <span>{property.terms.smokingAllowed ? 'Smoking allowed' : 'No smoking'}</span>
                   </div>
-                  <div className={styles.ruleItem}>
+                  <div className={styles.ruleCard}>
                     {property.terms.petsAllowed ? <Check size={18} className={styles.ruleIconAllowed} /> : <X size={18} className={styles.ruleIconDenied} />}
                     <span>{property.terms.petsAllowed ? 'Pets allowed' : 'No pets'}</span>
                   </div>
-                  <div className={styles.ruleItem}>
+                  <div className={styles.ruleCard}>
                     {property.terms.partyAllowed ? <Check size={18} className={styles.ruleIconAllowed} /> : <X size={18} className={styles.ruleIconDenied} />}
                     <span>{property.terms.partyAllowed ? 'Parties allowed' : 'No parties or events'}</span>
                   </div>
-                  <div className={styles.ruleItem}>
+                  <div className={styles.ruleCard}>
                     {property.terms.childrenAllowed ? <Check size={18} className={styles.ruleIconAllowed} /> : <X size={18} className={styles.ruleIconDenied} />}
                     <span>{property.terms.childrenAllowed ? 'Suitable for children' : 'Not suitable for children'}</span>
                   </div>
@@ -321,7 +473,7 @@ export function PropertyDetailPanel({ property, onClose }: PropertyDetailPanelPr
           
           {/* Sticky Booking Card Sidebar */}
           <div className={styles.sidebar}>
-            <div className={styles.bookingCard}>
+            <div className={`${styles.bookingCard} ${styles.animateIn}`} style={{ animationDelay: '0.15s' }}>
               <div className={styles.bookingHeader}>
                 <span className={styles.currency}>$</span>
                 <span className={styles.amount}>{property.priceInfo?.nightly || property.price}</span>
@@ -332,53 +484,80 @@ export function PropertyDetailPanel({ property, onClose }: PropertyDetailPanelPr
                 <div className={`${styles.inputGroup} ${styles.full}`}>
                   <span className={styles.inputLabel}>Select Dates</span>
                   <div className={styles.dayPickerWrapper}>
-                    <DayPicker
-                      mode="range"
-                      selected={dateRange}
-                      onSelect={(range) => {
-                        setDateRange(range);
-                        setAvailabilityStatus('idle');
-                      }}
-                      disabled={{ before: new Date() }}
-                      className={styles.calendarDayPicker}
-                    />
-                  </div>
-                </div>
-                <div className={`${styles.inputGroup} ${styles.full}`}>
-                  <span className={styles.inputLabel}>Guests</span>
-                  <div className={styles.inputBox}>
-                    <Users className={styles.inputIcon} size={18} />
-                    <span>1 Guest</span>
+                    {calendarLoading ? (
+                      <div className={styles.calendarLoading}>Loading availability...</div>
+                    ) : (
+                      <DayPicker
+                        mode="range"
+                        selected={dateRange}
+                        onSelect={(range) => {
+                          // If a full range is selected, check for booked days in between
+                          if (range?.from && range?.to && bookedDates.length > 0) {
+                            const from = startOfDay(range.from);
+                            const to = startOfDay(range.to);
+                            const hasBookedInBetween = bookedDates.some(d => {
+                              const day = startOfDay(d);
+                              return (isAfter(day, from) || day.getTime() === from.getTime()) && 
+                                     isBefore(day, to);
+                            });
+                            if (hasBookedInBetween) {
+                              // Reset selection — don't allow ranges spanning booked days
+                              setDateRange(undefined);
+                              setAvailabilityStatus('idle');
+                              return;
+                            }
+                          }
+                          setDateRange(range);
+                          setAvailabilityStatus('idle');
+                        }}
+                        disabled={[
+                          { before: new Date() },
+                          { after: oneYearFromNow },
+                          ...bookedDates,
+                        ]}
+                        startMonth={new Date()}
+                        endMonth={oneYearFromNow}
+                        className={styles.calendarDayPicker}
+                      />
+                    )}
                   </div>
                 </div>
               </div>
 
               {(() => {
-                let nights = property.priceInfo?.minNights || 1;
+                const nightlyRate = property.priceInfo?.nightly || parseInt(String(property.price || '0').replace(/[^0-9]/g, '')) || 0;
+                const cleaningFee = property.priceInfo?.cleaningFee || 0;
+
                 if (dateRange?.from && dateRange?.to) {
-                  const diff = differenceInDays(dateRange.to, dateRange.from);
-                  if (diff > 0) nights = diff;
+                  const nights = Math.max(differenceInDays(dateRange.to, dateRange.from), 1);
+                  const nightlyTotal = nightlyRate * nights;
+                  const grandTotal = nightlyTotal + cleaningFee;
+
+                  return (
+                    <div className={styles.priceBreakdown}>
+                      <div className={styles.priceRow}>
+                        <span>${nightlyRate} x {nights} night{nights !== 1 ? 's' : ''}</span>
+                        <span>${nightlyTotal}</span>
+                      </div>
+                      {cleaningFee > 0 && (
+                        <div className={styles.priceRow}>
+                          <span>Cleaning fee</span>
+                          <span>${cleaningFee}</span>
+                        </div>
+                      )}
+                      <div className={styles.priceDivider} />
+                      <div className={`${styles.priceRow} ${styles.priceTotal}`}>
+                        <span>Total</span>
+                        <span>${grandTotal}</span>
+                      </div>
+                    </div>
+                  );
                 }
-                // Ensure at least minNights is charged
-                nights = Math.max(nights, property.priceInfo?.minNights || 1);
-                
-                const nightlyTotal = property.priceInfo.nightly * nights;
-                const grandTotal = nightlyTotal + property.priceInfo.cleaningFee;
 
                 return (
                   <div className={styles.priceBreakdown}>
-                    <div className={styles.priceRow}>
-                      <span>${property.priceInfo.nightly} x {nights} nights</span>
-                      <span>${nightlyTotal}</span>
-                    </div>
-                    <div className={styles.priceRow}>
-                      <span>Cleaning fee</span>
-                      <span>${property.priceInfo.cleaningFee}</span>
-                    </div>
-                    <div className={styles.priceDivider} />
-                    <div className={`${styles.priceRow} ${styles.priceTotal}`}>
-                      <span>Total</span>
-                      <span>${grandTotal}</span>
+                    <div className={styles.priceRow} style={{ justifyContent: 'center', color: '#888' }}>
+                      <span>Select dates to see total price</span>
                     </div>
                   </div>
                 );

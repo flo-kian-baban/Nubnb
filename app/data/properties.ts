@@ -2,6 +2,15 @@ export interface Offer {
   name: string;       // e.g. "Hair dryer", "Free parking (1 space)"
   category: string;   // e.g. "Bathroom", "Kitchen and dining", "Parking"
   available: boolean;  // true = offered, false = shown as "Unavailable"
+  icon?: string;       // SVG markup string for the amenity icon
+}
+
+export interface Review {
+  reviewer: string;       // reviewer first name
+  date: string;           // "March 2025"
+  rating: number;         // individual star rating (4 or 5)
+  text: string;           // review text
+  avatar?: string;        // reviewer profile image URL
 }
 
 export interface Property {
@@ -13,12 +22,22 @@ export interface Property {
   price: number;
   currency: string;
   bedrooms: number;
+  beds: number;
   bathrooms: number;
   guests: number;
   coverImage: string;
   images?: string[];
   type: string;
   icalUrl?: string;
+
+  // External links
+  airbnbUrl?: string;
+  googleMapsUrl?: string;
+
+  // Reviews
+  reviews?: Review[];
+  averageRating?: number;
+  totalReviewCount?: number;
 
   // Airbnb-aligned fields
   propertyTypeTag: string;    // "Entire home", "Private room", "Guest suite"
@@ -132,6 +151,7 @@ export const properties: Property[] = [
     price: 3500,
     currency: 'CAD',
     bedrooms: 2,
+    beds: 0,
     bathrooms: 1,
     guests: 6,
     coverImage: 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&q=80&w=2000',
@@ -155,6 +175,7 @@ export const properties: Property[] = [
     price: 1800,
     currency: 'CAD',
     bedrooms: 5,
+    beds: 0,
     bathrooms: 4,
     guests: 10,
     coverImage: 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&q=80&w=2000',
@@ -184,6 +205,7 @@ export const properties: Property[] = [
     price: 2200,
     currency: 'CAD',
     bedrooms: 1,
+    beds: 0,
     bathrooms: 1,
     guests: 2,
     coverImage: 'https://images.unsplash.com/photo-1613977257363-707ba9348227?auto=format&fit=crop&q=80&w=2000',
@@ -207,6 +229,7 @@ export const properties: Property[] = [
     price: 1500,
     currency: 'CAD',
     bedrooms: 4,
+    beds: 0,
     bathrooms: 2,
     guests: 8,
     coverImage: 'https://images.unsplash.com/photo-1510798831971-661eb04b3739?auto=format&fit=crop&q=80&w=2000',
@@ -237,6 +260,7 @@ export const properties: Property[] = [
     price: 2800,
     currency: 'CAD',
     bedrooms: 2,
+    beds: 0,
     bathrooms: 2,
     guests: 4,
     coverImage: 'https://images.unsplash.com/photo-1600607687920-4e2a09cf159d?auto=format&fit=crop&q=80&w=2000',
@@ -260,6 +284,7 @@ export const properties: Property[] = [
     price: 1950,
     currency: 'CAD',
     bedrooms: 5,
+    beds: 0,
     bathrooms: 4.5,
     guests: 10,
     coverImage: 'https://images.unsplash.com/photo-1576941089067-2de3c901e126?auto=format&fit=crop&q=80&w=2000',
@@ -289,6 +314,7 @@ export const properties: Property[] = [
     price: 1200,
     currency: 'CAD',
     bedrooms: 1,
+    beds: 0,
     bathrooms: 1,
     guests: 2,
     coverImage: 'https://images.unsplash.com/photo-1580587771525-78b9dba3b914?auto=format&fit=crop&q=80&w=2000',
@@ -312,6 +338,7 @@ export const properties: Property[] = [
     price: 2400,
     currency: 'CAD',
     bedrooms: 6,
+    beds: 0,
     bathrooms: 5,
     guests: 12,
     coverImage: 'https://images.unsplash.com/photo-1558036117-15d82a90b9b1?auto=format&fit=crop&q=80&w=2000',

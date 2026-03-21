@@ -1,6 +1,6 @@
-import { startOfDay, endOfDay, parseISO } from 'date-fns';
+import { addYears, startOfDay } from 'date-fns';
 import { createRateLimiter } from '@/app/lib/api/rate-limit';
-import { validateIcalUrl, validateDateString } from '@/app/lib/api/validate';
+import { validateIcalUrl } from '@/app/lib/api/validate';
 import { guardedFetch, GuardedFetchError } from '@/app/lib/api/url-guard';
 import { apiSuccess, apiError, apiRateLimited } from '@/app/lib/api/safe-response';
 import { parseIcalEvents } from '@/app/lib/api/ical-parser';
@@ -22,30 +22,17 @@ export async function POST(request: Request) {
       return apiError('Invalid JSON body', 400);
     }
 
-    const { icalUrl, startDate, endDate } = body;
+    const { icalUrl } = body;
 
     // ── Validate inputs ────────────────────────────────────
     const urlCheck = validateIcalUrl(icalUrl);
     if (!urlCheck.valid) return apiError(urlCheck.error!, 400);
 
-    const startCheck = validateDateString(startDate, 'startDate');
-    if (!startCheck.valid) return apiError(startCheck.error!, 400);
-
-    const endCheck = validateDateString(endDate, 'endDate');
-    if (!endCheck.valid) return apiError(endCheck.error!, 400);
-
-    // Logical: start must be before end
-    const requestedStart = startOfDay(parseISO(startCheck.value!));
-    const requestedEnd = endOfDay(parseISO(endCheck.value!));
-    if (requestedStart >= requestedEnd) {
-      return apiError('startDate must be before endDate', 400);
-    }
-
     // ── Fetch iCal (SSRF-safe) ─────────────────────────────
     let icalData: string;
     try {
       const response = await guardedFetch(urlCheck.value!, {
-        maxResponseBytes: 5 * 1024 * 1024, // 5 MB max for iCal
+        maxResponseBytes: 5 * 1024 * 1024,
         timeoutMs: 10_000,
       });
       if (!response.ok) {
@@ -59,21 +46,28 @@ export async function POST(request: Request) {
       return apiError('Failed to fetch the calendar feed', 502, err);
     }
 
-    // ── Parse & check availability ─────────────────────────
+    // ── Parse events & collect booked ranges ───────────────
+    const today = startOfDay(new Date());
+    const maxDate = addYears(today, 1);
     const events = parseIcalEvents(icalData);
 
-    let isAvailable = true;
+    const bookedRanges: { start: string; end: string }[] = [];
     for (const event of events) {
-      // Overlap: requestedStart < eventEnd AND requestedEnd > eventStart
-      if (requestedStart < event.end && requestedEnd > event.start) {
-        isAvailable = false;
-        break;
+      // Only include events that overlap with our window (today → 1 year out)
+      if (event.end > today && event.start < maxDate) {
+        const clampedStart = event.start < today ? today : event.start;
+        const clampedEnd = event.end > maxDate ? maxDate : event.end;
+
+        bookedRanges.push({
+          start: clampedStart.toISOString().split('T')[0],
+          end: clampedEnd.toISOString().split('T')[0],
+        });
       }
     }
 
-    return apiSuccess({ available: isAvailable });
+    return apiSuccess({ bookedRanges });
 
   } catch (error) {
-    return apiError('Failed to verify availability against the calendar', 500, error);
+    return apiError('Failed to parse calendar data', 500, error);
   }
 }
