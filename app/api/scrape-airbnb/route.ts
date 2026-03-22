@@ -1,4 +1,5 @@
-import puppeteer from 'puppeteer';
+import puppeteer from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
 import { findBestIcons } from '@/app/data/amenityIcons';
 import { createRateLimiter } from '@/app/lib/api/rate-limit';
 import { validateAirbnbUrl } from '@/app/lib/api/validate';
@@ -30,9 +31,20 @@ export async function POST(request: Request) {
     const urlCheck = validateAirbnbUrl(url);
     if (!urlCheck.valid) return apiError(urlCheck.error!, 400);
 
+    // In production (Vercel), use @sparticuz/chromium's serverless binary.
+    // In local dev, fall back to the system Chrome installation.
+    const isLocal = process.env.NODE_ENV === 'development';
+
     browser = await puppeteer.launch({
+      args: isLocal
+        ? ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+        : chromium.args,
+      defaultViewport: { width: 1920, height: 1080 },
+      executablePath: isLocal
+        ? (process.env.CHROME_PATH ||
+           '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
+        : await chromium.executablePath(),
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
     });
 
     const page = await browser.newPage();
