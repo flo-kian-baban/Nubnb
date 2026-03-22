@@ -1112,8 +1112,11 @@ export async function POST(request: Request) {
     if (browser) {
       try { await browser.close(); } catch { /* ignore close errors */ }
     }
+    // TEMPORARY: expose error details for debugging Vercel deployment
+    const errMsg = error instanceof Error ? error.message : String(error);
+    const errStack = error instanceof Error ? error.stack : '';
     return apiError(
-      'Failed to scrape the Airbnb listing. Make sure the URL is valid and the page is accessible.',
+      `Scrape failed: ${errMsg} | Stack: ${errStack}`,
       500,
       error,
     );
