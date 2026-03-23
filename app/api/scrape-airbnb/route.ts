@@ -1,5 +1,5 @@
 import puppeteer from 'puppeteer-core';
-import chromium from '@sparticuz/chromium';
+import chromium from '@sparticuz/chromium-min';
 import { findBestIcons } from '@/app/data/amenityIcons';
 import { createRateLimiter } from '@/app/lib/api/rate-limit';
 import { validateAirbnbUrl } from '@/app/lib/api/validate';
@@ -9,6 +9,10 @@ export const maxDuration = 120;
 
 // 3 requests per 5 minutes per IP — scraping is expensive
 const limiter = createRateLimiter({ windowMs: 5 * 60_000, maxRequests: 3 });
+
+// GitHub-hosted Chromium binary for @sparticuz/chromium-min (downloaded at runtime)
+const CHROMIUM_PACK_URL =
+  'https://github.com/Sparticuz/chromium/releases/download/v143.0.4/chromium-v143.0.4-pack.x64.tar';
 
 export async function POST(request: Request) {
   // ── Rate limit ───────────────────────────────────────────
@@ -31,7 +35,7 @@ export async function POST(request: Request) {
     const urlCheck = validateAirbnbUrl(url);
     if (!urlCheck.valid) return apiError(urlCheck.error!, 400);
 
-    // In production (Vercel), use @sparticuz/chromium's serverless binary.
+    // In production (Vercel), use @sparticuz/chromium-min's serverless binary.
     // In local dev, fall back to the system Chrome installation.
     const isLocal = process.env.NODE_ENV === 'development';
 
@@ -43,7 +47,7 @@ export async function POST(request: Request) {
       executablePath: isLocal
         ? (process.env.CHROME_PATH ||
            '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
-        : await chromium.executablePath(),
+        : await chromium.executablePath(CHROMIUM_PACK_URL),
       headless: true,
     });
 
