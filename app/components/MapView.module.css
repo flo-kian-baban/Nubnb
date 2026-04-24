@@ -72,6 +72,10 @@
   background-color: var(--bg-secondary) !important;
 }
 
+:global(.maplibregl-ctrl-group button .maplibregl-ctrl-icon) {
+  filter: brightness(0) saturate(100%) invert(62%) sepia(25%) saturate(600%) hue-rotate(178deg) brightness(92%) contrast(88%) !important;
+}
+
 :global(.maplibregl-ctrl-group button:hover) {
   background-color: var(--bg-tertiary) !important;
 }

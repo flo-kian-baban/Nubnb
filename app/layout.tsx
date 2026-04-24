@@ -15,8 +15,25 @@ const playfair = Playfair_Display({
 });
 
 export const metadata: Metadata = {
-  title: "NUBNB | Premium Spatial Discovery",
-  description: "Discover high-end NUBNB properties visually across our portfolio.",
+  title: "NUBNB | Premium Property Discovery",
+  description: "Discover and book premium short-term rental properties across the Greater Toronto Area. Curated luxury homes, condos, and estates with instant availability.",
+  icons: {
+    icon: "/logo-nubnb.png",
+    apple: "/logo-nubnb.png",
+  },
+  openGraph: {
+    title: "NUBNB | Premium Property Discovery",
+    description: "Discover and book premium short-term rental properties across the Greater Toronto Area.",
+    images: [{ url: "/logo-nubnb.png", width: 512, height: 512, alt: "NUBNB" }],
+    siteName: "NUBNB",
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: "NUBNB | Premium Property Discovery",
+    description: "Discover and book premium short-term rental properties across the Greater Toronto Area.",
+    images: ["/logo-nubnb.png"],
+  },
 };
 
 export default function RootLayout({

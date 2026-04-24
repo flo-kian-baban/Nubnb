@@ -95,6 +95,15 @@ export function MapView({
 }: MapViewProps) {
   const mapRef = useRef<MapRef>(null);
   const [zoomLevel, setZoomLevel] = useState(10);
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Detect mobile
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth <= 768);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
   // Track which property IDs are "force-expanded" (shown individually even if clustered)
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
@@ -136,24 +145,36 @@ export function MapView({
     if (selectedId && mapRef.current) {
       const selected = properties.find((p) => p.id === selectedId);
       if (selected) {
-        const viewportWidth = window.innerWidth;
-        const panelWidth = 480;
-        const mapContainerWidth = viewportWidth - panelWidth;
-        const coveredWidth = Math.max(0, mapContainerWidth - panelWidth);
         const customEasing = (t: number) => 1 - Math.pow(1 - t, 4);
 
-        mapRef.current.flyTo({
-          center: selected.coordinates,
-          zoom: 14,
-          speed: 1.2,
-          curve: 1.2,
-          padding: { right: coveredWidth },
-          easing: customEasing,
-        });
+        if (isMobile) {
+          // On mobile the detail panel is fullscreen, no offset needed
+          mapRef.current.flyTo({
+            center: selected.coordinates,
+            zoom: 13,
+            speed: 1.2,
+            curve: 1.2,
+            easing: customEasing,
+          });
+        } else {
+          const viewportWidth = window.innerWidth;
+          const panelWidth = 480;
+          const mapContainerWidth = viewportWidth - panelWidth;
+          const coveredWidth = Math.max(0, mapContainerWidth - panelWidth);
+
+          mapRef.current.flyTo({
+            center: selected.coordinates,
+            zoom: 14,
+            speed: 1.2,
+            curve: 1.2,
+            padding: { right: coveredWidth },
+            easing: customEasing,
+          });
+        }
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId]);
+  }, [selectedId, isMobile]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const onMapLoad = useCallback((e: any) => {
@@ -180,20 +201,24 @@ export function MapView({
       console.warn("Could not customize map layers", err);
     }
 
-    // On mobile, fit bounds to show all properties
-    if (window.innerWidth <= 768 && properties.length > 0) {
-      const lngs = properties.map(p => p.coordinates[0]);
-      const lats = properties.map(p => p.coordinates[1]);
-      map.fitBounds(
-        [
-          [Math.min(...lngs), Math.min(...lats)],
-          [Math.max(...lngs), Math.max(...lats)],
-        ],
-        { padding: { top: 80, bottom: 100, left: 40, right: 40 }, duration: 0 }
-      );
-    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [properties]);
+  }, []);
+
+  // Fit bounds on mobile once properties load (separate from onMapLoad
+  // so it works even when data arrives after the map is ready)
+  useEffect(() => {
+    if (!isMobile || properties.length === 0 || !mapRef.current) return;
+    const map = mapRef.current.getMap();
+    const lngs = properties.map(p => p.coordinates[0]);
+    const lats = properties.map(p => p.coordinates[1]);
+    map.fitBounds(
+      [
+        [Math.min(...lngs) - 0.05, Math.min(...lats) - 0.02],
+        [Math.max(...lngs) + 0.05, Math.max(...lats) + 0.02],
+      ],
+      { padding: { top: 60, bottom: 100, left: 30, right: 30 }, duration: 0 }
+    );
+  }, [isMobile, properties]);
 
   // Auto-expand clusters at high zoom; collapse when zooming out
   useEffect(() => {
@@ -224,7 +249,7 @@ export function MapView({
         initialViewState={{
           longitude: -79.4395,
           latitude: 43.8561,
-          zoom: 10,
+          zoom: isMobile ? 8.5 : 10,
         }}
         mapStyle={MAP_STYLE}
         mapLib={maplibregl}
