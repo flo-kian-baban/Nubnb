@@ -23,9 +23,26 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-  background-color: var(--bg-primary);
-  color: var(--text-primary);
   font-family: Arial, Helvetica, sans-serif;
+
+  /* ── Force dark theme regardless of system preference ── */
+  --bg-primary: #0F0F11;
+  --bg-secondary: #1C1C1E;
+  --bg-tertiary: #2C2C2E;
+  --bg-overlay: rgba(15, 15, 17, 0.85);
+  --text-primary: #F0F0F0;
+  --text-secondary: #A0A0A0;
+  --text-tertiary: #707070;
+  --brand-navy: #0A0A0C;
+  --brand-navy-light: #1A1A1C;
+  --brand-dark-blue: #93B5DD;
+  --border-light: #2C2C2E;
+  --border-medium: #3C3C3E;
+  --shadow-float: 0 20px 48px rgba(0, 0, 0, 0.5), 0 0 1px rgba(255,255,255,0.1);
+
+  background-color: #0F0F11;
+  color: #F0F0F0;
+  color-scheme: dark;
 }
 
 /* ── Top Bar ── */
@@ -55,6 +72,7 @@
   box-shadow: var(--shadow-sm);
   transition: all var(--transition-smooth);
   color: var(--text-primary);
+  position: relative;
 }
 
 .closeBtn:hover, .actionBtn:hover {
@@ -65,6 +83,30 @@
 .actions {
   display: flex;
   gap: 12px;
+}
+
+/* ── Copied Tooltip ── */
+.copiedTooltip {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #ffffff;
+  color: #0a0a0c;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 5px 12px;
+  border-radius: 8px;
+  white-space: nowrap;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  animation: tooltipFadeIn 0.2s ease;
+}
+
+@keyframes tooltipFadeIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(4px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
 .content {

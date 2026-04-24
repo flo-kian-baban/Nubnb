@@ -5,7 +5,7 @@ import { DayPicker, DateRange } from "react-day-picker";
 import "react-day-picker/style.css";
 import { format, differenceInDays, addDays, addYears, eachDayOfInterval, parseISO, isAfter, isBefore, startOfDay } from "date-fns";
 import { 
-  X, Star, Share, Heart, Users, 
+  X, Star, Share, Users, 
   MapPin, Clock, ShieldCheck, Check,
   ChevronLeft, ChevronRight, ChevronDown
 } from "lucide-react";
@@ -21,6 +21,7 @@ export function PropertyDetailPanel({ property, onClose }: PropertyDetailPanelPr
   const [availabilityStatus, setAvailabilityStatus] = useState<'idle' | 'checking' | 'available' | 'booked' | 'error'>('idle');
   const [showFullDescription, setShowFullDescription] = useState(false);
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
+  const [copied, setCopied] = useState(false);
   
   // iCal booked dates
   const [bookedDates, setBookedDates] = useState<Date[]>([]);
@@ -144,11 +145,17 @@ export function PropertyDetailPanel({ property, onClose }: PropertyDetailPanelPr
           <X size={22} />
         </button>
         <div className={styles.actions}>
-          <button className={styles.actionBtn}>
-            <Share size={18} />
-          </button>
-          <button className={styles.actionBtn}>
-            <Heart size={18} />
+          <button
+            className={styles.actionBtn}
+            onClick={() => {
+              navigator.clipboard.writeText(window.location.href);
+              setCopied(true);
+              setTimeout(() => setCopied(false), 2000);
+            }}
+            aria-label="Copy link"
+          >
+            {copied ? <Check size={18} /> : <Share size={18} />}
+            {copied && <span className={styles.copiedTooltip}>Copied!</span>}
           </button>
         </div>
       </div>

@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { Property } from "@/app/data/properties";
 import { getProperties, deleteProperty, addProperty } from "@/app/lib/firebase/properties";
 import { PropertyForm } from "./components/PropertyForm";
+import { PinGate } from "./components/PinGate";
 import styles from "./page.module.css";
 import { Plus, Edit2, Trash2, Home, Search, SlidersHorizontal, Building2, BedDouble, DollarSign, LayoutGrid } from "lucide-react";
 import Link from "next/link";
@@ -129,6 +130,7 @@ export default function AdminPage() {
   };
 
   return (
+    <PinGate>
     <div className={styles.container}>
       {/* ── Header ── */}
       <header className={styles.header}>
@@ -316,5 +318,6 @@ export default function AdminPage() {
         />
       )}
     </div>
+    </PinGate>
   );
 }
