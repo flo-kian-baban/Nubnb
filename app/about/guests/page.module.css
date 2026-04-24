@@ -801,22 +801,34 @@
     min-height: 280px;
   }
 
+  /* Reduce bento content padding on mobile */
+  .bentoContent {
+    padding: 24px 20px;
+  }
+
   .nav {
     padding: 0 20px;
     height: 56px;
   }
 
   .navLinks {
-    gap: 16px;
+    gap: 12px;
   }
 
   .navLink {
     display: none;
   }
 
+  /* Fix: CTA touch target ≥ 44px */
+  .navCta {
+    padding: 10px 20px;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+
   .hero {
     padding: 100px 20px 64px;
-    min-height: auto;
     min-height: 100dvh;
   }
 
@@ -837,6 +849,8 @@
   .btnSecondary {
     justify-content: center;
     width: 100%;
+    padding: 16px 0;
+    text-align: center;
   }
 
   .heroScroll {
@@ -855,11 +869,14 @@
     font-size: 28px;
   }
 
+  /* Fix: Stats bar — single row for 3 stats */
   .statsBar {
-    gap: 24px;
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    gap: 12px;
     margin-top: 36px;
     padding-top: 24px;
-    flex-wrap: wrap;
   }
 
   .statNumber {
@@ -883,10 +900,93 @@
     font-size: 28px;
   }
 
+  /* Fix: Footer link touch targets */
   .footer {
     flex-direction: column;
     gap: 16px;
     text-align: center;
     padding: 32px 20px;
+    padding-bottom: calc(32px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .footerLinks {
+    gap: 8px;
+    flex-direction: column;
+  }
+
+  .footerLink {
+    padding: 12px 16px;
+    font-size: var(--fs-body-sm);
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 }
+
+/* ── Disable hover effects on touch devices ── */
+@media (hover: none) {
+  .bentoCard:hover {
+    transform: none;
+    border-color: rgba(255, 255, 255, 0.06);
+    box-shadow: none;
+  }
+
+  .bentoCard:hover .bentoPhoto {
+    transform: none;
+  }
+
+  .bentoCard:hover .bentoImgOverlay {
+    opacity: 1;
+  }
+
+  .bentoCard:hover .bentoIcon {
+    background: rgba(101, 153, 205, 0.15);
+    border-color: rgba(101, 153, 205, 0.2);
+    box-shadow: none;
+  }
+
+  .timelineStep:hover .timelineIcon {
+    transform: none;
+    box-shadow: none;
+    background: rgba(101, 153, 205, 0.1);
+    border-color: rgba(101, 153, 205, 0.25);
+  }
+
+  .timelineStep:hover .timelineNum {
+    color: rgba(101, 153, 205, 0.08);
+  }
+
+  .btnPrimary:hover,
+  .btnSecondary:hover {
+    transform: none;
+  }
+}
+
+/* ── Small phone (320px / iPhone SE) ── */
+@media (max-width: 360px) {
+  .heroTitle {
+    font-size: 30px;
+  }
+
+  .statNumber {
+    font-size: 24px;
+  }
+
+  .sectionTitle {
+    font-size: 24px;
+  }
+
+  .ctaBandTitle {
+    font-size: 24px;
+  }
+
+  .bentoCard {
+    min-height: 240px;
+  }
+
+  .bentoContent {
+    padding: 20px 16px;
+  }
+}
+

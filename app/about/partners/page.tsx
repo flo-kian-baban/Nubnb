@@ -92,7 +92,6 @@ const stats = [
   { value: 70, suffix: "+", prefix: "$", label: "Avg Nightly Rate" },
   { value: 85, suffix: "%", prefix: "", label: "Occupancy Rate" },
   { value: 6, suffix: "", prefix: "", label: "GTA Cities" },
-  { value: 24, suffix: "/7", prefix: "", label: "Support Coverage" },
 ];
 
 const features = [
@@ -101,24 +100,28 @@ const features = [
     title: "Maximise Your Income",
     desc: "Our dynamic pricing engine and distribution strategy consistently outperform self-managed listings by 20-35%.",
     img: "/images/partners/income.png",
+    alt: "Dynamic pricing dashboard showing optimized nightly rates for GTA rental properties",
   },
   {
     icon: Home,
     title: "Full-Service Management",
     desc: "From guest screening to cleaning coordination, we handle every aspect of operations so you don't have to.",
     img: "/images/partners/management.png",
+    alt: "NUBNB team managing a professionally staged short-term rental property",
   },
   {
     icon: Users,
     title: "Vetted Guests, Every Time",
     desc: "ID verification, damage deposits, and house rules enforced before every check-in. Your property stays protected.",
     img: "/images/partners/security.png",
+    alt: "Guest verification and security screening process at NUBNB",
   },
   {
     icon: CheckCircle,
     title: "Local Expertise You Can Trust",
     desc: "We operate exclusively in the GTA. Your property is managed by neighbours, not faceless algorithms.",
     img: "/images/partners/local.png",
+    alt: "NUBNB local team member at a Greater Toronto Area property",
   },
 ];
 
@@ -160,17 +163,36 @@ export default function PartnersPage() {
   const s0 = useRef<HTMLSpanElement>(null);
   const s1 = useRef<HTMLSpanElement>(null);
   const s2 = useRef<HTMLSpanElement>(null);
-  const s3 = useRef<HTMLSpanElement>(null);
-  const statRefs = [s0, s1, s2, s3];
+  const statRefs = [s0, s1, s2];
 
   useCountUp(s0, stats[0].value, stats[0].suffix, stats[0].prefix);
   useCountUp(s1, stats[1].value, stats[1].suffix);
   useCountUp(s2, stats[2].value);
-  useCountUp(s3, stats[3].value, stats[3].suffix);
 
-  useEffect(() => {
-    document.title = "For Partners | NUBNB Suites";
-  }, []);
+
+
+  /* JSON-LD Structured Data */
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    name: "For Property Partners | NUBNB Suites",
+    description: "Partner with NUBNB Suites for full-service property management in the Greater Toronto Area. Dynamic pricing, professional photography, guest screening, and monthly payouts.",
+    url: "https://nubnb.ca/about/partners",
+    publisher: {
+      "@type": "LocalBusiness",
+      name: "NUBNB Suites",
+      url: "https://nubnb.ca",
+      logo: {
+        "@type": "ImageObject",
+        url: "https://nubnb.ca/logo-nubnb.png",
+      },
+      areaServed: {
+        "@type": "Place",
+        name: "Greater Toronto Area, Ontario, Canada",
+      },
+      serviceType: "Short-Term Rental Property Management",
+    },
+  };
 
   return (
     <motion.div
@@ -179,6 +201,10 @@ export default function PartnersPage() {
       animate={{ opacity: 1 }}
       transition={{ duration: 0.4, ease: "easeOut" }}
     >
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       {/* ── NAV ───────────────────────────── */}
       <nav className={styles.nav}>
         <Link href="/about" className={styles.navLogo}>
@@ -328,7 +354,7 @@ export default function PartnersPage() {
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={f.img}
-                    alt=""
+                    alt={f.alt}
                     className={styles.bentoPhoto}
                     loading="lazy"
                   />

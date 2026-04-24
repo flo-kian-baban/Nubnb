@@ -252,6 +252,11 @@
     border-bottom: 1px solid var(--border-on-navy);
   }
 
+  /* Safe-area for notched phones (bottom panel) */
+  .panelLight {
+    padding-bottom: calc(40px + env(safe-area-inset-bottom, 0px));
+  }
+
   .headline {
     font-size: 32px;
   }
@@ -259,6 +264,23 @@
   .subline {
     font-size: 14px;
     margin-bottom: 32px;
+  }
+
+  /* Increase CTA touch target to minimum 44px */
+  .cta {
+    padding: 16px 36px;
+    min-height: 48px;
+  }
+}
+
+/* ── Disable hover effects on touch devices ── */
+@media (hover: none) {
+  .panel:hover {
+    flex: 1;
+  }
+
+  .panel::after {
+    display: none;
   }
 }
 
@@ -271,3 +293,24 @@
     font-size: 26px;
   }
 }
+
+@media (max-width: 320px) {
+  .panel {
+    padding: 24px 16px;
+  }
+
+  .headline {
+    font-size: 22px;
+  }
+
+  .subline {
+    font-size: 13px;
+    margin-bottom: 24px;
+  }
+
+  .cta {
+    padding: 14px 28px;
+    font-size: 13px;
+  }
+}
+

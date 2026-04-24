@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
-import { usePageTransition } from "./layout";
+import { usePageTransition } from "./AboutLayoutClient";
 import styles from "./page.module.css";
 
 /* ─── Entrance variants ──────────────────── */
@@ -54,6 +54,10 @@ export default function AboutPage() {
 
   return (
     <main className={styles.page}>
+      {/* Visually hidden h1 for SEO heading hierarchy */}
+      <h1 style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0,0,0,0)", whiteSpace: "nowrap", border: 0 }}>
+        NUBNB Suites — Premium Short-Term Rentals in the Greater Toronto Area
+      </h1>
       {/* LEFT — Guests */}
       <motion.div
         className={`${styles.panel} ${styles.panelDark}${

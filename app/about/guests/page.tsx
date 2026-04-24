@@ -95,7 +95,6 @@ const stats = [
   { value: 8, suffix: "+", prefix: "", label: "Curated Properties" },
   { value: 6, suffix: "", prefix: "", label: "GTA Cities" },
   { value: 4.9, suffix: "", prefix: "", label: "Avg Guest Rating" },
-  { value: 12, suffix: "", prefix: "", label: "Max Guest Capacity" },
 ];
 
 const features = [
@@ -104,24 +103,28 @@ const features = [
     title: "Verified Properties Only",
     desc: "Every listing is inspected and photographed by our team before it goes live. No catfishing, no surprises.",
     img: "/images/features/verified.png",
+    alt: "NUBNB team inspecting a verified rental property in Toronto",
   },
   {
     icon: MapPin,
     title: "GTA-Native, Not Global",
     desc: "We don't spread thin. Deep local knowledge means better picks for Toronto, Markham, Vaughan, and beyond.",
     img: "/images/features/gta.png",
+    alt: "Aerial view of Greater Toronto Area neighborhoods served by NUBNB",
   },
   {
     icon: Zap,
     title: "Responsive Hosts, Fast Support",
     desc: "Professionally managed properties with guaranteed response times. No ghosting.",
     img: "/images/features/support.png",
+    alt: "NUBNB host providing responsive guest support via mobile",
   },
   {
     icon: Star,
     title: "Transparent Pricing",
     desc: "What you see is what you pay. No surprise cleaning fees or hidden weekend surcharges.",
     img: "/images/features/pricing.png",
+    alt: "Transparent pricing display showing no hidden fees on NUBNB listing",
   },
 ];
 
@@ -156,19 +159,16 @@ export default function GuestsPage() {
   const s0 = useRef<HTMLSpanElement>(null);
   const s1 = useRef<HTMLSpanElement>(null);
   const s2 = useRef<HTMLSpanElement>(null);
-  const s3 = useRef<HTMLSpanElement>(null);
-  const statRefs = [s0, s1, s2, s3];
+  const statRefs = [s0, s1, s2];
 
   useCountUp(s0, stats[0].value, stats[0].suffix);
   useCountUp(s1, stats[1].value);
   useCountUp(s2, stats[2].value);
-  useCountUp(s3, stats[3].value);
 
   /* Fetch live properties */
   const [properties, setProperties] = useState<Property[]>([]);
 
   useEffect(() => {
-    document.title = "For Guests | NUBNB Suites";
     getProperties().then(setProperties);
   }, []);
 
@@ -184,6 +184,28 @@ export default function GuestsPage() {
       .map(([name, count]) => ({ name, count }));
   }, [properties]);
 
+  /* JSON-LD Structured Data */
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    name: "For Guests | NUBNB Suites",
+    description: "Browse curated short-term rental properties across the Greater Toronto Area. Verified listings, transparent pricing, and responsive local hosts.",
+    url: "https://nubnb.ca/about/guests",
+    publisher: {
+      "@type": "Organization",
+      name: "NUBNB Suites",
+      url: "https://nubnb.ca",
+      logo: {
+        "@type": "ImageObject",
+        url: "https://nubnb.ca/logo-nubnb.png",
+      },
+      areaServed: {
+        "@type": "Place",
+        name: "Greater Toronto Area, Ontario, Canada",
+      },
+    },
+  };
+
   return (
     <motion.div
       className={styles.page}
@@ -191,6 +213,10 @@ export default function GuestsPage() {
       animate={{ opacity: 1 }}
       transition={{ duration: 0.4, ease: "easeOut" }}
     >
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       {/* ── NAV ───────────────────────────── */}
       <nav className={styles.nav}>
         <Link href="/about" className={styles.navLogo}>
@@ -341,7 +367,7 @@ export default function GuestsPage() {
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={f.img}
-                    alt=""
+                    alt={f.alt}
                     className={styles.bentoPhoto}
                     loading="lazy"
                   />

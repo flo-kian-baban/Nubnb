@@ -16,7 +16,11 @@ const playfair = Playfair_Display({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://nubnb.ca"),
   title: "NUBNB | Premium Property Discovery",
+  alternates: {
+    canonical: "/",
+  },
   description: "Discover and book premium short-term rental properties across the Greater Toronto Area. Curated luxury homes, condos, and estates with instant availability.",
   icons: {
     icon: "/logo-nubnb.png",
