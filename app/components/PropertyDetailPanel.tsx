@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { Property } from "../data/properties";
+import DOMPurify from "dompurify";
+import { Property } from "@/app/types/property";
 import styles from "./PropertyDetailPanel.module.css";
 import { DayPicker, DateRange } from "react-day-picker";
 import "react-day-picker/style.css";
@@ -235,9 +236,17 @@ export function PropertyDetailPanel({ property, onClose }: PropertyDetailPanelPr
                 <MapPin size={16} className={styles.iconSubtle} />
                 <span>{property.addressDetails?.area}, {property.addressDetails?.city}</span>
                 <span className={styles.dot}>•</span>
-                <Star size={15} fill="currentColor" className={styles.iconStar} />
-                <span className={styles.ratingText}>4.98</span>
-                <span className={styles.reviews}>(124 reviews)</span>
+                {property.averageRating && property.averageRating > 0 ? (
+                  <>
+                    <Star size={15} fill="currentColor" className={styles.iconStar} />
+                    <span className={styles.ratingText}>{property.averageRating.toFixed(2)}</span>
+                    {property.totalReviewCount && property.totalReviewCount > 0 ? (
+                      <span className={styles.reviews}>({property.totalReviewCount} review{property.totalReviewCount !== 1 ? 's' : ''})</span>
+                    ) : null}
+                  </>
+                ) : (
+                  <span className={styles.newBadge}>New</span>
+                )}
               </div>
               {/* Highlight Badges */}
               {property.highlights && property.highlights.length > 0 && (
@@ -266,7 +275,7 @@ export function PropertyDetailPanel({ property, onClose }: PropertyDetailPanelPr
               </div>
               <div className={styles.statDivider} />
               <div className={styles.statItem}>
-                <span className={styles.statValue}>{property.beds || '—'}</span>
+                <span className={styles.statValue}>{property.beds || '-'}</span>
                 <span className={styles.statLabel}>Beds</span>
               </div>
               <div className={styles.statDivider} />
@@ -310,7 +319,7 @@ export function PropertyDetailPanel({ property, onClose }: PropertyDetailPanelPr
                   return (
                     <div key={idx} className={styles.amenityGridItem}>
                       {matchingOffer?.icon ? (
-                        <span className={styles.amenityGridIcon} dangerouslySetInnerHTML={{ __html: matchingOffer.icon }} />
+                        <span className={styles.amenityGridIcon} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(matchingOffer.icon, { USE_PROFILES: { svg: true, svgFilters: true } }) }} />
                       ) : (
                         <Check size={18} className={styles.amenityGridIcon} />
                       )}
@@ -370,7 +379,7 @@ export function PropertyDetailPanel({ property, onClose }: PropertyDetailPanelPr
                             {visibleItems.map((offer, idxi) => (
                               <li key={idxi} className={offer.available ? styles.featureItemIncluded : styles.featureItemExcluded}>
                                 {offer.icon ? (
-                                  <span className={styles.svgIcon} dangerouslySetInnerHTML={{ __html: offer.icon }} />
+                                  <span className={styles.svgIcon} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(offer.icon, { USE_PROFILES: { svg: true, svgFilters: true } }) }} />
                                 ) : (
                                   offer.available ? <Check size={18} /> : <X size={18} className={styles.featureItemExcludedIcon} />
                                 )}

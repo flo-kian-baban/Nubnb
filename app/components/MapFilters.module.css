@@ -54,17 +54,17 @@
 }
 
 .sectionLabel {
-  font-size: 0.7rem;
+  font-size: var(--fs-micro);
   font-weight: 700;
   color: rgba(255, 255, 255, 0.95);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   line-height: 1;
   margin-bottom: 3px;
 }
 
 .sectionValue {
-  font-size: 0.8rem;
+  font-size: var(--fs-caption);
   font-weight: 400;
   color: rgba(255, 255, 255, 0.38);
   line-height: 1;
@@ -105,7 +105,7 @@
 }
 
 .guestsPanelLabel {
-  font-size: 0.85rem;
+  font-size: var(--fs-body-sm);
   font-weight: 600;
   color: rgba(255, 255, 255, 0.9);
   white-space: nowrap;
@@ -307,7 +307,7 @@
   padding: 10px 16px;
   text-align: left;
   font-family: Arial, Helvetica, sans-serif;
-  font-size: 0.8125rem;
+  font-size: var(--fs-body-sm);
   color: rgba(255, 255, 255, 0.8);
   background-color: transparent;
   border: none;
@@ -391,12 +391,12 @@
   }
 
   .sectionLabel {
-    font-size: 0.6rem;
+    font-size: var(--fs-micro);
     margin-bottom: 2px;
   }
 
   .sectionValue {
-    font-size: 0.72rem;
+    font-size: var(--fs-micro);
   }
 
   .divider {

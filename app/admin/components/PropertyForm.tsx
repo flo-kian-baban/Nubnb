@@ -1,6 +1,6 @@
 "use client";
 
-import { Property, Offer } from "@/app/data/properties";
+import { Property, Offer } from "@/app/types/property";
 import { addProperty, updateProperty } from "@/app/lib/firebase/properties";
 import { storage } from "@/app/lib/firebase/config";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
@@ -1037,7 +1037,7 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
           </>))}
 
           {/* Reviews (read-only preview) */}
-          {renderAccordionSection("reviews", `Reviews${formData.averageRating ? ` — ★ ${Number(formData.averageRating).toFixed(2)}` : ''}${formData.totalReviewCount ? ` (${formData.totalReviewCount})` : ''}`, (<>
+          {renderAccordionSection("reviews", `Reviews${formData.averageRating ? ` · ★ ${Number(formData.averageRating).toFixed(2)}` : ''}${formData.totalReviewCount ? ` (${formData.totalReviewCount})` : ''}`, (<>
             {formData.reviews && formData.reviews.length > 0 ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {formData.reviews.map((review: { reviewer: string; date: string; rating: number; text: string; avatar?: string }, idx: number) => (

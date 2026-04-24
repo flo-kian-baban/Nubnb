@@ -1,0 +1,20 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Properties: public read, no client writes ──
+    // All mutations go through server-side API routes using the Admin SDK,
+    // which bypasses these rules entirely.
+    match /properties/{propertyId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // ── Default deny ──
+    // Any collection not explicitly matched is locked down.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,5 +1,6 @@
 "use client";
 import { useState, useRef, useEffect, useMemo } from "react";
+import DOMPurify from "dompurify";
 import { AMENITY_ICONS, findBestIcons, getIconCategories, AmenityIcon } from "../../data/amenityIcons";
 import styles from "./IconPicker.module.css";
 
@@ -84,7 +85,7 @@ export function IconPicker({ currentIcon, amenityName, onSelect }: IconPickerPro
         title="Change icon"
       >
         {currentIcon ? (
-          <span className={styles.triggerIcon} dangerouslySetInnerHTML={{ __html: currentIcon }} />
+          <span className={styles.triggerIcon} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(currentIcon, { USE_PROFILES: { svg: true, svgFilters: true } }) }} />
         ) : (
           <span className={styles.triggerEmpty}>+</span>
         )}
@@ -153,7 +154,7 @@ export function IconPicker({ currentIcon, amenityName, onSelect }: IconPickerPro
                           onClick={() => handleSelect(icon)}
                           title={icon.name}
                         >
-                          <span className={styles.iconSvg} dangerouslySetInnerHTML={{ __html: icon.svg }} />
+                          <span className={styles.iconSvg} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(icon.svg, { USE_PROFILES: { svg: true, svgFilters: true } }) }} />
                           <span className={styles.iconLabel}>{icon.name}</span>
                         </button>
                       ))}
@@ -169,7 +170,7 @@ export function IconPicker({ currentIcon, amenityName, onSelect }: IconPickerPro
                     onClick={() => handleSelect(icon)}
                     title={icon.name}
                   >
-                    <span className={styles.iconSvg} dangerouslySetInnerHTML={{ __html: icon.svg }} />
+                    <span className={styles.iconSvg} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(icon.svg, { USE_PROFILES: { svg: true, svgFilters: true } }) }} />
                     <span className={styles.iconLabel}>{icon.name}</span>
                   </button>
                 ))

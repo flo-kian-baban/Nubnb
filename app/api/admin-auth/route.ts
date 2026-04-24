@@ -1,30 +1,56 @@
-import { NextRequest, NextResponse } from "next/server";
+/**
+ * POST /api/admin-auth  — Verify PIN, set HTTP-only session cookie.
+ * GET  /api/admin-auth  — Check if the current session is valid.
+ */
 
+import { NextRequest, NextResponse } from 'next/server';
+import {
+  verifyAdminPin,
+  createSessionToken,
+  verifyAdminSession,
+  SESSION_COOKIE,
+  SESSION_MAX_AGE,
+} from '@/app/lib/api/verify-admin';
+
+/**
+ * POST — Authenticate with PIN. On success, sets an HTTP-only session cookie.
+ */
 export async function POST(req: NextRequest) {
   try {
     const { pin } = await req.json();
 
-    if (!pin || typeof pin !== "string") {
-      return NextResponse.json({ error: "PIN is required" }, { status: 400 });
+    const check = verifyAdminPin(pin);
+    if (!check.valid) {
+      return NextResponse.json({ error: check.error }, { status: check.status });
     }
 
-    const adminPin = process.env.ADMIN_PIN;
+    // Create signed session token and set as HTTP-only cookie
+    const token = createSessionToken();
+    const isProduction = process.env.NODE_ENV === 'production';
 
-    if (!adminPin) {
-      console.error("ADMIN_PIN environment variable is not configured");
-      return NextResponse.json(
-        { error: "Server configuration error" },
-        { status: 500 }
-      );
-    }
+    const response = NextResponse.json({ authenticated: true });
+    response.cookies.set(SESSION_COOKIE, token, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'strict',
+      path: '/',
+      maxAge: SESSION_MAX_AGE,
+    });
 
-    // Constant-time-ish comparison to prevent timing attacks
-    if (pin.length !== adminPin.length || pin !== adminPin) {
-      return NextResponse.json({ error: "Invalid PIN" }, { status: 401 });
-    }
-
-    return NextResponse.json({ authenticated: true });
+    return response;
   } catch {
-    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+    return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
   }
+}
+
+/**
+ * GET — Check if the current session cookie is valid.
+ * Used by PinGate on mount to determine auth state without trusting client storage.
+ */
+export async function GET(req: NextRequest) {
+  const check = verifyAdminSession(req);
+  if (!check.valid) {
+    return NextResponse.json({ authenticated: false }, { status: 401 });
+  }
+  return NextResponse.json({ authenticated: true });
 }

@@ -1,7 +1,8 @@
 [
   {
-    "origin": ["*"],
-    "method": ["GET", "PUT", "POST", "DELETE", "HEAD", "OPTIONS"],
-    "maxAgeSeconds": 3600
+    "origin": ["https://nubnbsuites.com", "https://www.nubnbsuites.com"],
+    "method": ["GET"],
+    "maxAgeSeconds": 3600,
+    "responseHeader": ["Content-Type"]
   }
 ]

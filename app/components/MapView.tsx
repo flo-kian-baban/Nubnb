@@ -1,12 +1,64 @@
 "use client";
 
-import { useRef, useEffect, useCallback, useState, useMemo } from "react";
+import React, { useRef, useEffect, useCallback, useState, useMemo } from "react";
 import Map, { Marker, NavigationControl, MapRef } from "react-map-gl/maplibre";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { MapPin } from "lucide-react";
-import { Property } from "../data/properties";
+import { Property } from "@/app/types/property";
 import styles from "./MapView.module.css";
+
+/* ── Memoized single-property marker ──
+ * Only re-renders when its own hover/select/condensed state changes.
+ * Prevents N marker re-creates on every zoom tick.
+ */
+interface PropertyMarkerProps {
+  property: Property;
+  isHovered: boolean;
+  isSelected: boolean;
+  isCondensed: boolean;
+  onHover: (id: string | null) => void;
+  onSelect: (id: string | null) => void;
+}
+
+const PropertyMarker = React.memo(function PropertyMarker({
+  property,
+  isHovered,
+  isSelected,
+  isCondensed,
+  onHover,
+  onSelect,
+}: PropertyMarkerProps) {
+  return (
+    <Marker
+      key={property.id}
+      longitude={property.coordinates[0]}
+      latitude={property.coordinates[1]}
+      anchor="center"
+      onClick={(e) => {
+        e.originalEvent.stopPropagation();
+        onSelect(property.id);
+      }}
+    >
+      <div
+        className={`
+          ${styles.marker} 
+          ${(isCondensed && !isHovered && !isSelected) ? styles.condensed : ""} 
+          ${isHovered ? styles.hovered : ""} 
+          ${isSelected ? styles.selected : ""}
+        `}
+        onMouseEnter={() => onHover(property.id)}
+        onMouseLeave={() => onHover(null)}
+      >
+        {(isCondensed && !isHovered && !isSelected) ? (
+          <MapPin size={24} strokeWidth={2.5} />
+        ) : (
+          `$${property.price}`
+        )}
+      </div>
+    </Marker>
+  );
+});
 
 interface MapViewProps {
   properties: Property[];
@@ -267,41 +319,22 @@ export function MapView({
           // Single property marker
           if (!isMulti) {
             const property = cluster.properties[0];
-            const isHovered = hoveredId === property.id;
-            const isSelected = selectedId === property.id;
 
             return (
-              <Marker
+              <PropertyMarker
                 key={property.id}
-                longitude={property.coordinates[0]}
-                latitude={property.coordinates[1]}
-                anchor="center"
-                onClick={(e) => {
-                  e.originalEvent.stopPropagation();
-                  onSelect(property.id);
-                }}
-              >
-                <div
-                  className={`
-                    ${styles.marker} 
-                    ${(zoomLevel < 9.5 && !isHovered && !isSelected) ? styles.condensed : ""}
-                    ${isHovered ? styles.hovered : ""} 
-                    ${isSelected ? styles.selected : ""}
-                  `}
-                  onMouseEnter={() => onHover(property.id)}
-                  onMouseLeave={() => onHover(null)}
-                >
-                  {(zoomLevel < 9.5 && !isHovered && !isSelected) ? (
-                    <MapPin size={24} strokeWidth={2.5} />
-                  ) : (
-                    `$${property.price}`
-                  )}
-                </div>
-              </Marker>
+                property={property}
+                isHovered={hoveredId === property.id}
+                isSelected={selectedId === property.id}
+                isCondensed={zoomLevel < 9.5}
+                onHover={onHover}
+                onSelect={onSelect}
+              />
             );
           }
 
           // Cluster badge
+          const clusterHovered = hoveredId != null && cluster.properties.some(p => p.id === hoveredId);
           return (
             <Marker
               key={cluster.key}
@@ -330,7 +363,7 @@ export function MapView({
                 }, 1000);
               }}
             >
-              <div className={styles.clusterMarker}>
+              <div className={`${styles.clusterMarker} ${clusterHovered ? styles.clusterHovered : ""}`}>
                 <span className={styles.clusterCount}>{cluster.properties.length}</span>
                 <span className={styles.clusterLabel}>units</span>
               </div>
@@ -383,32 +416,17 @@ export function MapView({
 
           // Single expanded property at its actual location
           const property = group[0];
-          const isHovered = hoveredId === property.id;
-          const isSelected = selectedId === property.id;
 
           return (
-            <Marker
+            <PropertyMarker
               key={property.id}
-              longitude={property.coordinates[0]}
-              latitude={property.coordinates[1]}
-              anchor="center"
-              onClick={(e) => {
-                e.originalEvent.stopPropagation();
-                onSelect(property.id);
-              }}
-            >
-              <div
-                className={`
-                  ${styles.marker}
-                  ${isHovered ? styles.hovered : ""} 
-                  ${isSelected ? styles.selected : ""}
-                `}
-                onMouseEnter={() => onHover(property.id)}
-                onMouseLeave={() => onHover(null)}
-              >
-                {`$${property.price}`}
-              </div>
-            </Marker>
+              property={property}
+              isHovered={hoveredId === property.id}
+              isSelected={selectedId === property.id}
+              isCondensed={false}
+              onHover={onHover}
+              onSelect={onSelect}
+            />
           );
         })}
       </Map>

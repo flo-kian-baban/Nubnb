@@ -46,8 +46,6 @@
 }
 
 .image {
-  width: 100%;
-  height: 100%;
   object-fit: cover;
   transition: transform var(--transition-smooth);
 }
@@ -65,11 +63,11 @@
   -webkit-backdrop-filter: blur(8px);
   padding: 6px 12px;
   border-radius: 20px;
-  font-size: 0.75rem;
+  font-size: var(--fs-micro);
   font-weight: 600;
   color: #FFFFFF;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   box-shadow: var(--shadow-sm);
 }
 
@@ -93,47 +91,29 @@
 
 .statsNotch {
   position: absolute;
-  top: 0;
-  left: 0;
+  top: 12px;
+  left: 12px;
   display: flex;
   align-items: center;
   gap: 12px;
-  background-color: var(--brand-navy); /* matches panel background perfectly to simulate cutout */
-  padding: 16px 20px 16px 20px;
-  border-bottom-right-radius: 16px;
+  background-color: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  padding: 8px 14px;
+  border-radius: 20px;
   color: #FFFFFF;
   z-index: 10;
 }
 
 /* Fillets for inverted rounded corners */
-.statsNotch::before,
-.statsNotch::after {
-  content: "";
-  position: absolute;
-  background-color: transparent;
-  width: 16px;
-  height: 16px;
-  border-top-left-radius: 16px;
-  box-shadow: -6px -6px 0 6px var(--brand-navy);
-  pointer-events: none;
-}
 
-.statsNotch::before {
-  top: 0;
-  right: -16px;
-}
-
-.statsNotch::after {
-  bottom: -16px;
-  left: 0;
-}
 
 .statItem {
   display: flex;
   align-items: center;
   gap: 6px;
   font-family: var(--font-sans);
-  font-size: 0.8125rem;
+  font-size: var(--fs-body-sm);
   font-weight: 500;
   color: rgba(255, 255, 255, 0.95);
 }
@@ -160,24 +140,35 @@
 
 .title {
   font-family: var(--font-sans);
-  font-size: 1.375rem; /* Slightly smaller, more refined */
+  font-size: var(--fs-heading);
   font-weight: 500;
   color: #FFFFFF;
   line-height: 1.2;
   letter-spacing: -0.01em;
   padding-right: 24px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.card:hover .title,
+.card.hovered .title {
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
 }
 
 .meta {
   font-family: var(--font-sans);
-  font-size: 0.8125rem;
+  font-size: var(--fs-body-sm);
   color: rgba(255, 255, 255, 0.9);
   font-weight: 400;
   display: flex;
   align-items: center;
-  flex-wrap: wrap; /* allow wrapping on small cards */
+  flex-wrap: wrap;
   gap: 6px;
-  line-height: 1; /* For perfectly predictable baseline alignment */
+  line-height: 1;
 }
 
 .dot {
@@ -197,18 +188,26 @@
 .price {
   font-family: var(--font-sans);
   font-weight: 600;
-  font-size: 1.5rem; /* Emphasize price slightly more */
+  font-size: var(--fs-heading);
   color: #FFFFFF;
   line-height: 1;
   letter-spacing: -0.02em;
 }
 
+.priceCurrency {
+  font-size: 0.6em;
+  font-weight: 600;
+  vertical-align: super;
+  line-height: 1;
+  margin-right: 1px;
+}
+
 .priceLabel {
-  font-size: 0.65rem;
+  font-size: var(--fs-micro);
   color: rgba(255, 255, 255, 0.7);
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.06em;
   line-height: 1;
 }
 
@@ -226,21 +225,21 @@
   }
 
   .title {
-    font-size: 1.15rem;
+    font-size: var(--fs-subheading);
     padding-right: 16px;
   }
 
   .meta {
-    font-size: 0.75rem;
+    font-size: var(--fs-caption);
     gap: 4px;
   }
 
   .price {
-    font-size: 1.25rem;
+    font-size: 20px;
   }
 
   .priceLabel {
-    font-size: 0.6rem;
+    font-size: var(--fs-micro);
   }
 
   .statsNotch {
@@ -248,24 +247,10 @@
     border-bottom-right-radius: 12px;
   }
 
-  .statsNotch::before,
-  .statsNotch::after {
-    width: 12px;
-    height: 12px;
-    border-top-left-radius: 12px;
-    box-shadow: -5px -5px 0 5px var(--brand-navy);
-  }
 
-  .statsNotch::before {
-    right: -12px;
-  }
-
-  .statsNotch::after {
-    bottom: -12px;
-  }
 
   .statItem {
-    font-size: 0.75rem;
+    font-size: var(--fs-caption);
   }
 
   .gradientOverlay {

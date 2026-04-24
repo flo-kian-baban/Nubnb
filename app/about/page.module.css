@@ -1,0 +1,273 @@
+/* ═══════════════════════════════════════════
+   ABOUT ROUTER — Split chooser
+   Uses global brand tokens from globals.css
+   Font override: Arial only
+   ═══════════════════════════════════════════ */
+
+.page {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  position: relative;
+  font-family: Arial, Helvetica, sans-serif;
+
+  /* Pin tokens so dark-mode media query doesn't break the split layout */
+  --brand-navy: #1A1A1D;
+  --brand-navy-light: #2A2A2D;
+  --bg-secondary: #FFFFFF;
+  --text-primary: #1A1A1A;
+  --text-secondary: #5A5A5A;
+  --text-on-navy: #FFFFFF;
+  --text-on-navy-muted: rgba(255, 255, 255, 0.7);
+  --border-on-navy: rgba(255, 255, 255, 0.15);
+  --border-medium: #D0D0D0;
+}
+
+/* ── PANEL ───────────────────────────────── */
+.panel {
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 40px;
+  cursor: pointer;
+  overflow: hidden;
+  transition: flex 0.6s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.panel:hover {
+  flex: 1.15;
+}
+
+/* ── Expansion (chosen side fills viewport) ─ */
+.expand {
+  flex: 40 !important;
+  cursor: default;
+}
+
+.expand:hover {
+  flex: 40 !important;
+}
+
+/* ── Collapse (other side disappears) ─────── */
+.collapse {
+  flex: 0.001 !important;
+  padding: 0 !important;
+  pointer-events: none;
+  border: none !important;
+}
+
+.collapse:hover {
+  flex: 0.001 !important;
+}
+
+/* ── Content fade-out (both panels) ─────── */
+.fadeOut {
+  opacity: 0;
+  transform: scale(0.97) translateY(8px);
+}
+
+/* ── Overlay shimmer on hover ────────────── */
+.panel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity var(--transition-smooth);
+  pointer-events: none;
+}
+
+.panelDark::after {
+  background: linear-gradient(
+    135deg,
+    rgba(101, 153, 205, 0.06) 0%,
+    transparent 60%
+  );
+}
+
+.panelLight::after {
+  background: linear-gradient(
+    225deg,
+    rgba(26, 26, 29, 0.04) 0%,
+    transparent 60%
+  );
+}
+
+.panel:hover::after {
+  opacity: 1;
+}
+
+.expand::after,
+.collapse::after {
+  opacity: 0 !important;
+}
+
+/* ── LEFT — Dark ─────────────────────────── */
+.panelDark {
+  background-color: var(--brand-navy);
+  color: var(--text-on-navy);
+  border-right: 1px solid var(--border-on-navy);
+}
+
+/* ── RIGHT — Light ───────────────────────── */
+.panelLight {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+/* ── Panel inner content ─────────────────── */
+.panelInner {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  max-width: 400px;
+  opacity: 1;
+  transform: scale(1) translateY(0);
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+
+/* ── Eyebrow ─────────────────────────────── */
+.eyebrow {
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  margin-bottom: 20px;
+  color: var(--brand-blue);
+}
+
+/* ── Headline ────────────────────────────── */
+.headline {
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  margin-bottom: 16px;
+}
+
+/* ── Subline ─────────────────────────────── */
+.subline {
+  font-size: var(--fs-body);
+  line-height: 1.6;
+  margin-bottom: 40px;
+  max-width: 340px;
+}
+
+.sublineDark {
+  color: var(--text-on-navy-muted);
+}
+
+.sublineLight {
+  color: var(--text-secondary);
+}
+
+/* ── CTA pill ────────────────────────────── */
+.cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 36px;
+  border-radius: 999px;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  transition: all var(--transition-premium);
+}
+
+.cta:active {
+  transform: scale(0.96);
+}
+
+.ctaDark {
+  background: var(--brand-blue);
+  color: #FFFFFF;
+  box-shadow: 0 4px 24px rgba(101, 153, 205, 0.3);
+}
+
+.ctaDark:hover {
+  background: var(--brand-blue-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px rgba(101, 153, 205, 0.4);
+}
+
+.ctaLight {
+  background: var(--brand-navy);
+  color: #FFFFFF;
+  box-shadow: var(--shadow-md);
+}
+
+.ctaLight:hover {
+  background: var(--brand-navy-light);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+}
+
+.ctaArrow {
+  transition: transform var(--transition-fast);
+}
+
+.cta:hover .ctaArrow {
+  transform: translateX(4px);
+}
+
+/* ═══════════════════════════════════════════
+   TABLET + MOBILE — Stack
+   ═══════════════════════════════════════════ */
+@media (max-width: 768px) {
+  .page {
+    flex-direction: column;
+  }
+
+  .panel {
+    flex: 1;
+    padding: 40px 24px;
+  }
+
+  .panel:hover {
+    flex: 1;
+  }
+
+  .expand,
+  .expand:hover {
+    flex: 40 !important;
+  }
+
+  .collapse,
+  .collapse:hover {
+    flex: 0.001 !important;
+    padding: 0 !important;
+  }
+
+  .panelDark {
+    border-right: none;
+    border-bottom: 1px solid var(--border-on-navy);
+  }
+
+  .headline {
+    font-size: 32px;
+  }
+
+  .subline {
+    font-size: 14px;
+    margin-bottom: 32px;
+  }
+}
+
+@media (max-width: 400px) {
+  .panel {
+    padding: 32px 20px;
+  }
+
+  .headline {
+    font-size: 26px;
+  }
+}

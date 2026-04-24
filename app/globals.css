@@ -37,6 +37,14 @@
   /* Typography */
   --font-sans: var(--font-manrope), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-serif: var(--font-playfair), Georgia, serif;
+
+  /* Typography Scale — 6 enforced sizes */
+  --fs-micro: 11px;      /* micro labels, all-caps UI labels */
+  --fs-caption: 12px;    /* secondary text, captions */
+  --fs-body-sm: 13px;    /* body-small, muted helper text */
+  --fs-body: 15px;       /* body text */
+  --fs-subheading: 18px; /* subheadings */
+  --fs-heading: 24px;    /* section headings */
   
   /* Layout */
   --panel-width: 480px;

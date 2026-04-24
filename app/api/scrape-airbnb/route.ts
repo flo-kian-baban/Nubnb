@@ -3,6 +3,7 @@ import chromium from '@sparticuz/chromium-min';
 import { findBestIcons } from '@/app/data/amenityIcons';
 import { createRateLimiter } from '@/app/lib/api/rate-limit';
 import { validateAirbnbUrl } from '@/app/lib/api/validate';
+import { verifyAdminSession } from '@/app/lib/api/verify-admin';
 import { apiSuccess, apiError, apiRateLimited } from '@/app/lib/api/safe-response';
 
 export const maxDuration = 120;
@@ -15,8 +16,12 @@ const CHROMIUM_PACK_URL =
   'https://github.com/Sparticuz/chromium/releases/download/v143.0.4/chromium-v143.0.4-pack.x64.tar';
 
 export async function POST(request: Request) {
+  // ── Admin auth — reject unauthenticated requests before any work ──
+  const auth = verifyAdminSession(request);
+  if (!auth.valid) return apiError(auth.error!, auth.status!);
+
   // ── Rate limit ───────────────────────────────────────────
-  const limit = limiter.check(request);
+  const limit = await limiter.check(request);
   if (limit.limited) return apiRateLimited(limit.retryAfterMs);
 
   let browser;
@@ -1109,17 +1114,18 @@ export async function POST(request: Request) {
       reviews: reviewData.reviews,
     };
 
-    await browser.close();
     return apiSuccess(result);
 
   } catch (error) {
-    if (browser) {
-      try { await browser.close(); } catch { /* ignore close errors */ }
-    }
     return apiError(
       'Failed to scrape the Airbnb listing. Make sure the URL is valid and the page is accessible.',
       500,
       error,
     );
+  } finally {
+    // Guaranteed cleanup — even on uncaught errors or early returns
+    if (browser) {
+      try { await browser.close(); } catch { /* ignore close errors */ }
+    }
   }
 }

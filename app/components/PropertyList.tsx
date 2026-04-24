@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Property } from "../data/properties";
+import { Property } from "@/app/types/property";
 import { PropertyCard } from "./PropertyCard";
 import styles from "./PropertyList.module.css";
 import { MapPin } from "lucide-react";

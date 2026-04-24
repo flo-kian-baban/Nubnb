@@ -2,15 +2,15 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import styles from "../page.module.css";
-import { properties as staticProperties } from "../data/properties";
 import { getProperties } from "../lib/firebase/properties";
-import { Property } from "../data/properties";
+import { Property } from "@/app/types/property";
 import { MapView } from "./MapView";
 import { PropertyList } from "./PropertyList";
 import { TopFilters } from "./TopFilters";
 import { MapFilters } from "./MapFilters";
 import { PropertyDetailPanel } from "./PropertyDetailPanel";
-import { ChevronRight, Map, LayoutList } from "lucide-react";
+import { ChevronRight, Map, LayoutList, WifiOff, RefreshCw } from "lucide-react";
+import Link from "next/link";
 
 /** Convert a property name to a URL-safe slug */
 export function toSlug(name: string): string {
@@ -25,9 +25,13 @@ interface HomePageProps {
   initialSlug?: string;
 }
 
+/** Debounce delay for availability filter (ms) */
+const AVAIL_DEBOUNCE_MS = 600;
+
 export default function HomePage({ initialSlug }: HomePageProps) {
   const [properties, setProperties] = useState<Property[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -129,63 +133,102 @@ export default function HomePage({ initialSlug }: HomePageProps) {
   const [bookedCache, setBookedCache] = useState<Record<string, Set<string>>>({});
   const [checkingAvail, setCheckingAvail] = useState(false);
 
+  // ── Fetch properties — surface real errors, no silent fallback ──
   useEffect(() => {
+    let cancelled = false;
+
     async function fetchListings() {
       setIsLoading(true);
-      const data = await getProperties();
-      // Fall back to static mock data if Firebase returns nothing
-      setProperties(data.length > 0 ? data : staticProperties);
-      setIsLoading(false);
+      setFetchError(null);
+
+      try {
+        const data = await getProperties();
+        if (!cancelled) {
+          if (data.length === 0) {
+            setFetchError("No properties found. Please check back later.");
+          }
+          setProperties(data);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error("[HomePage] Failed to fetch properties:", err);
+          setFetchError(
+            "We couldn't load our properties right now. Please try again in a moment."
+          );
+          setProperties([]);
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
     }
+
     fetchListings();
+    return () => { cancelled = true; };
   }, []);
 
-  // Fetch booked dates when availability filter is set
+  // ── Debounced availability fetch ──
+  // Uses a ref-based debounce so rapid date changes don't flood the API.
+  const availTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
+    // Clear any pending debounce
+    if (availTimerRef.current) {
+      clearTimeout(availTimerRef.current);
+      availTimerRef.current = null;
+    }
+
     if (!availStart || !availEnd) return;
 
     const propsWithICal = properties.filter(p => p.icalUrl && !bookedCache[p.id]);
     if (propsWithICal.length === 0) return;
 
-    setCheckingAvail(true);
+    // Debounce: wait for user to stop changing dates
+    availTimerRef.current = setTimeout(() => {
+      setCheckingAvail(true);
 
-    // Batch fetch booked dates for all properties with iCal URLs
-    Promise.all(
-      propsWithICal.map(async (p) => {
-        try {
-          const res = await fetch("/api/fetch-booked-dates", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ icalUrl: p.icalUrl }),
-          });
-          if (!res.ok) return { id: p.id, dates: new Set<string>() };
-          const result = await res.json();
-          const dateSet = new Set<string>();
-          for (const range of result.data.bookedRanges) {
-            // Expand range to individual dates
-            const start = new Date(range.start);
-            const end = new Date(range.end);
-            const current = new Date(start);
-            while (current < end) {
-              dateSet.add(current.toISOString().split("T")[0]);
-              current.setDate(current.getDate() + 1);
+      Promise.all(
+        propsWithICal.map(async (p) => {
+          try {
+            const res = await fetch("/api/fetch-booked-dates", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ icalUrl: p.icalUrl }),
+            });
+            if (!res.ok) return { id: p.id, dates: new Set<string>() };
+            const result = await res.json();
+            const dateSet = new Set<string>();
+            for (const range of result.data.bookedRanges) {
+              const start = new Date(range.start);
+              const end = new Date(range.end);
+              const current = new Date(start);
+              while (current < end) {
+                dateSet.add(current.toISOString().split("T")[0]);
+                current.setDate(current.getDate() + 1);
+              }
             }
+            return { id: p.id, dates: dateSet };
+          } catch {
+            return { id: p.id, dates: new Set<string>() };
           }
-          return { id: p.id, dates: dateSet };
-        } catch {
-          return { id: p.id, dates: new Set<string>() };
-        }
-      })
-    ).then((results) => {
-      setBookedCache((prev) => {
-        const next = { ...prev };
-        for (const r of results) {
-          next[r.id] = r.dates;
-        }
-        return next;
+        })
+      ).then((results) => {
+        setBookedCache((prev) => {
+          const next = { ...prev };
+          for (const r of results) {
+            next[r.id] = r.dates;
+          }
+          return next;
+        });
+        setCheckingAvail(false);
       });
-      setCheckingAvail(false);
-    });
+    }, AVAIL_DEBOUNCE_MS);
+
+    return () => {
+      if (availTimerRef.current) {
+        clearTimeout(availTimerRef.current);
+        availTimerRef.current = null;
+      }
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [availStart, availEnd, properties]);
 
@@ -227,6 +270,26 @@ export default function HomePage({ initialSlug }: HomePageProps) {
 
   const selectedProperty = properties.find((p) => p.id === selectedId);
 
+  // Retry handler for error state
+  const handleRetry = useCallback(() => {
+    setFetchError(null);
+    setIsLoading(true);
+    getProperties()
+      .then((data) => {
+        if (data.length === 0) {
+          setFetchError("No properties found. Please check back later.");
+        }
+        setProperties(data);
+      })
+      .catch(() => {
+        setFetchError(
+          "We couldn't load our properties right now. Please try again in a moment."
+        );
+        setProperties([]);
+      })
+      .finally(() => setIsLoading(false));
+  }, []);
+
   // Build container class
   const containerClass = [
     styles.container,
@@ -239,10 +302,29 @@ export default function HomePage({ initialSlug }: HomePageProps) {
   return (
     <main className={containerClass}>
       {isLoading && (
-        <div className={styles.loadingOverlay}>Loading properties...</div>
+        <div className={styles.loadingOverlay}>
+          <div className={styles.loadingSpinner} />
+        </div>
       )}
       {checkingAvail && (
         <div className={styles.availOverlay}>Checking availability...</div>
+      )}
+
+      {/* ── Error State ─────────────────────────────── */}
+      {fetchError && !isLoading && (
+        <div className={styles.errorState}>
+          <div className={styles.errorCard}>
+            <div className={styles.errorIconWrap}>
+              <WifiOff size={32} strokeWidth={1.5} />
+            </div>
+            <h2 className={styles.errorTitle}>Something went wrong</h2>
+            <p className={styles.errorMessage}>{fetchError}</p>
+            <button className={styles.errorRetry} onClick={handleRetry}>
+              <RefreshCw size={16} />
+              Try Again
+            </button>
+          </div>
+        </div>
       )}
 
       {/* BACK HANDLE — desktop only */}
@@ -272,6 +354,7 @@ export default function HomePage({ initialSlug }: HomePageProps) {
               setAvailStart={setAvailStart}
               availEnd={availEnd}
               setAvailEnd={setAvailEnd}
+              properties={properties}
             />
           </div>
         </div>
@@ -298,7 +381,11 @@ export default function HomePage({ initialSlug }: HomePageProps) {
           setAvailStart={setAvailStart}
           availEnd={availEnd}
           setAvailEnd={setAvailEnd}
+          properties={properties}
         />
+        <Link href="/about" className={styles.aboutBtn}>
+          About Us
+        </Link>
         <MapView
           properties={filteredProperties}
           hoveredId={hoveredId}

@@ -5,7 +5,6 @@ import { Lock } from "lucide-react";
 import styles from "./PinGate.module.css";
 
 const PIN_LENGTH = 4;
-const SESSION_KEY = "nubnb_admin_auth";
 
 interface PinGateProps {
   children: React.ReactNode;
@@ -18,10 +17,17 @@ export function PinGate({ children }: PinGateProps) {
   const [isVerifying, setIsVerifying] = useState(false);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-  // Check session on mount
+  // Check session cookie validity on mount via server-side verification
   useEffect(() => {
-    const stored = sessionStorage.getItem(SESSION_KEY);
-    setIsAuthenticated(stored === "true");
+    let cancelled = false;
+    fetch("/api/admin-auth", { method: "GET" })
+      .then((res) => {
+        if (!cancelled) setIsAuthenticated(res.ok);
+      })
+      .catch(() => {
+        if (!cancelled) setIsAuthenticated(false);
+      });
+    return () => { cancelled = true; };
   }, []);
 
   // Auto-focus first input when gate is shown
@@ -43,7 +49,7 @@ export function PinGate({ children }: PinGateProps) {
       });
 
       if (res.ok) {
-        sessionStorage.setItem(SESSION_KEY, "true");
+        // Cookie is set by the server — no client-side storage needed
         setIsAuthenticated(true);
       } else {
         setError("Incorrect PIN");

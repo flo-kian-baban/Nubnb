@@ -1,19 +1,29 @@
 /**
- * In-memory sliding-window rate limiter.
- * Keyed by client IP. No external dependencies.
+ * Distributed rate limiter backed by Upstash Redis.
+ *
+ * Works correctly across Vercel serverless cold starts — no in-memory
+ * state that resets between invocations.
+ *
+ * Falls back to a permissive pass-through if Upstash env vars are
+ * not configured (local dev / CI), logging a warning on first use.
  *
  * Usage:
- *   const limiter = createRateLimiter({ windowMs: 60_000, maxRequests: 30 });
+ *   const limiter = createRateLimiter({ maxRequests: 3, windowMs: 5 * 60_000 });
  *   // Inside handler:
- *   const limit = limiter.check(request);
+ *   const limit = await limiter.check(request);
  *   if (limit.limited) return apiRateLimited(limit.retryAfterMs);
  */
 
+import { Ratelimit } from '@upstash/ratelimit';
+import { Redis } from '@upstash/redis';
+
 interface RateLimitConfig {
-  /** Time window in milliseconds */
-  windowMs: number;
   /** Maximum number of requests allowed per window */
   maxRequests: number;
+  /** Time window in milliseconds */
+  windowMs: number;
+  /** Optional prefix to namespace rate limit keys */
+  prefix?: string;
 }
 
 interface RateLimitResult {
@@ -25,7 +35,7 @@ interface RateLimitResult {
 }
 
 interface RateLimiter {
-  check: (request: Request) => RateLimitResult;
+  check: (request: Request) => Promise<RateLimitResult>;
 }
 
 /**
@@ -50,64 +60,57 @@ function getClientIP(request: Request): string {
   return 'unknown';
 }
 
+let warnedMissingConfig = false;
+
 /**
- * Create a rate limiter instance with the given config.
- * Each call creates an independent limiter with its own state.
+ * Create a rate limiter instance backed by Upstash Redis.
+ * Each call creates an independent limiter with its own prefix/config.
  */
 export function createRateLimiter(config: RateLimitConfig): RateLimiter {
-  const { windowMs, maxRequests } = config;
+  const { maxRequests, windowMs, prefix = 'rl' } = config;
 
-  // Map<clientIP, timestamp[]>
-  const hits = new Map<string, number[]>();
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
 
-  // Periodic cleanup: remove stale entries every 60s to prevent memory leaks
-  const cleanupInterval = setInterval(() => {
-    const cutoff = Date.now() - windowMs;
-    for (const [key, timestamps] of hits) {
-      const valid = timestamps.filter((t) => t > cutoff);
-      if (valid.length === 0) {
-        hits.delete(key);
-      } else {
-        hits.set(key, valid);
-      }
+  // If Upstash is not configured, return a permissive pass-through
+  if (!url || !token) {
+    if (!warnedMissingConfig) {
+      console.warn(
+        '[rate-limit] UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN not configured. ' +
+        'Rate limiting is disabled. Set these env vars for production.',
+      );
+      warnedMissingConfig = true;
     }
-  }, 60_000);
 
-  // Allow GC to clean up the interval if the limiter is dereferenced
-  if (cleanupInterval.unref) {
-    cleanupInterval.unref();
+    return {
+      async check(): Promise<RateLimitResult> {
+        return { limited: false, retryAfterMs: 0, remaining: maxRequests };
+      },
+    };
   }
 
+  const redis = new Redis({ url, token });
+  const windowSeconds = Math.ceil(windowMs / 1000);
+
+  const ratelimit = new Ratelimit({
+    redis,
+    limiter: Ratelimit.slidingWindow(maxRequests, `${windowSeconds} s`),
+    prefix: `@nubnb/${prefix}`,
+    analytics: false,
+  });
+
   return {
-    check(request: Request): RateLimitResult {
+    async check(request: Request): Promise<RateLimitResult> {
       const ip = getClientIP(request);
-      const now = Date.now();
-      const windowStart = now - windowMs;
 
-      // Get existing timestamps, filter to current window
-      const existing = (hits.get(ip) || []).filter((t) => t > windowStart);
+      const { success, remaining, reset } = await ratelimit.limit(ip);
 
-      if (existing.length >= maxRequests) {
-        // Calculate when the oldest hit in the window expires
-        const oldestInWindow = existing[0];
-        const retryAfterMs = oldestInWindow + windowMs - now;
-
-        return {
-          limited: true,
-          retryAfterMs: Math.max(retryAfterMs, 1000),
-          remaining: 0,
-        };
+      if (success) {
+        return { limited: false, retryAfterMs: 0, remaining };
       }
 
-      // Record this hit
-      existing.push(now);
-      hits.set(ip, existing);
-
-      return {
-        limited: false,
-        retryAfterMs: 0,
-        remaining: maxRequests - existing.length,
-      };
+      const retryAfterMs = Math.max(reset - Date.now(), 1000);
+      return { limited: true, retryAfterMs, remaining: 0 };
     },
   };
 }

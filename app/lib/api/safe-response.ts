@@ -50,3 +50,19 @@ export function apiRateLimited(retryAfterMs: number): NextResponse {
     },
   );
 }
+
+/**
+ * Return a 422 Unprocessable Entity response with typed validation issues.
+ * Field-level errors are safe to surface to the client.
+ *
+ * Response body: `{ success: false, error: string, issues: { path: string, message: string }[] }`
+ */
+export function apiValidationError(
+  issues: { path: string; message: string }[],
+): NextResponse {
+  return NextResponse.json(
+    { success: false, error: 'Validation failed', issues },
+    { status: 422 },
+  );
+}
+

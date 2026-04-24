@@ -6,6 +6,7 @@ import "react-day-picker/style.css";
 import styles from "./MapFilters.module.css";
 import { useState, useRef, useEffect, useMemo } from "react";
 import { format, addYears } from "date-fns";
+import { Property } from "@/app/types/property";
 
 interface MapFiltersProps {
   selectedCity: string;
@@ -16,10 +17,9 @@ interface MapFiltersProps {
   setAvailStart: (d: string) => void;
   availEnd: string;
   setAvailEnd: (d: string) => void;
+  /** Live property data — cities are derived dynamically */
+  properties?: Property[];
 }
-
-const CITIES = ['All Cities', 'Toronto', 'Richmond Hill', 'Aurora', 'Markham', 'Vaughan', 'North York', 'King City'];
-const GUEST_OPTIONS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16];
 
 export function MapFilters({
   selectedCity,
@@ -30,11 +30,23 @@ export function MapFilters({
   setAvailStart,
   availEnd,
   setAvailEnd,
+  properties = [],
 }: MapFiltersProps) {
   const [cityOpen, setCityOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [guestsOpen, setGuestsOpen] = useState(false);
   const barRef = useRef<HTMLDivElement>(null);
+
+  // Derive city list from live Firestore data — only cities with ≥1 listing appear
+  const cities = useMemo(() => {
+    const citySet = new Set<string>();
+    for (const p of properties) {
+      const city = p.addressDetails?.city;
+      if (city) citySet.add(city);
+    }
+    const sorted = Array.from(citySet).sort((a, b) => a.localeCompare(b));
+    return ["All Cities", ...sorted];
+  }, [properties]);
 
   const closeAll = () => { setCityOpen(false); setCalendarOpen(false); setGuestsOpen(false); };
 
@@ -133,7 +145,7 @@ export function MapFilters({
       {/* Dropdowns rendered outside sections so they stay open */}
       {cityOpen && (
         <div className={styles.dropdown} style={{ left: 0, right: 'auto', minWidth: '180px' }}>
-          {CITIES.map((city) => (
+          {cities.map((city) => (
             <button
               key={city}
               className={`${styles.dropdownOption} ${selectedCity === city ? styles.selected : ""}`}

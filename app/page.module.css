@@ -40,6 +40,42 @@
   flex-direction: column;
 }
 
+/* ── About Button — floating top-right on map ─── */
+.aboutBtn {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 24px;
+  height: 56px;
+  background-color: rgba(14, 15, 18, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  color: rgba(255, 255, 255, 0.95);
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.aboutBtn:hover {
+  background-color: rgba(14, 15, 18, 0.98);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  transform: translateY(-1px);
+}
+
 /* --- STATE: DETAIL ACTIVE --- */
 .container.detailActive .leftPanel {
   transform: translateX(-100%);
@@ -179,7 +215,7 @@
 }
 
 /* ═══════════════════════════════════════════
-   LOADING / AVAILABILITY OVERLAYS
+   LOADING / AVAILABILITY / ERROR OVERLAYS
    ═══════════════════════════════════════════ */
 .loadingOverlay {
   position: absolute;
@@ -187,15 +223,24 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(4px);
+  background: var(--brand-navy);
   z-index: 9999;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 18px;
-  font-weight: 500;
-  color: #333;
+}
+
+.loadingSpinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(255, 255, 255, 0.1);
+  border-top-color: var(--brand-blue);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 .availOverlay {
@@ -214,6 +259,102 @@
   border: 1px solid rgba(255,255,255,0.1);
   box-shadow: 0 8px 24px rgba(0,0,0,0.3);
   animation: fadeIn 0.2s ease;
+}
+
+/* ── Error State ─────────────────────────────── */
+.errorState {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--brand-navy);
+}
+
+.errorCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  max-width: 360px;
+  padding: 48px 40px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  text-align: center;
+  animation: errorEnter 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes errorEnter {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.errorIconWrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--brand-blue);
+  margin-bottom: 4px;
+}
+
+.errorTitle {
+  font-family: var(--font-sans);
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.errorMessage {
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  color: rgba(255, 255, 255, 0.55);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.errorRetry {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 10px 24px;
+  border-radius: 999px;
+  background: var(--brand-blue);
+  color: #fff;
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  border: none;
+  cursor: pointer;
+  transition: all var(--transition-premium);
+}
+
+.errorRetry:hover {
+  background: var(--brand-blue-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(101, 153, 205, 0.3);
+}
+
+.errorRetry:active {
+  transform: scale(0.97);
 }
 
 @keyframes fadeIn {
@@ -348,5 +489,13 @@
   /* Move avail overlay up to not conflict with FAB */
   .availOverlay {
     bottom: 80px;
+  }
+
+  /* About button sized to match mobile pill */
+  .aboutBtn {
+    top: 12px;
+    right: 12px;
+    height: 50px;
+    padding: 0 18px;
   }
 }

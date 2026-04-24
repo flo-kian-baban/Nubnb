@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Property } from "@/app/data/properties";
+import { Property } from "@/app/types/property";
 import { getProperties, deleteProperty, addProperty } from "@/app/lib/firebase/properties";
 import { PropertyForm } from "./components/PropertyForm";
 import { PinGate } from "./components/PinGate";

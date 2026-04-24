@@ -8,7 +8,7 @@ const limiter = createRateLimiter({ windowMs: 60_000, maxRequests: 20 });
 
 export async function POST(request: Request) {
   // ── Rate limit ───────────────────────────────────────────
-  const limit = limiter.check(request);
+  const limit = await limiter.check(request);
   if (limit.limited) return apiRateLimited(limit.retryAfterMs);
 
   try {

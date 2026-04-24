@@ -1,7 +1,8 @@
 "use client";
 
+import Image from "next/image";
 import { MapPin } from "lucide-react";
-import { Property } from "../data/properties";
+import { Property } from "@/app/types/property";
 import styles from "./PropertyCard.module.css";
 
 interface PropertyCardProps {
@@ -21,11 +22,6 @@ export function PropertyCard({
   onLeave,
   onClick
 }: PropertyCardProps) {
-  // We use next/link conceptually for the handoff, 
-  // but for the split view it also acts as a selector. 
-  // In a real app we might route to `/[slug]` directly, 
-  // but here we select on click. We'll wrap the image in a link to show the handoff intent.
-  
   return (
     <div 
       className={`
@@ -38,11 +34,13 @@ export function PropertyCard({
       onClick={onClick}
     >
       <div className={styles.imageContainer}>
-        <img 
+        <Image 
           src={property.coverImage} 
           alt={property.name} 
           className={styles.image}
-          loading="lazy"
+          fill
+          sizes="(max-width: 768px) 100vw, (max-width: 1024px) 380px, 480px"
+          priority={false}
         />
       </div>
       
@@ -69,7 +67,9 @@ export function PropertyCard({
           </div>
           
           <div className={styles.priceGroup}>
-            <div className={styles.price}>${property.priceInfo?.nightly || property.price}</div>
+            <div className={styles.price}>
+              <span className={styles.priceCurrency}>$</span>{property.priceInfo?.nightly || property.price}
+            </div>
             <div className={styles.priceLabel}>NIGHT</div>
           </div>
         </div>
