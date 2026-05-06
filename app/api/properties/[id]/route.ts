@@ -17,10 +17,33 @@ interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
+/**
+ * Recursively strip `undefined` values from an object.
+ * Firestore Admin SDK throws on undefined — this makes the payload safe.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function stripUndefined(obj: any): any {
+  if (obj === null || obj === undefined) return obj;
+  if (Array.isArray(obj)) return obj.map(stripUndefined);
+  if (typeof obj !== 'object') return obj;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const clean: Record<string, any> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) {
+      clean[key] = typeof value === 'object' && value !== null ? stripUndefined(value) : value;
+    }
+  }
+  return clean;
+}
+
 export async function PUT(request: NextRequest, context: RouteContext) {
   // ── Auth ──
   const auth = verifyAdminSession(request);
-  if (!auth.valid) return apiError(auth.error!, auth.status!);
+  if (!auth.valid) {
+    console.error('[PUT /api/properties] Auth failed:', auth.error);
+    return apiError(auth.error!, auth.status!);
+  }
 
   const { id } = await context.params;
 
@@ -37,7 +60,10 @@ export async function PUT(request: NextRequest, context: RouteContext) {
 
     // Strip `id` from the update payload — it's part of the URL, not the document
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { id: _id, ...updateData } = body;
+    const { id: _id, ...rawData } = body;
+
+    // Deep-clean undefined values (Firestore Admin throws on undefined)
+    const updateData = stripUndefined(rawData);
 
     // Reject empty updates
     if (Object.keys(updateData).length === 0) {
@@ -55,9 +81,12 @@ export async function PUT(request: NextRequest, context: RouteContext) {
 
     await docRef.update(updateData);
 
+    console.log(`[PUT /api/properties/${id}] Updated successfully (${Object.keys(updateData).length} fields)`);
     return apiSuccess({ id });
   } catch (err) {
-    return apiError('Failed to update property', 500, err);
+    console.error(`[PUT /api/properties/${id}] Firestore write error:`, err);
+    const message = err instanceof Error ? err.message : 'Failed to update property';
+    return apiError(message, 500, err);
   }
 }
 
@@ -89,3 +118,4 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     return apiError('Failed to delete property', 500, err);
   }
 }
+
