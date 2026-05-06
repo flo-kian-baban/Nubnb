@@ -8,6 +8,9 @@
 
 import { z } from 'zod';
 
+// ─── Helper: URL-or-empty (for optional URL fields on updates) ──
+const urlOrEmpty = z.union([z.string().url(), z.literal('')]);
+
 // ─── Sub-schemas ───────────────────────────────────────────────
 
 export const OfferSchema = z.object({
@@ -99,15 +102,53 @@ export const CreatePropertySchema = z.object({
   terms: TermsSchema,
 });
 
-// ─── Partial schema (for updates) ─────────────────────────────
+// ─── Lenient schema (for updates) ─────────────────────────────
 
 /**
- * Schema for updating a property. All fields are optional so partial
- * updates are valid, but each field that IS provided must pass validation.
+ * Schema for updating a property. All fields are optional. Nested objects
+ * are deeply partial so individual sub-fields can be sent. URL fields
+ * accept empty strings (the form sends "" for unset URLs).
  */
-export const UpdatePropertySchema = CreatePropertySchema.partial();
+export const UpdatePropertySchema = z.object({
+  slug: z.string().optional(),
+  name: z.string().max(200).optional(),
+  location: z.string().optional(),
+  coordinates: z.tuple([z.number(), z.number()]).optional(),
+  price: z.number().nonnegative().optional(),
+  currency: z.string().optional(),
+  bedrooms: z.number().int().nonnegative().optional(),
+  beds: z.number().int().nonnegative().optional(),
+  bathrooms: z.number().nonnegative().optional(),
+  guests: z.number().int().nonnegative().optional(),
+  coverImage: urlOrEmpty.optional(),
+  images: z.array(z.string()).optional(),
+  type: z.string().optional(),
+  icalUrl: urlOrEmpty.optional(),
+
+  // External links — accept empty strings
+  airbnbUrl: urlOrEmpty.optional(),
+  googleMapsUrl: urlOrEmpty.optional(),
+
+  // Reviews
+  reviews: z.array(ReviewSchema).optional(),
+  averageRating: z.number().min(0).max(5).optional(),
+  totalReviewCount: z.number().int().nonnegative().optional(),
+
+  // Airbnb-aligned fields
+  propertyTypeTag: z.string().optional(),
+  highlights: z.array(z.string()).optional(),
+  amenities: z.array(z.string()).optional(),
+  offers: z.array(OfferSchema).optional(),
+
+  description: z.string().optional(),
+  priceInfo: PriceInfoSchema.partial().optional(),
+  addressDetails: AddressDetailsSchema.partial().optional(),
+  details: DetailsSchema.partial().optional(),
+  terms: TermsSchema.partial().optional(),
+}).passthrough();
 
 // ─── Types derived from schemas ────────────────────────────────
 
 export type CreatePropertyInput = z.infer<typeof CreatePropertySchema>;
 export type UpdatePropertyInput = z.infer<typeof UpdatePropertySchema>;
+
