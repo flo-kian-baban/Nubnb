@@ -3,15 +3,13 @@
  * DELETE /api/properties/[id] — Delete a property (admin-only).
  *
  * Authenticated via HTTP-only session cookie.
- * PUT validates via Zod partial schema before any Firestore write.
  * All Firestore writes go through the Admin SDK.
  */
 
 import { NextRequest } from 'next/server';
 import { getAdminDb } from '@/app/lib/firebase/admin';
 import { verifyAdminSession } from '@/app/lib/api/verify-admin';
-import { UpdatePropertySchema } from '@/app/lib/api/schemas';
-import { apiSuccess, apiError, apiValidationError } from '@/app/lib/api/safe-response';
+import { apiSuccess, apiError } from '@/app/lib/api/safe-response';
 
 const COLLECTION = 'properties';
 
@@ -38,21 +36,11 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     }
 
     // Strip `id` from the update payload — it's part of the URL, not the document
-    const { id: _id, ...raw } = body;
-
-    // ── Validate ──
-    const result = UpdatePropertySchema.safeParse(raw);
-    if (!result.success) {
-      return apiValidationError(
-        result.error.issues.map((i) => ({
-          path: i.path.join('.'),
-          message: i.message,
-        }))
-      );
-    }
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { id: _id, ...updateData } = body;
 
     // Reject empty updates
-    if (Object.keys(result.data).length === 0) {
+    if (Object.keys(updateData).length === 0) {
       return apiError('No fields to update', 400);
     }
 
@@ -65,7 +53,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       return apiError('Property not found', 404);
     }
 
-    await docRef.update(result.data);
+    await docRef.update(updateData);
 
     return apiSuccess({ id });
   } catch (err) {
