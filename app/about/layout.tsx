@@ -3,9 +3,9 @@ import type { ReactNode } from "react";
 import AboutLayoutClient from "./AboutLayoutClient";
 
 export const metadata: Metadata = {
-  title: "About | NUBNB Suites — Premium Short-Term Rentals in the GTA",
+  title: "About | NUBNB Suites | Premium Short-Term Rentals in the GTA",
   description:
-    "Learn about NUBNB Suites — a locally managed short-term rental platform serving the Greater Toronto Area. Discover options for guests and property partners.",
+    "Learn about NUBNB Suites, a locally managed short-term rental platform serving the Greater Toronto Area. Discover options for guests and property partners.",
   alternates: {
     canonical: "https://nubnb.ca/about",
   },

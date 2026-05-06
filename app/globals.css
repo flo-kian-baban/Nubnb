@@ -108,6 +108,21 @@ button {
   border: none;
 }
 
+/* Mobile-critical resets */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+img, video {
+  max-width: 100%;
+  height: auto;
+}
+
 /* Base interactive classes */
 .interactive {
   transition: all var(--transition-fast);
@@ -115,11 +130,6 @@ button {
 
 .interactive:active {
   transform: scale(0.98);
-}
-
-a {
-  color: inherit;
-  text-decoration: none;
 }
 
 @media (prefers-color-scheme: dark) {

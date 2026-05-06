@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 export const metadata: Metadata = {
   title: "For Property Partners | Hands-Free Management in the GTA | NUBNB Suites",
   description:
-    "Partner with NUBNB Suites for full-service property management in the Greater Toronto Area. Dynamic pricing, professional photography, guest screening, and monthly payouts — all handled for you.",
+    "Partner with NUBNB Suites for full-service property management in the Greater Toronto Area. Dynamic pricing, professional photography, guest screening, and monthly payouts, all handled for you.",
   alternates: {
     canonical: "https://nubnb.ca/about/partners",
   },
@@ -15,7 +15,7 @@ export const metadata: Metadata = {
     url: "https://nubnb.ca/about/partners",
     siteName: "NUBNB Suites",
     type: "website",
-    images: [{ url: "/logo-nubnb.png", width: 512, height: 512, alt: "NUBNB Suites — For Partners" }],
+    images: [{ url: "/logo-nubnb.png", width: 512, height: 512, alt: "NUBNB Suites | For Partners" }],
   },
   twitter: {
     card: "summary_large_image",

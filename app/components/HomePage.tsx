@@ -368,6 +368,9 @@ export default function HomePage({ initialSlug }: HomePageProps) {
             onSelect={handleSelectProperty}
           />
         </div>
+        <Link href="/about" className={styles.aboutBtnSidebar}>
+          About Us
+        </Link>
       </div>
 
       {/* RIGHT PANEL (MAP + FILTERS) */}

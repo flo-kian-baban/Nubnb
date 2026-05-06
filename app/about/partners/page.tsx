@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { motion } from "framer-motion";
 import {
   ArrowRight,
@@ -217,6 +218,9 @@ export default function PartnersPage() {
           <Link href="/about/guests" className={styles.navLink}>
             For Guests
           </Link>
+          <Link href="/contact" className={styles.navLink}>
+            Contact
+          </Link>
           <Link href="/" className={styles.navCta}>
             View Properties
           </Link>
@@ -351,12 +355,12 @@ export default function PartnersPage() {
                 variants={cardFade}
               >
                 <div className={styles.bentoImg}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
+                  <Image
                     src={f.img}
                     alt={f.alt}
+                    fill
+                    sizes="(max-width: 768px) 100vw, 50vw"
                     className={styles.bentoPhoto}
-                    loading="lazy"
                   />
                   <div className={styles.bentoImgOverlay} />
                 </div>
@@ -520,7 +524,7 @@ export default function PartnersPage() {
           custom={2}
           style={{ position: "relative", zIndex: 1 }}
         >
-          <Link href="/" className={styles.btnPrimary}>
+          <Link href="/contact" className={styles.btnPrimary}>
             Schedule a Consultation
             <ArrowRight size={16} className={styles.btnArrow} />
           </Link>
@@ -538,6 +542,9 @@ export default function PartnersPage() {
           </Link>
           <Link href="/about/guests" className={styles.footerLink}>
             For Guests
+          </Link>
+          <Link href="/contact" className={styles.footerLink}>
+            Contact
           </Link>
           <Link href="/" className={styles.footerLink}>
             Browse

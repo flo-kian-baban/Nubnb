@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useMemo } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import dynamic from "next/dynamic";
 import { motion } from "framer-motion";
 import {
@@ -229,6 +230,9 @@ export default function GuestsPage() {
           <Link href="/about/partners" className={styles.navLink}>
             For Partners
           </Link>
+          <Link href="/contact" className={styles.navLink}>
+            Contact
+          </Link>
           <Link href="/" className={styles.navCta}>
             Browse Stays
           </Link>
@@ -364,12 +368,12 @@ export default function GuestsPage() {
                 variants={cardFade}
               >
                 <div className={styles.bentoImg}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
+                  <Image
                     src={f.img}
                     alt={f.alt}
+                    fill
+                    sizes="(max-width: 768px) 100vw, 50vw"
                     className={styles.bentoPhoto}
-                    loading="lazy"
                   />
                   <div className={styles.bentoImgOverlay} />
                 </div>
@@ -574,6 +578,9 @@ export default function GuestsPage() {
           </Link>
           <Link href="/about/partners" className={styles.footerLink}>
             For Partners
+          </Link>
+          <Link href="/contact" className={styles.footerLink}>
+            Contact
           </Link>
           <Link href="/" className={styles.footerLink}>
             Browse

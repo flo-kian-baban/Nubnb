@@ -76,6 +76,38 @@
   transform: translateY(-1px);
 }
 
+/* ── Sidebar About link (visible in list view on mobile) ── */
+.aboutBtnSidebar {
+  display: none; /* hidden on desktop — map-panel version is visible */
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  margin: 12px 16px 16px;
+  padding: 0 24px;
+  height: 44px;
+  background-color: rgba(14, 15, 18, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  color: rgba(255, 255, 255, 0.95);
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.aboutBtnSidebar:hover {
+  background-color: rgba(14, 15, 18, 0.98);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
 /* --- STATE: DETAIL ACTIVE --- */
 .container.detailActive .leftPanel {
   transform: translateX(-100%);
@@ -497,5 +529,10 @@
     right: 12px;
     height: 50px;
     padding: 0 18px;
+  }
+
+  /* Show sidebar About link on mobile so it's reachable in list view */
+  .aboutBtnSidebar {
+    display: flex;
   }
 }

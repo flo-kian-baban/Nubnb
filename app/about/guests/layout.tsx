@@ -15,7 +15,7 @@ export const metadata: Metadata = {
     url: "https://nubnb.ca/about/guests",
     siteName: "NUBNB Suites",
     type: "website",
-    images: [{ url: "/logo-nubnb.png", width: 512, height: 512, alt: "NUBNB Suites — For Guests" }],
+    images: [{ url: "/logo-nubnb.png", width: 512, height: 512, alt: "NUBNB Suites | For Guests" }],
   },
   twitter: {
     card: "summary_large_image",

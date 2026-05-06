@@ -11,6 +11,7 @@
   height: 100dvh;
   overflow: hidden;
   position: relative;
+  padding-top: 64px;
   font-family: Arial, Helvetica, sans-serif;
 
   /* Pin tokens so dark-mode media query doesn't break the split layout */
@@ -23,6 +24,79 @@
   --text-on-navy-muted: rgba(255, 255, 255, 0.7);
   --border-on-navy: rgba(255, 255, 255, 0.15);
   --border-medium: #D0D0D0;
+}
+
+/* ── TOP NAV (matches partners/fund/contact) ─ */
+.topNav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 48px;
+  background: rgba(26, 26, 29, 0.75);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.navLogo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: #FFFFFF;
+}
+
+.navLogoImg {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  border-radius: 0;
+}
+
+.navWordmark {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #FFFFFF;
+}
+
+.navLinks {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+}
+
+.navLink {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.5);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.navLink:hover {
+  color: #FFFFFF;
+}
+
+.navCta {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1A1A1D;
+  background: #FFFFFF;
+  padding: 8px 20px;
+  border-radius: 999px;
+  text-decoration: none;
+  transition: opacity 0.2s ease;
+}
+
+.navCta:hover {
+  opacity: 0.88;
 }
 
 /* ── PANEL ───────────────────────────────── */
@@ -219,12 +293,78 @@
   transform: translateX(4px);
 }
 
+
+/* ── MINI STATS (split chooser) ──────────── */
+.miniStats {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  margin-bottom: 32px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.miniStatsLight {
+  border-top-color: rgba(0, 0, 0, 0.06);
+}
+
+.miniStat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.miniStatNum {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.miniStatsLight .miniStatNum {
+  color: var(--text-primary);
+}
+
+.miniStatLabel {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.miniStatsLight .miniStatLabel {
+  color: var(--text-secondary);
+}
+
 /* ═══════════════════════════════════════════
    TABLET + MOBILE — Stack
    ═══════════════════════════════════════════ */
 @media (max-width: 768px) {
   .page {
     flex-direction: column;
+    padding-top: 56px;
+  }
+
+  .topNav {
+    padding: 0 20px;
+    height: 56px;
+  }
+
+  .navLink {
+    display: none;
+  }
+
+  .navLinks {
+    gap: 12px;
+  }
+
+  .navCta {
+    padding: 10px 20px;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
   }
 
   .panel {
@@ -270,6 +410,21 @@
   .cta {
     padding: 16px 36px;
     min-height: 48px;
+  }
+
+
+  .miniStats {
+    gap: 16px;
+    margin-bottom: 24px;
+    padding-top: 16px;
+  }
+
+  .miniStatNum {
+    font-size: 16px;
+  }
+
+  .miniStatLabel {
+    font-size: 8px;
   }
 }
 
