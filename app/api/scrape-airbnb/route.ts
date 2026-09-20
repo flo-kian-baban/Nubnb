@@ -3,8 +3,10 @@ import chromium from '@sparticuz/chromium-min';
 import { findBestIcons } from '@/app/data/amenityIcons';
 import { createRateLimiter } from '@/app/lib/api/rate-limit';
 import { validateAirbnbUrl } from '@/app/lib/api/validate';
+import { guardedFetch } from '@/app/lib/api/url-guard';
 import { verifyAdminSession } from '@/app/lib/api/verify-admin';
-import { apiSuccess, apiError, apiRateLimited } from '@/app/lib/api/safe-response';
+import { apiSuccess, apiError, apiFailure, apiRateLimited } from '@/app/lib/api/safe-response';
+import type { ScrapeFieldStatus, ExtractionSummary } from '@/app/types/scrape';
 
 export const maxDuration = 120;
 
@@ -62,7 +64,30 @@ export async function POST(request: Request) {
       'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     );
 
-    await page.goto(urlCheck.value!, { waitUntil: 'networkidle2', timeout: 30000 });
+    const navResponse = await page.goto(urlCheck.value!, { waitUntil: 'networkidle2', timeout: 30000 });
+
+    /**
+     * Airbnb's soft-404 marker is only visible to a plain HTTP request: the
+     * headless browser is served the client app shell, which renders
+     * "Something went wrong" and rewrites document.title to Airbnb's generic
+     * title. Verified 2026-09-20 against a delisted room — plain fetch returns
+     * `<title>404 Page Not Found - Airbnb</title>` in a 2.9 KB body, while the
+     * same URL under Puppeteer reports the generic title and zero sections.
+     *
+     * Only called on the failure path, so a healthy scrape pays nothing.
+     */
+    const fetchServerRenderedTitle = async (): Promise<string> => {
+      try {
+        const res = await guardedFetch(urlCheck.value!, {
+          timeoutMs: 8_000,
+          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NubnbPropertyImporter/1.0)' },
+        });
+        const html = await res.text();
+        return (html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1] || '').trim();
+      } catch {
+        return '';
+      }
+    };
 
     // Dismiss cookie/translation banners
     try {
@@ -75,6 +100,131 @@ export async function POST(request: Request) {
       });
       await new Promise(r => setTimeout(r, 1500));
     } catch { /* ignore */ }
+
+    // ============================================================
+    // PAGE HEALTH GATE
+    // Airbnb answers HTTP 200 for delisted listings, for its own error page,
+    // and for bot walls. Extraction against any of those produces an empty
+    // payload that used to be reported as success. Refuse to continue, and
+    // say which of the three happened — the operator's next action differs.
+    // ============================================================
+    const health = await page.evaluate(() => {
+      const bodyText = (document.body?.innerText || '').slice(0, 4000);
+      return {
+        h1: document.querySelector('h1')?.textContent?.trim() || '',
+        title: (document.title || '').trim(),
+        sectionCount: document.querySelectorAll('[data-section-id]').length,
+        bodyText,
+        captchaMarkers: [
+          '#px-captcha',
+          '[data-testid="captcha"]',
+          'iframe[src*="recaptcha"]',
+          'iframe[src*="hcaptcha"]',
+          'iframe[title*="captcha" i]',
+          'form[action*="captcha" i]',
+        ].filter((sel) => {
+          try { return document.querySelector(sel) !== null; } catch { return false; }
+        }),
+        finalUrl: location.href,
+      };
+    });
+
+    {
+      const hay = `${health.title}\n${health.h1}\n${health.bodyText}`.toLowerCase();
+      const evidence: Record<string, string | number> = {
+        httpStatus: navResponse?.status() ?? 0,
+        pageTitle: health.title || '(empty)',
+        h1: health.h1 || '(none)',
+        dataSectionIdCount: health.sectionCount,
+        finalUrl: health.finalUrl,
+      };
+
+      const looksBroken =
+        health.sectionCount === 0 ||
+        /^something went wrong/i.test(health.h1) ||
+        hay.includes('airbnb may be undergoing maintenance');
+
+      // 1. Bot wall / interstitial — checked first: a block can also render an
+      //    error-looking body, and "you are blocked" is the actionable fact.
+      const BLOCK_PHRASES = [
+        'confirm you are human',
+        'confirm you’re human',
+        "confirm you're human",
+        'verify you are a human',
+        'are you a robot',
+        'access to this page has been denied',
+        'access denied',
+        'unusual traffic',
+        'suspicious activity',
+        'please verify you are',
+        'security check',
+        'perimeterx',
+        'px-captcha',
+      ];
+      const blockPhrase = BLOCK_PHRASES.find((p) => hay.includes(p));
+      if (blockPhrase || health.captchaMarkers.length > 0) {
+        return apiFailure({
+          message:
+            'Airbnb blocked this request — it served a bot-detection page instead of the listing.',
+          status: 403,
+          code: 'SCRAPER_BLOCKED',
+          hint: 'Wait a few minutes and retry. If it keeps happening the scraper IP is being challenged; no data was imported.',
+          evidence: {
+            ...evidence,
+            marker: blockPhrase || health.captchaMarkers.join(', '),
+          },
+        });
+      }
+
+      // 2. Delisted — Airbnb's soft-404 marker. Serves HTTP 200 regardless, so
+      //    confirm against the server-rendered HTML rather than the DOM.
+      const serverTitle = looksBroken ? await fetchServerRenderedTitle() : '';
+      if (serverTitle) evidence.serverRenderedTitle = serverTitle;
+
+      if (
+        /404\s*page not found/i.test(serverTitle) ||
+        /404\s*page not found/i.test(health.title) ||
+        hay.includes('404 page not found')
+      ) {
+        return apiFailure({
+          message: 'This Airbnb listing no longer exists — Airbnb returned its "404 Page Not Found" page.',
+          status: 410,
+          code: 'LISTING_DELISTED',
+          hint: 'The listing has been removed or unlisted by the host. Nothing was imported; use a current listing URL.',
+          evidence,
+        });
+      }
+
+      // 3. Airbnb's own error / maintenance page.
+      if (
+        /^something went wrong/i.test(health.h1) ||
+        /^something went wrong/i.test(health.title) ||
+        hay.includes('airbnb may be undergoing maintenance')
+      ) {
+        return apiFailure({
+          message: 'Airbnb served an error page ("Something went wrong") instead of the listing.',
+          status: 502,
+          code: 'AIRBNB_ERROR_PAGE',
+          hint: 'This is Airbnb-side. Retry in a few minutes. If it persists for one URL only, the listing is probably delisted.',
+          evidence,
+        });
+      }
+
+      // 4. Structurally empty: a real listing page always carries data-section-id nodes.
+      if (health.sectionCount === 0) {
+        return apiFailure({
+          message: 'The page loaded but contains no Airbnb listing content (zero listing sections).',
+          status: 422,
+          code: 'PAGE_UNUSABLE',
+          hint: 'Nothing was imported. Open the URL in a browser to check what Airbnb is actually serving.',
+          evidence,
+        });
+      }
+    }
+
+    // Non-fatal degradations that used to be console-only. Returned to the
+    // operator so a half-scraped listing is visible as half-scraped.
+    const warnings: string[] = [];
 
     // ============================================================
     // STRATEGY 1: Extract amenities from embedded JSON (most reliable)
@@ -756,6 +906,7 @@ export async function POST(request: Request) {
 
     } catch (photoTourError) {
       console.error('Photo tour scraping error (non-fatal):', photoTourError);
+      warnings.push('The photo-tour gallery could not be read, so most images are missing. Only the main-page photos were imported.');
       // Non-fatal — we still have the main page images
     }
 
@@ -1077,6 +1228,7 @@ export async function POST(request: Request) {
           }
         } catch (modalErr) {
           console.error('Review modal scraping error (non-fatal):', modalErr);
+          warnings.push('The "Show all reviews" modal could not be opened, so only the reviews visible on the page were imported.');
         }
       }
 
@@ -1085,6 +1237,96 @@ export async function POST(request: Request) {
 
     } catch (reviewErr) {
       console.error('Review scraping error (non-fatal):', reviewErr);
+      warnings.push('Review extraction failed outright — rating, review count and reviews are all unimported.');
+    }
+
+    // ============================================================
+    // PER-FIELD PROVENANCE
+    // Every field below is reported as extracted / defaulted / failed, computed
+    // from the raw extractor output *before* any `|| fallback` is applied. A
+    // hard-coded default is never presented as listing data.
+    // ============================================================
+    const fieldStatus: ScrapeFieldStatus = {};
+
+    /** A field with no fallback: either it was read off the page, or it is empty. */
+    const track = (field: string, extracted: boolean, failReason: string) => {
+      fieldStatus[field] = extracted
+        ? { status: 'extracted' }
+        : { status: 'failed', reason: failReason };
+    };
+
+    /** A field whose empty extraction is papered over by a hard-coded constant. */
+    const trackDefault = (
+      field: string,
+      extracted: boolean,
+      defaultUsed: string | number | boolean,
+      reason: string,
+    ) => {
+      fieldStatus[field] = extracted
+        ? { status: 'extracted' }
+        : { status: 'defaulted', defaultUsed, reason };
+    };
+
+    track('name', !!domData.title, 'No <h1> title found on the page.');
+    track('description', !!domData.description, 'The DESCRIPTION_DEFAULT section returned no text.');
+    track('guests', domData.guests > 0, 'No guest capacity found in the overview text.');
+    track('bedrooms', domData.bedrooms > 0, 'No bedroom count found in the overview text.');
+    track('beds', domData.beds > 0, 'No bed count found in the overview text.');
+    track('bathrooms', domData.bathrooms > 0, 'No bathroom count found in the overview text.');
+    track('location', !!domData.location, 'The LOCATION_DEFAULT selector matched no text — set the display location manually.');
+    track('coverImage', allImages.length > 0, 'No listing photos were found, so there is no cover image.');
+    track('images', allImages.length > 1, 'No additional photos beyond the cover image were found.');
+    trackDefault(
+      'propertyTypeTag',
+      !!domData.propertyTypeTag,
+      'Entire home',
+      'Not extracted — "Entire home" is a hard-coded default, not listing data. Confirm it manually.',
+    );
+    track('highlights', domData.highlights.length > 0, 'No listing highlights were found.');
+    track('amenities', topAmenities.length > 0, 'No top amenities — derived from offers, which are also empty.');
+    track('offers', finalOffers.length > 0, 'Neither the embedded amenity JSON nor the amenities modal returned anything.');
+    trackDefault(
+      'checkIn',
+      !!domData.checkIn,
+      '4:00 PM',
+      'Not extracted — "4:00 PM" is a hard-coded default, not listing data. Confirm it manually.',
+    );
+    trackDefault(
+      'checkOut',
+      !!domData.checkOut,
+      '11:00 AM',
+      'Not extracted — "11:00 AM" is a hard-coded default, not listing data. Confirm it manually.',
+    );
+    track('rules', domData.rules.length > 0, 'The POLICIES_DEFAULT house-rules list returned no entries.');
+
+    // The three permission booleans are only ever flipped inside the house-rules
+    // loop. With no rules, `false` means "unknown", not "not allowed" — report
+    // that rather than letting a default read as a fact.
+    const rulesParsed = domData.rules.length > 0;
+    const permissionUnknown =
+      'House rules were not extracted, so this could not be determined. `false` here means unknown, not "not allowed".';
+    track('petsAllowed', rulesParsed, permissionUnknown);
+    track('smokingAllowed', rulesParsed, permissionUnknown);
+    track('partyAllowed', rulesParsed, permissionUnknown);
+
+    track(
+      'price',
+      domData.price > 0,
+      'Airbnb shows no nightly price on a listing page opened without dates. Enter the price manually.',
+    );
+    track('averageRating', reviewData.averageRating > 0, 'No overall rating was found on the page.');
+    track('totalReviewCount', reviewData.totalReviewCount > 0, 'No review count was found on the page.');
+    track('reviews', reviewData.reviews.length > 0, 'No individual reviews were extracted.');
+
+    const extractionSummary: ExtractionSummary = {
+      extracted: 0,
+      defaulted: 0,
+      failed: 0,
+      total: 0,
+    };
+    for (const report of Object.values(fieldStatus)) {
+      extractionSummary[report.status]++;
+      extractionSummary.total++;
     }
 
     // Build final result
@@ -1112,16 +1354,56 @@ export async function POST(request: Request) {
       averageRating: reviewData.averageRating,
       totalReviewCount: reviewData.totalReviewCount,
       reviews: reviewData.reviews,
+
+      // Provenance, not listing data — see app/types/scrape.ts.
+      fieldStatus,
+      extractionSummary,
+      warnings,
     };
 
     return apiSuccess(result);
 
   } catch (error) {
-    return apiError(
-      'Failed to scrape the Airbnb listing. Make sure the URL is valid and the page is accessible.',
-      500,
-      error,
-    );
+    // The old blanket message blamed the URL even when the cause was entirely
+    // ours (Chromium failing to download, navigation timing out). Name the
+    // actual cause — "check your URL" sends the operator to the wrong place.
+    const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    const lower = detail.toLowerCase();
+
+    if (
+      lower.includes('chromium') ||
+      lower.includes('executablepath') ||
+      lower.includes('.tar') ||
+      lower.includes('enoent') ||
+      lower.includes('failed to launch') ||
+      lower.includes('spawn')
+    ) {
+      return apiFailure({
+        message: 'The headless browser could not be started — the scraper could not download or launch Chromium.',
+        status: 503,
+        code: 'BROWSER_UNAVAILABLE',
+        hint: 'This is a server-side problem, not a problem with the URL. Nothing was imported; retry, and check the server logs if it persists.',
+        internalError: error,
+      });
+    }
+
+    if (lower.includes('timeout') || lower.includes('timed out') || lower.includes('navigation')) {
+      return apiFailure({
+        message: 'Timed out loading the Airbnb listing — the page did not finish loading within 30s.',
+        status: 504,
+        code: 'NAVIGATION_TIMEOUT',
+        hint: 'Nothing was imported. Retry; if it keeps timing out, open the URL in a browser to check that it loads.',
+        internalError: error,
+      });
+    }
+
+    return apiFailure({
+      message: 'Failed to scrape the Airbnb listing.',
+      status: 500,
+      code: 'SCRAPE_FAILED',
+      hint: 'Nothing was imported. Retry; if it keeps failing, check the server logs for the underlying error.',
+      internalError: error,
+    });
   } finally {
     // Guaranteed cleanup — even on uncaught errors or early returns
     if (browser) {

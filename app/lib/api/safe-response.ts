@@ -66,3 +66,36 @@ export function apiValidationError(
   );
 }
 
+
+/**
+ * Return a failure with a machine-readable `code` alongside the public message,
+ * so the caller can tell *which* failure happened rather than only that one did.
+ *
+ * Response body: `{ success: false, error, code, hint?, evidence? }`
+ */
+export function apiFailure(opts: {
+  message: string;
+  status: number;
+  code: string;
+  /** Short, operator-actionable next step. */
+  hint?: string;
+  /** Safe-to-surface evidence (page title, section counts…) — never internals. */
+  evidence?: Record<string, string | number>;
+  /** Logged server-side only. */
+  internalError?: unknown;
+}): NextResponse {
+  if (opts.internalError) {
+    console.error(`[API Failure ${opts.code}] ${opts.message}:`, opts.internalError);
+  }
+
+  return NextResponse.json(
+    {
+      success: false,
+      error: opts.message,
+      code: opts.code,
+      ...(opts.hint ? { hint: opts.hint } : {}),
+      ...(opts.evidence ? { evidence: opts.evidence } : {}),
+    },
+    { status: opts.status },
+  );
+}

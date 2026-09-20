@@ -1,0 +1,36 @@
+rules_version = '2';
+
+// ─────────────────────────────────────────────────────────────────────────
+// Cloud Storage rules — deny all client access.
+//
+// This app has no Firebase Auth. The browser therefore holds no credential
+// Storage could authorise against, so there is no rule that admits the admin
+// form without also admitting the entire internet. Rather than write one,
+// the browser is cut out of Storage completely:
+//
+//   • Uploads  → POST /api/upload-image, which checks the admin session
+//                cookie and writes with the Admin SDK.
+//   • Reads    → the Firebase download-token URL returned by that route.
+//
+// Both paths bypass these rules. The Admin SDK authenticates as the service
+// account, and download-token URLs are served by the Storage API without
+// consulting rules at all — the unguessable token *is* the read credential.
+//
+// Verified 2026-09-20 against the live bucket: with these same denials in
+// force (the lapsed starter rules), a token URL returned 200 OK while the
+// client SDK returned storage/unauthorized for both read and write. Serving
+// images needs nothing from this file.
+//
+// What replaced what: the rules deployed 2026-03-17 were the stock starter
+// template, `allow read, write: if request.time < timestamp.date(2026, 4, 16)`.
+// That expired on 2026-04-16 and had been denying all client traffic since —
+// silently, because the admin form's upload failure was console-only.
+// ─────────────────────────────────────────────────────────────────────────
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,15 +1,15 @@
 "use client";
 
 import { Property, Offer } from "@/app/types/property";
-import { addProperty, updateProperty } from "@/app/lib/firebase/properties";
-import { storage } from "@/app/lib/firebase/config";
-import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+import { addProperty, updateProperty, MutationIssue } from "@/app/lib/firebase/properties";
 import { useState } from "react";
 import styles from "./PropertyForm.module.css";
-import { Plus, Trash2, X, ImageIcon, ImagePlus, Link2, Star, ChevronDown } from "lucide-react";
+import { Plus, Trash2, X, ImageIcon, ImagePlus, Link2, Star, ChevronDown, Check, AlertTriangle, XCircle } from "lucide-react";
 
 import { CustomSelect } from "./CustomSelect";
 import { IconPicker } from "./IconPicker";
+import { NoticeBanner, Notice, useNotice } from "./Notice";
+import type { ExtractionSummary, ScrapeFieldStatus } from "@/app/types/scrape";
 
 const GTA_CITIES = [
   "Toronto, ON", "Mississauga, ON", "Brampton, ON", "Markham, ON",
@@ -27,6 +27,9 @@ const CANADIAN_PROVINCES = [
   "Northwest Territories", "Nunavut", "Yukon"
 ];
 
+/** Mirrors ALLOWED_TYPES in /api/upload-image. SVG and HEIC are not accepted. */
+const ACCEPTED_IMAGE_TYPES = "image/jpeg,image/png,image/webp,image/avif";
+
 const PROPERTY_TYPES = ["House", "Apartment", "Villa", "Penthouse", "Estate", "Residence", "Ranch", "Condo", "Basement"];
 const PROPERTY_TYPE_TAGS = ["Entire home", "Entire condo", "Entire guest suite", "Private room", "Shared room"];
 const OFFER_CATEGORIES = [
@@ -34,6 +37,64 @@ const OFFER_CATEGORIES = [
   "Heating and cooling", "Kitchen and dining", "Parking and facilities",
   "Internet and office", "Location features", "Outdoor", "Services", "Safety"
 ];
+
+/**
+ * Which accordion each scraped field lives in, so a field that failed to
+ * extract can be opened rather than hidden behind a collapsed section.
+ * Keys are the scraper's field names (see app/types/scrape.ts).
+ */
+const SCRAPE_FIELD_SECTION: Record<string, string> = {
+  name: "basic", description: "basic", coverImage: "basic", images: "basic",
+  location: "basic", propertyTypeTag: "basic",
+  checkIn: "location", checkOut: "location",
+  guests: "capacity", bedrooms: "capacity", beds: "capacity",
+  bathrooms: "capacity", price: "capacity",
+  highlights: "highlights",
+  amenities: "offers", offers: "offers",
+  rules: "terms", petsAllowed: "terms", smokingAllowed: "terms", partyAllowed: "terms",
+  reviews: "reviews", averageRating: "reviews", totalReviewCount: "reviews",
+};
+
+/** Human labels for the scrape report, keyed the same way. */
+const SCRAPE_FIELD_LABEL: Record<string, string> = {
+  name: "Title", description: "Description", guests: "Max guests",
+  bedrooms: "Bedrooms", beds: "Beds", bathrooms: "Bathrooms",
+  location: "Display location", coverImage: "Cover image", images: "Additional images",
+  propertyTypeTag: "Property tag", highlights: "Highlights",
+  amenities: "Top amenities", offers: "What this place offers",
+  checkIn: "Check-in time", checkOut: "Check-out time", rules: "House rules",
+  petsAllowed: "Pets allowed", smokingAllowed: "Smoking allowed",
+  partyAllowed: "Parties allowed", price: "Price",
+  averageRating: "Average rating", totalReviewCount: "Review count", reviews: "Reviews",
+};
+
+/** Operator-facing names for save-issue payload paths. */
+const ISSUE_LABEL: Record<string, string> = {
+  slug: "URL slug", currency: "Currency", coordinates: "Coordinates",
+  type: "Type", icalUrl: "iCal URL", airbnbUrl: "Airbnb listing URL",
+  googleMapsUrl: "Google Maps link",
+  "addressDetails.city": "City", "addressDetails.state": "State/Province",
+  "addressDetails.area": "Area", "addressDetails.country": "Country",
+  "details.checkIn": "Check-in time", "details.checkOut": "Check-out time",
+  "priceInfo.nightly": "Nightly price", "priceInfo.weekly": "Weekly price",
+  "priceInfo.monthly": "Monthly price", "priceInfo.weekend": "Weekend price",
+  "priceInfo.cleaningFee": "Cleaning fee", "priceInfo.minNights": "Min. nights",
+  "terms.cancellationPolicy": "Cancellation policy", "terms.rules": "House rules",
+};
+
+/** Which accordion a save issue's payload path belongs to. */
+const ISSUE_SECTION: Record<string, string> = {
+  // airbnbUrl / googleMapsUrl / icalUrl live in the always-visible Data
+  // Sources block, so they need no accordion to open.
+  airbnbUrl: "", googleMapsUrl: "", icalUrl: "",
+  slug: "basic", name: "basic", location: "basic", coverImage: "basic",
+  images: "basic", type: "basic", propertyTypeTag: "basic", description: "basic",
+  coordinates: "location", addressDetails: "location", details: "location",
+  price: "capacity", currency: "capacity", bedrooms: "capacity", beds: "capacity",
+  bathrooms: "capacity", guests: "capacity", priceInfo: "capacity",
+  highlights: "highlights", amenities: "offers", offers: "offers", terms: "terms",
+  reviews: "reviews", averageRating: "reviews", totalReviewCount: "reviews",
+};
 
 interface PropertyFormProps {
   initialData?: Property;
@@ -105,13 +166,21 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
   const [newOfferCategory, setNewOfferCategory] = useState("Bathroom");
   const [airbnbUrl, setAirbnbUrl] = useState(initialData?.airbnbUrl || "");
   const [isScraping, setIsScraping] = useState(false);
-  const [scrapeMessage, setScrapeMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [scrapeAttempted, setScrapeAttempted] = useState(false);
-  const [scrapedFields, setScrapedFields] = useState<Set<string>>(new Set());
+  const [scrapeNotice, setScrapeNotice] = useState<Notice | null>(null);
+  // Per-field provenance from the scraper, replacing the old guesswork Set.
+  const [fieldStatus, setFieldStatus] = useState<ScrapeFieldStatus | null>(null);
+  const [extractionSummary, setExtractionSummary] = useState<ExtractionSummary | null>(null);
   const [googleMapsUrl, setGoogleMapsUrl] = useState(initialData?.googleMapsUrl || "");
   const [isParsingMaps, setIsParsingMaps] = useState(false);
-  const [mapsMessage, setMapsMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [mapsNotice, setMapsNotice] = useState<Notice | null>(null);
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
+
+  // Save failures. The modal stays open and every entered value is kept.
+  const [saveError, setSaveError] = useState<{ title: string; detail?: string } | null>(null);
+  const [saveIssues, setSaveIssues] = useState<MutationIssue[]>([]);
+
+  // Uploads and other in-form failures — one mechanism, no alert().
+  const { notice: formNotice, show: showFormNotice, clear: clearFormNotice } = useNotice();
 
   const toggleSection = (key: string) => {
     setOpenSections(prev => ({ ...prev, [key]: !prev[key] }));
@@ -179,9 +248,22 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
     }
   };
 
+  /** Fields in this section the scraper defaulted or failed to read. */
+  const sectionScrapeProblems = (sectionKey: string) =>
+    Object.entries(fieldStatus || {}).filter(
+      ([field, report]) =>
+        SCRAPE_FIELD_SECTION[field] === sectionKey && report.status !== 'extracted',
+    ).length;
+
+  /** Save issues the API reported against fields in this section. */
+  const sectionSaveIssues = (sectionKey: string) =>
+    saveIssues.filter((i) => ISSUE_SECTION[i.path.split('.')[0]] === sectionKey).length;
+
   const renderAccordionSection = (sectionKey: string, title: string, children: React.ReactNode) => {
     const isOpen = !!openSections[sectionKey];
     const unfilled = getUnfilledCount(sectionKey);
+    const scrapeProblems = sectionScrapeProblems(sectionKey);
+    const rejected = sectionSaveIssues(sectionKey);
     return (
       <div className={styles.section} key={sectionKey}>
         <div className={styles.accordionHeader} onClick={() => toggleSection(sectionKey)}>
@@ -191,6 +273,16 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
               <span className={styles.accordionBadge}>{unfilled}</span>
             ) : (
               <span className={styles.accordionBadgeZero}>✓</span>
+            )}
+            {rejected > 0 && (
+              <span className={styles.accordionBadgeRejected} title="Fields the server rejected on save">
+                <XCircle size={11} /> {rejected} rejected
+              </span>
+            )}
+            {scrapeProblems > 0 && (
+              <span className={styles.accordionBadgeScrape} title="Fields that were defaulted or not found during import">
+                <AlertTriangle size={11} /> {scrapeProblems} unverified
+              </span>
             )}
           </div>
           <ChevronDown size={20} className={isOpen ? styles.accordionChevronOpen : styles.accordionChevron} />
@@ -202,47 +294,112 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
     );
   };
 
-  // Returns the CSS class for a field's scrape status
-  const scrapeClass = (fieldKey: string) => {
-    if (!scrapeAttempted) return '';
-    return scrapedFields.has(fieldKey) ? styles.scrapeSuccess : styles.scrapeFailed;
+  // ── Scrape provenance ──────────────────────────────────────
+  // Driven by the scraper's own fieldStatus map: every field it returns gets a
+  // state here, including the ones it silently defaults.
+
+  /** Border colour for a plain input, from the scraper's report for that field. */
+  const scrapeClass = (field: string) => {
+    const report = fieldStatus?.[field];
+    if (!report) return '';
+    if (report.status === 'extracted') return styles.scrapeExtracted;
+    if (report.status === 'defaulted') return styles.scrapeDefaulted;
+    return styles.scrapeFailed;
   };
+
+  /** Badge for any control that has no border to colour (selects, lists, images). */
+  const scrapeBadge = (field: string) => {
+    const report = fieldStatus?.[field];
+    if (!report) return null;
+
+    if (report.status === 'extracted') {
+      return (
+        <span className={`${styles.scrapeBadge} ${styles.scrapeBadgeExtracted}`} title="Read from the Airbnb listing.">
+          <Check size={11} /> Scraped
+        </span>
+      );
+    }
+    if (report.status === 'defaulted') {
+      return (
+        <span className={`${styles.scrapeBadge} ${styles.scrapeBadgeDefaulted}`} title={report.reason}>
+          <AlertTriangle size={11} /> Default: {String(report.defaultUsed)}
+        </span>
+      );
+    }
+    return (
+      <span className={`${styles.scrapeBadge} ${styles.scrapeBadgeFailed}`} title={report.reason}>
+        <XCircle size={11} /> Not found
+      </span>
+    );
+  };
+
+  /** Fields the scraper could not read, grouped for the post-scrape report. */
+  const fieldsWithStatus = (status: 'extracted' | 'defaulted' | 'failed') =>
+    Object.entries(fieldStatus || {})
+      .filter(([, r]) => r.status === status)
+      .map(([field, r]) => ({ field, label: SCRAPE_FIELD_LABEL[field] || field, reason: r.reason, defaultUsed: r.defaultUsed }));
+
+  // ── Save issues ────────────────────────────────────────────
+
+  /** Validation messages the API reported against this exact payload path. */
+  const issuesFor = (path: string) => saveIssues.filter((i) => i.path === path);
+
+  const fieldIssue = (path: string) => {
+    const issues = issuesFor(path);
+    if (issues.length === 0) return null;
+    return (
+      <span className={styles.fieldIssue} role="alert">
+        {issues.map((i) => i.message).join('. ')}
+      </span>
+    );
+  };
+
+  /** Red border on an input the API rejected. */
+  const issueClass = (path: string) => (issuesFor(path).length > 0 ? styles.fieldIssueInput : '');
 
   const handleScrapeAirbnb = async () => {
     if (!airbnbUrl.trim() || !airbnbUrl.includes('airbnb')) {
-      setScrapeMessage({ type: 'error', text: 'Please enter a valid Airbnb URL.' });
+      setScrapeNotice({ tone: 'error', title: 'Please enter a valid Airbnb URL.' });
       return;
     }
     setIsScraping(true);
-    setScrapeMessage(null);
+    setScrapeNotice(null);
     try {
       const res = await fetch('/api/scrape-airbnb', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: airbnbUrl }),
       });
+
       if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || 'Scraping failed');
+        // The scraper now refuses to report success on an unusable page and
+        // says which failure it was. Nothing is imported on these paths, so
+        // leave the form exactly as the operator left it.
+        const errData = await res.json().catch(() => ({}));
+        setFieldStatus(null);
+        setExtractionSummary(null);
+        setScrapeNotice({
+          tone: 'error',
+          title: errData.error || `Scrape failed (HTTP ${res.status}).`,
+          detail: [errData.hint, errData.code ? `Code: ${errData.code}` : null]
+            .filter(Boolean)
+            .join(' · ') || undefined,
+          items: errData.evidence
+            ? Object.entries(errData.evidence as Record<string, string | number>).map(
+                ([k, v]) => `${k}: ${v}`,
+              )
+            : undefined,
+        });
+        return;
       }
+
       const result = await res.json();
       const data = result.data;
 
-      // Track which fields were successfully scraped
-      const filled = new Set<string>();
-      if (data.name) filled.add('name');
-      if (data.description) filled.add('description');
-      if (data.guests) filled.add('guests');
-      if (data.bedrooms) filled.add('bedrooms');
-      if (data.beds) filled.add('beds');
-      if (data.bathrooms) filled.add('bathrooms');
-      if (data.price) { filled.add('price'); filled.add('priceInfo.nightly'); }
-      if (data.propertyTypeTag) filled.add('propertyTypeTag');
-      if (data.checkIn) filled.add('details.checkIn');
-      if (data.checkOut) filled.add('details.checkOut');
-      if (data.highlights?.length) filled.add('highlights');
-      setScrapedFields(filled);
-      setScrapeAttempted(true);
+      const status: ScrapeFieldStatus = data.fieldStatus || {};
+      const summary: ExtractionSummary | null = data.extractionSummary || null;
+      setFieldStatus(status);
+      setExtractionSummary(summary);
 
       // Map scraped data into form fields
       setFormData(prev => ({
@@ -286,14 +443,41 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
         airbnbUrl: airbnbUrl || prev.airbnbUrl || '',
       }));
 
-      // Auto-open reviews accordion if reviews were scraped
-      if (data.reviews?.length) {
-        setOpenSections(prev => ({ ...prev, reviews: true }));
-      }
+      // Open every accordion holding a field that defaulted or failed, plus
+      // reviews when there are any — nothing broken stays collapsed.
+      setOpenSections(prev => {
+        const next = { ...prev };
+        for (const [field, report] of Object.entries(status)) {
+          if (report.status === 'extracted') continue;
+          const section = SCRAPE_FIELD_SECTION[field];
+          if (section) next[section] = true;
+        }
+        if (data.reviews?.length) next.reviews = true;
+        return next;
+      });
 
-      setScrapeMessage({ type: 'success', text: `Imported data for "${data.name}". Review & edit below, then save.` });
+      const warnings: string[] = Array.isArray(data.warnings) ? data.warnings : [];
+      const incomplete = summary ? summary.defaulted + summary.failed : 0;
+      setScrapeNotice({
+        tone: incomplete > 0 || warnings.length > 0 ? 'warning' : 'success',
+        title: summary
+          ? `Imported "${data.name}" — ${summary.extracted} of ${summary.total} fields extracted, ` +
+            `${summary.defaulted} defaulted, ${summary.failed} not found.`
+          : `Imported data for "${data.name}".`,
+        detail:
+          incomplete > 0
+            ? 'Amber and red fields below were NOT read from the listing. Check every one of them before saving.'
+            : 'Review & edit below, then save.',
+        items: warnings.length > 0 ? warnings : undefined,
+      });
     } catch (err) {
-      setScrapeMessage({ type: 'error', text: err instanceof Error ? err.message : 'Scraping failed. Try again.' });
+      setFieldStatus(null);
+      setExtractionSummary(null);
+      setScrapeNotice({
+        tone: 'error',
+        title: err instanceof Error ? err.message : 'Scraping failed. Try again.',
+        detail: 'Nothing was imported.',
+      });
     } finally {
       setIsScraping(false);
     }
@@ -301,15 +485,15 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
 
   const handleParseGoogleMaps = async () => {
     if (!googleMapsUrl.trim()) {
-      setMapsMessage({ type: 'error', text: 'Please enter a Google Maps URL.' });
+      setMapsNotice({ tone: 'error', title: 'Please enter a Google Maps URL.' });
       return;
     }
     if (!googleMapsUrl.includes('google') && !googleMapsUrl.includes('goo.gl') && !googleMapsUrl.includes('maps.app')) {
-      setMapsMessage({ type: 'error', text: 'Please enter a valid Google Maps link.' });
+      setMapsNotice({ tone: 'error', title: 'Please enter a valid Google Maps link.' });
       return;
     }
     setIsParsingMaps(true);
-    setMapsMessage(null);
+    setMapsNotice(null);
     try {
       const res = await fetch('/api/parse-google-maps', {
         method: 'POST',
@@ -336,81 +520,144 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
         googleMapsUrl: googleMapsUrl || prev.googleMapsUrl || '',
       }));
 
-      const parts = [
-        data.addressDetails?.city,
-        data.addressDetails?.state,
-        data.addressDetails?.area,
-        data.addressDetails?.country,
-      ].filter(Boolean);
-      setMapsMessage({
-        type: 'success',
-        text: `Location set: ${parts.join(', ')} (${data.lat?.toFixed(4)}, ${data.lng?.toFixed(4)})`,
-      });
+      // Coordinates always come back; the address only comes back if Nominatim
+      // answered. Reporting "Location set" with a blank address hid that.
+      const addr = data.addressDetails || {};
+      const missing = (['city', 'state', 'area', 'country'] as const).filter((k) => !addr[k]);
+      const coords = `${data.lat?.toFixed(4)}, ${data.lng?.toFixed(4)}`;
+
+      if (missing.length === 4) {
+        setMapsNotice({
+          tone: 'error',
+          title: `Coordinates set (${coords}) — but no address was resolved.`,
+          detail:
+            'Reverse geocoding returned nothing, so city, province, area and country are all blank. ' +
+            'Fill them in under Location before saving: an empty city drops this property out of the city filter.',
+        });
+      } else if (missing.length > 0) {
+        setMapsNotice({
+          tone: 'warning',
+          title: `Location partly resolved (${coords}).`,
+          detail: `Reverse geocoding did not return: ${missing.join(', ')}. Fill these in under Location before saving.`,
+        });
+      } else {
+        setMapsNotice({
+          tone: 'success',
+          title: `Location set: ${[addr.city, addr.state, addr.area, addr.country].join(', ')} (${coords})`,
+        });
+      }
     } catch (err) {
-      setMapsMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to parse URL.' });
+      setMapsNotice({ tone: 'error', title: err instanceof Error ? err.message : 'Failed to parse URL.' });
     } finally {
       setIsParsingMaps(false);
     }
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  /**
+   * Send one file to /api/upload-image and return the stored URL.
+   *
+   * Uploads are server-side: there is no Firebase Auth in this app, so the
+   * browser has no credential Storage could trust. The route authenticates
+   * with the admin session cookie and writes via the Admin SDK.
+   *
+   * Rejects with a message already fit to show the operator — the route
+   * returns `error`/`hint`/`code` the same way the scraper does.
+   */
+  const uploadImageFile = async (file: File): Promise<string> => {
+    const body = new FormData();
+    body.append('file', file);
+
+    const res = await fetch('/api/upload-image', { method: 'POST', body });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      const reason = [errData.error, errData.hint].filter(Boolean).join(' ')
+        || `Upload failed (HTTP ${res.status}).`;
+      throw new Error(reason);
+    }
+
+    const { data } = await res.json();
+    if (!data?.url) throw new Error('The server did not return an image URL.');
+    return data.url as string;
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!storage) { alert('Firebase Storage is not configured.'); return; }
 
+    clearFormNotice();
     setIsUploadingImage(true);
-    const storageRef = ref(storage!, `properties/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`);
-    const uploadTask = uploadBytesResumable(storageRef, file);
 
-    uploadTask.on('state_changed', 
-      null, 
-      (error) => {
-        console.error("Single image upload failed:", error);
-        setIsUploadingImage(false);
-        e.target.value = '';
-      }, 
-      () => {
-        getDownloadURL(uploadTask.snapshot.ref).then((downloadURL) => {
-          setFormData(prev => ({ ...prev, coverImage: downloadURL }));
-          setIsUploadingImage(false);
-          e.target.value = '';
-        });
-      }
-    );
+    try {
+      const url = await uploadImageFile(file);
+      setFormData(prev => ({ ...prev, coverImage: url }));
+      showFormNotice({ tone: 'success', title: `Cover image uploaded: ${file.name}` });
+    } catch (error) {
+      // Previously console-only, which is why five months of denied uploads
+      // looked like a click that never registered.
+      showFormNotice({
+        tone: 'error',
+        title: 'Cover image upload failed.',
+        detail: error instanceof Error ? error.message : 'Check your connection and try again.',
+      });
+    } finally {
+      setIsUploadingImage(false);
+      e.target.value = '';
+    }
   };
 
   const handleMultipleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-    if (!storage) { alert('Firebase Storage is not configured.'); return; }
 
+    clearFormNotice();
     setIsUploadingMultiple(true);
 
     try {
-      const uploadPromises = Array.from(files).map((file, index) => {
-        const storageRef = ref(storage!, `properties/${Date.now()}_${index}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`);
-        const uploadTask = uploadBytesResumable(storageRef, file);
-        
-        return new Promise<string>((resolve, reject) => {
-          uploadTask.on('state_changed', 
-            null, 
-            reject, 
-            () => {
-              getDownloadURL(uploadTask.snapshot.ref).then(resolve).catch(reject);
-            }
-          );
-        });
-      });
+      const selected = Array.from(files);
+      // allSettled, not all: one rejected file should not discard the ones
+      // that uploaded cleanly, and the operator needs to know which failed.
+      const results = await Promise.allSettled(selected.map(uploadImageFile));
 
-      const uploadedUrls = await Promise.all(uploadPromises);
-      
-      setFormData(prev => ({ 
-        ...prev, 
-        images: [...(prev.images || []), ...uploadedUrls] 
-      }));
+      const uploadedUrls = results.flatMap(r => (r.status === 'fulfilled' ? [r.value] : []));
+      const failures = results.flatMap((r, i) =>
+        r.status === 'rejected'
+          ? [`${selected[i].name}: ${r.reason instanceof Error ? r.reason.message : 'upload failed'}`]
+          : []
+      );
+
+      if (uploadedUrls.length > 0) {
+        setFormData(prev => ({
+          ...prev,
+          images: [...(prev.images || []), ...uploadedUrls]
+        }));
+      }
+
+      if (failures.length === 0) {
+        showFormNotice({
+          tone: 'success',
+          title: `${uploadedUrls.length} image${uploadedUrls.length === 1 ? '' : 's'} uploaded.`,
+        });
+      } else if (uploadedUrls.length > 0) {
+        showFormNotice({
+          tone: 'warning',
+          title: `${uploadedUrls.length} of ${selected.length} images uploaded — ${failures.length} failed.`,
+          detail: 'The successful ones have been added. The rest were not saved.',
+          items: failures,
+        });
+      } else {
+        showFormNotice({
+          tone: 'error',
+          title: `None of the ${selected.length} image${selected.length === 1 ? '' : 's'} could be uploaded.`,
+          items: failures,
+        });
+      }
     } catch (error) {
-      console.error("Failed to upload some images:", error);
-      alert("Failed to upload one or more images. Please check your connection and try again.");
+      showFormNotice({
+        tone: 'error',
+        title: 'Image upload failed.',
+        detail: error instanceof Error ? error.message : 'Check your connection and try again.',
+      });
     } finally {
       setIsUploadingMultiple(false);
       e.target.value = '';
@@ -541,7 +788,9 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
-    
+    setSaveError(null);
+    setSaveIssues([]);
+
     const finalData = { ...formData };
     // Always persist the latest external link state
     if (airbnbUrl.trim()) finalData.airbnbUrl = airbnbUrl.trim();
@@ -550,17 +799,46 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
       finalData.slug = finalData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
     }
 
-    try {
-      if (initialData?.id) {
-        await updateProperty(initialData.id, finalData);
-      } else {
-        await addProperty(finalData as Omit<Property, "id">);
-      }
+    // `onSave()` used to run unconditionally, so the modal closed and the list
+    // refetched whether or not the write landed. Close only on confirmed
+    // success; on failure keep the modal, the entered data, and show why.
+    const result = initialData?.id
+      ? await updateProperty(initialData.id, finalData)
+      : await addProperty(finalData as Omit<Property, "id">);
+
+    setIsSaving(false);
+
+    if (result.ok) {
       onSave();
-    } catch (error) {
-      console.error("Failed to save property", error);
-    } finally {
-      setIsSaving(false);
+      return;
+    }
+
+    setSaveIssues(result.issues);
+    setSaveError({
+      title:
+        result.issues.length > 0
+          ? `Not saved — ${result.issues.length} field${result.issues.length === 1 ? '' : 's'} rejected by the server.`
+          : `Not saved — ${result.error}`,
+      detail:
+        result.status === 401 || result.status === 403
+          ? 'Your admin session may have expired. Open the admin in a new tab to sign in again, then save — your entries here are kept.'
+          : result.status === 0
+            ? 'The request never reached the server. Your entries are kept; check your connection and try again.'
+            : result.issues.length > 0
+              ? 'Fix the highlighted fields below and save again. Nothing you typed has been lost.'
+              : `HTTP ${result.status}. Your entries are kept.`,
+    });
+
+    // Open every accordion holding a rejected field so no error is collapsed.
+    if (result.issues.length > 0) {
+      setOpenSections(prev => {
+        const next = { ...prev };
+        for (const issue of result.issues) {
+          const section = ISSUE_SECTION[issue.path.split('.')[0]];
+          if (section) next[section] = true;
+        }
+        return next;
+      });
     }
   };
 
@@ -609,9 +887,36 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
                   {isScraping ? 'Scraping...' : 'Import'}
                 </button>
               </div>
-              {scrapeMessage && (
-                <div className={`${styles.statusMessage} ${scrapeMessage.type === 'success' ? styles.statusSuccess : styles.statusError}`}>
-                  {scrapeMessage.text}
+              {fieldIssue('airbnbUrl')}
+              <NoticeBanner notice={scrapeNotice} onDismiss={() => setScrapeNotice(null)} className={styles.inlineNotice} />
+
+              {/* Per-field extraction report — every field the scraper returned,
+                  so a silently defaulted value cannot pass as listing data. */}
+              {extractionSummary && (
+                <div className={styles.scrapeReport}>
+                  <div className={styles.scrapeReportCounts}>
+                    <span className={styles.scrapeBadgeExtracted}><Check size={11} /> {extractionSummary.extracted} extracted</span>
+                    <span className={styles.scrapeBadgeDefaulted}><AlertTriangle size={11} /> {extractionSummary.defaulted} defaulted</span>
+                    <span className={styles.scrapeBadgeFailed}><XCircle size={11} /> {extractionSummary.failed} not found</span>
+                    <span className={styles.scrapeReportTotal}>of {extractionSummary.total} fields</span>
+                  </div>
+                  {(['defaulted', 'failed'] as const).map((status) => {
+                    const rows = fieldsWithStatus(status);
+                    if (rows.length === 0) return null;
+                    return (
+                      <ul key={status} className={styles.scrapeReportList}>
+                        {rows.map((row) => (
+                          <li key={row.field}>
+                            <span className={status === 'defaulted' ? styles.scrapeBadgeDefaulted : styles.scrapeBadgeFailed}>
+                              {status === 'defaulted' ? `Default "${String(row.defaultUsed)}"` : 'Not found'}
+                            </span>
+                            <strong>{row.label}</strong>
+                            <span className={styles.scrapeReportReason}>{row.reason}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -640,11 +945,8 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
                   {isParsingMaps ? 'Locating...' : 'Get Location'}
                 </button>
               </div>
-              {mapsMessage && (
-                <div className={`${styles.statusMessage} ${mapsMessage.type === 'success' ? styles.statusSuccess : styles.statusError}`}>
-                  {mapsMessage.text}
-                </div>
-              )}
+              {fieldIssue('googleMapsUrl')}
+              <NoticeBanner notice={mapsNotice} onDismiss={() => setMapsNotice(null)} className={styles.inlineNotice} />
             </div>
 
             {/* iCal URL */}
@@ -656,8 +958,9 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
                 value={formData.icalUrl || ""}
                 onChange={handleChange}
                 placeholder="https://example.com/calendar.ics"
-                className={styles.dataSourceInput}
+                className={`${styles.dataSourceInput} ${issueClass('icalUrl')}`}
               />
+              {fieldIssue('icalUrl')}
             </div>
           </div>
 
@@ -665,7 +968,8 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
           {renderAccordionSection("basic", "Basic Info", (<>
             <div className={styles.grid}>
               <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
-                <label>Cover Banner Image *</label>
+                <label>Cover Banner Image * {scrapeBadge('coverImage')}</label>
+                {fieldIssue('coverImage')}
                 <div className={`${styles.imageBannerContainer} ${formData.coverImage ? styles.hasImage : ''}`}>
                   {formData.coverImage && (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -683,7 +987,7 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
                     </span>
                     <input 
                       type="file" 
-                      accept="image/*" 
+                      accept={ACCEPTED_IMAGE_TYPES}
                       onChange={handleImageUpload} 
                       disabled={isUploadingImage} 
                       className={styles.fileInputHidden}
@@ -693,7 +997,8 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
               </div>
 
               <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
-                <label>Additional Property Images</label>
+                <label>Additional Property Images {scrapeBadge('images')}</label>
+                {fieldIssue('images')}
                 <div className={styles.imagesGrid}>
                   {(formData.images || []).map((imgUrl, idx) => (
                     <div key={idx} className={styles.imageCard}>
@@ -714,7 +1019,7 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
                     <span>{isUploadingMultiple ? "Uploading..." : "Add Images"}</span>
                     <input 
                       type="file" 
-                      accept="image/*" 
+                      accept={ACCEPTED_IMAGE_TYPES}
                       multiple
                       onChange={handleMultipleImageUpload} 
                       disabled={isUploadingMultiple} 
@@ -725,11 +1030,14 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
               </div>
 
               <div className={styles.field}>
-                <label>Title</label>
-                <input type="text" name="name" value={formData.name || ""} onChange={handleChange} required placeholder="e.g. Modern Villa" className={scrapeClass('name')} />
+                <label>Title {scrapeBadge('name')}</label>
+                <input type="text" name="name" value={formData.name || ""} onChange={handleChange} required placeholder="e.g. Modern Villa" className={`${scrapeClass('name')} ${issueClass('name')}`} />
+                {fieldIssue('name')}
+                {fieldIssue('slug')}
               </div>
               <div className={styles.field}>
-                <label>Display Location *</label>
+                <label>Display Location * {scrapeBadge('location')}</label>
+                {fieldIssue('location')}
                 <CustomSelect 
                   options={GTA_CITIES} 
                   value={formData.location || ""} 
@@ -741,6 +1049,7 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
 
               <div className={styles.field}>
                 <label>Type</label>
+                {fieldIssue('type')}
                 <CustomSelect 
                   options={PROPERTY_TYPES} 
                   value={formData.type || ""} 
@@ -750,7 +1059,8 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
                 />
               </div>
               <div className={styles.field}>
-                <label>Property Tag</label>
+                <label>Property Tag {scrapeBadge('propertyTypeTag')}</label>
+                {fieldIssue('propertyTypeTag')}
                 <CustomSelect 
                   options={PROPERTY_TYPE_TAGS} 
                   value={formData.propertyTypeTag || ""} 
@@ -761,8 +1071,9 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
               </div>
             </div>
             <div className={styles.field}>
-              <label>Description</label>
-              <textarea name="description" value={formData.description || ""} onChange={handleChange} rows={10} required placeholder="Describe the property..." className={scrapeClass('description')} />
+              <label>Description {scrapeBadge('description')}</label>
+              <textarea name="description" value={formData.description || ""} onChange={handleChange} rows={10} required placeholder="Describe the property..." className={`${scrapeClass('description')} ${issueClass('description')}`} />
+              {fieldIssue('description')}
             </div>
           </>))}
 
@@ -792,7 +1103,8 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
               </div>
               <div className={styles.field}>
                 <label>City</label>
-                <input type="text" name="addressDetails.city" value={formData.addressDetails?.city || ""} onChange={handleChange} required />
+                <input type="text" name="addressDetails.city" value={formData.addressDetails?.city || ""} onChange={handleChange} required className={issueClass('addressDetails.city')} />
+                {fieldIssue('addressDetails.city')}
               </div>
               <div className={styles.field}>
                 <label>State/Province *</label>
@@ -806,19 +1118,23 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
               </div>
               <div className={styles.field}>
                 <label>Area</label>
-                <input type="text" name="addressDetails.area" value={formData.addressDetails?.area || ""} onChange={handleChange} required />
+                <input type="text" name="addressDetails.area" value={formData.addressDetails?.area || ""} onChange={handleChange} required className={issueClass('addressDetails.area')} />
+                {fieldIssue('addressDetails.area')}
               </div>
               <div className={styles.field}>
                 <label>Country</label>
-                <input type="text" name="addressDetails.country" value={formData.addressDetails?.country || ""} onChange={handleChange} required />
+                <input type="text" name="addressDetails.country" value={formData.addressDetails?.country || ""} onChange={handleChange} required className={issueClass('addressDetails.country')} />
+                {fieldIssue('addressDetails.country')}
               </div>
               <div className={styles.field}>
-                <label>Check In Time</label>
-                <input type="text" name="details.checkIn" value={formData.details?.checkIn || ""} onChange={handleChange} required placeholder="e.g. 4:00 PM" className={scrapeClass('details.checkIn')} />
+                <label>Check In Time {scrapeBadge('checkIn')}</label>
+                <input type="text" name="details.checkIn" value={formData.details?.checkIn || ""} onChange={handleChange} required placeholder="e.g. 4:00 PM" className={`${scrapeClass('checkIn')} ${issueClass('details.checkIn')}`} />
+                {fieldIssue('details.checkIn')}
               </div>
               <div className={styles.field}>
-                <label>Check Out Time</label>
-                <input type="text" name="details.checkOut" value={formData.details?.checkOut || ""} onChange={handleChange} required placeholder="e.g. 11:00 AM" className={scrapeClass('details.checkOut')} />
+                <label>Check Out Time {scrapeBadge('checkOut')}</label>
+                <input type="text" name="details.checkOut" value={formData.details?.checkOut || ""} onChange={handleChange} required placeholder="e.g. 11:00 AM" className={`${scrapeClass('checkOut')} ${issueClass('details.checkOut')}`} />
+                {fieldIssue('details.checkOut')}
               </div>
             </div>
           </>))}
@@ -827,51 +1143,62 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
           {renderAccordionSection("capacity", "Capacity & Pricing", (<>
             <div className={styles.grid}>
               <div className={styles.field}>
-                <label>Bedrooms</label>
-                <input type="number" name="bedrooms" value={formData.bedrooms ?? 0} onChange={handleChange} required className={scrapeClass('bedrooms')} />
+                <label>Bedrooms {scrapeBadge('bedrooms')}</label>
+                <input type="number" name="bedrooms" value={formData.bedrooms ?? 0} onChange={handleChange} required className={`${scrapeClass('bedrooms')} ${issueClass('bedrooms')}`} />
+                {fieldIssue('bedrooms')}
               </div>
               <div className={styles.field}>
-                <label>Beds</label>
-                <input type="number" name="beds" value={formData.beds ?? 0} onChange={handleChange} required className={scrapeClass('beds')} />
+                <label>Beds {scrapeBadge('beds')}</label>
+                <input type="number" name="beds" value={formData.beds ?? 0} onChange={handleChange} required className={`${scrapeClass('beds')} ${issueClass('beds')}`} />
+                {fieldIssue('beds')}
               </div>
               <div className={styles.field}>
-                <label>Bathrooms</label>
-                <input type="number" step="0.5" name="bathrooms" value={formData.bathrooms ?? 0} onChange={handleChange} required className={scrapeClass('bathrooms')} />
+                <label>Bathrooms {scrapeBadge('bathrooms')}</label>
+                <input type="number" step="0.5" name="bathrooms" value={formData.bathrooms ?? 0} onChange={handleChange} required className={`${scrapeClass('bathrooms')} ${issueClass('bathrooms')}`} />
+                {fieldIssue('bathrooms')}
               </div>
               <div className={styles.field}>
-                <label>Max Guests</label>
-                <input type="number" name="guests" value={formData.guests ?? 0} onChange={handleChange} required className={scrapeClass('guests')} />
+                <label>Max Guests {scrapeBadge('guests')}</label>
+                <input type="number" name="guests" value={formData.guests ?? 0} onChange={handleChange} required className={`${scrapeClass('guests')} ${issueClass('guests')}`} />
+                {fieldIssue('guests')}
               </div>
             </div>
             <hr className={styles.sectionDivider} />
             <div className={styles.grid}>
               <div className={styles.field}>
-                <label>Base Price ({formData.currency || 'CAD'})</label>
-                <input type="number" name="price" value={formData.price ?? 0} onChange={handleChange} required className={scrapeClass('price')} />
+                <label>Base Price ({formData.currency || 'CAD'}) {scrapeBadge('price')}</label>
+                <input type="number" name="price" value={formData.price ?? 0} onChange={handleChange} required className={`${scrapeClass('price')} ${issueClass('price')}`} />
+                {fieldIssue('price')}
               </div>
               <div className={styles.field}>
-                <label>Nightly Price</label>
-                <input type="number" name="priceInfo.nightly" value={formData.priceInfo?.nightly ?? 0} onChange={handleChange} required className={scrapeClass('priceInfo.nightly')} />
+                <label>Nightly Price {scrapeBadge('price')}</label>
+                <input type="number" name="priceInfo.nightly" value={formData.priceInfo?.nightly ?? 0} onChange={handleChange} required className={`${scrapeClass('price')} ${issueClass('priceInfo.nightly')}`} />
+                {fieldIssue('priceInfo.nightly')}
               </div>
               <div className={styles.field}>
                 <label>Weekly Price</label>
-                <input type="number" name="priceInfo.weekly" value={formData.priceInfo?.weekly ?? 0} onChange={handleChange} required />
+                <input type="number" name="priceInfo.weekly" value={formData.priceInfo?.weekly ?? 0} onChange={handleChange} required className={issueClass('priceInfo.weekly')} />
+                {fieldIssue('priceInfo.weekly')}
               </div>
               <div className={styles.field}>
                 <label>Monthly Price</label>
-                <input type="number" name="priceInfo.monthly" value={formData.priceInfo?.monthly ?? 0} onChange={handleChange} required />
+                <input type="number" name="priceInfo.monthly" value={formData.priceInfo?.monthly ?? 0} onChange={handleChange} required className={issueClass('priceInfo.monthly')} />
+                {fieldIssue('priceInfo.monthly')}
               </div>
               <div className={styles.field}>
                 <label>Weekend Price</label>
-                <input type="number" name="priceInfo.weekend" value={formData.priceInfo?.weekend ?? 0} onChange={handleChange} required />
+                <input type="number" name="priceInfo.weekend" value={formData.priceInfo?.weekend ?? 0} onChange={handleChange} required className={issueClass('priceInfo.weekend')} />
+                {fieldIssue('priceInfo.weekend')}
               </div>
               <div className={styles.field}>
                 <label>Cleaning Fee</label>
-                <input type="number" name="priceInfo.cleaningFee" value={formData.priceInfo?.cleaningFee ?? 0} onChange={handleChange} required />
+                <input type="number" name="priceInfo.cleaningFee" value={formData.priceInfo?.cleaningFee ?? 0} onChange={handleChange} required className={issueClass('priceInfo.cleaningFee')} />
+                {fieldIssue('priceInfo.cleaningFee')}
               </div>
               <div className={styles.field}>
                 <label>Min. Nights</label>
-                <input type="number" name="priceInfo.minNights" value={formData.priceInfo?.minNights ?? 0} onChange={handleChange} required />
+                <input type="number" name="priceInfo.minNights" value={formData.priceInfo?.minNights ?? 0} onChange={handleChange} required className={issueClass('priceInfo.minNights')} />
+                {fieldIssue('priceInfo.minNights')}
               </div>
             </div>
           </>))}
@@ -879,8 +1206,9 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
           {/* --- 3 Main Highlights (Accordion) --- */}
           {renderAccordionSection("highlights", "3 Main Highlights", (<>
             <p className={styles.sectionHint}>
-              Top standout features shown as badges — e.g. &quot;City View&quot;, &quot;Park for Free&quot;, &quot;Self check-in&quot;
+              Top standout features shown as badges — e.g. &quot;City View&quot;, &quot;Park for Free&quot;, &quot;Self check-in&quot; {scrapeBadge('highlights')}
             </p>
+            {fieldIssue('highlights')}
             <div className={styles.listContainer}>
               {currentHighlights.map((hl, i) => (
                 <div key={i} className={styles.listItem}>
@@ -914,7 +1242,13 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
             <p className={styles.sectionHint}>
               Full amenity list grouped by category. ★ Star up to 6 items to feature them as top amenities on the property card.
               {currentAmenities.length > 0 && <span style={{ color: '#ffb400', marginLeft: '6px' }}>({currentAmenities.length}/6 starred)</span>}
+              <span className={styles.badgeRow}>
+                <span>Offers {scrapeBadge('offers')}</span>
+                <span>Top amenities {scrapeBadge('amenities')}</span>
+              </span>
             </p>
+            {fieldIssue('offers')}
+            {fieldIssue('amenities')}
 
             {/* Group offers by category for display */}
             {(() => {
@@ -982,21 +1316,22 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
           {renderAccordionSection("terms", "Terms & Rules", (<>
             <div className={styles.field}>
               <label>Cancellation Policy</label>
-              <input type="text" name="terms.cancellationPolicy" value={formData.terms?.cancellationPolicy || ""} onChange={handleChange} required placeholder="e.g. Firm - No Cancellation" />
+              <input type="text" name="terms.cancellationPolicy" value={formData.terms?.cancellationPolicy || ""} onChange={handleChange} required placeholder="e.g. Firm - No Cancellation" className={issueClass('terms.cancellationPolicy')} />
+              {fieldIssue('terms.cancellationPolicy')}
             </div>
             
             <div className={styles.checkboxGroup}>
               <label className={styles.checkboxItem}>
                 <input type="checkbox" name="terms.smokingAllowed" checked={!!formData.terms?.smokingAllowed} onChange={handleCheckbox} />
-                Smoking Allowed
+                Smoking Allowed {scrapeBadge('smokingAllowed')}
               </label>
               <label className={styles.checkboxItem}>
                 <input type="checkbox" name="terms.petsAllowed" checked={!!formData.terms?.petsAllowed} onChange={handleCheckbox} />
-                Pets Allowed
+                Pets Allowed {scrapeBadge('petsAllowed')}
               </label>
               <label className={styles.checkboxItem}>
                 <input type="checkbox" name="terms.partyAllowed" checked={!!formData.terms?.partyAllowed} onChange={handleCheckbox} />
-                Parties Allowed
+                Parties Allowed {scrapeBadge('partyAllowed')}
               </label>
               <label className={styles.checkboxItem}>
                 <input type="checkbox" name="terms.childrenAllowed" checked={!!formData.terms?.childrenAllowed} onChange={handleCheckbox} />
@@ -1004,7 +1339,8 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
               </label>
             </div>
 
-            <label className={styles.dataSourceLabel} style={{ marginTop: '12px' }}>House Rules</label>
+            <label className={styles.dataSourceLabel} style={{ marginTop: '12px' }}>House Rules {scrapeBadge('rules')}</label>
+            {fieldIssue('terms.rules')}
             <div className={styles.listContainer}>
               {currentRules.map((rule, i) => (
                 <div key={i} className={styles.listItem}>
@@ -1038,6 +1374,15 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
 
           {/* Reviews (read-only preview) */}
           {renderAccordionSection("reviews", `Reviews${formData.averageRating ? ` · ★ ${Number(formData.averageRating).toFixed(2)}` : ''}${formData.totalReviewCount ? ` (${formData.totalReviewCount})` : ''}`, (<>
+            {fieldStatus && (
+              <p className={styles.sectionHint}>
+                <span className={styles.badgeRow}>
+                  <span>Reviews {scrapeBadge('reviews')}</span>
+                  <span>Average rating {scrapeBadge('averageRating')}</span>
+                  <span>Review count {scrapeBadge('totalReviewCount')}</span>
+                </span>
+              </p>
+            )}
             {formData.reviews && formData.reviews.length > 0 ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {formData.reviews.map((review: { reviewer: string; date: string; rating: number; text: string; avatar?: string }, idx: number) => (
@@ -1087,6 +1432,23 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
               </div>
             )}
           </>))}
+
+          <NoticeBanner notice={formNotice} onDismiss={clearFormNotice} className={styles.inlineNotice} />
+
+          {saveError && (
+            <NoticeBanner
+              notice={{
+                tone: 'error',
+                title: saveError.title,
+                detail: saveError.detail,
+                items: saveIssues.map(
+                  (i) => `${ISSUE_LABEL[i.path] || SCRAPE_FIELD_LABEL[i.path] || i.path}: ${i.message}`,
+                ),
+              }}
+              onDismiss={() => { setSaveError(null); setSaveIssues([]); }}
+              className={styles.inlineNotice}
+            />
+          )}
 
           <div className={styles.actions}>
             <button type="button" className={styles.cancelBtn} onClick={onClose} disabled={isSaving}>Cancel</button>

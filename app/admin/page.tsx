@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { Property } from "@/app/types/property";
-import { getProperties, deleteProperty, addProperty } from "@/app/lib/firebase/properties";
+import { getPropertiesResult, deleteProperty, addProperty } from "@/app/lib/firebase/properties";
 import { PropertyForm } from "./components/PropertyForm";
 import { PinGate } from "./components/PinGate";
+import { NoticeBanner, useNotice } from "./components/Notice";
 import styles from "./page.module.css";
-import { Plus, Edit2, Trash2, Home, Search, SlidersHorizontal, Building2, BedDouble, DollarSign, LayoutGrid } from "lucide-react";
+import { Plus, Edit2, Trash2, Home, Search, SlidersHorizontal, Building2, BedDouble, DollarSign, LayoutGrid, AlertTriangle, RefreshCw } from "lucide-react";
 import Link from "next/link";
 
 type SortOption = "newest" | "price-asc" | "price-desc" | "name-asc";
@@ -14,6 +15,14 @@ type SortOption = "newest" | "price-asc" | "price-desc" | "name-asc";
 export default function AdminPage() {
   const [properties, setProperties] = useState<Property[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  // null = the read succeeded. A failed read must never render as "no properties
+  // yet", which invites re-creating records that already exist.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // A Firestore read that never settles (unreachable project) leaves the SDK
+  // retrying forever. Say so rather than spinning silently. Purely advisory —
+  // the read is not cancelled.
+  const [isSlowLoad, setIsSlowLoad] = useState(false);
+  const { notice, show: showNotice, clear: clearNotice } = useNotice();
   const [editingProperty, setEditingProperty] = useState<Property | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
 
@@ -28,9 +37,22 @@ export default function AdminPage() {
 
   const fetchProperties = async () => {
     setIsLoading(true);
-    const data = await getProperties();
-    setProperties(data);
-    setIsLoading(false);
+    setIsSlowLoad(false);
+    const slowTimer = setTimeout(() => setIsSlowLoad(true), 15_000);
+    try {
+      const result = await getPropertiesResult();
+      if (result.ok) {
+        setProperties(result.data);
+        setLoadError(null);
+      } else {
+        setProperties([]);
+        setLoadError(result.error);
+      }
+    } finally {
+      clearTimeout(slowTimer);
+      setIsSlowLoad(false);
+      setIsLoading(false);
+    }
   };
 
   // Derived unique property types for filter dropdown
@@ -86,10 +108,25 @@ export default function AdminPage() {
   }, [properties]);
 
   const handleDelete = async (id: string, name: string) => {
-    if (confirm(`Are you sure you want to delete "${name}"?`)) {
-      await deleteProperty(id);
-      fetchProperties();
+    if (!confirm(`Are you sure you want to delete "${name}"?`)) return;
+
+    clearNotice();
+    const result = await deleteProperty(id);
+    if (result.ok) {
+      showNotice({ tone: "success", title: `Deleted "${name}".` });
+    } else {
+      // Previously the return value was dropped, so an expired session looked
+      // exactly like a UI glitch: the row simply stayed.
+      showNotice({
+        tone: "error",
+        title: `Could not delete "${name}".`,
+        detail:
+          result.status === 401 || result.status === 403
+            ? `${result.error} Your admin session may have expired — reload and sign in again.`
+            : `${result.error}${result.status ? ` (HTTP ${result.status})` : ""}`,
+      });
     }
+    fetchProperties();
   };
 
   const handleEdit = (property: Property) => {
@@ -111,10 +148,21 @@ export default function AdminPage() {
     if (confirm("Are you sure you want to seed the database with mock properties? This will add them to Firestore.")) {
       setIsLoading(true);
       const { properties: staticProps } = await import("@/app/data/properties");
+      const failures: string[] = [];
       for (const p of staticProps) {
         const { id: _id, ...dataToSave } = p;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await addProperty(dataToSave as any);
+        const result = await addProperty(dataToSave as any);
+        if (!result.ok) {
+          failures.push(`${p.name}: ${result.error}`);
+        }
+      }
+      if (failures.length > 0) {
+        showNotice({
+          tone: "error",
+          title: `${failures.length} of ${staticProps.length} seed properties failed to save.`,
+          items: failures.slice(0, 5),
+        });
       }
       await fetchProperties();
     }
@@ -154,6 +202,9 @@ export default function AdminPage() {
       </header>
 
       <main className={styles.main}>
+        {/* ── Notices (deletes, seeding) ── */}
+        <NoticeBanner notice={notice} onDismiss={clearNotice} className={styles.pageNotice} />
+
         {/* ── Stats Cards ── */}
         {!isLoading && properties.length > 0 && (
           <section className={styles.statsGrid}>
@@ -242,6 +293,28 @@ export default function AdminPage() {
           <div className={styles.loading}>
             <div className={styles.spinner} />
             <p>Loading properties from Firebase…</p>
+            {isSlowLoad && (
+              <p className={styles.loadingSlow}>
+                Firestore has not responded in 15 seconds. The read is still retrying — the list
+                below is not empty, it has not loaded. Do not create properties until it does.
+              </p>
+            )}
+          </div>
+        ) : loadError ? (
+          /* A failed read is NOT an empty database. Never offer "Create
+             Property" here — the records may well already exist. */
+          <div className={`${styles.empty} ${styles.loadError}`}>
+            <AlertTriangle size={48} strokeWidth={1} />
+            <h2>Could not load properties</h2>
+            <p>
+              The property list could not be read from Firestore, so this page cannot show what
+              exists. Do not create properties from here until it loads — they may already exist.
+            </p>
+            <code className={styles.loadErrorDetail}>{loadError}</code>
+            <button className={styles.btnPrimary} onClick={fetchProperties}>
+              <RefreshCw size={18} />
+              <span>Retry</span>
+            </button>
           </div>
         ) : properties.length === 0 ? (
           <div className={styles.empty}>

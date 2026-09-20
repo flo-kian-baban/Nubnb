@@ -309,24 +309,7 @@
   padding-left: 36px;
 }
 
-.statusMessage {
-  margin-top: 10px;
-  padding: 10px 14px;
-  border-radius: 10px;
-  font-size: 13px;
-}
-
-.statusSuccess {
-  background: rgba(76, 175, 80, 0.08);
-  color: #66bb6a;
-  border: 1px solid rgba(76, 175, 80, 0.2);
-}
-
-.statusError {
-  background: rgba(239, 68, 68, 0.08);
-  color: #ef5350;
-  border: 1px solid rgba(239, 68, 68, 0.2);
-}
+/* Status bars now live in Notice.module.css — one mechanism for all admin feedback. */
 
 .sectionHint {
   font-size: 13px;
@@ -907,15 +890,164 @@
   cursor: not-allowed;
 }
 
-/* ── Scrape Feedback ── */
-.scrapeSuccess {
+/* ══════════════════════════════════════════════
+   Scrape provenance — extracted / defaulted / failed
+   Every field the scraper returns carries one of these.
+   ══════════════════════════════════════════════ */
+.scrapeExtracted {
   border-color: rgba(76, 175, 80, 0.5) !important;
   box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.1) !important;
+}
+
+.scrapeDefaulted {
+  border-color: rgba(245, 158, 11, 0.55) !important;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.1) !important;
 }
 
 .scrapeFailed {
   border-color: rgba(239, 68, 68, 0.5) !important;
   box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.1) !important;
+}
+
+/* Badge for controls with no border to colour: selects, lists, images. */
+.scrapeBadge,
+.scrapeBadgeExtracted,
+.scrapeBadgeDefaulted,
+.scrapeBadgeFailed {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.5;
+  letter-spacing: 0.01em;
+  vertical-align: middle;
+  white-space: nowrap;
+  cursor: help;
+}
+
+.scrapeBadgeExtracted {
+  background: rgba(76, 175, 80, 0.12);
+  color: #66bb6a;
+}
+
+.scrapeBadgeDefaulted {
+  background: rgba(245, 158, 11, 0.13);
+  color: #f0a63a;
+}
+
+.scrapeBadgeFailed {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef5350;
+}
+
+.badgeRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 8px;
+}
+
+.badgeRow > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* ── Post-scrape report: what was and was not actually read ── */
+.scrapeReport {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.scrapeReportCounts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.scrapeReportTotal {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.scrapeReportList {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.scrapeReportList li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.scrapeReportList strong {
+  color: rgba(255, 255, 255, 0.85);
+  font-weight: 600;
+}
+
+.scrapeReportReason {
+  flex: 1 1 260px;
+  min-width: 0;
+  color: rgba(255, 255, 255, 0.4);
+  line-height: 1.45;
+}
+
+/* ── Save issues, rendered against the field they refer to ── */
+.fieldIssue {
+  display: block;
+  margin-top: 5px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #ef5350;
+}
+
+.fieldIssueInput {
+  border-color: rgba(239, 68, 68, 0.6) !important;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.12) !important;
+}
+
+/* ── Accordion header state ── */
+.accordionBadgeRejected,
+.accordionBadgeScrape {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.accordionBadgeRejected {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef5350;
+}
+
+.accordionBadgeScrape {
+  background: rgba(245, 158, 11, 0.14);
+  color: #f0a63a;
+}
+
+/* Spacing for the shared NoticeBanner inside the form. */
+.inlineNotice {
+  margin-top: 10px;
 }
 
 /* ── Reviews ── */
