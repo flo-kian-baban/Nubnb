@@ -15,7 +15,42 @@ export interface Review {
   avatar?: string;        // reviewer profile image URL
 }
 
-export interface Property {
+export interface PriceInfo {
+  nightly: number;
+  weekly: number;
+  monthly: number;
+  weekend: number;
+  cleaningFee: number;
+  minNights: number;
+}
+
+export interface AddressDetails {
+  city: string;
+  state: string;
+  area: string;
+  country: string;
+}
+
+/**
+ * The slice of a property the homepage needs in the page payload.
+ *
+ * The 43 stored documents total 1.43 MB, and 1.05 MB of that is `offers` —
+ * every amenity carries an inline SVG icon. `images`, `imagesStored`,
+ * `reviews` and `description` account for most of the rest. None of it is
+ * rendered until a visitor opens a property, so none of it belongs in the
+ * HTML of a page that shows a list and a map.
+ *
+ * These are exactly the fields four consumers read:
+ *   - the card    — name, coverImage, addressDetails, location, guests,
+ *                   bedrooms, bathrooms, priceInfo.nightly, price
+ *   - the map     — id, coordinates, price
+ *   - the filters — name, location, addressDetails.city, guests, icalUrl
+ *   - slug resolution — name, slug
+ *
+ * Everything else arrives with the full document when a property is opened.
+ * See `getPropertySummaries` in lib/firebase/server-properties.ts.
+ */
+export interface PropertySummary {
   id: string;
   slug: string;
   name: string;
@@ -28,9 +63,16 @@ export interface Property {
   bathrooms: number;
   guests: number;
   coverImage: string;
-  images?: string[];
   type: string;
+  propertyTypeTag: string;    // "Entire home", "Private room", "Guest suite"
   icalUrl?: string;
+  priceInfo: PriceInfo;
+  addressDetails: AddressDetails;
+}
+
+/** A complete stored property document. */
+export interface Property extends PropertySummary {
+  images?: string[];
 
   // External links
   airbnbUrl?: string;
@@ -42,26 +84,11 @@ export interface Property {
   totalReviewCount?: number;
 
   // Airbnb-aligned fields
-  propertyTypeTag: string;    // "Entire home", "Private room", "Guest suite"
   highlights: string[];       // Top 2-3 standout badges, e.g. ["City View", "Free Parking", "Self check-in"]
   amenities: string[];        // Quick top-level amenity names for cards/badges
   offers: Offer[];            // Full "What this place offers" list
 
   description: string;
-  priceInfo: {
-    nightly: number;
-    weekly: number;
-    monthly: number;
-    weekend: number;
-    cleaningFee: number;
-    minNights: number;
-  };
-  addressDetails: {
-    city: string;
-    state: string;
-    area: string;
-    country: string;
-  };
   details: {
     checkIn: string;
     checkOut: string;

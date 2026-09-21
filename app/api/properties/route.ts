@@ -4,6 +4,9 @@
  * Authenticated via HTTP-only session cookie.
  * Validated via Zod schema before any Firestore write.
  * All Firestore writes go through the Admin SDK — the client SDK never writes.
+ *
+ * Revalidates the renter-facing pages after a successful create, so a new
+ * property appears on "/" without waiting for the ISR timer.
  */
 
 import { NextRequest } from 'next/server';
@@ -11,6 +14,7 @@ import { getAdminDb } from '@/app/lib/firebase/admin';
 import { verifyAdminSession } from '@/app/lib/api/verify-admin';
 import { CreatePropertySchema } from '@/app/lib/api/schemas';
 import { apiSuccess, apiError, apiValidationError } from '@/app/lib/api/safe-response';
+import { revalidateListingPages } from '@/app/lib/revalidate-listings';
 
 const COLLECTION = 'properties';
 
@@ -42,6 +46,7 @@ export async function POST(request: NextRequest) {
 
     const db = getAdminDb();
     const docRef = await db.collection(COLLECTION).add(result.data);
+    revalidateListingPages(`create ${docRef.id}`);
 
     return apiSuccess({ id: docRef.id }, 201);
   } catch (err) {

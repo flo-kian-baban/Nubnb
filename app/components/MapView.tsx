@@ -5,7 +5,7 @@ import Map, { Marker, NavigationControl, MapRef } from "react-map-gl/maplibre";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { MapPin } from "lucide-react";
-import { Property } from "@/app/types/property";
+import { PropertySummary } from "@/app/types/property";
 import styles from "./MapView.module.css";
 
 /* ── Memoized single-property marker ──
@@ -13,7 +13,7 @@ import styles from "./MapView.module.css";
  * Prevents N marker re-creates on every zoom tick.
  */
 interface PropertyMarkerProps {
-  property: Property;
+  property: PropertySummary;
   isHovered: boolean;
   isSelected: boolean;
   isCondensed: boolean;
@@ -61,7 +61,7 @@ const PropertyMarker = React.memo(function PropertyMarker({
 });
 
 interface MapViewProps {
-  properties: Property[];
+  properties: PropertySummary[];
   hoveredId: string | null;
   selectedId: string | null;
   onHover: (id: string | null) => void;
@@ -72,7 +72,7 @@ interface Cluster {
   key: string;
   lng: number;
   lat: number;
-  properties: Property[];
+  properties: PropertySummary[];
 }
 
 const MAP_STYLE = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
@@ -87,7 +87,7 @@ function lngLatToPixel(lng: number, lat: number, zoom: number): [number, number]
 }
 
 // Greedy clustering: group properties whose projected pixel positions are within threshold
-function clusterProperties(properties: Property[], zoom: number, pixelThreshold: number): Cluster[] {
+function clusterProperties(properties: PropertySummary[], zoom: number, pixelThreshold: number): Cluster[] {
   const clusters: Cluster[] = [];
   const assigned = new Set<string>();
 
@@ -100,7 +100,7 @@ function clusterProperties(properties: Property[], zoom: number, pixelThreshold:
     if (assigned.has(projected[i].property.id)) continue;
 
     const seed = projected[i];
-    const group: Property[] = [seed.property];
+    const group: PropertySummary[] = [seed.property];
     assigned.add(seed.property.id);
 
     for (let j = i + 1; j < projected.length; j++) {
@@ -130,7 +130,7 @@ function clusterProperties(properties: Property[], zoom: number, pixelThreshold:
 }
 
 // Check if all properties share the exact same coordinates
-function allSameLocation(props: Property[]): boolean {
+function allSameLocation(props: PropertySummary[]): boolean {
   return props.every(
     (p) =>
       p.coordinates[0].toFixed(6) === props[0].coordinates[0].toFixed(6) &&
@@ -165,8 +165,8 @@ export function MapView({
 
   // Split properties: expanded ones bypass clustering entirely
   const { toCluster, expanded } = useMemo(() => {
-    const exp: Property[] = [];
-    const rest: Property[] = [];
+    const exp: PropertySummary[] = [];
+    const rest: PropertySummary[] = [];
     properties.forEach((p) => {
       if (expandedIds.has(p.id)) exp.push(p);
       else rest.push(p);
@@ -183,7 +183,7 @@ export function MapView({
 
   // Group expanded properties by same coordinates for translateY offset
   const expandedGroups = useMemo(() => {
-    const map: Record<string, Property[]> = {};
+    const map: Record<string, PropertySummary[]> = {};
     expanded.forEach((p) => {
       const key = `${p.coordinates[0].toFixed(6)},${p.coordinates[1].toFixed(6)}`;
       if (!map[key]) map[key] = [];

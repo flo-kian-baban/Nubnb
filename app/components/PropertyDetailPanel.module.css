@@ -1244,3 +1244,83 @@
     overflow-y: unset;
   }
 }
+
+/* ── Detail notice ───────────────────────────────
+   Shown under the header while the full document is still being fetched, or
+   in place of it when the fetch failed. It never covers the header: the name,
+   cover image and location come from the list record and are already correct,
+   so there is nothing to hide. */
+.detailNotice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
+  padding: 56px 24px;
+}
+
+.detailNoticeIcon {
+  color: var(--brand-blue, #6599cd);
+}
+
+.detailNoticeSpinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(0, 0, 0, 0.08);
+  border-top-color: var(--brand-blue, #6599cd);
+  border-radius: 50%;
+  animation: detailSpin 0.8s linear infinite;
+}
+
+@keyframes detailSpin {
+  to { transform: rotate(360deg); }
+}
+
+.detailNoticeTitle {
+  font-family: var(--font-sans);
+  font-size: 1.0625rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.detailNoticeText {
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.6));
+  line-height: 1.6;
+  margin: 0;
+  max-width: 340px;
+}
+
+.detailNoticeRetry {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 10px 24px;
+  border-radius: 999px;
+  background: var(--brand-blue, #6599cd);
+  color: #fff;
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.detailNoticeRetry:hover {
+  background: var(--brand-blue-hover, #7aa9d8);
+}
+
+.detailNoticeRetry:focus-visible {
+  outline: 2px solid var(--brand-blue, #6599cd);
+  outline-offset: 2px;
+}
+
+@media (hover: none) {
+  .detailNoticeRetry:hover {
+    background: var(--brand-blue, #6599cd);
+  }
+}

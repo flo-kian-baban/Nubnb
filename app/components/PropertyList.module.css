@@ -37,6 +37,40 @@
   max-width: 250px;
 }
 
+/* Offered only when filters are what emptied the list, so the advice above it
+   ("try adjusting your search") comes with the means to act on it. */
+.clearFiltersBtn {
+  margin-top: 16px;
+  padding: 9px 20px;
+  border-radius: 999px;
+  border: 1px solid var(--border-on-navy, rgba(255, 255, 255, 0.16));
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: all var(--transition-premium);
+}
+
+.clearFiltersBtn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.clearFiltersBtn:focus-visible {
+  outline: 2px solid var(--brand-blue, #6599cd);
+  outline-offset: 2px;
+}
+
+@media (hover: none) {
+  .clearFiltersBtn:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: var(--border-on-navy, rgba(255, 255, 255, 0.16));
+  }
+}
+
 /* ═══════════════════════════════════════════
    MOBILE RESPONSIVE
    ═══════════════════════════════════════════ */

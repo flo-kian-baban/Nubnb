@@ -2,11 +2,11 @@
 
 import Image from "next/image";
 import { MapPin } from "lucide-react";
-import { Property } from "@/app/types/property";
+import { PropertySummary } from "@/app/types/property";
 import styles from "./PropertyCard.module.css";
 
 interface PropertyCardProps {
-  property: Property;
+  property: PropertySummary;
   isHovered: boolean;
   isSelected: boolean;
   onHover: () => void;

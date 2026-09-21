@@ -249,19 +249,11 @@
 /* ═══════════════════════════════════════════
    LOADING / AVAILABILITY / ERROR OVERLAYS
    ═══════════════════════════════════════════ */
-.loadingOverlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: var(--brand-navy);
-  z-index: 9999;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
+/* ── Spinner ──
+   Used by things that are genuinely still loading and that occupy their own
+   space — the detail panel while it fetches a full document. There is no
+   full-screen loading overlay any more: the list and the map are in the
+   server HTML, so there is nothing left to cover. */
 .loadingSpinner {
   width: 40px;
   height: 40px;
@@ -294,6 +286,19 @@
 }
 
 /* ── Error State ─────────────────────────────── */
+/* Full-page variant, for app/error.tsx — it replaces the page rather than
+   covering one, so it owns the viewport instead of overlaying it. */
+.errorPage {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--brand-navy);
+}
+
 .errorState {
   position: absolute;
   top: 0;

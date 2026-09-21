@@ -1,16 +1,26 @@
 /**
- * PUT  /api/properties/[id] — Update a property (admin-only).
+ * GET    /api/properties/[id] — Read one complete property (public).
+ * PUT    /api/properties/[id] — Update a property (admin-only).
  * DELETE /api/properties/[id] — Delete a property (admin-only).
  *
- * Authenticated via HTTP-only session cookie.
- * All Firestore writes go through the Admin SDK.
+ * Writes are authenticated via HTTP-only session cookie and go through the
+ * Admin SDK. The GET is public because the documents are: firestore.rules
+ * grants `allow read: if true` on this collection, so every field here was
+ * already readable by any browser. Serving it from a route handler instead
+ * means the homepage no longer has to ship the Firestore client SDK.
+ *
+ * Both write handlers revalidate the renter-facing pages after a successful
+ * write, so an edit is visible without waiting for the ISR timer.
  */
 
 import { NextRequest } from 'next/server';
 import { getAdminDb } from '@/app/lib/firebase/admin';
+import { getPropertyById } from '@/app/lib/firebase/server-properties';
 import { verifyAdminSession } from '@/app/lib/api/verify-admin';
-import { apiSuccess, apiError, apiValidationError } from '@/app/lib/api/safe-response';
+import { createRateLimiter } from '@/app/lib/api/rate-limit';
+import { apiSuccess, apiError, apiValidationError, apiRateLimited } from '@/app/lib/api/safe-response';
 import { UpdatePropertySchema } from '@/app/lib/api/schemas';
+import { revalidateListingPages } from '@/app/lib/revalidate-listings';
 
 const COLLECTION = 'properties';
 
@@ -36,6 +46,32 @@ function stripUndefined(obj: any): any {
     }
   }
   return clean;
+}
+
+/**
+ * Public reads are rate limited only to keep the endpoint from being used to
+ * hammer Firestore; 60/min is far above what opening property panels costs.
+ */
+const readLimiter = createRateLimiter({ windowMs: 60_000, maxRequests: 60, prefix: 'property-read' });
+
+export async function GET(request: NextRequest, context: RouteContext) {
+  const limit = await readLimiter.check(request);
+  if (limit.limited) return apiRateLimited(limit.retryAfterMs);
+
+  const { id } = await context.params;
+  if (!id || typeof id !== 'string') {
+    return apiError('Property ID is required', 400);
+  }
+
+  try {
+    const property = await getPropertyById(id);
+    if (!property) return apiError('Property not found', 404);
+    return apiSuccess(property);
+  } catch (err) {
+    // A read that failed is not a property that does not exist. 500 lets the
+    // caller offer a retry instead of telling the visitor the listing is gone.
+    return apiError('Failed to load property', 500, err);
+  }
 }
 
 export async function PUT(request: NextRequest, context: RouteContext) {
@@ -101,6 +137,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     }
 
     await docRef.update(updateData);
+    revalidateListingPages(`update ${id}`);
 
     console.log(`[PUT /api/properties/${id}] Updated successfully (${Object.keys(updateData).length} fields)`);
     return apiSuccess({ id });
@@ -133,6 +170,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     }
 
     await docRef.delete();
+    revalidateListingPages(`delete ${id}`);
 
     return apiSuccess({ id, deleted: true });
   } catch (err) {

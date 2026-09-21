@@ -1,22 +1,71 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useSyncExternalStore } from "react";
 import DOMPurify from "dompurify";
-import { Property } from "@/app/types/property";
+import { Property, PropertySummary } from "@/app/types/property";
 import styles from "./PropertyDetailPanel.module.css";
 import { DayPicker, DateRange } from "react-day-picker";
 import "react-day-picker/style.css";
 import { format, differenceInDays, addDays, addYears, eachDayOfInterval, parseISO, isAfter, isBefore, startOfDay } from "date-fns";
-import { 
-  X, Star, Share, Users, 
+import {
+  X, Star, Share, Users,
   MapPin, Clock, ShieldCheck, Check, CalendarDays,
-  ChevronLeft, ChevronRight, ChevronDown
+  ChevronLeft, ChevronRight, ChevronDown, RefreshCw, WifiOff
 } from "lucide-react";
 
 interface PropertyDetailPanelProps {
+  /** The complete document. Undefined until it has been fetched. */
   property: Property | undefined;
+  /**
+   * The slim record from the list, available the instant a card is clicked.
+   * It carries the name, cover image, location and price, so the panel opens
+   * with real content rather than a blank rectangle while the rest arrives.
+   */
+  summary?: PropertySummary;
+  isLoading?: boolean;
+  /** Set when the full document could not be fetched. Never "not found". */
+  error?: string | null;
+  onRetry?: () => void;
   onClose: () => void;
 }
 
-export function PropertyDetailPanel({ property, onClose }: PropertyDetailPanelProps) {
+/**
+ * True only once the component is running in the browser.
+ *
+ * `useSyncExternalStore` with a `false` server snapshot is the hydration-safe
+ * way to ask this: the server render and the first client render both see
+ * `false`, so nothing mismatches, and the second client render sees `true`.
+ */
+function useIsHydrated(): boolean {
+  return useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
+}
+
+export function PropertyDetailPanel({
+  property,
+  summary,
+  isLoading = false,
+  error = null,
+  onRetry,
+  onClose,
+}: PropertyDetailPanelProps) {
+  /**
+   * The amenity icons are SVG markup stored on the document, so they have to
+   * be sanitised before they are injected. DOMPurify's default build needs a
+   * real DOM and its `sanitize` is not callable during a server render —
+   * which never came up before, because the panel only ever rendered in the
+   * browser. Now that /property/<slug> renders it on the server, the icons
+   * wait for hydration and the generic tick that already stands in for a
+   * missing icon is shown until then. The amenity's name is server-rendered
+   * either way, so nothing readable is deferred — only the decoration.
+   */
+  const isHydrated = useIsHydrated();
+  const safeIcon = (markup: string | undefined): string | null => {
+    if (!markup || !isHydrated) return null;
+    return DOMPurify.sanitize(markup, { USE_PROFILES: { svg: true, svgFilters: true } });
+  };
+
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [dateRange, setDateRange] = useState<DateRange | undefined>();
   const [availabilityStatus, setAvailabilityStatus] = useState<'idle' | 'checking' | 'available' | 'booked' | 'error' | 'below-minimum'>('idle');
@@ -84,6 +133,77 @@ export function PropertyDetailPanel({ property, onClose }: PropertyDetailPanelPr
   }, [property?.icalUrl]);
 
   const oneYearFromNow = addYears(new Date(), 1);
+
+  // ── Nothing selected ──
+  if (!property && !summary) return null;
+
+  // ── Selected, but the full document is not here yet ──
+  //
+  // The header below is built from the summary, which is already in the page,
+  // so what is shown is what is known and the indicator sits underneath it
+  // rather than on top of it. A fetch that failed says so and offers a retry:
+  // a property whose details would not load is not a property that does not
+  // exist, and it must never be reported as one.
+  if (!property && summary) {
+    return (
+      <div className={styles.container}>
+        <div className={styles.topBar}>
+          <button className={styles.closeBtn} onClick={onClose} aria-label="Close details">
+            <X size={22} />
+          </button>
+        </div>
+
+        <div className={styles.content}>
+          <div className={styles.carouselContainer}>
+            <div
+              className={styles.carouselHero}
+              style={{ backgroundImage: `url(${summary.coverImage})` }}
+            />
+          </div>
+
+          <div className={styles.body}>
+            <div className={styles.mainContent}>
+              <div className={styles.headerSection}>
+                {summary.propertyTypeTag && (
+                  <span className={styles.propertyTypeTag}>{summary.propertyTypeTag}</span>
+                )}
+                <h1 className={styles.title}>{summary.name}</h1>
+                <div className={styles.locationRow}>
+                  <MapPin size={16} className={styles.iconSubtle} />
+                  <span>
+                    {summary.addressDetails?.city
+                      ? `${summary.addressDetails.city}${summary.addressDetails.state ? `, ${summary.addressDetails.state}` : ""}`
+                      : summary.location}
+                  </span>
+                </div>
+              </div>
+
+              {error ? (
+                <div className={styles.detailNotice} role="alert">
+                  <WifiOff size={28} strokeWidth={1.5} className={styles.detailNoticeIcon} />
+                  <h2 className={styles.detailNoticeTitle}>We couldn&apos;t load this property</h2>
+                  <p className={styles.detailNoticeText}>{error}</p>
+                  {onRetry && (
+                    <button type="button" className={styles.detailNoticeRetry} onClick={onRetry}>
+                      <RefreshCw size={16} />
+                      Try again
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className={styles.detailNotice} role="status" aria-live="polite">
+                  <div className={styles.detailNoticeSpinner} />
+                  <p className={styles.detailNoticeText}>
+                    {isLoading ? "Loading the full listing…" : "Preparing the full listing…"}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!property) return null;
 
@@ -334,10 +454,11 @@ export function PropertyDetailPanel({ property, onClose }: PropertyDetailPanelPr
                   const matchingOffer = property.offers?.find(o => 
                     o.name.toLowerCase() === amenity.toLowerCase() && o.icon
                   );
+                  const iconMarkup = safeIcon(matchingOffer?.icon);
                   return (
                     <div key={idx} className={styles.amenityGridItem}>
-                      {matchingOffer?.icon ? (
-                        <span className={styles.amenityGridIcon} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(matchingOffer.icon, { USE_PROFILES: { svg: true, svgFilters: true } }) }} />
+                      {iconMarkup ? (
+                        <span className={styles.amenityGridIcon} dangerouslySetInnerHTML={{ __html: iconMarkup }} />
                       ) : (
                         <Check size={18} className={styles.amenityGridIcon} />
                       )}
@@ -401,16 +522,19 @@ export function PropertyDetailPanel({ property, onClose }: PropertyDetailPanelPr
                         <div key={idx} className={styles.featureCategoryGroup}>
                           <h3 className={styles.featureCategoryTitle}>{cat}</h3>
                           <ul className={styles.featureList}>
-                            {visibleItems.map((offer, idxi) => (
-                              <li key={idxi} className={offer.available ? styles.featureItemIncluded : styles.featureItemExcluded}>
-                                {offer.icon ? (
-                                  <span className={styles.svgIcon} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(offer.icon, { USE_PROFILES: { svg: true, svgFilters: true } }) }} />
-                                ) : (
-                                  offer.available ? <Check size={18} /> : <X size={18} className={styles.featureItemExcludedIcon} />
-                                )}
-                                <span className={offer.available ? '' : styles.featureItemExcludedText}>{offer.name}</span>
-                              </li>
-                            ))}
+                            {visibleItems.map((offer, idxi) => {
+                              const iconMarkup = safeIcon(offer.icon);
+                              return (
+                                <li key={idxi} className={offer.available ? styles.featureItemIncluded : styles.featureItemExcluded}>
+                                  {iconMarkup ? (
+                                    <span className={styles.svgIcon} dangerouslySetInnerHTML={{ __html: iconMarkup }} />
+                                  ) : (
+                                    offer.available ? <Check size={18} /> : <X size={18} className={styles.featureItemExcludedIcon} />
+                                  )}
+                                  <span className={offer.available ? '' : styles.featureItemExcludedText}>{offer.name}</span>
+                                </li>
+                              );
+                            })}
                           </ul>
                           {hasMore && (
                             <button 

@@ -1,34 +1,53 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import styles from "../page.module.css";
-import { getProperties } from "../lib/firebase/properties";
-import { Property } from "@/app/types/property";
+import { Property, PropertySummary } from "@/app/types/property";
 import { MapView } from "./MapView";
 import { PropertyList } from "./PropertyList";
 import { TopFilters } from "./TopFilters";
 import { MapFilters } from "./MapFilters";
 import { PropertyDetailPanel } from "./PropertyDetailPanel";
-import { ChevronRight, Map, LayoutList, WifiOff, RefreshCw, MapPinOff } from "lucide-react";
+import { ChevronRight, Map, LayoutList, MapPinOff } from "lucide-react";
 import Link from "next/link";
 import { toSlug, resolvePropertySlug } from "../lib/slug";
 
 export { toSlug };
 
 interface HomePageProps {
+  /**
+   * The catalogue, read on the server and rendered into the HTML. Not state,
+   * not fetched here — the browser no longer talks to Firestore at all.
+   */
+  properties: PropertySummary[];
   initialSlug?: string;
+  /**
+   * The complete document for `initialSlug`, when the server resolved it.
+   * Lets a /property/<slug> arrival render the panel with no round trip.
+   */
+  initialProperty?: Property;
 }
 
 /** Debounce delay for availability filter (ms) */
 const AVAIL_DEBOUNCE_MS = 600;
 
-export default function HomePage({ initialSlug }: HomePageProps) {
-  const [properties, setProperties] = useState<Property[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [fetchError, setFetchError] = useState<string | null>(null);
+/**
+ * How long to wait for a property's full document before calling it failed.
+ *
+ * A healthy response lands in well under a second. The number is set by the
+ * failure case instead: with Firestore unreachable the Admin SDK spends its
+ * own retry budget before answering, measured at 45s against a refused
+ * connection, and a visitor watching a spinner for 45 seconds has not been
+ * told anything. Fifteen seconds is far above any real latency and turns that
+ * wait into an error they can act on.
+ */
+const DETAIL_FETCH_TIMEOUT_MS = 15_000;
 
+export default function HomePage({ properties, initialSlug, initialProperty }: HomePageProps) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(
+    initialProperty ? initialProperty.id : null,
+  );
 
   // Mobile view toggle: 'list' or 'map'
   const [mobileView, setMobileView] = useState<'list' | 'map'>('list');
@@ -48,8 +67,10 @@ export default function HomePage({ initialSlug }: HomePageProps) {
    * "no match" case fall through and rewrite the URL to "/" before the
    * re-render ever happened — the exact bounce this removes.
    */
-  const [unavailableSlug, setUnavailableSlug] = useState<string | null>(null);
-  const unavailableRef = useRef(false);
+  const [unavailableSlug, setUnavailableSlug] = useState<string | null>(
+    initialSlug && !initialProperty ? initialSlug : null,
+  );
+  const unavailableRef = useRef(Boolean(initialSlug && !initialProperty));
 
   // Detect mobile breakpoint
   useEffect(() => {
@@ -59,38 +80,28 @@ export default function HomePage({ initialSlug }: HomePageProps) {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // ── Auto-open property from initialSlug once data loads ──
+  // ── Canonicalise the address bar for a legacy slug ──
   //
   // Resolution accepts the canonical slug or the one stored on the document.
-  // 23 of 43 properties were renamed after creation without their stored slug
+  // 27 of 43 properties were renamed after creation without their stored slug
   // being regenerated, so every link shared before a rename carries the old
-  // one. Those used to match nothing and get silently rewritten to "/".
+  // one.
   //
-  // This is a client-side resolve: the page is a client component and reads
-  // Firestore from the browser, so the server has no idea which slugs exist.
-  // A true HTTP 404 and a 301 to the canonical URL both require reading the
-  // catalogue server-side — that belongs to Project 2. Until then a stale
-  // link returns HTTP 200 and is corrected in the browser.
+  // The resolve itself now happens on the server, which is why `selectedId`
+  // is already correct on first paint and this effect only has the address
+  // bar left to tidy. It re-runs the resolve purely to learn whether the
+  // incoming slug was the canonical one.
   useEffect(() => {
-    if (properties.length === 0 || initialSlugConsumed.current) return;
-    if (!initialSlug) return;
-
+    if (initialSlugConsumed.current || !initialSlug) return;
     initialSlugConsumed.current = true;
+
     const resolved = resolvePropertySlug(properties, initialSlug);
+    if (!resolved) return; // server said the same — the unavailable card is showing
 
-    if (!resolved) {
-      unavailableRef.current = true;
-      setUnavailableSlug(initialSlug);
-      return;
-    }
-    unavailableRef.current = false;
-
-    isInternalNav.current = true;
-    setSelectedId(resolved.property.id);
-
-    // Put the canonical URL in the address bar without reloading, so the link
-    // the visitor copies from here is the one that keeps working.
     if (resolved.isLegacy) {
+      isInternalNav.current = true;
+      // Put the canonical URL in the address bar without reloading, so the
+      // link the visitor copies from here is the one that keeps working.
       window.history.replaceState(
         { propertySlug: resolved.canonical },
         "",
@@ -109,7 +120,7 @@ export default function HomePage({ initialSlug }: HomePageProps) {
     if (properties.length === 0) return;
 
     // While the unavailable state is showing, leave the URL alone. Rewriting
-    // it to "/" here is exactly the silent bounce this dispatch removes: the
+    // it to "/" here is exactly the silent bounce dispatch 7 removed: the
     // visitor loses the address they came in on and never learns why.
     if (unavailableRef.current) return;
 
@@ -190,38 +201,60 @@ export default function HomePage({ initialSlug }: HomePageProps) {
   const [bookedCache, setBookedCache] = useState<Record<string, Set<string>>>({});
   const [checkingAvail, setCheckingAvail] = useState(false);
 
-  // ── Fetch properties — surface real errors, no silent fallback ──
+  // ── Full documents, loaded on demand ──
+  //
+  // The page carries a slim projection of each property — enough for the
+  // card, the map and the filters. `offers` alone is 1.05 MB across the 43
+  // documents and nothing outside the detail panel reads it, so the rest of
+  // the document is fetched only when a visitor actually opens a property.
+  // A /property/<slug> arrival already has its document from the server.
+  const [detailCache, setDetailCache] = useState<Record<string, Property>>(
+    initialProperty ? { [initialProperty.id]: initialProperty } : {},
+  );
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [detailAttempt, setDetailAttempt] = useState(0);
+
   useEffect(() => {
-    let cancelled = false;
-
-    async function fetchListings() {
-      setIsLoading(true);
-      setFetchError(null);
-
-      try {
-        const data = await getProperties();
-        if (!cancelled) {
-          if (data.length === 0) {
-            setFetchError("No properties found. Please check back later.");
-          }
-          setProperties(data);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          console.error("[HomePage] Failed to fetch properties:", err);
-          setFetchError(
-            "We couldn't load our properties right now. Please try again in a moment."
-          );
-          setProperties([]);
-        }
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
+    if (!selectedId || detailCache[selectedId]) {
+      setDetailLoading(false);
+      setDetailError(null);
+      return;
     }
 
-    fetchListings();
+    let cancelled = false;
+    setDetailLoading(true);
+    setDetailError(null);
+
+    (async () => {
+      try {
+        const res = await fetch(`/api/properties/${selectedId}`, {
+          signal: AbortSignal.timeout(DETAIL_FETCH_TIMEOUT_MS),
+        });
+        if (!res.ok) throw new Error(`Request failed with ${res.status}`);
+
+        const body = await res.json();
+        const data = body?.data as Property | undefined;
+        if (!data || typeof data.id !== "string") {
+          throw new Error("Malformed property response");
+        }
+        if (cancelled) return;
+        setDetailCache((prev) => ({ ...prev, [data.id]: data }));
+      } catch (err) {
+        if (cancelled) return;
+        console.error("[HomePage] Failed to load property details:", err);
+        setDetailError(
+          "We couldn't load the details for this property. Please try again in a moment.",
+        );
+      } finally {
+        if (!cancelled) setDetailLoading(false);
+      }
+    })();
+
     return () => { cancelled = true; };
-  }, []);
+  }, [selectedId, detailCache, detailAttempt]);
+
+  const handleDetailRetry = useCallback(() => setDetailAttempt((n) => n + 1), []);
 
   // ── Debounced availability fetch ──
   // Uses a ref-based debounce so rapid date changes don't flood the API.
@@ -289,15 +322,37 @@ export default function HomePage({ initialSlug }: HomePageProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [availStart, availEnd, properties]);
 
-  const filteredProperties = properties.filter((p) => {
+  /**
+   * Resets everything that narrows the list, including the text search.
+   * Offered by PropertyList when filtering is what emptied it — which is the
+   * only way that branch can be reached, since with nothing filtering, the
+   * filtered list is the catalogue.
+   */
+  const clearAllFilters = useCallback(() => {
+    setSearchQuery("");
+    setSelectedCity("All Cities");
+    setMinGuests(0);
+    setAvailStart("");
+    setAvailEnd("");
+  }, []);
+
+  const filteredProperties = useMemo(() => properties.filter((p) => {
     // 1. Text Search
     const matchesSearch =
       p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.location.toLowerCase().includes(searchQuery.toLowerCase());
 
     // 2. City Filter
+    //
+    // Matched against `addressDetails.city`, which is where the dropdown's
+    // options come from. It used to test `location.includes(selectedCity)` —
+    // a substring test against a different, free-text field. The two agree on
+    // today's 43 documents only because every `location` happens to read
+    // "<city>, ON"; any listing whose location mentions a second place ("in
+    // the Greater Toronto Area") would have been returned under the wrong
+    // city, and any whose location omits the city under none at all.
     const matchesCity =
-      selectedCity === "All Cities" || p.location.includes(selectedCity);
+      selectedCity === "All Cities" || p.addressDetails?.city === selectedCity;
 
     // 3. Guests Filter
     const matchesGuests = minGuests <= 0 || p.guests >= minGuests;
@@ -323,29 +378,10 @@ export default function HomePage({ initialSlug }: HomePageProps) {
     }
 
     return matchesSearch && matchesCity && matchesGuests && matchesAvail;
-  });
+  }), [properties, searchQuery, selectedCity, minGuests, availStart, availEnd, bookedCache]);
 
-  const selectedProperty = properties.find((p) => p.id === selectedId);
-
-  // Retry handler for error state
-  const handleRetry = useCallback(() => {
-    setFetchError(null);
-    setIsLoading(true);
-    getProperties()
-      .then((data) => {
-        if (data.length === 0) {
-          setFetchError("No properties found. Please check back later.");
-        }
-        setProperties(data);
-      })
-      .catch(() => {
-        setFetchError(
-          "We couldn't load our properties right now. Please try again in a moment."
-        );
-        setProperties([]);
-      })
-      .finally(() => setIsLoading(false));
-  }, []);
+  const selectedSummary = properties.find((p) => p.id === selectedId);
+  const selectedProperty = selectedId ? detailCache[selectedId] : undefined;
 
   // Build container class
   const containerClass = [
@@ -358,29 +394,12 @@ export default function HomePage({ initialSlug }: HomePageProps) {
 
   return (
     <main className={containerClass}>
-      {isLoading && (
-        <div className={styles.loadingOverlay}>
-          <div className={styles.loadingSpinner} />
-        </div>
-      )}
+      {/* Availability is the one thing still checked live, against third-party
+          iCal feeds. It gets a bottom-anchored status line, not an overlay —
+          the listings it is filtering stay visible and usable while it runs. */}
       {checkingAvail && (
-        <div className={styles.availOverlay}>Checking availability...</div>
-      )}
-
-      {/* ── Error State ─────────────────────────────── */}
-      {fetchError && !isLoading && (
-        <div className={styles.errorState}>
-          <div className={styles.errorCard}>
-            <div className={styles.errorIconWrap}>
-              <WifiOff size={32} strokeWidth={1.5} />
-            </div>
-            <h2 className={styles.errorTitle}>Something went wrong</h2>
-            <p className={styles.errorMessage}>{fetchError}</p>
-            <button className={styles.errorRetry} onClick={handleRetry}>
-              <RefreshCw size={16} />
-              Try Again
-            </button>
-          </div>
+        <div className={styles.availOverlay} role="status" aria-live="polite">
+          Checking availability...
         </div>
       )}
 
@@ -388,7 +407,7 @@ export default function HomePage({ initialSlug }: HomePageProps) {
           A /property/<slug> that matches neither the canonical nor the stored
           slug. Previously this silently rewrote the URL to "/" and showed the
           map, so a dead link was indistinguishable from a normal visit. */}
-      {unavailableSlug && !isLoading && !fetchError && (
+      {unavailableSlug && (
         <div className={styles.errorState}>
           <div className={styles.errorCard}>
             <div className={styles.errorIconWrap}>
@@ -442,6 +461,8 @@ export default function HomePage({ initialSlug }: HomePageProps) {
         <div className={styles.scrollArea}>
           <PropertyList
             properties={filteredProperties}
+            catalogueIsEmpty={properties.length === 0}
+            onClearFilters={clearAllFilters}
             hoveredId={hoveredId}
             selectedId={selectedId}
             onHover={setHoveredId}
@@ -482,6 +503,10 @@ export default function HomePage({ initialSlug }: HomePageProps) {
       <div className={styles.detailPanel}>
         <PropertyDetailPanel
           property={selectedProperty}
+          summary={selectedSummary}
+          isLoading={detailLoading}
+          error={detailError}
+          onRetry={handleDetailRetry}
           onClose={handleCloseDetail}
         />
       </div>
