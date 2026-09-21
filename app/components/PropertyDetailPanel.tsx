@@ -7,7 +7,7 @@ import "react-day-picker/style.css";
 import { format, differenceInDays, addDays, addYears, eachDayOfInterval, parseISO, isAfter, isBefore, startOfDay } from "date-fns";
 import { 
   X, Star, Share, Users, 
-  MapPin, Clock, ShieldCheck, Check,
+  MapPin, Clock, ShieldCheck, Check, CalendarDays,
   ChevronLeft, ChevronRight, ChevronDown
 } from "lucide-react";
 
@@ -19,10 +19,16 @@ interface PropertyDetailPanelProps {
 export function PropertyDetailPanel({ property, onClose }: PropertyDetailPanelProps) {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [dateRange, setDateRange] = useState<DateRange | undefined>();
-  const [availabilityStatus, setAvailabilityStatus] = useState<'idle' | 'checking' | 'available' | 'booked' | 'error'>('idle');
+  const [availabilityStatus, setAvailabilityStatus] = useState<'idle' | 'checking' | 'available' | 'booked' | 'error' | 'below-minimum'>('idle');
   const [showFullDescription, setShowFullDescription] = useState(false);
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
   const [copied, setCopied] = useState(false);
+
+  /**
+   * The host's minimum stay. Treated as 1 when unset or nonsensical, so a
+   * missing value can never block a booking enquiry.
+   */
+  const minNights = Math.max(1, Math.round(property?.priceInfo?.minNights ?? 1) || 1);
   
   // iCal booked dates
   const [bookedDates, setBookedDates] = useState<Date[]>([]);
@@ -97,6 +103,18 @@ export function PropertyDetailPanel({ property, onClose }: PropertyDetailPanelPr
   const handleCheckAvailability = async () => {
     if (!dateRange?.from || !dateRange?.to) {
       alert("Please select both check-in and check-out dates on the calendar.");
+      return;
+    }
+
+    // ── Minimum stay ──
+    // Checked before the calendar is consulted. 22 of 43 properties carry a
+    // minNights of 28 or more and nothing enforced it, so a guest picking two
+    // nights on a one-month-minimum listing was told the dates were
+    // available. A stay the host will not accept is not an available stay,
+    // whatever the iCal feed says.
+    const selectedNights = differenceInDays(dateRange.to, dateRange.from);
+    if (minNights > 1 && selectedNights < minNights) {
+      setAvailabilityStatus('below-minimum');
       return;
     }
 
@@ -347,6 +365,13 @@ export function PropertyDetailPanel({ property, onClose }: PropertyDetailPanelPr
                   <div className={styles.logisticLabel}>Checkout</div>
                   <div className={styles.logisticValue}>Before {property.details?.checkOut || '11:00 AM'}</div>
                 </div>
+                {minNights > 1 && (
+                  <div className={styles.logisticItem}>
+                    <CalendarDays size={18} className={styles.logisticIconRow} />
+                    <div className={styles.logisticLabel}>Minimum stay</div>
+                    <div className={styles.logisticValue}>{minNights} nights</div>
+                  </div>
+                )}
                 <div className={styles.logisticItem}>
                   <ShieldCheck size={18} className={styles.logisticIconRow} />
                   <div className={styles.logisticLabel}>Cancellation</div>
@@ -595,6 +620,12 @@ export function PropertyDetailPanel({ property, onClose }: PropertyDetailPanelPr
               {availabilityStatus === 'booked' && (
                 <div className={`${styles.statusMessage} ${styles.error}`}>
                   Sorry, those dates are already booked. Try another range.
+                </div>
+              )}
+              {availabilityStatus === 'below-minimum' && (
+                <div className={`${styles.statusMessage} ${styles.error}`}>
+                  This property has a {minNights}-night minimum stay. Choose a longer
+                  range to check availability.
                 </div>
               )}
               {availabilityStatus === 'error' && (

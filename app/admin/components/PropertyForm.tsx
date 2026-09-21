@@ -11,6 +11,7 @@ import { IconPicker } from "./IconPicker";
 import { NoticeBanner, Notice, useNotice } from "./Notice";
 import { normalizeAirbnbUrl } from "@/app/lib/api/validate";
 import { describeHttpFailure, describeErrorBody, readErrorBody } from "@/app/lib/api/http-failure";
+import { toSlug } from "@/app/lib/slug";
 import type { ExtractionSummary, ScrapeFieldStatus } from "@/app/types/scrape";
 
 const GTA_CITIES = [
@@ -851,8 +852,15 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
       }
     }
 
+    // One slug function, shared with the URL layer. The old inline generator
+    // dropped "&" where the URL layer turns it into "and", so the two
+    // disagreed on every name containing one.
+    //
+    // Still only generated when empty: regenerating on rename would change
+    // the stored slug of an existing document, and stored slugs are what old
+    // links resolve against.
     if (!finalData.slug && finalData.name) {
-      finalData.slug = finalData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
+      finalData.slug = toSlug(finalData.name);
     }
 
     // `onSave()` used to run unconditionally, so the modal closed and the list

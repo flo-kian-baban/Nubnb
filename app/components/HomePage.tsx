@@ -9,17 +9,11 @@ import { PropertyList } from "./PropertyList";
 import { TopFilters } from "./TopFilters";
 import { MapFilters } from "./MapFilters";
 import { PropertyDetailPanel } from "./PropertyDetailPanel";
-import { ChevronRight, Map, LayoutList, WifiOff, RefreshCw } from "lucide-react";
+import { ChevronRight, Map, LayoutList, WifiOff, RefreshCw, MapPinOff } from "lucide-react";
 import Link from "next/link";
+import { toSlug, resolvePropertySlug } from "../lib/slug";
 
-/** Convert a property name to a URL-safe slug */
-export function toSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[&]/g, "and")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
-}
+export { toSlug };
 
 interface HomePageProps {
   initialSlug?: string;
@@ -44,6 +38,18 @@ export default function HomePage({ initialSlug }: HomePageProps) {
   const isInternalNav = useRef(false);
   // Track whether the initial slug has been consumed
   const initialSlugConsumed = useRef(false);
+  /**
+   * Set when a /property/<slug> request matched nothing. Distinct from
+   * `selectedId === null`, which just means "browsing the map".
+   *
+   * Mirrored into a ref because the URL-sync effect below reads it in the
+   * same commit in which it is set. State updates are not visible to an
+   * effect that already has its closure, so a state-only guard let the
+   * "no match" case fall through and rewrite the URL to "/" before the
+   * re-render ever happened — the exact bounce this removes.
+   */
+  const [unavailableSlug, setUnavailableSlug] = useState<string | null>(null);
+  const unavailableRef = useRef(false);
 
   // Detect mobile breakpoint
   useEffect(() => {
@@ -54,16 +60,42 @@ export default function HomePage({ initialSlug }: HomePageProps) {
   }, []);
 
   // ── Auto-open property from initialSlug once data loads ──
+  //
+  // Resolution accepts the canonical slug or the one stored on the document.
+  // 23 of 43 properties were renamed after creation without their stored slug
+  // being regenerated, so every link shared before a rename carries the old
+  // one. Those used to match nothing and get silently rewritten to "/".
+  //
+  // This is a client-side resolve: the page is a client component and reads
+  // Firestore from the browser, so the server has no idea which slugs exist.
+  // A true HTTP 404 and a 301 to the canonical URL both require reading the
+  // catalogue server-side — that belongs to Project 2. Until then a stale
+  // link returns HTTP 200 and is corrected in the browser.
   useEffect(() => {
     if (properties.length === 0 || initialSlugConsumed.current) return;
+    if (!initialSlug) return;
 
-    if (initialSlug) {
-      const match = properties.find((p) => toSlug(p.name) === initialSlug);
-      if (match) {
-        isInternalNav.current = true;
-        initialSlugConsumed.current = true;
-        setSelectedId(match.id);
-      }
+    initialSlugConsumed.current = true;
+    const resolved = resolvePropertySlug(properties, initialSlug);
+
+    if (!resolved) {
+      unavailableRef.current = true;
+      setUnavailableSlug(initialSlug);
+      return;
+    }
+    unavailableRef.current = false;
+
+    isInternalNav.current = true;
+    setSelectedId(resolved.property.id);
+
+    // Put the canonical URL in the address bar without reloading, so the link
+    // the visitor copies from here is the one that keeps working.
+    if (resolved.isLegacy) {
+      window.history.replaceState(
+        { propertySlug: resolved.canonical },
+        "",
+        `/property/${resolved.canonical}`,
+      );
     }
   }, [properties, initialSlug]);
 
@@ -75,6 +107,11 @@ export default function HomePage({ initialSlug }: HomePageProps) {
     }
 
     if (properties.length === 0) return;
+
+    // While the unavailable state is showing, leave the URL alone. Rewriting
+    // it to "/" here is exactly the silent bounce this dispatch removes: the
+    // visitor loses the address they came in on and never learns why.
+    if (unavailableRef.current) return;
 
     if (selectedId) {
       const prop = properties.find((p) => p.id === selectedId);
@@ -90,7 +127,7 @@ export default function HomePage({ initialSlug }: HomePageProps) {
         window.history.pushState({}, "", "/");
       }
     }
-  }, [selectedId, properties]);
+  }, [selectedId, properties, unavailableSlug]);
 
   // ── Listen for browser back/forward ──
   useEffect(() => {
@@ -99,14 +136,25 @@ export default function HomePage({ initialSlug }: HomePageProps) {
       const slug = match ? match[1] : null;
 
       if (slug) {
-        const prop = properties.find((p) => toSlug(p.name) === slug);
-        if (prop) {
+        const resolved = resolvePropertySlug(properties, slug);
+        if (resolved) {
           isInternalNav.current = true;
-          setSelectedId(prop.id);
+          unavailableRef.current = false;
+          setUnavailableSlug(null);
+          setSelectedId(resolved.property.id);
           return;
         }
+        // Navigated back onto a slug that resolves to nothing — say so rather
+        // than dropping the visitor on the map with no explanation.
+        isInternalNav.current = true;
+        unavailableRef.current = true;
+        setSelectedId(null);
+        setUnavailableSlug(slug);
+        return;
       }
       isInternalNav.current = true;
+      unavailableRef.current = false;
+      setUnavailableSlug(null);
       setSelectedId(null);
     };
 
@@ -116,6 +164,15 @@ export default function HomePage({ initialSlug }: HomePageProps) {
 
   const handleCloseDetail = useCallback(() => {
     setSelectedId(null);
+  }, []);
+
+  /** Leave the unavailable state deliberately, via the visitor's own click. */
+  const handleDismissUnavailable = useCallback(() => {
+    unavailableRef.current = false;
+    setUnavailableSlug(null);
+    if (window.location.pathname !== "/") {
+      window.history.pushState({}, "", "/");
+    }
   }, []);
 
   const handleSelectProperty = useCallback((id: string | null) => {
@@ -322,6 +379,29 @@ export default function HomePage({ initialSlug }: HomePageProps) {
             <button className={styles.errorRetry} onClick={handleRetry}>
               <RefreshCw size={16} />
               Try Again
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Property Unavailable ────────────────────
+          A /property/<slug> that matches neither the canonical nor the stored
+          slug. Previously this silently rewrote the URL to "/" and showed the
+          map, so a dead link was indistinguishable from a normal visit. */}
+      {unavailableSlug && !isLoading && !fetchError && (
+        <div className={styles.errorState}>
+          <div className={styles.errorCard}>
+            <div className={styles.errorIconWrap}>
+              <MapPinOff size={32} strokeWidth={1.5} />
+            </div>
+            <h2 className={styles.errorTitle}>This property is no longer available</h2>
+            <p className={styles.errorMessage}>
+              The link you followed points to a listing we no longer have. It may have been
+              removed, or the address may have changed.
+            </p>
+            <button className={styles.errorRetry} onClick={handleDismissUnavailable}>
+              <Map size={16} />
+              Back to the map
             </button>
           </div>
         </div>
