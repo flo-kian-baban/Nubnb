@@ -384,38 +384,6 @@
   font-weight: 600;
 }
 
-.priceWarningDanger {
-  margin: 0 0 12px;
-  padding: 10px 14px;
-  border-radius: 8px;
-  background: rgba(220, 38, 38, 0.18);
-  border: 1px solid #dc2626;
-  font-size: 13px;
-  line-height: 1.5;
-  font-weight: 600;
-  color: #fca5a5;
-}
-
-.priceWarningAck {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #f8f8f8;
-  cursor: pointer;
-}
-
-.priceWarningAck input {
-  width: 18px;
-  height: 18px;
-  margin: 1px 0 0;
-  accent-color: #d97706;
-  flex-shrink: 0;
-  cursor: pointer;
-}
-
-
 .sectionDivider {
   border: none;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
