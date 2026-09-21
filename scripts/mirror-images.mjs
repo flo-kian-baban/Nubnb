@@ -8,6 +8,7 @@
  *   node scripts/mirror-images.mjs --canary      # first property only, then stop
  *   node scripts/mirror-images.mjs --run         # every remaining property
  *   node scripts/mirror-images.mjs --verify      # B3 verification against live state
+ *   node scripts/mirror-images.mjs --run --only=<id|name>   # one property
  *
  * ── Safety model ──────────────────────────────────────────────────
  * ADDITIVE ONLY. The only fields ever written are `coverImageStored` (string)
@@ -128,11 +129,6 @@ function objectPathFor(propertyId, index, sourceUrl, ext) {
   return `${MIRROR_PREFIX}/${propertyId}/${slotLabel(index)}_${urlHash(sourceUrl)}.${ext}`;
 }
 
-/** The bucket-relative key a resumed run matches on, ignoring extension. */
-function objectKeyFor(propertyId, index, sourceUrl) {
-  return `${slotLabel(index)}_${urlHash(sourceUrl)}`;
-}
-
 function downloadUrlFor(bucketName, objectPath, token) {
   return (
     `https://firebasestorage.googleapis.com/v0/b/${bucketName}` +
@@ -238,7 +234,7 @@ function logImage(record) {
 // ── core ─────────────────────────────────────────────────────────
 
 async function mirrorOneImage({ bucket, bucketName, propertyId, index, sourceUrl, existing }) {
-  const key = objectKeyFor(propertyId, index, sourceUrl);
+  const key = urlHash(sourceUrl);
   const slot = slotLabel(index);
   const base = { property: propertyId, slot, sourceUrl };
 
@@ -347,36 +343,65 @@ async function mirrorProperty({ db, bucket, bucketName, reference, dryRun }) {
     skipReason: null,
   };
 
-  // ── Live document must still match the reference backup ──
+  // ── Establish what this run is allowed to write against ──
+  //
+  // The guard exists so the script never writes an `imagesStored` that was
+  // computed from a shape the document has since moved away from.
+  //
+  // Originally it compared the live document against the reference backup,
+  // which silently excluded every property created after that backup was
+  // taken — precisely the properties this script is the catch-up tool for.
+  // A property absent from the backup is now guarded against its own live
+  // state instead: read it here, re-read it before the write, and refuse if
+  // anything about its images changed in between. Same protection, no
+  // dependency on the property predating the backup.
   const snap = await db.collection('properties').doc(propertyId).get();
   if (!snap.exists) {
     result.skipReason = 'document no longer exists in Firestore';
     return result;
   }
   const live = snap.data();
-  if (live.coverImage !== reference.coverImage) {
-    result.skipReason = 'live coverImage differs from reference backup';
-    return result;
-  }
   const liveImages = Array.isArray(live.images) ? live.images : [];
-  const refImages = Array.isArray(reference.images) ? reference.images : [];
-  if (
-    liveImages.length !== refImages.length ||
-    liveImages.some((u, i) => u !== refImages[i])
-  ) {
-    result.skipReason = 'live images[] differs from reference backup';
+
+  const inBackup = reference.fromBackup === true;
+  if (inBackup) {
+    if (live.coverImage !== reference.coverImage) {
+      result.skipReason = 'live coverImage differs from reference backup';
+      return result;
+    }
+    const refImages = Array.isArray(reference.images) ? reference.images : [];
+    if (
+      liveImages.length !== refImages.length ||
+      liveImages.some((u, i) => u !== refImages[i])
+    ) {
+      result.skipReason = 'live images[] differs from reference backup';
+      return result;
+    }
+  }
+
+  // Mirror what the document says right now. For a backup-guarded property
+  // these are identical to the backup's values, as just asserted.
+  const coverImage = live.coverImage;
+  const sourceImages = liveImages;
+  if (!coverImage) {
+    result.skipReason = 'no coverImage on the document';
     return result;
   }
 
   // ── What is already in the bucket for this property ──
+  // Keyed by source-URL hash alone, not "<slot>_<hash>": reordering a
+  // property's images changes each image's slot, and keying on the slot
+  // would re-upload bytes already stored under the old name. Nothing is ever
+  // deleted here, so that would leak an object on every reorder.
   const existing = new Map();
   const [files] = await bucket.getFiles({ prefix: `${MIRROR_PREFIX}/${propertyId}/` });
   for (const f of files) {
-    const base = f.name.split('/').pop() || '';
-    existing.set(base.replace(/\.[a-z0-9]+$/i, ''), f);
+    const base = (f.name.split('/').pop() || '').replace(/\.[a-z0-9]+$/i, '');
+    const hash = base.includes('_') ? base.slice(base.lastIndexOf('_') + 1) : base;
+    existing.set(hash, f);
   }
 
-  const sources = [reference.coverImage, ...refImages];
+  const sources = [coverImage, ...sourceImages];
   const storedUrls = [];
 
   for (let i = 0; i < sources.length; i++) {
@@ -417,9 +442,30 @@ async function mirrorProperty({ db, bucket, bucketName, reference, dryRun }) {
   };
   assertAdditiveOnly(payload);
 
-  if (payload.imagesStored.length !== refImages.length) {
+  if (payload.imagesStored.length !== sourceImages.length) {
     result.skipReason =
-      `length guard: imagesStored ${payload.imagesStored.length} != images[] ${refImages.length}`;
+      `length guard: imagesStored ${payload.imagesStored.length} != images[] ${sourceImages.length}`;
+    return result;
+  }
+
+  // ── Re-read immediately before writing ──
+  // Mirroring a property takes long enough that an admin could have saved it
+  // in the meantime. Writing then would attach stored URLs to a shape that no
+  // longer exists. Cheap insurance, and it is what lets a property absent
+  // from the reference backup be guarded at all.
+  const fresh = await db.collection('properties').doc(propertyId).get();
+  if (!fresh.exists) {
+    result.skipReason = 'document was deleted while its images were being mirrored';
+    return result;
+  }
+  const freshData = fresh.data();
+  const freshImages = Array.isArray(freshData.images) ? freshData.images : [];
+  if (
+    freshData.coverImage !== coverImage ||
+    freshImages.length !== sourceImages.length ||
+    freshImages.some((u, i) => u !== sourceImages[i])
+  ) {
+    result.skipReason = 'document changed while its images were being mirrored — left untouched';
     return result;
   }
 
@@ -580,13 +626,51 @@ async function main() {
     return;
   }
 
-  const { ordered, deadCount } = buildOrder(reference);
-  console.log(`order: ${deadCount} delisted first, then ${ordered.length - deadCount} live`);
+  // ── Work list ──
+  // Built from the LIVE collection, not the reference backup. The backup is a
+  // guard, not an inventory: a property created after it was taken is exactly
+  // the case this script needs to catch up, and keying the list off the
+  // backup made those properties invisible to it.
+  const liveSnap = await db.collection('properties').get();
+  const backupIds = new Set(reference.map((r) => r.id));
+  const liveDocs = liveSnap.docs.map((d) => {
+    const data = d.data();
+    const fromBackup = backupIds.has(d.id);
+    const ref = fromBackup ? reference.find((r) => r.id === d.id) : null;
+    return {
+      id: d.id,
+      name: data.name,
+      coverImage: ref ? ref.coverImage : data.coverImage,
+      images: ref ? ref.images : data.images,
+      fromBackup,
+    };
+  });
+
+  const newSinceBackup = liveDocs.filter((d) => !d.fromBackup).length;
+  const { ordered, deadCount } = buildOrder(liveDocs);
+  console.log(
+    `order: ${deadCount} delisted first, then ${ordered.length - deadCount} live` +
+      (newSinceBackup > 0
+        ? `  (${newSinceBackup} not in the reference backup — guarded against their own live state)`
+        : ''),
+  );
   const log = initLog(mode);
   console.log(`log:   ${log}`);
   console.log('');
 
-  const targets = mode === 'canary' ? ordered.slice(0, 1) : ordered;
+  // `--only <id or name fragment>` narrows the run to one property. Without
+  // it, catching up a single failed save means re-verifying all 870-odd
+  // already-stored images first.
+  const onlyFlag = args.find((a) => a.startsWith('--only='));
+  const only = onlyFlag ? onlyFlag.slice('--only='.length).toLowerCase() : null;
+
+  let targets = mode === 'canary' ? ordered.slice(0, 1) : ordered;
+  if (only) {
+    targets = targets.filter(
+      (p) => p.id.toLowerCase() === only || String(p.name).toLowerCase().includes(only),
+    );
+    console.log(`--only ${only}: ${targets.length} property(ies) selected`);
+  }
   const results = [];
 
   for (let i = 0; i < targets.length; i++) {

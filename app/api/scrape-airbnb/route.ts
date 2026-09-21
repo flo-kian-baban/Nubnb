@@ -964,6 +964,159 @@ export async function POST(request: Request) {
     const guests = domData.guests > 0 ? domData.guests : domData.guestsFromRules;
 
     // ============================================================
+    // HOUSE RULES — the full list, from behind the disclosure control
+    //
+    // POLICIES_DEFAULT renders only the first few rules inline. Measured
+    // 2026-09-21 on three live listings, the visible block carries exactly
+    // check-in, checkout and "N guests maximum"; every pet, smoking, party
+    // and quiet-hours rule sits behind a control labelled "Learn more"
+    // (not "Show more"), which opens a dialog headed "House rules".
+    //
+    // Without this step `rules` looked EXTRACTED off a one-item list, and
+    // pets/smoking/parties were reported unknown on listings that state all
+    // three outright.
+    // ============================================================
+    const fullRules: string[] = [];
+    let rulesDialogOpened = false;
+
+    try {
+      const clicked = await page.evaluate(() => {
+        const pol = document.querySelector('[data-section-id="POLICIES_DEFAULT"]');
+        if (!pol) return false;
+        // The first disclosure inside the section belongs to House rules; the
+        // second belongs to Safety & property.
+        const control = [...pol.querySelectorAll('button,a')].find((b) =>
+          /learn more|show more|show all/i.test(b.textContent || ''),
+        ) as HTMLElement | undefined;
+        if (!control) return false;
+        control.scrollIntoView({ block: 'center' });
+        control.click();
+        return true;
+      });
+
+      if (clicked) {
+        await page
+          .waitForFunction(
+            () =>
+              [...document.querySelectorAll('[role="dialog"]')].some((d) =>
+                /house rules/i.test(d.textContent || ''),
+              ),
+            { timeout: 8_000, polling: 150 },
+          )
+          .catch(() => {});
+
+        const lines: string[] = await page.evaluate(() => {
+          const dialog = [...document.querySelectorAll('[role="dialog"]')].find((d) =>
+            /house rules/i.test(d.textContent || ''),
+          ) as HTMLElement | undefined;
+          if (!dialog) return [];
+          return (dialog.innerText || '')
+            .split('\n')
+            .map((l) => l.trim())
+            .filter(Boolean);
+        });
+
+        if (lines.length > 0) {
+          rulesDialogOpened = true;
+
+          /**
+           * The dialog is sectioned:
+           *   House rules / <intro> / Checking in and out / During your stay
+           *   / Before you leave / Additional rules
+           *
+           * Only the structured sections are read. "Additional rules" is
+           * host free text — prose, sometimes several hundred words, itself
+           * truncated behind another "Show more". Two reasons to stop there:
+           * `terms.rules` is rendered as a list of short rules, and one
+           * listing's prose says "pets are okay as long as they are trained
+           * well" directly under a structured "No pets". Airbnb's structured
+           * field is the authoritative one, so permissions are read from it
+           * alone and never from the prose.
+           *
+           * The free text is therefore NOT captured; the operator adds it by
+           * hand if it matters for a listing.
+           */
+          const STRUCTURED = /^(checking in and out|during your stay|before you leave)$/i;
+          const PROSE_SECTION = /^additional rules$/i;
+          const HEADING = /^house rules$/i;
+          const INTRO = /^you.ll be staying in someone.s home/i;
+          const NOISE = /^(show more|show all|learn more|close)$/i;
+          // Second line of a two-line rule ("Quiet hours" / "11 p.m.-7 a.m.").
+          const BARE_RANGE = /^\d{1,2}(:\d{2})?\s*[ap]\.?m\.?\s*[–—-]\s*\d{1,2}(:\d{2})?\s*[ap]\.?m\.?$/i;
+
+          let inStructured = false;
+          for (const line of lines) {
+            if (HEADING.test(line) || INTRO.test(line)) continue;
+            if (PROSE_SECTION.test(line)) { inStructured = false; continue; }
+            if (STRUCTURED.test(line)) { inStructured = true; continue; }
+            if (!inStructured) continue;
+            if (NOISE.test(line)) continue;
+            // Check-in/checkout have their own fields.
+            if (/^check-?in|^checkout/i.test(line)) continue;
+
+            if (BARE_RANGE.test(line) && fullRules.length > 0) {
+              fullRules[fullRules.length - 1] = `${fullRules[fullRules.length - 1]} ${line}`;
+              continue;
+            }
+            if (!fullRules.includes(line)) fullRules.push(line);
+          }
+        }
+      }
+    } catch (rulesErr) {
+      console.error('House-rules dialog error (non-fatal):', rulesErr);
+    } finally {
+      // Always close it. A dialog left open is read back by the photo-tour
+      // and review steps as though it were theirs — the bug that kept the
+      // review modal from ever yielding anything.
+      try {
+        await page.evaluate(() => {
+          const dialog = [...document.querySelectorAll('[role="dialog"]')].find((d) =>
+            /house rules/i.test(d.textContent || ''),
+          );
+          const close = dialog?.querySelector(
+            'button[aria-label="Close"], button[aria-label*="lose"]',
+          ) as HTMLElement | null;
+          if (close) close.click();
+        });
+        await page
+          .waitForFunction(
+            () =>
+              ![...document.querySelectorAll('[role="dialog"]')].some((d) =>
+                /house rules/i.test(d.textContent || ''),
+              ),
+            { timeout: 4_000, polling: 100 },
+          )
+          .catch(() => {});
+      } catch { /* ignore */ }
+    }
+
+    // The dialog's list supersedes the visible one when it opened.
+    const rules = rulesDialogOpened && fullRules.length > 0 ? fullRules : domData.rules;
+
+    /** Explicit statements only — silence is never permission, either way. */
+    const readPermission = (
+      allow: RegExp,
+      deny: RegExp,
+    ): boolean | null => {
+      for (const r of rules) {
+        const lower = r.toLowerCase();
+        if (deny.test(lower)) return false;
+        if (allow.test(lower)) return true;
+      }
+      return null;
+    };
+
+    const petsRule = rulesDialogOpened
+      ? readPermission(/pets allowed|pet friendly/, /\bno pets\b/)
+      : domData.petsRule;
+    const smokingRule = rulesDialogOpened
+      ? readPermission(/smoking allowed/, /\bno smoking\b/)
+      : domData.smokingRule;
+    const partyRule = rulesDialogOpened
+      ? readPermission(/(parties|events) allowed/, /\bno (parties|events)\b/)
+      : domData.partyRule;
+
+    // ============================================================
     // PHOTO TOUR: Scrape additional images from the photo tour modal.
     // This adds categorized images (Living room, Kitchen, etc.) that
     // aren't visible on the main listing page.
@@ -1389,94 +1542,123 @@ export async function POST(request: Request) {
       reviewData.reviews = scriptReviewData.reviews;
       reviewData.countSource = scriptReviewData.countSource;
 
-      // Step 2: If no reviews from JSON, try scraping visible reviews from the page
-      if (reviewData.reviews.length === 0) {
-        const extractedReviews = await page.evaluate(() => {
-          const reviews: { reviewer: string; date: string; rating: number; text: string; avatar: string }[] = [];
-          
-          const reviewSection = document.querySelector('[data-section-id="REVIEWS_DEFAULT"]')
-            || document.querySelector('[data-section-id="GUEST_REVIEWS"]');
-          if (!reviewSection) return reviews;
+      /**
+       * Read review cards.
+       *
+       * Airbnb marks each one with `data-review-id`, which is the only
+       * reliable handle: the previous approach walked h2/h3 inside the
+       * reviews section, and the section also renders the per-category
+       * rating breakdown as headings ("Rated 4.8 out of 5 stars for
+       * accuracy"). Those were imported as reviewers on every listing that
+       * had a modal to open.
+       *
+       * Card shape, measured 2026-09-21:
+       *   John / Manassas Park, Virginia / Rating, 5 stars / · / August 2026
+       *   / · / Stayed a few nights / <the review text>
+       */
+      const readReviewCards = () =>
+        page.evaluate(() => {
+          const MONTH =
+            /^(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}$/i;
+          const RELATIVE = /^(\d+\s+(day|week|month|year)s?\s+ago|yesterday|today|last\s+week)$/i;
+          const STAYED = /^stayed\s/i;
+          const TENURE = /years?\s+on\s+airbnb$/i;
 
-          const headings = reviewSection.querySelectorAll('h2, h3');
-          
-          for (const heading of headings) {
-            const name = heading.textContent?.trim() || '';
-            if (!name || name.length > 40 || name.length < 2) continue;
-            if (/review|rating|guest|overall|clear|star|average/i.test(name)) continue;
+          return [...document.querySelectorAll('[data-review-id]')].map((card) => {
+            const lines = ((card as HTMLElement).innerText || '')
+              .split('\n')
+              .map((l) => l.trim())
+              .filter((l) => l && l !== ',' && l !== '·');
 
-            // Walk UP parent levels to find container with actual review text
-            let block: Element | null = null;
-            let cursor: Element | null = heading;
-            for (let level = 0; level < 8 && cursor; level++) {
-              cursor = cursor.parentElement;
-              if (!cursor || cursor === reviewSection) break;
-              const textLen = (cursor.textContent || '').length;
-              if (textLen > name.length + 100 && textLen < 3000) {
-                block = cursor;
-                break;
-              }
-            }
-            if (!block) continue;
+            const reviewer = card.querySelector('h2,h3')?.textContent?.trim() || lines[0] || '';
+            const date = lines.find((l) => MONTH.test(l) || RELATIVE.test(l)) || '';
 
-            // Extract date - match multiple formats
-            let date = '';
-            const allEls = block.querySelectorAll('span, div');
-            for (const el of allEls) {
-              const t = (el.textContent?.trim() || '');
-              // "March 2025", "January 2024" etc.
-              if (/^(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}$/i.test(t)) {
-                date = t; break;
-              }
-              // "2 weeks ago", "3 months ago", "1 year ago"
-              if (/^\d+\s+(week|month|year|day)s?\s+ago$/i.test(t)) {
-                date = t; break;
-              }
-              // "Mar 2025"
-              if (/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+\d{4}$/i.test(t)) {
-                date = t; break;
-              }
-            }
+            const ratingLine = lines.find((l) => /^rating,\s*\d/i.test(l)) || '';
+            const rating = parseInt(ratingLine.match(/(\d+)/)?.[1] || '5', 10);
 
-            // Extract review text - find the longest text not matching metadata patterns
+            // The body is the longest line that is not one of the metadata
+            // lines above.
             let text = '';
-            for (const el of allEls) {
-              const t = (el.textContent?.trim() || '');
-              if (t === name || t === date) continue;
-              if (t.length < 20) continue;
-              // Skip metadata like "3 years on Airbnb", "Montreal, Canada", section titles
-              if (/^\d+\s+(year|month|week|day)s?\s+on\s+airbnb/i.test(t)) continue;
-              if (/^[A-Z][a-z]+,\s+[A-Z][a-z]+$/i.test(t) && t.length < 40) continue;
-              if (t.startsWith(name)) continue;
-              if (t.length > text.length) {
-                text = t;
-              }
-            }
-            if (!text || text.length < 20) continue;
-
-            // Extract rating
-            let reviewRating = 5;
-            const ratingEl = block.querySelector('[aria-label*="star"], [role="img"][aria-label]');
-            if (ratingEl) {
-              const m = (ratingEl.getAttribute('aria-label') || '').match(/(\d+)/);
-              if (m) reviewRating = parseInt(m[1]);
+            for (const l of lines) {
+              if (l === reviewer || l === date) continue;
+              if (/^rating,/i.test(l) || STAYED.test(l) || TENURE.test(l)) continue;
+              if (l.length > text.length) text = l;
             }
 
-            // Extract avatar
-            let avatar = '';
-            const img = block.querySelector('img') as HTMLImageElement;
-            if (img && img.src && !img.src.startsWith('data:')) avatar = img.src;
-
-            if (!reviews.find(r => r.reviewer === name)) {
-              reviews.push({ reviewer: name, date, rating: reviewRating, text, avatar });
-            }
-          }
-          return reviews;
+            return { reviewer, date, rating, text, avatar: '' };
+          });
         });
 
-        if (extractedReviews.length > 0) {
-          reviewData.reviews = extractedReviews;
-        }
+      /**
+       * Fallback for listings whose reviews carry no `data-review-id`.
+       *
+       * A listing with a single review renders it inline with no card
+       * attribute and no test id (measured on a 1-review listing), but with
+       * the same line grammar:
+       *   Huijun / 9 years on Airbnb / Rating, 5 stars / · / April 2026 /
+       *   · / Stayed over a week / <text>
+       *
+       * Segmenting on the "Rating, N stars" line is what makes this safe:
+       * the per-category rating rows read "Rated N out of 5 stars for X",
+       * which does not match, so they cannot be mistaken for reviews.
+       */
+      const readInlineReviews = () =>
+        page.evaluate(() => {
+          const sec = document.querySelector('[data-section-id="REVIEWS_DEFAULT"]') as HTMLElement | null;
+          if (!sec) return [];
+          const lines = (sec.innerText || '')
+            .split('\n')
+            .map((l) => l.trim())
+            .filter((l) => l && l !== ',' && l !== '·');
+
+          const MONTH =
+            /^(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}$/i;
+          const RELATIVE = /^(\d+\s+(day|week|month|year)s?\s+ago|yesterday|today|last\s+week)$/i;
+          const RATING_LINE = /^rating,\s*(\d+)\s*stars?$/i;
+          const SKIP =
+            /^(how reviews work|average rating will appear|\d+\s+reviews?$|overall rating|show more|stayed\s|\d+\s+years?\s+on airbnb$|rated\s)/i;
+
+          const out: { reviewer: string; date: string; rating: number; text: string; avatar: string }[] = [];
+          for (let i = 0; i < lines.length; i++) {
+            const m = lines[i].match(RATING_LINE);
+            if (!m) continue;
+            const rating = parseInt(m[1], 10);
+
+            let reviewer = '';
+            for (let j = i - 1; j >= 0 && j >= i - 4; j--) {
+              if (!SKIP.test(lines[j]) && lines[j].length <= 40) { reviewer = lines[j]; break; }
+            }
+            let date = '';
+            let text = '';
+            for (let j = i + 1; j < lines.length && j <= i + 8; j++) {
+              if (!date && (MONTH.test(lines[j]) || RELATIVE.test(lines[j]))) { date = lines[j]; continue; }
+              if (SKIP.test(lines[j])) continue;
+              if (lines[j].length > text.length && lines[j].length > 20) text = lines[j];
+            }
+            if (reviewer && date && text) out.push({ reviewer, date, rating, text, avatar: '' });
+          }
+          return out;
+        });
+
+      // Step 2: read whatever cards the page itself carries.
+      //
+      // The section renders its cards when it comes into view, so scroll to
+      // it first and wait for a card rather than reading an empty section.
+      if (reviewData.reviews.length === 0) {
+        await page.evaluate(() => {
+          document
+            .querySelector('[data-section-id="REVIEWS_DEFAULT"]')
+            ?.scrollIntoView({ block: 'center' });
+        });
+        await page
+          .waitForFunction(() => document.querySelectorAll('[data-review-id]').length > 0, {
+            timeout: 8_000,
+            polling: 200,
+          })
+          .catch(() => {});
+        const pageCards = await readReviewCards();
+        if (pageCards.length > 0) reviewData.reviews = pageCards;
+        else reviewData.reviews = await readInlineReviews();
       }
 
       // Step 3: If fewer than 10 reviews, click "Show all reviews" modal and scrape more
@@ -1491,80 +1673,22 @@ export async function POST(request: Request) {
             await (showAllBtn.asElement() as unknown as { click(): Promise<void> }).click();
             // Wait for a dialog that actually contains reviews, instead of
             // sleeping 3s and reading whichever dialog happens to be first.
+            // Wait for the modal's review CARDS, not just for a dialog to
+            // exist. The dialog appears with its rating summary well before
+            // the cards render, and reading it at that moment returns none.
             await page
               .waitForFunction(
                 () =>
-                  Array.from(document.querySelectorAll('[role="dialog"]')).some(d =>
-                    /\d+\s+reviews?|Rated\s+[\d.]+/i.test(d.textContent || ''),
+                  Array.from(document.querySelectorAll('[role="dialog"]')).some(
+                    (d) => d.querySelectorAll('[data-review-id]').length > 0,
                   ),
-                { timeout: 8_000, polling: 150 },
+                { timeout: 12_000, polling: 200 },
               )
               .catch(() => {});
 
-            const modalReviews = await page.evaluate(() => {
-              const reviews: { reviewer: string; date: string; rating: number; text: string; avatar: string }[] = [];
-              // Pick the dialog that holds reviews. `querySelector` used to
-              // take the first dialog, which after the photo-tour step was the
-              // gallery — the reason this modal never yielded anything.
-              const modal = Array.from(document.querySelectorAll('[role="dialog"]')).find(d =>
-                /\d+\s+reviews?|Rated\s+[\d.]+/i.test(d.textContent || ''),
-              );
-              if (!modal) return reviews;
-
-              const headings = modal.querySelectorAll('h2, h3');
-              for (const heading of headings) {
-                const name = heading.textContent?.trim() || '';
-                if (!name || name.length > 40 || name.length < 2) continue;
-                if (/review|rating|guest|overall|search|filter|clear|categor|average/i.test(name)) continue;
-
-                let block: Element | null = null;
-                let cursor: Element | null = heading;
-                for (let level = 0; level < 8 && cursor; level++) {
-                  cursor = cursor.parentElement;
-                  if (!cursor || cursor === modal) break;
-                  const textLen = (cursor.textContent || '').length;
-                  if (textLen > name.length + 100 && textLen < 5000) {
-                    block = cursor;
-                    break;
-                  }
-                }
-                if (!block) continue;
-
-                let date = '';
-                let text = '';
-                let reviewRating = 5;
-                let avatar = '';
-
-                const spans = block.querySelectorAll('span, div, p');
-                for (const el of spans) {
-                  const t = (el.textContent?.trim() || '');
-                  if (!date && /^(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}$/i.test(t)) {
-                    date = t;
-                  }
-                  if (t === name || t === date) continue;
-                  if (t.length < 20) continue;
-                  if (/^\d+\s+(year|month|week|day)s?\s+on\s+airbnb/i.test(t)) continue;
-                  if (/^[A-Z][a-z]+,\s+[A-Z][a-z]+$/i.test(t) && t.length < 40) continue;
-                  if (t.startsWith(name)) continue;
-                  if (t.length > text.length) text = t;
-                }
-                if (!text) continue;
-
-                const ratingEl = block.querySelector('[aria-label*="star"]');
-                if (ratingEl) {
-                  const m = (ratingEl.getAttribute('aria-label') || '').match(/(\d+)/);
-                  if (m) reviewRating = parseInt(m[1]);
-                }
-
-                const img = block.querySelector('img') as HTMLImageElement;
-                if (img && img.src && !img.src.startsWith('data:')) avatar = img.src;
-
-                if (!reviews.find(r => r.reviewer === name)) {
-                  reviews.push({ reviewer: name, date, rating: reviewRating, text, avatar });
-                }
-              }
-              return reviews;
-            });
+            // Same card reader — the modal renders the same
+            // `data-review-id` cards, just more of them.
+            const modalReviews = await readReviewCards();
 
             if (modalReviews.length > 0) {
               // Merge: add modal reviews that aren't already in the list
@@ -1593,8 +1717,52 @@ export async function POST(request: Request) {
         }
       }
 
+      // ── Reject anything that is not a review ──
+      //
+      // The reviews section and its modal both render the per-category
+      // rating breakdown as headings ("Rated 4.8 out of 5 stars for
+      // accuracy"), and the heading-walk that finds reviewer names cannot
+      // tell those from a person. Observed on two live listings: five
+      // identical-length "reviews" whose reviewer was a rating row and whose
+      // date was empty. A record that shape is not a review, and storing it
+      // would also fail CreatePropertySchema on `date`.
+      //
+      // A real review has a person's name, a date, and body text. Anything
+      // missing one of those is dropped rather than repaired.
+      const RATING_ROW = /rated|out of 5|stars?\b|overall|average|categor/i;
+      reviewData.reviews = reviewData.reviews.filter((r) => {
+        if (!r.reviewer || RATING_ROW.test(r.reviewer)) return false;
+        if (r.reviewer.length > 40) return false;
+        if (!r.date || !r.date.trim()) return false;
+        if (!r.text || r.text.trim().length < 10) return false;
+        return true;
+      });
+
+      // The same body text under several headings is the walk latching onto a
+      // shared container, not several people saying the same thing.
+      const seenText = new Set<string>();
+      reviewData.reviews = reviewData.reviews.filter((r) => {
+        const key = r.text.trim().slice(0, 120);
+        if (seenText.has(key)) return false;
+        seenText.add(key);
+        return true;
+      });
+
       // Cap at 10 reviews
       reviewData.reviews = reviewData.reviews.slice(0, 10);
+
+      // ── Drop empty avatars rather than sending "" ──
+      // `avatar` is an optional URL. The scraper has never resolved one, so
+      // it emitted "" on every review, and z.string().url() rejects "" —
+      // which 422'd every create of a listing that had reviews. Absent is
+      // what "not set" means; the schema does not need loosening. (The 142
+      // reviews already stored as "" are accepted on update by
+      // StoredReviewSchema.)
+      reviewData.reviews = reviewData.reviews.map((r) => {
+        if (r.avatar && r.avatar.trim()) return r;
+        const { avatar: _avatar, ...withoutAvatar } = r;
+        return withoutAvatar as typeof r;
+      });
 
     } catch (reviewErr) {
       console.error('Review scraping error (non-fatal):', reviewErr);
@@ -1729,7 +1897,21 @@ export async function POST(request: Request) {
         : 'Not extracted — "11:00 AM" is a hard-coded default, not listing data. Confirm it manually.',
     );
 
-    track('rules', domData.rules.length > 0, 'The POLICIES_DEFAULT house-rules list returned no entries.');
+    // ── Rules ──
+    // EXTRACTED only when the full list was read. A partial list is the
+    // failure this dispatch exists to stop: the visible block is three lines
+    // long and states none of the permissions, so reporting it as extracted
+    // told the operator the rules had been captured when they had not.
+    if (rulesDialogOpened && rules.length > 0) {
+      fieldStatus.rules = { status: 'extracted' };
+    } else if (rules.length > 0) {
+      fieldStatus.rules = {
+        status: 'failed',
+        reason: `only the first ${rules.length} visible rule${rules.length === 1 ? '' : 's'} were read — the full list could not be opened. What was read is in the field; complete it from the listing.`,
+      };
+    } else {
+      track('rules', false, 'The POLICIES_DEFAULT house-rules list returned no entries.');
+    }
 
     // ── Permissions ──
     // Extracted only when the page actually said so, either way. Airbnb's
@@ -1739,11 +1921,12 @@ export async function POST(request: Request) {
     // silence, not permission. Reporting `false` as extracted here would
     // recreate the original defect (the public UI stating "no pets" as fact
     // when nothing was ever read) with a green badge on top of it.
-    const permissionUnknown =
-      'The listing page does not state this in its visible house rules, so it could not be determined. `false` here means unknown, not "not allowed".';
-    track('petsAllowed', domData.petsRule !== null, permissionUnknown);
-    track('smokingAllowed', domData.smokingRule !== null, permissionUnknown);
-    track('partyAllowed', domData.partyRule !== null, permissionUnknown);
+    const permissionUnknown = rulesDialogOpened
+      ? 'The full house-rules list was read and does not state this either way. `false` here means unknown, not "not allowed".'
+      : 'The full house-rules list could not be opened, and the visible rules do not state this. `false` here means unknown, not "not allowed".';
+    track('petsAllowed', petsRule !== null, permissionUnknown);
+    track('smokingAllowed', smokingRule !== null, permissionUnknown);
+    track('partyAllowed', partyRule !== null, permissionUnknown);
 
     // ── Price ──
     // Not scraped at all. Listing URLs are normalised to carry no dates and
@@ -1827,10 +2010,10 @@ export async function POST(request: Request) {
       offers: finalOffers,
       checkIn: checkIn || '4:00 PM',
       checkOut: checkOut || '11:00 AM',
-      rules: domData.rules || [],
-      petsAllowed: domData.petsRule ?? false,
-      smokingAllowed: domData.smokingRule ?? false,
-      partyAllowed: domData.partyRule ?? false,
+      rules,
+      petsAllowed: petsRule ?? false,
+      smokingAllowed: smokingRule ?? false,
+      partyAllowed: partyRule ?? false,
       averageRating: reviewData.averageRating,
       totalReviewCount: reviewData.totalReviewCount,
       reviews: reviewData.reviews,

@@ -180,6 +180,8 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
 
   // Save failures. The modal stays open and every entered value is kept.
   const [saveError, setSaveError] = useState<{ title: string; detail?: string } | null>(null);
+  /** Post-save image mirroring is in flight. The save itself is already done. */
+  const [isMirroring, setIsMirroring] = useState(false);
   const [saveIssues, setSaveIssues] = useState<MutationIssue[]>([]);
 
   // Uploads and other in-form failures — one mechanism, no alert().
@@ -873,6 +875,53 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
     setIsSaving(false);
 
     if (result.ok) {
+      // ── Mirror the images, as a separate step after the save ──
+      //
+      // The save is already durable at this point and nothing below can undo
+      // it. Mirroring runs second and on its own request because it fetches
+      // every image of the property: coupling it to the save would let a slow
+      // CDN fail a write that had nothing wrong with it.
+      //
+      // On failure the document keeps whatever `coverImageStored` /
+      // `imagesStored` it already had — the route never writes them unless
+      // every image landed — and the modal stays open carrying the warning,
+      // so the operator learns that the property saved but its images did
+      // not mirror. scripts/mirror-images.mjs catches up afterwards.
+      const savedId = initialData?.id || (result.data as { id?: string })?.id;
+      if (savedId) {
+        setIsMirroring(true);
+        try {
+          const res = await fetch('/api/mirror-property-images', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: savedId }),
+          });
+          if (!res.ok) {
+            const failure = await describeHttpFailure(res, 'Images were not mirrored');
+            setIsMirroring(false);
+            showFormNotice({
+              tone: 'warning',
+              title: 'Saved — but the images were not mirrored.',
+              detail:
+                `${failure.title} The property itself is saved and its previously mirrored ` +
+                `images are unchanged. Save again to retry, or run scripts/mirror-images.mjs.`,
+            });
+            return;
+          }
+        } catch (err) {
+          setIsMirroring(false);
+          showFormNotice({
+            tone: 'warning',
+            title: 'Saved — but the images were not mirrored.',
+            detail:
+              `${err instanceof Error ? err.message : 'The mirroring request failed.'} ` +
+              `The property itself is saved and its previously mirrored images are unchanged.`,
+          });
+          return;
+        }
+        setIsMirroring(false);
+      }
+
       onSave();
       return;
     }
@@ -1515,9 +1564,9 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
           )}
 
           <div className={styles.actions}>
-            <button type="button" className={styles.cancelBtn} onClick={onClose} disabled={isSaving}>Cancel</button>
-            <button type="submit" className={styles.saveBtn} disabled={isSaving}>
-              {isSaving ? "Saving..." : "Save Property"}
+            <button type="button" className={styles.cancelBtn} onClick={onClose} disabled={isSaving || isMirroring}>Cancel</button>
+            <button type="submit" className={styles.saveBtn} disabled={isSaving || isMirroring}>
+              {isSaving ? "Saving..." : isMirroring ? "Saved — mirroring images..." : "Save Property"}
             </button>
           </div>
         </form>
