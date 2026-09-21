@@ -92,7 +92,12 @@
 .sectionValue {
   font-size: var(--fs-caption);
   font-weight: 400;
-  color: rgba(255, 255, 255, 0.38);
+  /* 0.38 composited to #6a6a6c on the pill's #0e0f12 — 3.55:1, short of the
+     4.5:1 WCAG AA needs at this size (11px, normal weight). 0.4479 is the
+     exact threshold, so 0.45 is the smallest sensible value that clears it,
+     at 4.52:1. Deliberately the minimum: this is placeholder text and it
+     should stay quieter than the label above it. */
+  color: rgba(255, 255, 255, 0.45);
   line-height: 1;
   white-space: nowrap;
 }
@@ -206,8 +211,12 @@
   --rdp-accent-color: #ffffff !important;
   --rdp-accent-background-color: rgba(255, 255, 255, 0.08) !important;
   --rdp-background-color: rgba(255, 255, 255, 0.08) !important;
-  --rdp-outline: none !important;
-  --rdp-outline-selected: none !important;
+  /* `--rdp-outline` / `--rdp-outline-selected` used to be set to `none
+     !important` here. They are v8 variable names and react-day-picker 9.14
+     does not read them, so they suppressed nothing — the browser default ring
+     was in fact still showing. They are gone either way, and the ring below
+     is explicit rather than inherited from the UA, which on this dark popover
+     renders as a thin low-contrast blue. */
   --rdp-selected-border: none !important;
   --rdp-today-color: #ffffff !important;
   --rdp-selected-color: var(--brand-navy) !important;
@@ -294,6 +303,20 @@
   background-color: transparent !important;
   color: rgba(255, 255, 255, 0.85) !important;
   border-radius: 0;
+}
+
+/* Keyboard focus in the calendar — white, to carry on the dark popover. */
+.calendarDayPicker :global(.rdp-day_button):focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 1px;
+  border-radius: 50%;
+}
+
+.calendarDayPicker :global(.rdp-button_previous):focus-visible,
+.calendarDayPicker :global(.rdp-button_next):focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 1px;
+  border-radius: 8px;
 }
 
 .calendarDayPicker :global(.rdp-disabled) { opacity: 0.18; }

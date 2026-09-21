@@ -181,6 +181,16 @@
   background: rgba(255, 255, 255, 0.06);
 }
 
+/* The base rule sets `outline: none`, leaving a 1px border colour change as
+   the only sign of focus. That is easy to miss on a dark form, so keyboard
+   focus gets a real ring on top of it. */
+.input:focus-visible,
+.select:focus-visible,
+.textarea:focus-visible {
+  outline: 2px solid var(--brand-blue);
+  outline-offset: 2px;
+}
+
 /* Select dropdown styling */
 .select {
   cursor: pointer;
@@ -373,4 +383,65 @@
   .form {
     gap: 16px;
   }
+}
+
+/* ── Stay request summary ─────────────────────────
+   Shown when the visitor arrived from "Request these dates". It restates what
+   they already chose, so the form is a confirmation rather than a second round
+   of data entry, and the party size stays editable because it is the one thing
+   the panel could only guess at. */
+.stayCard {
+  margin-bottom: 24px;
+  padding: 20px;
+  border-radius: 14px;
+  border: 1px solid var(--border-on-navy);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.stayHeading {
+  margin: 0 0 6px;
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-on-navy-muted);
+}
+
+.stayProperty {
+  margin: 0 0 14px;
+  font-family: var(--font-serif);
+  font-size: 1.125rem;
+  line-height: 1.3;
+  color: var(--text-on-navy);
+}
+
+.stayMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 28px;
+  margin: 0 0 18px;
+}
+
+.stayMetaItem dt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-on-navy-muted);
+}
+
+.stayMetaItem dd {
+  margin: 0;
+  font-size: var(--fs-body-sm);
+  color: var(--text-on-navy);
+}
+
+.stayCard .label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }

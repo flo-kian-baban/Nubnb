@@ -7,6 +7,9 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { MapPin } from "lucide-react";
 import { PropertySummary } from "@/app/types/property";
 import styles from "./MapView.module.css";
+import { nightlyPrice } from "@/app/lib/price";
+
+/* Pins price through the shared helper, like every other surface. */
 
 /* ── Memoized single-property marker ──
  * Only re-renders when its own hover/select/condensed state changes.
@@ -53,7 +56,7 @@ const PropertyMarker = React.memo(function PropertyMarker({
         {(isCondensed && !isHovered && !isSelected) ? (
           <MapPin size={24} strokeWidth={2.5} />
         ) : (
-          `$${property.price}`
+          `$${nightlyPrice(property)}`
         )}
       </div>
     </Marker>
@@ -406,7 +409,7 @@ export function MapView({
                       onMouseEnter={() => onHover(property.id)}
                       onMouseLeave={() => onHover(null)}
                     >
-                      {`$${property.price}`}
+                      {`$${nightlyPrice(property)}`}
                     </div>
                   </div>
                 </Marker>

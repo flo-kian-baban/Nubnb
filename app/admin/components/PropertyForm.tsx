@@ -2,7 +2,8 @@
 
 import { Property, Offer } from "@/app/types/property";
 import { addProperty, updateProperty, MutationIssue } from "@/app/lib/firebase/properties";
-import { useState } from "react";
+import { hasPriceDivergence, nightlyPrice } from "@/app/lib/price";
+import { useMemo, useRef, useState } from "react";
 import styles from "./PropertyForm.module.css";
 import { Plus, Trash2, X, ImageIcon, ImagePlus, Link2, Star, ChevronDown, Check, AlertTriangle, XCircle } from "lucide-react";
 
@@ -160,6 +161,32 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
     }
   );
 
+  /**
+   * The disagreement this property was opened with, if any.
+   *
+   * Read from `initialData`, never from `formData`, so it reflects what is
+   * stored rather than what has been typed since. It stays visible for the
+   * whole editing session: the point is to tell the operator what saving is
+   * about to reconcile, and that is true right up until they save.
+   */
+  const storedPriceConflict = useMemo(() => {
+    if (!initialData || !hasPriceDivergence(initialData)) return null;
+    return {
+      base: initialData.price as number,
+      nightly: initialData.priceInfo!.nightly,
+      // What renters are actually being shown right now, resolved by the same
+      // helper every public surface uses. Not simply the nightly value: when
+      // nightly is 0 or missing the helper falls back to the base price, and
+      // a warning that told the operator renters see $0 in that case would be
+      // telling them something untrue.
+      shown: nightlyPrice(initialData),
+    };
+  }, [initialData]);
+  const [priceConflictAck, setPriceConflictAck] = useState(false);
+  /** The nightly value as currently typed — what a save would write to both fields. */
+  const pendingNightly = formData.priceInfo?.nightly ?? 0;
+  const priceConflictRef = useRef<HTMLDivElement>(null);
+
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [isUploadingMultiple, setIsUploadingMultiple] = useState(false);
@@ -225,7 +252,9 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
         if (!formData.beds) count++;
         if (!formData.bathrooms) count++;
         if (!formData.guests) count++;
-        if (!formData.price) count++;
+        // `price` is no longer entered separately — it is written from the
+        // nightly value on save, so counting it would flag a field that has
+        // no input.
         if (!formData.priceInfo?.nightly) count++;
         if (!formData.priceInfo?.weekly) count++;
         if (!formData.priceInfo?.monthly) count++;
@@ -817,12 +846,37 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // ── The price conflict has to be acknowledged, not merely displayed ──
+    // The save button is disabled until the box is ticked, but a form can
+    // also be submitted with Enter, so the guard lives here too. Nothing is
+    // written until the operator has said they understand which of the two
+    // stored numbers is about to win.
+    if (storedPriceConflict && !priceConflictAck) {
+      setSaveError({
+        title: 'Confirm the price before saving',
+        detail:
+          `This property stores two different prices — $${storedPriceConflict.base} and ` +
+          `$${storedPriceConflict.nightly}. Tick the confirmation above to continue.`,
+      });
+      priceConflictRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+
     setIsSaving(true);
     setSaveError(null);
     setSaveIssues([]);
 
     const finalData = { ...formData };
     const isEdit = !!initialData?.id;
+
+    // ── One price ──
+    // The form has a single nightly-price input; the legacy top-level `price`
+    // is written from it rather than entered separately. This is the only
+    // place `price` is set, and it is what converges a divergent document —
+    // on an explicit save, by an operator who has seen the warning. Nothing
+    // rewrites a stored document on its own.
+    finalData.price = finalData.priceInfo?.nightly ?? 0;
 
     // ── Airbnb URL: canonical on create, untouched on an unedited update ──
     // A pasted URL carries tracking parameters, and a dated one points at a
@@ -966,7 +1020,65 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
         </div>
         
         <form onSubmit={handleSubmit} className={styles.form}>
-          
+
+          {/* ── Two stored prices, one of them invisible to renters ──
+              Sits above everything, outside every accordion, so it cannot be
+              collapsed or scrolled past before the form is touched. */}
+          {storedPriceConflict && (
+            <div className={styles.priceWarning} ref={priceConflictRef} role="alert">
+              <p className={styles.priceWarningHead}>
+                <AlertTriangle size={18} aria-hidden />
+                This property stores two different prices
+              </p>
+              {/* The badge follows the helper, not the field name. When nightly
+                  is 0 the helper falls back to the base price, and renters are
+                  seeing that — marking nightly here would contradict the line
+                  below it. */}
+              <div className={styles.priceWarningValues}>
+                <span className={styles.priceWarningValue}>
+                  Stored base price: <b>${storedPriceConflict.base.toLocaleString()}</b>
+                  {storedPriceConflict.shown === storedPriceConflict.base && (
+                    <span className={styles.priceWarningSeen}> ← what renters see</span>
+                  )}
+                </span>
+                <span className={styles.priceWarningValue}>
+                  Stored nightly price: <b>${storedPriceConflict.nightly.toLocaleString()}</b>
+                  {storedPriceConflict.shown === storedPriceConflict.nightly && (
+                    <span className={styles.priceWarningSeen}> ← what renters see</span>
+                  )}
+                </span>
+              </div>
+              <p className={styles.priceWarningBody}>
+                Renters currently see{' '}
+                <b>${storedPriceConflict.shown.toLocaleString()}</b> on the card, the map pin and
+                the property page. Saving sets <em>both</em> stored fields to the nightly price
+                entered below, which is currently{' '}
+                <b>${pendingNightly.toLocaleString()}</b>.
+              </p>
+              {pendingNightly <= 0 && (
+                <p className={styles.priceWarningDanger}>
+                  The nightly price is {pendingNightly === 0 ? 'zero' : 'negative'}. Saving now
+                  would advertise this property at ${pendingNightly.toLocaleString()}. Enter the
+                  real nightly price before saving.
+                </p>
+              )}
+              <label className={styles.priceWarningAck}>
+                <input
+                  type="checkbox"
+                  checked={priceConflictAck}
+                  onChange={(e) => setPriceConflictAck(e.target.checked)}
+                />
+                <span>
+                  I understand — saving will set both stored prices to $
+                  {pendingNightly.toLocaleString()}
+                  {storedPriceConflict.shown !== pendingNightly
+                    ? `, changing what renters see from $${storedPriceConflict.shown.toLocaleString()}.`
+                    : ', which is what renters already see.'}
+                </span>
+              </label>
+            </div>
+          )}
+
           {/* --- Data Sources --- */}
           <div className={styles.section}>
             <h3>Data Sources</h3>
@@ -1278,15 +1390,22 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
             </div>
             <hr className={styles.sectionDivider} />
             <div className={styles.grid}>
-              <div className={styles.field}>
-                <label>Base Price ({formData.currency || 'CAD'}) {scrapeBadge('price')}</label>
-                <input type="number" name="price" value={formData.price ?? 0} onChange={handleChange} required className={`${scrapeClass('price')} ${issueClass('price')}`} />
-                {fieldIssue('price')}
-              </div>
-              <div className={styles.field}>
-                <label>Nightly Price {scrapeBadge('price')}</label>
-                <input type="number" name="priceInfo.nightly" value={formData.priceInfo?.nightly ?? 0} onChange={handleChange} required className={`${scrapeClass('price')} ${issueClass('priceInfo.nightly')}`} />
+              {/* One price. This input is the nightly price, and on save it is
+                  written to both `priceInfo.nightly` and the legacy `price`
+                  field. There used to be a separate "Base Price" input here
+                  writing `price` on its own, which is how 3 of the 43
+                  properties ended up with two different numbers. `price` has
+                  no input of its own any more, so it cannot diverge again.
+                  Both issue paths render here, because both fields now come
+                  from this one value. */}
+              <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
+                <label>Nightly Price ({formData.currency || 'CAD'}) * {scrapeBadge('price')}</label>
+                <input type="number" name="priceInfo.nightly" value={formData.priceInfo?.nightly ?? 0} onChange={handleChange} required className={`${scrapeClass('price')} ${issueClass('priceInfo.nightly')} ${issueClass('price')}`} />
                 {fieldIssue('priceInfo.nightly')}
+                {fieldIssue('price')}
+                <p className={styles.fieldHint}>
+                  The price shown on cards, map pins and the property page.
+                </p>
               </div>
               <div className={styles.field}>
                 <label>Weekly Price</label>
@@ -1565,7 +1684,16 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
 
           <div className={styles.actions}>
             <button type="button" className={styles.cancelBtn} onClick={onClose} disabled={isSaving || isMirroring}>Cancel</button>
-            <button type="submit" className={styles.saveBtn} disabled={isSaving || isMirroring}>
+            <button
+              type="submit"
+              className={styles.saveBtn}
+              disabled={isSaving || isMirroring || (!!storedPriceConflict && !priceConflictAck)}
+              title={
+                storedPriceConflict && !priceConflictAck
+                  ? 'Confirm the price conflict at the top of the form first'
+                  : undefined
+              }
+            >
               {isSaving ? "Saving..." : isMirroring ? "Saved — mirroring images..." : "Save Property"}
             </button>
           </div>

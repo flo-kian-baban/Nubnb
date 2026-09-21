@@ -17,6 +17,34 @@ export interface Review {
 
 export interface PriceInfo {
   nightly: number;
+  /**
+   * `weekly` and `monthly` are STORED BUT DELIBERATELY UNUSED. Do not wire
+   * them into a quote without re-establishing what they mean first.
+   *
+   * The seed data this schema came from (app/data/properties.ts) reads
+   * `nightly 3500, weekly 3200, monthly 3000, weekend 3800` on every entry —
+   * i.e. discounted per-night rates. The live values do not behave that way:
+   * against the nightly rate they run 2x-25x, so read as per-night rates they
+   * imply discounts of -100% to -2400%. Read instead as totals for the
+   * period, the implied discount ranges from 0% (3BR Ideal Location: weekly
+   * 1400 = 7 x 200 exactly) to 73% (Cozy 3BR Yonge & Finch: monthly 4000 on a
+   * 500 nightly), and one property prices a month at twice its week
+   * (Ajax: weekly 2000, monthly 4000). Neither reading is coherent.
+   *
+   * `weekend` in this same object IS a per-night rate — 16 of 17 stored
+   * values sit at 1.25x-2.50x nightly, a weekend premium — so the four fields
+   * do not even share a unit.
+   *
+   * Set on 5 and 7 of 43 properties respectively, hand-entered (the Airbnb
+   * scraper never writes them) through a form that labels them bare "Weekly
+   * Price"/"Monthly Price" and marks them `required`, which pressures an
+   * operator into typing a number whether or not they have one.
+   *
+   * Guessing is expensive: a 30-night stay at Cozy 3BR quotes $15,200 as it
+   * stands, $4,200 if `monthly` is a total, or $120,200 if it is per-night.
+   * Ruled on 2026-09-21: leave them out of the calculation until the fields
+   * have a defined meaning and the values have been re-entered against it.
+   */
   weekly: number;
   monthly: number;
   weekend: number;

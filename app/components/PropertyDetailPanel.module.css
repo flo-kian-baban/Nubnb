@@ -873,8 +873,10 @@
   --rdp-background-color: rgba(255, 255, 255, 0.08) !important;
   --rdp-accent-color-dark: #ffffff !important;
   --rdp-background-color-dark: rgba(255, 255, 255, 0.08) !important;
-  --rdp-outline: none !important;
-  --rdp-outline-selected: none !important;
+  /* See the note in MapFilters.module.css: these were v8 variable names that
+     react-day-picker 9.14 ignores, so they never removed anything. The
+     explicit ring below replaces the UA default, which is a thin blue that
+     all but disappears against this panel. */
   --rdp-selected-border: none !important;
   --rdp-today-color: #ffffff !important;
   --rdp-selected-color: #0b1120 !important;
@@ -899,6 +901,20 @@
   color: rgba(255, 255, 255, 0.88);
   font-family: var(--font-sans);
   font-size: 0.85rem;
+}
+
+/* Keyboard focus in the booking calendar — white, to carry on the dark panel. */
+.calendarDayPicker :global(.rdp-day_button):focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 1px;
+  border-radius: 50%;
+}
+
+.calendarDayPicker :global(.rdp-button_previous):focus-visible,
+.calendarDayPicker :global(.rdp-button_next):focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 1px;
+  border-radius: 8px;
 }
 
 .calendarDayPicker :global(.rdp-month_caption) {
@@ -1322,5 +1338,47 @@
 @media (hover: none) {
   .detailNoticeRetry:hover {
     background: var(--brand-blue, #6599cd);
+  }
+}
+
+/* ── Request these dates ──────────────────────────
+   Shown only once an availability check has come back clear. It is the first
+   thing on this panel that carries the visitor forward rather than telling
+   them something, so it reads as the primary action the reserve button is not. */
+.requestDatesBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 10px;
+  padding: 15px 24px;
+  border-radius: 12px;
+  background: var(--brand-blue, #6599cd);
+  color: #fff;
+  font-family: var(--font-sans);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-decoration: none;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.requestDatesBtn:hover {
+  background: var(--brand-blue-hover, #7aa9d8);
+  transform: translateY(-1px);
+}
+
+.requestDatesBtn:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+}
+
+@media (hover: none) {
+  .requestDatesBtn:hover {
+    background: var(--brand-blue, #6599cd);
+    transform: none;
   }
 }

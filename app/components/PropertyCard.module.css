@@ -146,11 +146,53 @@
   line-height: 1.2;
   letter-spacing: -0.01em;
   padding-right: 24px;
+}
+
+/*
+ * The card's one interactive control.
+ *
+ * Styled back down to the heading it replaced, and stretched over the card by
+ * the ::after below so the whole card stays clickable. The three-line clamp
+ * moved here from .title: it needs to be on the element that holds the text,
+ * and the text is now inside the button.
+ */
+.titleButton {
+  appearance: none;
+  -webkit-appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  cursor: pointer;
   display: -webkit-box;
   -webkit-line-clamp: 3;
   line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* Above .statsNotch (z-index 10) so the whole card surface activates it. */
+.titleButton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 11;
+  border-radius: 16px;
+}
+
+/* The ring belongs on the stretched area, not on the few words of the title,
+   so keyboard focus outlines the card the visitor is actually about to open. */
+.titleButton:focus-visible {
+  outline: none;
+}
+
+.titleButton:focus-visible::after {
+  outline: 3px solid var(--brand-blue, #6599cd);
+  outline-offset: -3px;
 }
 
 .card:hover .title,

@@ -89,6 +89,14 @@
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.04);
 }
 
+/* The rule above is the whole focus indicator, and a 0.04-alpha ring against
+   a 0.04-alpha field is not one you can see. Keyboard focus gets a real
+   outline; pointer focus keeps the softer treatment. */
+.searchInput:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+}
+
 .searchInput::placeholder {
   color: rgba(255, 255, 255, 0.35);
 }

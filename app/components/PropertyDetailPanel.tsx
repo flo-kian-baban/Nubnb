@@ -2,13 +2,15 @@ import { useState, useEffect, useRef, useSyncExternalStore } from "react";
 import DOMPurify from "dompurify";
 import { Property, PropertySummary } from "@/app/types/property";
 import styles from "./PropertyDetailPanel.module.css";
+import { nightlyPrice } from "@/app/lib/price";
 import { DayPicker, DateRange } from "react-day-picker";
 import "react-day-picker/style.css";
 import { format, differenceInDays, addDays, addYears, eachDayOfInterval, parseISO, isAfter, isBefore, startOfDay } from "date-fns";
+import Link from "next/link";
 import {
   X, Star, Share, Users,
   MapPin, Clock, ShieldCheck, Check, CalendarDays,
-  ChevronLeft, ChevronRight, ChevronDown, RefreshCw, WifiOff
+  ChevronLeft, ChevronRight, ChevronDown, RefreshCw, WifiOff, Send
 } from "lucide-react";
 
 interface PropertyDetailPanelProps {
@@ -25,6 +27,13 @@ interface PropertyDetailPanelProps {
   error?: string | null;
   onRetry?: () => void;
   onClose: () => void;
+  /**
+   * Move focus into the panel when it opens. False for a panel that is open
+   * because the visitor followed a /property/<slug> link — see HomePage.
+   */
+  moveFocusOnOpen?: boolean;
+  /** Party size from the map filter, when the visitor set one. */
+  guests?: number;
 }
 
 /**
@@ -49,6 +58,8 @@ export function PropertyDetailPanel({
   error = null,
   onRetry,
   onClose,
+  moveFocusOnOpen = false,
+  guests,
 }: PropertyDetailPanelProps) {
   /**
    * The amenity icons are SVG markup stored on the document, so they have to
@@ -61,6 +72,28 @@ export function PropertyDetailPanel({
    * either way, so nothing readable is deferred — only the decoration.
    */
   const isHydrated = useIsHydrated();
+
+  /**
+   * Focus management for the panel.
+   *
+   * The panel slides over the list and takes the whole screen on mobile, so a
+   * keyboard visitor who opens one and keeps tabbing must land inside it, not
+   * back in the list behind it. Focus goes to the close button — the way out
+   * is the first thing you find. Escape closes, and HomePage puts focus back
+   * on the card that opened it.
+   */
+  const closeBtnRef = useRef<HTMLButtonElement>(null);
+  const openId = property?.id ?? summary?.id ?? null;
+  useEffect(() => {
+    if (!openId || !moveFocusOnOpen) return;
+    closeBtnRef.current?.focus({ preventScroll: true });
+  }, [openId, moveFocusOnOpen]);
+
+  const handlePanelKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key !== 'Escape') return;
+    event.stopPropagation();
+    onClose();
+  };
   const safeIcon = (markup: string | undefined): string | null => {
     if (!markup || !isHydrated) return null;
     return DOMPurify.sanitize(markup, { USE_PROFILES: { svg: true, svgFilters: true } });
@@ -68,7 +101,16 @@ export function PropertyDetailPanel({
 
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [dateRange, setDateRange] = useState<DateRange | undefined>();
-  const [availabilityStatus, setAvailabilityStatus] = useState<'idle' | 'checking' | 'available' | 'booked' | 'error' | 'below-minimum'>('idle');
+  /**
+   * `no-dates` and `no-calendar` replace the two alert() calls that used to
+   * sit on this path. A blocking, unstyled OS dialog is a poor way to tell
+   * someone they forgot to pick a date, and it cannot be read by anything
+   * that is not looking at it; these render inline, in the same place every
+   * other answer about these dates appears.
+   */
+  const [availabilityStatus, setAvailabilityStatus] = useState<
+    'idle' | 'checking' | 'available' | 'booked' | 'error' | 'below-minimum' | 'no-dates' | 'no-calendar'
+  >('idle');
   const [showFullDescription, setShowFullDescription] = useState(false);
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
   const [copied, setCopied] = useState(false);
@@ -146,9 +188,9 @@ export function PropertyDetailPanel({
   // exist, and it must never be reported as one.
   if (!property && summary) {
     return (
-      <div className={styles.container}>
+      <div className={styles.container} onKeyDown={handlePanelKeyDown}>
         <div className={styles.topBar}>
-          <button className={styles.closeBtn} onClick={onClose} aria-label="Close details">
+          <button ref={closeBtnRef} className={styles.closeBtn} onClick={onClose} aria-label="Close details">
             <X size={22} />
           </button>
         </div>
@@ -222,7 +264,7 @@ export function PropertyDetailPanel({
 
   const handleCheckAvailability = async () => {
     if (!dateRange?.from || !dateRange?.to) {
-      alert("Please select both check-in and check-out dates on the calendar.");
+      setAvailabilityStatus('no-dates');
       return;
     }
 
@@ -242,8 +284,7 @@ export function PropertyDetailPanel({
     const endDate = format(dateRange.to, 'yyyy-MM-dd');
 
     if (!property.icalUrl) {
-      alert("This property does not have a calendar connected to verify availability.");
-      setAvailabilityStatus('error');
+      setAvailabilityStatus('no-calendar');
       return;
     }
 
@@ -276,11 +317,24 @@ export function PropertyDetailPanel({
   // Check if description is long enough to truncate
   const descriptionIsLong = (property.description || '').length > 280;
 
+  /**
+   * Where "Request these dates" goes. The contact page reads these on the
+   * server and renders the form already filled in; the same values are posted
+   * back as structured fields, so what is stored is not a parsed sentence.
+   */
+  const requestHref = (() => {
+    const params = new URLSearchParams({ propertyId: property.id, property: property.name });
+    if (dateRange?.from) params.set('checkIn', format(dateRange.from, 'yyyy-MM-dd'));
+    if (dateRange?.to) params.set('checkOut', format(dateRange.to, 'yyyy-MM-dd'));
+    if (guests && guests > 0) params.set('guests', String(guests));
+    return `/contact?${params.toString()}`;
+  })();
+
   return (
-    <div className={styles.container}>
+    <div className={styles.container} onKeyDown={handlePanelKeyDown}>
       {/* Top Navigation / Actions */}
       <div className={styles.topBar}>
-        <button className={styles.closeBtn} onClick={onClose} aria-label="Close details">
+        <button ref={closeBtnRef} className={styles.closeBtn} onClick={onClose} aria-label="Close details">
           <X size={22} />
         </button>
         <div className={styles.actions}>
@@ -641,7 +695,7 @@ export function PropertyDetailPanel({
             <div className={`${styles.bookingCard} ${styles.animateIn}`} style={{ animationDelay: '0.15s' }}>
               <div className={styles.bookingHeader}>
                 <span className={styles.currency}>$</span>
-                <span className={styles.amount}>{property.priceInfo?.nightly || property.price}</span>
+                <span className={styles.amount}>{nightlyPrice(property)}</span>
                 <span className={styles.night}>/ night</span>
               </div>
               
@@ -690,7 +744,10 @@ export function PropertyDetailPanel({
               </div>
 
               {(() => {
-                const nightlyRate = property.priceInfo?.nightly || parseInt(String(property.price || '0').replace(/[^0-9]/g, '')) || 0;
+                // Was `priceInfo?.nightly || parseInt(String(price).replace(/[^0-9]/g,''))`,
+                // a remnant of `price` having once been a string. It is a
+                // number on all 43 documents and the schema requires one.
+                const nightlyRate = nightlyPrice(property);
                 const cleaningFee = property.priceInfo?.cleaningFee || 0;
 
                 if (dateRange?.from && dateRange?.to) {
@@ -737,9 +794,26 @@ export function PropertyDetailPanel({
               </button>
               
               {availabilityStatus === 'available' && (
-                <div className={`${styles.statusMessage} ${styles.success}`}>
-                  Great news! These dates are available.
-                </div>
+                <>
+                  <div className={`${styles.statusMessage} ${styles.success}`} role="status">
+                    Great news! These dates are available.
+                  </div>
+                  {/*
+                    The funnel used to end here. This carries the property and
+                    the dates into the contact form so the visitor does not
+                    retype what they have already told us, and so the enquiry
+                    arrives as structured fields rather than prose someone has
+                    to parse.
+                  */}
+                  <Link
+                    href={requestHref}
+                    className={styles.requestDatesBtn}
+                    prefetch={false}
+                  >
+                    <Send size={16} />
+                    Request these dates
+                  </Link>
+                </>
               )}
               {availabilityStatus === 'booked' && (
                 <div className={`${styles.statusMessage} ${styles.error}`}>
@@ -753,8 +827,19 @@ export function PropertyDetailPanel({
                 </div>
               )}
               {availabilityStatus === 'error' && (
-                <div className={`${styles.statusMessage} ${styles.error}`}>
+                <div className={`${styles.statusMessage} ${styles.error}`} role="alert">
                   Could not verify availability at this time.
+                </div>
+              )}
+              {availabilityStatus === 'no-dates' && (
+                <div className={`${styles.statusMessage} ${styles.error}`} role="alert">
+                  Choose a check-in and a check-out date on the calendar above.
+                </div>
+              )}
+              {availabilityStatus === 'no-calendar' && (
+                <div className={`${styles.statusMessage} ${styles.error}`} role="alert">
+                  This property has no calendar connected, so we can&rsquo;t confirm these
+                  dates automatically. Send us a request and we&rsquo;ll check by hand.
                 </div>
               )}
               

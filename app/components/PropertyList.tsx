@@ -4,6 +4,13 @@ import { PropertyCard } from "./PropertyCard";
 import styles from "./PropertyList.module.css";
 import { SearchX, Home } from "lucide-react";
 
+/**
+ * How many cards get their image preloaded rather than lazy-loaded. Two is
+ * what fits above the fold on a phone, and the first of them is the page's
+ * LCP element.
+ */
+const PRIORITY_CARDS = 1;
+
 interface PropertyListProps {
   /** The properties left after filtering. */
   properties: PropertySummary[];
@@ -79,7 +86,7 @@ export function PropertyList({
 
   return (
     <div className={`${styles.list} ${selectedId ? styles.hasSelection : ""}`}>
-      {properties.map((property) => (
+      {properties.map((property, index) => (
         <div
           key={property.id}
           id={`property-card-${property.id}`}
@@ -92,6 +99,9 @@ export function PropertyList({
             onHover={() => onHover(property.id)}
             onLeave={() => onHover(null)}
             onClick={() => onSelect(property.id)}
+            /* Only the cards that are actually above the fold. Preloading the
+               whole list would put 43 images in front of everything else. */
+            priority={index < PRIORITY_CARDS}
           />
         </div>
       ))}

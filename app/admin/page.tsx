@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { Property } from "@/app/types/property";
 import { getPropertiesResult, deleteProperty, addProperty } from "@/app/lib/firebase/properties";
+import { nightlyPrice } from "@/app/lib/price";
 import { PropertyForm } from "./components/PropertyForm";
 import { PinGate } from "./components/PinGate";
 import { NoticeBanner, useNotice } from "./components/Notice";
@@ -82,11 +83,14 @@ export default function AdminPage() {
 
     // Sort
     switch (sortBy) {
+      // Sorted on the nightly price, which is what the list shows and what
+      // renters see. Sorting on the legacy `price` field put one listing in
+      // the order of a $239 stay while it advertised $699.
       case "price-asc":
-        result.sort((a, b) => a.price - b.price);
+        result.sort((a, b) => nightlyPrice(a) - nightlyPrice(b));
         break;
       case "price-desc":
-        result.sort((a, b) => b.price - a.price);
+        result.sort((a, b) => nightlyPrice(b) - nightlyPrice(a));
         break;
       case "name-asc":
         result.sort((a, b) => a.name.localeCompare(b.name));
@@ -101,7 +105,8 @@ export default function AdminPage() {
   // Stats
   const stats = useMemo(() => {
     const total = properties.length;
-    const avgPrice = total > 0 ? Math.round(properties.reduce((s, p) => s + p.price, 0) / total) : 0;
+    const avgPrice =
+      total > 0 ? Math.round(properties.reduce((s, p) => s + nightlyPrice(p), 0) / total) : 0;
     const totalBedrooms = properties.reduce((s, p) => s + p.bedrooms, 0);
     const types = new Set(properties.map((p) => p.type)).size;
     return { total, avgPrice, totalBedrooms, types };
@@ -364,7 +369,7 @@ export default function AdminPage() {
                       </span>
                     </td>
                     <td><span className={styles.bedsText}>{p.bedrooms}</span></td>
-                    <td><span className={styles.priceText}>${p.price.toLocaleString()} {p.currency}</span></td>
+                    <td><span className={styles.priceText}>${nightlyPrice(p).toLocaleString()} {p.currency}</span></td>
                     <td>
                       <div className={styles.actionsFlex}>
                         <button className={styles.iconBtn} onClick={() => handleEdit(p)} title="Edit">

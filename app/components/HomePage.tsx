@@ -173,8 +173,38 @@ export default function HomePage({ properties, initialSlug, initialProperty }: H
     return () => window.removeEventListener("popstate", handlePopState);
   }, [properties]);
 
+  /**
+   * The card the open panel came from, kept so focus can go back to it.
+   *
+   * Read from a ref rather than state because the close handler needs it
+   * after `selectedId` has already been cleared.
+   */
+  const lastSelectedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (selectedId) lastSelectedRef.current = selectedId;
+  }, [selectedId]);
+
+  /**
+   * True once the visitor has opened a panel themselves.
+   *
+   * A panel that is open because someone followed a /property/<slug> link
+   * should not yank focus on page load — there is nothing to return it to and
+   * it would move the visitor off the top of a page they just arrived at.
+   * Focus only follows a panel the visitor opened.
+   */
+  const [openedByUser, setOpenedByUser] = useState(false);
+
   const handleCloseDetail = useCallback(() => {
+    const returnTo = lastSelectedRef.current;
     setSelectedId(null);
+    if (!returnTo) return;
+    // After React has committed the close, so the card is back in the layout.
+    requestAnimationFrame(() => {
+      document
+        .getElementById(`property-card-${returnTo}`)
+        ?.querySelector<HTMLElement>("button")
+        ?.focus({ preventScroll: false });
+    });
   }, []);
 
   /** Leave the unavailable state deliberately, via the visitor's own click. */
@@ -187,6 +217,7 @@ export default function HomePage({ properties, initialSlug, initialProperty }: H
   }, []);
 
   const handleSelectProperty = useCallback((id: string | null) => {
+    if (id) setOpenedByUser(true);
     setSelectedId(id);
   }, []);
 
@@ -508,6 +539,8 @@ export default function HomePage({ properties, initialSlug, initialProperty }: H
           error={detailError}
           onRetry={handleDetailRetry}
           onClose={handleCloseDetail}
+          moveFocusOnOpen={openedByUser}
+          guests={minGuests > 0 ? minGuests : undefined}
         />
       </div>
 
