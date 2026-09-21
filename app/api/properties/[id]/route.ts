@@ -9,7 +9,8 @@
 import { NextRequest } from 'next/server';
 import { getAdminDb } from '@/app/lib/firebase/admin';
 import { verifyAdminSession } from '@/app/lib/api/verify-admin';
-import { apiSuccess, apiError } from '@/app/lib/api/safe-response';
+import { apiSuccess, apiError, apiValidationError } from '@/app/lib/api/safe-response';
+import { UpdatePropertySchema } from '@/app/lib/api/schemas';
 
 const COLLECTION = 'properties';
 
@@ -68,6 +69,26 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     // Reject empty updates
     if (Object.keys(updateData).length === 0) {
       return apiError('No fields to update', 400);
+    }
+
+    // ── Validate ──
+    // Re-enabled after confirming UpdatePropertySchema accepts all 43 stored
+    // documents (it did not: `reviews[].avatar` is "" on all 142 reviews and
+    // the strict URL rule rejected 35 of them — see StoredReviewSchema).
+    //
+    // The parse result is deliberately DISCARDED. Zod rebuilds objects in
+    // schema-declaration order and strips unknown keys from nested objects,
+    // so writing `result.data` could reorder `priceInfo` or silently drop a
+    // nested field added later. Validation here is a gate, not a transform:
+    // what gets written is exactly what the client sent.
+    const result = UpdatePropertySchema.safeParse(updateData);
+    if (!result.success) {
+      return apiValidationError(
+        result.error.issues.map((i) => ({
+          path: i.path.join('.'),
+          message: i.message,
+        })),
+      );
     }
 
     const db = getAdminDb();

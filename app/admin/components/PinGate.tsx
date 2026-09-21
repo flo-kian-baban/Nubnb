@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Lock } from "lucide-react";
 import styles from "./PinGate.module.css";
+import { describeHttpFailure } from "@/app/lib/api/http-failure";
 
 const PIN_LENGTH = 4;
 
@@ -52,7 +53,11 @@ export function PinGate({ children }: PinGateProps) {
         // Cookie is set by the server — no client-side storage needed
         setIsAuthenticated(true);
       } else {
-        setError("Incorrect PIN");
+        // Every non-2xx used to read "Incorrect PIN", so a 502 from the
+        // platform sent the operator off to re-check a PIN that was right.
+        // 401 is the only status that means the PIN was wrong.
+        const failure = await describeHttpFailure(res, "Could not verify the PIN");
+        setError(res.status === 401 ? "Incorrect PIN" : failure.title);
         setDigits(Array(PIN_LENGTH).fill(""));
         setTimeout(() => inputRefs.current[0]?.focus(), 500);
       }

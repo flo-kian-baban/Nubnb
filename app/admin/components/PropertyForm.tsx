@@ -9,6 +9,8 @@ import { Plus, Trash2, X, ImageIcon, ImagePlus, Link2, Star, ChevronDown, Check,
 import { CustomSelect } from "./CustomSelect";
 import { IconPicker } from "./IconPicker";
 import { NoticeBanner, Notice, useNotice } from "./Notice";
+import { normalizeAirbnbUrl } from "@/app/lib/api/validate";
+import { describeHttpFailure, describeErrorBody, readErrorBody } from "@/app/lib/api/http-failure";
 import type { ExtractionSummary, ScrapeFieldStatus } from "@/app/types/scrape";
 
 const GTA_CITIES = [
@@ -252,7 +254,9 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
   const sectionScrapeProblems = (sectionKey: string) =>
     Object.entries(fieldStatus || {}).filter(
       ([field, report]) =>
-        SCRAPE_FIELD_SECTION[field] === sectionKey && report.status !== 'extracted',
+        SCRAPE_FIELD_SECTION[field] === sectionKey &&
+        report.status !== 'extracted' &&
+        report.status !== 'admin-entered',
     ).length;
 
   /** Save issues the API reported against fields in this section. */
@@ -304,6 +308,8 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
     if (!report) return '';
     if (report.status === 'extracted') return styles.scrapeExtracted;
     if (report.status === 'defaulted') return styles.scrapeDefaulted;
+    // `admin-entered` is a normal state, not a problem — leave the field plain.
+    if (report.status === 'admin-entered') return '';
     return styles.scrapeFailed;
   };
 
@@ -326,6 +332,13 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
         </span>
       );
     }
+    if (report.status === 'admin-entered') {
+      return (
+        <span className={styles.scrapeBadge} title={report.reason}>
+          Enter manually
+        </span>
+      );
+    }
     return (
       <span className={`${styles.scrapeBadge} ${styles.scrapeBadgeFailed}`} title={report.reason}>
         <XCircle size={11} /> Not found
@@ -334,7 +347,7 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
   };
 
   /** Fields the scraper could not read, grouped for the post-scrape report. */
-  const fieldsWithStatus = (status: 'extracted' | 'defaulted' | 'failed') =>
+  const fieldsWithStatus = (status: 'extracted' | 'defaulted' | 'failed' | 'admin-entered') =>
     Object.entries(fieldStatus || {})
       .filter(([, r]) => r.status === status)
       .map(([field, r]) => ({ field, label: SCRAPE_FIELD_LABEL[field] || field, reason: r.reason, defaultUsed: r.defaultUsed }));
@@ -364,26 +377,30 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
     }
     setIsScraping(true);
     setScrapeNotice(null);
+    // Scrape the canonical listing URL, not whatever was pasted. A URL copied
+    // out of Airbnb search carries check_in/check_out, and those change the
+    // page that gets scraped. Show the operator the URL actually used.
+    const scrapeUrl = normalizeAirbnbUrl(airbnbUrl.trim());
+    if (scrapeUrl !== airbnbUrl) setAirbnbUrl(scrapeUrl);
     try {
       const res = await fetch('/api/scrape-airbnb', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: airbnbUrl }),
+        body: JSON.stringify({ url: scrapeUrl }),
       });
 
       if (!res.ok) {
         // The scraper now refuses to report success on an unusable page and
         // says which failure it was. Nothing is imported on these paths, so
         // leave the form exactly as the operator left it.
-        const errData = await res.json().catch(() => ({}));
+        const errData = await readErrorBody(res);
+        const failure = describeErrorBody(errData, res.status, 'Scrape failed');
         setFieldStatus(null);
         setExtractionSummary(null);
         setScrapeNotice({
           tone: 'error',
-          title: errData.error || `Scrape failed (HTTP ${res.status}).`,
-          detail: [errData.hint, errData.code ? `Code: ${errData.code}` : null]
-            .filter(Boolean)
-            .join(' · ') || undefined,
+          title: failure.title,
+          detail: failure.detail,
           items: errData.evidence
             ? Object.entries(errData.evidence as Record<string, string | number>).map(
                 ([k, v]) => `${k}: ${v}`,
@@ -416,9 +433,16 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
         highlights: data.highlights?.length ? data.highlights : prev.highlights,
         amenities: data.amenities?.length ? data.amenities.slice(0, 8) : prev.amenities,
         offers: data.offers?.length ? data.offers : prev.offers,
-        price: data.price || prev.price,
+        // Location: the geocoder is the source of truth. The scraped value
+        // only fills an empty field — it never overwrites what Google Maps
+        // resolved. (This key was missing entirely, so a scraped location was
+        // extracted and then silently dropped.)
+        location: prev.location || data.location || '',
+        // `price` is not scraped — see the `admin-entered` provenance state.
+        // Whatever the operator has entered stands.
+        price: prev.price,
         priceInfo: {
-          nightly: data.price || prev.priceInfo?.nightly || 0,
+          nightly: prev.priceInfo?.nightly || 0,
           weekly: prev.priceInfo?.weekly || 0,
           monthly: prev.priceInfo?.monthly || 0,
           weekend: prev.priceInfo?.weekend || 0,
@@ -440,7 +464,7 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
         reviews: data.reviews?.length ? data.reviews : prev.reviews || [],
         averageRating: data.averageRating || prev.averageRating || 0,
         totalReviewCount: data.totalReviewCount || prev.totalReviewCount || 0,
-        airbnbUrl: airbnbUrl || prev.airbnbUrl || '',
+        airbnbUrl: scrapeUrl || prev.airbnbUrl || '',
       }));
 
       // Open every accordion holding a field that defaulted or failed, plus
@@ -448,7 +472,7 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
       setOpenSections(prev => {
         const next = { ...prev };
         for (const [field, report] of Object.entries(status)) {
-          if (report.status === 'extracted') continue;
+          if (report.status === 'extracted' || report.status === 'admin-entered') continue;
           const section = SCRAPE_FIELD_SECTION[field];
           if (section) next[section] = true;
         }
@@ -462,7 +486,8 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
         tone: incomplete > 0 || warnings.length > 0 ? 'warning' : 'success',
         title: summary
           ? `Imported "${data.name}" — ${summary.extracted} of ${summary.total} fields extracted, ` +
-            `${summary.defaulted} defaulted, ${summary.failed} not found.`
+            `${summary.defaulted} defaulted, ${summary.failed} not found` +
+            (summary['admin-entered'] ? `, ${summary['admin-entered']} for you to enter.` : '.')
           : `Imported data for "${data.name}".`,
         detail:
           incomplete > 0
@@ -501,8 +526,12 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
         body: JSON.stringify({ url: googleMapsUrl }),
       });
       if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || 'Failed to parse Google Maps URL');
+        // `await res.json()` used to run unguarded here. A 502/503/504 carries
+        // an HTML body, so it threw, and the operator saw the JSON parse error
+        // instead of the status.
+        const failure = await describeHttpFailure(res, 'Could not read that Google Maps link');
+        setMapsNotice({ tone: 'error', title: failure.title, detail: failure.detail });
+        return;
       }
       const result = await res.json();
       const data = result.data;
@@ -570,10 +599,8 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
     const res = await fetch('/api/upload-image', { method: 'POST', body });
 
     if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      const reason = [errData.error, errData.hint].filter(Boolean).join(' ')
-        || `Upload failed (HTTP ${res.status}).`;
-      throw new Error(reason);
+      const failure = await describeHttpFailure(res, 'Upload failed');
+      throw new Error([failure.title, failure.detail].filter(Boolean).join(' '));
     }
 
     const { data } = await res.json();
@@ -792,9 +819,38 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
     setSaveIssues([]);
 
     const finalData = { ...formData };
-    // Always persist the latest external link state
-    if (airbnbUrl.trim()) finalData.airbnbUrl = airbnbUrl.trim();
+    const isEdit = !!initialData?.id;
+
+    // ── Airbnb URL: canonical on create, untouched on an unedited update ──
+    // A pasted URL carries tracking parameters, and a dated one points at a
+    // different page than the listing. But rewriting a *stored* URL that the
+    // operator never touched would mean opening a property and saving it
+    // silently changed a field — so normalise only what they actually typed.
+    const storedAirbnbUrl = initialData?.airbnbUrl ?? '';
+    const typedAirbnbUrl = airbnbUrl.trim();
+    const airbnbUrlEdited = typedAirbnbUrl !== storedAirbnbUrl.trim();
+    if (typedAirbnbUrl) {
+      finalData.airbnbUrl =
+        !isEdit || airbnbUrlEdited ? normalizeAirbnbUrl(typedAirbnbUrl) : storedAirbnbUrl;
+    }
+
     if (googleMapsUrl.trim()) finalData.googleMapsUrl = googleMapsUrl.trim();
+
+    // ── Empty optional URLs ──
+    // The form initialises these to "". CreatePropertySchema validates them
+    // with z.string().url(), which rejects "", so every create that omitted a
+    // link returned 422. Send them absent instead — `optional()` already means
+    // "may be missing", so nothing about the schema has to be loosened.
+    //
+    // Updates keep the "": UpdatePropertySchema accepts it deliberately
+    // (`urlOrEmpty`), and it is how the operator clears a link they had set.
+    if (!isEdit) {
+      for (const key of ['airbnbUrl', 'googleMapsUrl', 'icalUrl'] as const) {
+        const value = finalData[key];
+        if (typeof value === 'string' && value.trim() === '') delete finalData[key];
+      }
+    }
+
     if (!finalData.slug && finalData.name) {
       finalData.slug = finalData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
     }

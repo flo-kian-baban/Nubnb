@@ -17,6 +17,75 @@ const limiter = createRateLimiter({ windowMs: 5 * 60_000, maxRequests: 3 });
 const CHROMIUM_PACK_URL =
   'https://github.com/Sparticuz/chromium/releases/download/v143.0.4/chromium-v143.0.4-pack.x64.tar';
 
+/**
+ * Sections a valid listing always renders, and the fields that depend on each.
+ *
+ * Airbnb hydrates the listing page progressively. Measured on 2026-09-21 at 4x
+ * CPU throttle: the first sections exist at ~1.1s, DESCRIPTION_DEFAULT at
+ * ~3.8s, POLICIES_DEFAULT and LOCATION_DEFAULT only at ~5.5s. The old health
+ * gate accepted any page with at least one section, so a capture taken at 1.1s
+ * passed as healthy and every late section read as "not found".
+ *
+ * That is what the 2026-09-21 production scrape hit: description NOT FOUND and
+ * check-in/check-out DEFAULTED (both DOM-only, both late), while highlights,
+ * amenities, offers, images and reviews came through — all of which read the
+ * embedded <script> JSON, which is in the initial HTML and needs no hydration.
+ */
+const REQUIRED_SECTIONS = [
+  'TITLE_DEFAULT',
+  'OVERVIEW_DEFAULT_V2',
+  'DESCRIPTION_DEFAULT',
+  'AMENITIES_DEFAULT',
+  'POLICIES_DEFAULT',
+  'LOCATION_DEFAULT',
+] as const;
+
+/** Which fields become unreadable when a given section never rendered. */
+const SECTION_FIELDS: Record<string, string[]> = {
+  OVERVIEW_DEFAULT_V2: ['propertyTypeTag', 'guests', 'bedrooms', 'beds', 'bathrooms'],
+  DESCRIPTION_DEFAULT: ['description'],
+  POLICIES_DEFAULT: ['checkIn', 'checkOut', 'rules', 'petsAllowed', 'smokingAllowed', 'partyAllowed'],
+  LOCATION_DEFAULT: ['location'],
+};
+
+/**
+ * How long to wait for the required sections after navigation settles.
+ *
+ * Sits inside the 120s route ceiling: 30s navigation + 20s here + 45s photo
+ * tour + extraction still leaves headroom, and the wait resolves as soon as
+ * the sections appear (~2-4s in practice) rather than sleeping the full
+ * budget.
+ */
+const SECTION_WAIT_MS = 20_000;
+
+/** Grace period for *any* section to appear, before concluding the page is broken. */
+const FIRST_SECTION_WAIT_MS = 5_000;
+
+/** The tags the admin form offers. A value outside this set cannot be selected. */
+const KNOWN_PROPERTY_TYPE_TAGS = [
+  'Entire home',
+  'Entire condo',
+  'Entire guest suite',
+  'Private room',
+  'Shared room',
+];
+
+/**
+ * Normalise an Airbnb clock string to "H:MM AM"/"H:MM PM".
+ *
+ * Airbnb writes "4:00 p.m." with periods, and the hour is sometimes bare
+ * ("4 p.m."). Returns null when there is no meridiem to read — a time without
+ * AM/PM is ambiguous and must not be reported as extracted.
+ */
+function normalizeClockTime(raw: string): string | null {
+  const m = raw.match(/(\d{1,2})(?::(\d{2}))?\s*([ap])\.?\s*m\.?/i);
+  if (!m) return null;
+  const hour = parseInt(m[1], 10);
+  if (hour < 1 || hour > 12) return null;
+  const minutes = m[2] ?? '00';
+  return `${hour}:${minutes} ${m[3].toUpperCase()}M`;
+}
+
 export async function POST(request: Request) {
   // ── Admin auth — reject unauthenticated requests before any work ──
   const auth = verifyAdminSession(request);
@@ -98,8 +167,68 @@ export async function POST(request: Request) {
         // Translation popups - remove them
         document.querySelectorAll('[data-testid="translation-announce-modal"]').forEach(el => el.remove());
       });
-      await new Promise(r => setTimeout(r, 1500));
+      // Wait for the banner to actually go, rather than sleeping a flat 1.5s.
+      await page
+        .waitForFunction(
+          () => !document.querySelector('button[data-testid="accept-btn"]'),
+          { timeout: 3_000, polling: 100 },
+        )
+        .catch(() => {});
     } catch { /* ignore */ }
+
+    // ============================================================
+    // SECTION WAIT
+    // Give the page a bounded chance to finish hydrating before anything is
+    // read off it. Resolves as soon as every required section exists, so a
+    // healthy page pays only the time it actually needs.
+    // ============================================================
+    const captureStartedAt = Date.now();
+
+    // First, a short grace for *any* section. A delisted or blocked page never
+    // grows one, and must not sit through the full section budget before the
+    // health gate can classify it.
+    await page
+      .waitForFunction(() => document.querySelectorAll('[data-section-id]').length > 0, {
+        timeout: FIRST_SECTION_WAIT_MS,
+        polling: 250,
+      })
+      .catch(() => {});
+
+    const anySection = await page.evaluate(
+      () => document.querySelectorAll('[data-section-id]').length > 0,
+    );
+
+    if (anySection) {
+      await page
+        .waitForFunction(
+          (ids: readonly string[]) =>
+            ids.every((id) => document.querySelector(`[data-section-id="${id}"]`) !== null),
+          { timeout: SECTION_WAIT_MS, polling: 250 },
+          REQUIRED_SECTIONS as unknown as string[],
+        )
+        .catch(() => {});
+    }
+
+    const sectionsPresent: string[] = await page.evaluate(() =>
+      Array.from(document.querySelectorAll('[data-section-id]'))
+        .map((el) => el.getAttribute('data-section-id') || '')
+        .filter(Boolean),
+    );
+    const captureElapsedMs = Date.now() - captureStartedAt;
+    const missingSections = REQUIRED_SECTIONS.filter((id) => !sectionsPresent.includes(id));
+
+    /**
+     * One line per scrape, on the server. This is the evidence that settles
+     * "partial capture" versus "Vercel is served a different page" — a
+     * production run either shows the late sections missing at capture, or
+     * shows them present and the extractors still empty.
+     */
+    console.log(
+      `[scrape-airbnb] url=${urlCheck.value} waitedMs=${captureElapsedMs} ` +
+        `sectionCount=${sectionsPresent.length} ` +
+        `missingRequired=[${missingSections.join(',') || 'none'}] ` +
+        `sections=[${sectionsPresent.join(',')}]`,
+    );
 
     // ============================================================
     // PAGE HEALTH GATE
@@ -210,15 +339,29 @@ export async function POST(request: Request) {
         });
       }
 
-      // 4. Structurally empty: a real listing page always carries data-section-id nodes.
+      // 4. Structurally empty: a real listing page always carries data-section-id
+      //    nodes. Checked after the bounded section wait above, so a page that
+      //    was merely slow is no longer mistaken for an empty one.
       if (health.sectionCount === 0) {
         return apiFailure({
           message: 'The page loaded but contains no Airbnb listing content (zero listing sections).',
           status: 422,
           code: 'PAGE_UNUSABLE',
           hint: 'Nothing was imported. Open the URL in a browser to check what Airbnb is actually serving.',
-          evidence,
+          evidence: { ...evidence, waitedMs: captureElapsedMs },
         });
+      }
+
+      // 5. Structurally incomplete: sections exist, but the ones this scrape
+      //    depends on never arrived inside the budget. Not fatal — everything
+      //    sourced from the embedded JSON is still good — but the fields that
+      //    needed those sections are reported as a timeout, not as "not found".
+      //    The operator's action differs: retry, rather than fill in by hand.
+      if (missingSections.length > 0) {
+        console.warn(
+          `[scrape-airbnb] incomplete capture after ${captureElapsedMs}ms — ` +
+            `missing ${missingSections.join(', ')}`,
+        );
       }
     }
 
@@ -360,7 +503,13 @@ export async function POST(request: Request) {
         });
         if (showAllBtn && showAllBtn.asElement()) {
           await (showAllBtn.asElement() as unknown as { click(): Promise<void> }).click();
-          await new Promise(r => setTimeout(r, 2500));
+          // Wait for the modal to open rather than sleeping 2.5s regardless.
+          await page
+            .waitForFunction(() => document.querySelector('[role="dialog"]') !== null, {
+              timeout: 5_000,
+              polling: 100,
+            })
+            .catch(() => {});
         }
       } catch { /* ignore */ }
 
@@ -452,19 +601,38 @@ export async function POST(request: Request) {
     // Extract all other data from DOM
     // ============================================================
     const domData = await page.evaluate(() => {
-      const getText = (sel: string) => document.querySelector(sel)?.textContent?.trim() || '';
-
       // Title
       const title = document.querySelector('h1')?.textContent?.trim() || '';
 
-      // Property type tag
+      // ── Property type tag ──
+      // OVERVIEW_DEFAULT no longer exists; the section is OVERVIEW_DEFAULT_V2.
+      // Its h2 reads "<type> in <City>, <Country>", e.g. "Entire condo in
+      // Toronto, Canada" or "Room in Ottawa, Canada". Airbnb's own word for a
+      // private room is just "Room"; the catalogue calls it "Private room".
       let propertyTypeTag = '';
-      const overviewHeading = document.querySelector('[data-section-id="OVERVIEW_DEFAULT"] h2');
+      let overviewHeadingText = '';
+      const overviewSection = document.querySelector('[data-section-id="OVERVIEW_DEFAULT_V2"]');
+      const overviewHeading = overviewSection?.querySelector('h2');
       if (overviewHeading) {
-        const text = overviewHeading.textContent?.trim() || '';
-        const match = text.match(/^(Entire\s+\w+|Private\s+\w+|Shared\s+\w+|Room\s+\w+)/i);
-        propertyTypeTag = match ? match[1].trim() : (text.split(' in ')[0]?.trim() || '');
+        overviewHeadingText = overviewHeading.textContent?.trim() || '';
+        const beforeIn = overviewHeadingText.split(/\s+in\s+/i)[0]?.trim() || '';
+        propertyTypeTag = /^room\b/i.test(beforeIn) ? 'Private room' : beforeIn;
       }
+
+      /** True when this listing is a room rather than a whole place. */
+      const isRoomListing = /^(room|private room|shared room)\b/i.test(
+        overviewHeadingText.split(/\s+in\s+/i)[0]?.trim() || '',
+      );
+
+      /**
+       * A studio is stated in place of a bedroom count ("2 guests · Studio ·
+       * 1 bed · 1 bath"). Zero bedrooms is then the listing's own answer, not
+       * a failed read.
+       */
+      const isStudio = /\bstudio\b/i.test(
+        (document.querySelector('[data-section-id="OVERVIEW_DEFAULT_V2"]') as HTMLElement | null)
+          ?.innerText || '',
+      );
 
       // Description — preserve line breaks and spacing
       let description = '';
@@ -491,8 +659,8 @@ export async function POST(request: Request) {
 
       // Capacity
       const overviewItems: string[] = [];
-      // Strategy 1: Standard overview selectors (li elements)
-      document.querySelectorAll('ol li, [data-section-id="OVERVIEW_DEFAULT"] li, [data-section-id="OVERVIEW_DEFAULT"] span, [data-section-id="OVERVIEW_DEFAULT"] div').forEach(el => {
+      // Strategy 1: the V2 overview section (the old OVERVIEW_DEFAULT id is gone).
+      document.querySelectorAll('ol li, [data-section-id="OVERVIEW_DEFAULT_V2"] li, [data-section-id="OVERVIEW_DEFAULT_V2"] span, [data-section-id="OVERVIEW_DEFAULT_V2"] div').forEach(el => {
         const text = el.textContent?.trim();
         if (text && text.length < 100) overviewItems.push(text);
       });
@@ -625,7 +793,7 @@ export async function POST(request: Request) {
       // Strategy 3: DOM-based fallback — highlights are typically shown as rows 
       // with icon + title near the overview section
       if (highlights.length < 3) {
-        const overviewSection = document.querySelector('[data-section-id="OVERVIEW_DEFAULT"]');
+        const overviewSection = document.querySelector('[data-section-id="OVERVIEW_DEFAULT_V2"]');
         if (overviewSection) {
           // Look for highlight-like elements after the overview heading
           // They typically appear as div rows with an SVG icon and text
@@ -648,8 +816,25 @@ export async function POST(request: Request) {
         }
       }
 
-      // Location
-      const location = getText('[data-section-id="LOCATION_DEFAULT"] span') || '';
+      // ── Location ──
+      // `getText('[data-section-id="LOCATION_DEFAULT"] span')` took the first
+      // span, which is the disclaimer ("Exact location will be provided after
+      // booking." / "This listing's location is verified."). The place name is
+      // not in a span at all — it is a bare div, second line of the section:
+      //   "Where you'll be\nToronto, Ontario, Canada\nExact location will be…"
+      let location = '';
+      {
+        const locEl = document.querySelector('[data-section-id="LOCATION_DEFAULT"]') as HTMLElement | null;
+        if (locEl) {
+          const BOILERPLATE =
+            /^(where you|exact location|this listing|learn more|show more|we.ll only share)/i;
+          location =
+            (locEl.innerText || '')
+              .split('\n')
+              .map(l => l.trim())
+              .find(l => l.length > 2 && l.length < 120 && !BOILERPLATE.test(l)) || '';
+        }
+      }
 
       // Images
       const images: string[] = [];
@@ -686,59 +871,100 @@ export async function POST(request: Request) {
         if (!images.includes(cleanSrc)) images.push(cleanSrc);
       });
 
-      // Check-in/Check-out
-      let checkIn = '', checkOut = '';
-      document.querySelectorAll('[data-section-id="POLICIES_DEFAULT"] li, [data-section-id="POLICIES_DEFAULT"] div').forEach(el => {
-        const text = (el.textContent || '').trim().toLowerCase();
-        if (text.includes('check-in') && text.includes('after')) {
-          const match = text.match(/after\s+([\d:]+\s*(am|pm)?)/i);
-          if (match) checkIn = match[1].trim();
-        }
-        if (text.includes('checkout') && text.includes('before')) {
-          const match = text.match(/before\s+([\d:]+\s*(am|pm)?)/i);
-          if (match) checkOut = match[1].trim();
-        }
-      });
-
-      // House Rules
+      // ── House rules, check-in and check-out ──
+      // POLICIES_DEFAULT renders divs now, not <li>: measured 0 <li> and 31-32
+      // <div> on all four listings probed on 2026-09-21. Every rule-derived
+      // field was therefore empty on every scrape, which is why "no pets" was
+      // indistinguishable from "never extracted".
+      //
+      // Read innerText and slice the "House rules" block out of it. That is
+      // stable against the li/div churn, and keeps the section's own headings
+      // ("Cancellation policy", "Safety & property") out of the rules list.
       const rules: string[] = [];
-      let petsAllowed = false, smokingAllowed = false, partyAllowed = false;
-      document.querySelectorAll('[data-section-id="POLICIES_DEFAULT"] li').forEach(el => {
-        const text = (el.textContent || '').trim();
-        if (text && text.length > 3 && !text.toLowerCase().includes('show more')) {
-          rules.push(text);
-          const lower = text.toLowerCase();
-          if (lower.includes('pets allowed') || lower.includes('pet friendly')) petsAllowed = true;
-          if (lower.includes('smoking allowed')) smokingAllowed = true;
-          if (lower.includes('events allowed') || lower.includes('parties allowed')) partyAllowed = true;
-        }
-      });
+      let checkInRaw = '', checkOutRaw = '';
+      let guestsFromRules = 0;
+      // Tri-state: an explicit "No pets" and an absent rule are different
+      // facts. POLICIES_DEFAULT shows a truncated list (measured: one visible
+      // rule, "N guests maximum", on all four listings probed), so absence
+      // here means "not stated on the page", never "not allowed".
+      let petsRule: boolean | null = null;
+      let smokingRule: boolean | null = null;
+      let partyRule: boolean | null = null;
 
-      // Price
-      let price = 0;
-      const priceEl = document.querySelector('[data-testid="book-it-default"] span, ._1y74zjx span');
-      if (priceEl) {
-        const priceMatch = (priceEl.textContent || '').replace(/[, ]/g, '').match(/\$(\d+)/);
-        if (priceMatch) price = parseInt(priceMatch[1]);
+      const policiesEl = document.querySelector('[data-section-id="POLICIES_DEFAULT"]') as HTMLElement | null;
+      if (policiesEl) {
+        const HEADINGS = /^(things to know|cancellation policy|house rules|safety & property|safety and property)$/i;
+        const NOISE = /^(learn more|show more|add dates|add your trip dates)/i;
+
+        const lines = (policiesEl.innerText || '')
+          .split('\n')
+          .map(l => l.trim())
+          .filter(Boolean);
+
+        let inHouseRules = false;
+        for (const line of lines) {
+          if (/^house rules$/i.test(line)) { inHouseRules = true; continue; }
+          if (HEADINGS.test(line)) { inHouseRules = false; continue; }
+          if (NOISE.test(line)) continue;
+
+          const lower = line.toLowerCase();
+
+          // Check-in / checkout live inside the House rules block. Two shapes:
+          //   "Check-in after 4:00 p.m."
+          //   "Check-in: 4:00 p.m.–11:00 p.m."   (a window, no "after")
+          // Take the first time in either; the window's start is the check-in.
+          if (!checkInRaw && /check-?in/i.test(lower)) { checkInRaw = line; continue; }
+          if (!checkOutRaw && /check-?out|checkout/i.test(lower)) { checkOutRaw = line; continue; }
+
+          if (!inHouseRules) continue;
+          if (line.length <= 3) continue;
+
+          rules.push(line);
+
+          // "N guests maximum" is the listing's own occupancy cap, and is the
+          // only place a room listing publishes a guest count at all.
+          const guestCap = lower.match(/(\d+)\s+guests?\s+maximum/);
+          if (guestCap) guestsFromRules = parseInt(guestCap[1], 10);
+
+          if (/\bno pets\b/.test(lower)) petsRule = false;
+          else if (lower.includes('pets allowed') || lower.includes('pet friendly')) petsRule = true;
+
+          if (/\bno smoking\b/.test(lower)) smokingRule = false;
+          else if (lower.includes('smoking allowed')) smokingRule = true;
+
+          if (/\bno (parties|events)\b/.test(lower)) partyRule = false;
+          else if (lower.includes('events allowed') || lower.includes('parties allowed')) partyRule = true;
+        }
       }
-      if (!price) {
-        document.querySelectorAll('span').forEach(span => {
-          const text = span.textContent || '';
-          if (text.match(/^\$[\d,]+$/) && !price) {
-            price = parseInt(text.replace(/[$,]/g, ''));
-          }
-        });
-      }
+
+      // Price is deliberately not extracted — the admin enters it. Airbnb
+      // shows no nightly rate on an undated listing page, and listing URLs are
+      // normalised to carry no dates, so any selector here would report a
+      // failure on every single import.
 
       return {
         title, description, guests, bedrooms, beds, bathrooms,
         location, images, highlights, propertyTypeTag,
-        checkIn, checkOut, rules, petsAllowed, smokingAllowed, partyAllowed, price,
+        checkInRaw, checkOutRaw, rules, petsRule, smokingRule, partyRule,
+        isRoomListing, guestsFromRules, overviewHeadingText, isStudio,
       };
     });
 
+    // ── Normalise the clock strings ──
+    // Airbnb writes "4:00 p.m."; the catalogue wants "4:00 PM". A raw line
+    // with no readable meridiem yields null, which is reported as a failure
+    // rather than passed through as an ambiguous time.
+    const checkIn = normalizeClockTime(domData.checkInRaw) ?? '';
+    const checkOut = normalizeClockTime(domData.checkOutRaw) ?? '';
+
+    // ── Guest count ──
+    // The V2 overview omits it on room listings. "N guests maximum" in the
+    // house rules is the listing's own cap and carries the same number where
+    // both appear, so it is a valid second source rather than a guess.
+    const guests = domData.guests > 0 ? domData.guests : domData.guestsFromRules;
+
     // ============================================================
-    // PHOTO TOUR: Scrape additional images from the photo tour modal
+    // PHOTO TOUR: Scrape additional images from the photo tour modal.
     // This adds categorized images (Living room, Kitchen, etc.) that
     // aren't visible on the main listing page.
     // ============================================================
@@ -750,7 +976,16 @@ export async function POST(request: Request) {
       const photoTourUrl = `${photoUrl}${separator}modal=PHOTO_TOUR_SCROLLABLE`;
 
       await page.goto(photoTourUrl, { waitUntil: 'networkidle2', timeout: 45000 });
-      await new Promise(r => setTimeout(r, 4000));
+
+      // Wait for the gallery to exist rather than sleeping 4s and hoping.
+      await page
+        .waitForFunction(
+          () =>
+            document.querySelector('[data-testid^="photo-viewer"]') !== null ||
+            document.querySelector('[role="dialog"] img') !== null,
+          { timeout: 15_000, polling: 250 },
+        )
+        .catch(() => {});
 
       // Dismiss any popups on the photo tour page
       try {
@@ -759,12 +994,41 @@ export async function POST(request: Request) {
           if (cookieBtn) cookieBtn.click();
           document.querySelectorAll('[data-testid="translation-announce-modal"]').forEach(el => el.remove());
         });
-        await new Promise(r => setTimeout(r, 1000));
       } catch { /* ignore */ }
 
-      // Scroll the photo tour modal thoroughly — 3 passes
-      // The photo tour dialog has a scrollable child div that we need to target specifically
-      for (let pass = 0; pass < 3; pass++) {
+      /**
+       * Scroll the photo tour until the image count stops growing.
+       *
+       * Was: three fixed passes, each re-scrolling from the top, with 1.5s and
+       * 2.5s sleeps between them — 65% of the slowest audit run, and the same
+       * cost whether the gallery held 9 images or 47. Passes 2 and 3 exist to
+       * catch stragglers from lazy loading, which is a condition we can just
+       * measure: keep scrolling while new images keep appearing, stop when a
+       * full pass adds none.
+       *
+       * The convergence test is the image count itself, so yield cannot drop
+       * below what the fixed passes produced without this loop noticing.
+       */
+      const countPhotoTourImages = () =>
+        page.evaluate(() => {
+          const urls = new Set<string>();
+          const add = (u: string) => {
+            if (u && u.includes('muscache.com') && !u.startsWith('data:')) {
+              urls.add(u.split('?')[0]);
+            }
+          };
+          document.querySelectorAll('img').forEach(img => add(img.src || ''));
+          document.querySelectorAll('picture source').forEach(s => {
+            const set = s.getAttribute('srcset') || '';
+            const last = set.split(',').pop()?.trim().split(' ')[0] || '';
+            add(last);
+          });
+          return urls.size;
+        });
+
+      const MAX_SCROLL_PASSES = 6;
+      let previousCount = -1;
+      for (let pass = 0; pass < MAX_SCROLL_PASSES; pass++) {
         await page.evaluate(async (passNum) => {
           // Find the actual scrollable div inside the photo tour dialog
           // It's a child div whose scrollHeight significantly exceeds its clientHeight
@@ -789,13 +1053,28 @@ export async function POST(request: Request) {
 
           const el = findScrollableEl();
 
-          // On subsequent passes, scroll back to top first
-          if (passNum > 0) {
-            el.scrollTop = 0;
-            await new Promise(r => setTimeout(r, 1500));
-          }
+          // On subsequent passes, scroll back to top first so lazy loaders
+          // above the current position get another chance.
+          if (passNum > 0) el.scrollTop = 0;
 
-          // Scroll in smaller increments to trigger all lazy loaders
+          /**
+           * Wait for the images currently in flight to settle, rather than
+           * sleeping a flat interval after every step. Resolves as soon as
+           * every <img> in the container reports complete, so a fast gallery
+           * costs a few milliseconds instead of half a second per step.
+           */
+          const settle = async (budgetMs: number) => {
+            const deadline = Date.now() + budgetMs;
+            while (Date.now() < deadline) {
+              const pending = Array.from(el.querySelectorAll('img')).some(
+                img => !(img as HTMLImageElement).complete,
+              );
+              if (!pending) return;
+              await new Promise(r => setTimeout(r, 50));
+            }
+          };
+
+          // Scroll in increments to trigger all lazy loaders
           const scrollStep = 400;
           const maxScrolls = 120;
           let prevScrollTop = -1;
@@ -803,25 +1082,29 @@ export async function POST(request: Request) {
 
           for (let i = 0; i < maxScrolls; i++) {
             el.scrollTop += scrollStep;
-            await new Promise(r => setTimeout(r, 500));
+            await settle(500);
 
             // Check if we're actually moving
             if (el.scrollTop === prevScrollTop) {
               stuckCount++;
-              if (stuckCount >= 5) break; // truly at the bottom
+              if (stuckCount >= 3) break; // truly at the bottom
             } else {
               stuckCount = 0;
             }
             prevScrollTop = el.scrollTop;
           }
 
-          // Final: ensure we're at absolute bottom
+          // Final: ensure we're at absolute bottom, then let the last row load
           el.scrollTop = el.scrollHeight;
-          await new Promise(r => setTimeout(r, 1500));
+          await settle(1500);
         }, pass);
 
-        // Wait between passes for images to finish loading
-        await new Promise(r => setTimeout(r, 2500));
+        // Stop as soon as a full pass stops finding new images. The first
+        // pass always runs; a second only happens if the first was still
+        // discovering, and so on.
+        const count = await countPhotoTourImages();
+        if (count === previousCount) break;
+        previousCount = count;
       }
 
       // Extract ALL images from photo tour — from both <img> and <picture><source srcset>
@@ -920,18 +1203,57 @@ export async function POST(request: Request) {
 
     // ============================================================
     // REVIEWS: Extract rating, review count, and individual reviews
+    //
+    // Navigate back to the listing first. The photo-tour step above leaves the
+    // page on `?modal=PHOTO_TOUR_SCROLLABLE`, and everything below reads
+    // `[role="dialog"]` — which, on that URL, is the photo tour. Measured
+    // 2026-09-21: after the photo-tour navigation the page carries 2 dialogs
+    // and the first is the gallery. That is why the "Show all N reviews"
+    // modal "never fired" in any audit run: the trigger was clicked, but the
+    // dialog then read back was the photo tour, which has no review headings.
     // ============================================================
-    let reviewData: {
+    const reviewData: {
       averageRating: number;
       totalReviewCount: number;
       reviews: { reviewer: string; date: string; rating: number; text: string; avatar: string }[];
-    } = { averageRating: 0, totalReviewCount: 0, reviews: [] };
+      /** Where the count came from — used to refuse a host-level number. */
+      countSource: 'listing-json' | 'listing-section' | 'reviews-empty' | 'none';
+    } = { averageRating: 0, totalReviewCount: 0, reviews: [], countSource: 'none' };
 
     try {
+      if (page.url() !== urlCheck.value) {
+        await page.goto(urlCheck.value!, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        // Wait for the section to be POPULATED, not merely present. Waiting
+        // only for the element loses single-review listings: the section
+        // renders with its "1 review" heading well before the review body
+        // hydrates, and the DOM fallback then finds nothing to walk.
+        await page
+          .waitForFunction(
+            () => {
+              if (document.querySelector('[data-section-id="REVIEWS_EMPTY_DEFAULT"]')) return true;
+              const el = document.querySelector('[data-section-id="REVIEWS_DEFAULT"]') as HTMLElement | null;
+              if (!el) return false;
+              // A populated section carries a reviewer heading beyond the
+              // "N reviews" one, and enough text to be an actual review.
+              const headings = Array.from(el.querySelectorAll('h2, h3')).filter(
+                h => !/review/i.test(h.textContent || ''),
+              );
+              return headings.length > 0 && (el.innerText || '').length > 150;
+            },
+            { timeout: 15_000, polling: 250 },
+          )
+          .catch(() => {});
+      }
       // Step 1: Extract rating, count, AND individual reviews from embedded JSON
       const scriptReviewData = await page.evaluate(() => {
         let rating = 0;
         let count = 0;
+        let countSource: 'listing-json' | 'listing-section' | 'reviews-empty' | 'none' = 'none';
+
+        // REVIEWS_EMPTY_DEFAULT is Airbnb's explicit "no reviews yet" section.
+        // It is a positive statement of zero, not a missing value.
+        const reviewsEmpty =
+          document.querySelector('[data-section-id="REVIEWS_EMPTY_DEFAULT"]') !== null;
         const reviews: { reviewer: string; date: string; rating: number; text: string; avatar: string }[] = [];
 
         const scripts = document.querySelectorAll('script');
@@ -939,18 +1261,29 @@ export async function POST(request: Request) {
           const text = script.textContent || '';
           if (text.length < 500) continue;
 
-          // Extract rating
+          // ── Rating ──
+          // "overallRating" is gone from the embedded JSON. Measured on four
+          // live listings 2026-09-21, the value now appears as
+          // guestSatisfactionOverall / starRating / ratingValue, all agreeing
+          // (4.76, 5, 5, and 0 on the listing with no reviews).
           if (!rating) {
-            const ratingMatch = text.match(/"overallRating"\s*:\s*([\d.]+)/);
+            const ratingMatch =
+              text.match(/"guestSatisfactionOverall"\s*:\s*([\d.]+)/) ||
+              text.match(/"ratingValue"\s*:\s*"?([\d.]+)"?/) ||
+              text.match(/"starRating"\s*:\s*([\d.]+)/) ||
+              text.match(/"overallRating"\s*:\s*([\d.]+)/);
             if (ratingMatch) rating = parseFloat(ratingMatch[1]);
           }
 
-          // Extract count
+          // ── Review count ──
+          // These keys are the listing's own count. The host's lifetime total
+          // is NOT here — it is rendered in MEET_YOUR_HOST, and the old DOM
+          // fallback used to pick it up (436 for a listing with zero reviews).
           if (!count) {
             const countMatch = text.match(/"reviewsCount"\s*:\s*(\d+)/)
-              || text.match(/"visibleReviewCount"\s*:\s*(\d+)/)
+              || text.match(/"visibleReviewCount"\s*:\s*"?(\d+)"?/)
               || text.match(/"reviewCount"\s*:\s*(\d+)/);
-            if (countMatch) count = parseInt(countMatch[1]);
+            if (countMatch) { count = parseInt(countMatch[1]); countSource = 'listing-json'; }
           }
 
           // Extract individual reviews from embedded JSON
@@ -1020,6 +1353,11 @@ export async function POST(request: Request) {
           }
         }
 
+        // ── An explicitly empty listing overrides everything ──
+        if (reviewsEmpty) {
+          return { rating: 0, count: 0, countSource: 'reviews-empty' as const, reviews: [] };
+        }
+
         // Fallback: DOM-based rating extraction
         if (!rating) {
           const ratingEl = document.querySelector('[data-testid="pdp-reviews-highlight-banner-host-rating"]');
@@ -1028,20 +1366,28 @@ export async function POST(request: Request) {
             if (m) rating = parseFloat(m[1]);
           }
         }
+
+        // ── Count fallback, scoped to the listing's own review section ──
+        // The previous version scanned every <a>, <button> and <span> on the
+        // page, so on a listing with no reviews it matched "454 reviews" in
+        // MEET_YOUR_HOST — the host's lifetime total across all their
+        // listings. Searching only inside REVIEWS_DEFAULT makes that
+        // impossible: the host card is a different section.
         if (!count) {
-          const reviewLinks = document.querySelectorAll('a, button, span');
-          for (const el of reviewLinks) {
-            const m = (el.textContent || '').match(/(\d+)\s+reviews?/i);
-            if (m) { count = parseInt(m[1]); break; }
+          const reviewSection = document.querySelector('[data-section-id="REVIEWS_DEFAULT"]');
+          if (reviewSection) {
+            const m = (reviewSection.textContent || '').match(/(\d[\d,]*)\s+reviews?/i);
+            if (m) { count = parseInt(m[1].replace(/,/g, '')); countSource = 'listing-section'; }
           }
         }
 
-        return { rating, count, reviews };
+        return { rating, count, countSource, reviews };
       });
 
       reviewData.averageRating = scriptReviewData.rating;
       reviewData.totalReviewCount = scriptReviewData.count;
       reviewData.reviews = scriptReviewData.reviews;
+      reviewData.countSource = scriptReviewData.countSource;
 
       // Step 2: If no reviews from JSON, try scraping visible reviews from the page
       if (reviewData.reviews.length === 0) {
@@ -1143,11 +1489,26 @@ export async function POST(request: Request) {
 
           if (showAllBtn && showAllBtn.asElement()) {
             await (showAllBtn.asElement() as unknown as { click(): Promise<void> }).click();
-            await new Promise(r => setTimeout(r, 3000));
+            // Wait for a dialog that actually contains reviews, instead of
+            // sleeping 3s and reading whichever dialog happens to be first.
+            await page
+              .waitForFunction(
+                () =>
+                  Array.from(document.querySelectorAll('[role="dialog"]')).some(d =>
+                    /\d+\s+reviews?|Rated\s+[\d.]+/i.test(d.textContent || ''),
+                  ),
+                { timeout: 8_000, polling: 150 },
+              )
+              .catch(() => {});
 
             const modalReviews = await page.evaluate(() => {
               const reviews: { reviewer: string; date: string; rating: number; text: string; avatar: string }[] = [];
-              const modal = document.querySelector('[role="dialog"]');
+              // Pick the dialog that holds reviews. `querySelector` used to
+              // take the first dialog, which after the photo-tour step was the
+              // gallery — the reason this modal never yielded anything.
+              const modal = Array.from(document.querySelectorAll('[role="dialog"]')).find(d =>
+                /\d+\s+reviews?|Rated\s+[\d.]+/i.test(d.textContent || ''),
+              );
               if (!modal) return reviews;
 
               const headings = modal.querySelectorAll('h2, h3');
@@ -1267,61 +1628,180 @@ export async function POST(request: Request) {
         : { status: 'defaulted', defaultUsed, reason };
     };
 
+    /** A field the scraper deliberately leaves to the operator. Not a failure. */
+    const trackAdminEntered = (field: string, reason: string) => {
+      fieldStatus[field] = { status: 'admin-entered', reason };
+    };
+
+    /**
+     * Overwrite any field whose source section never rendered.
+     *
+     * "The section did not load in time" and "the page does not carry this
+     * value" call for different actions — retry versus type it in — so they
+     * must not share the `failed` reason. Applied last, so it wins over
+     * whatever the extractor concluded from an absent section.
+     */
+    const applySectionTimeouts = () => {
+      for (const sectionId of missingSections) {
+        for (const field of SECTION_FIELDS[sectionId] ?? []) {
+          fieldStatus[field] = {
+            status: 'failed',
+            reason: `section did not load in time — retry the import (${sectionId} had not rendered after ${captureElapsedMs}ms)`,
+          };
+        }
+      }
+    };
+
     track('name', !!domData.title, 'No <h1> title found on the page.');
     track('description', !!domData.description, 'The DESCRIPTION_DEFAULT section returned no text.');
-    track('guests', domData.guests > 0, 'No guest capacity found in the overview text.');
-    track('bedrooms', domData.bedrooms > 0, 'No bedroom count found in the overview text.');
+
+    // ── Capacity, and what a room listing does not publish ──
+    // Airbnb prints no guest, bedroom or bathroom count in the overview of a
+    // room listing: its whole overview reads e.g. "Room in Ottawa, Canada
+    // 1 king bed · · Shared bathroom". Verified absent from the server HTML
+    // too, so this is the listing, not the selector. The bathroom is a word
+    // ("Shared bathroom"), which a number cannot represent at all.
+    const ROOM_NOT_PUBLISHED =
+      'Airbnb does not publish this for private rooms — enter manually.';
+
+    if (domData.isRoomListing && guests === 0) {
+      track('guests', false, ROOM_NOT_PUBLISHED);
+    } else {
+      track('guests', guests > 0, 'No guest capacity found in the overview text or house rules.');
+    }
+    if (domData.isStudio && domData.bedrooms === 0) {
+      // "Studio" is the listing's stated answer: zero bedrooms, read off the page.
+      fieldStatus.bedrooms = { status: 'extracted' };
+    } else {
+      track(
+        'bedrooms',
+        domData.bedrooms > 0,
+        domData.isRoomListing ? ROOM_NOT_PUBLISHED : 'No bedroom count found in the overview text.',
+      );
+    }
     track('beds', domData.beds > 0, 'No bed count found in the overview text.');
-    track('bathrooms', domData.bathrooms > 0, 'No bathroom count found in the overview text.');
-    track('location', !!domData.location, 'The LOCATION_DEFAULT selector matched no text — set the display location manually.');
+    track(
+      'bathrooms',
+      domData.bathrooms > 0,
+      domData.isRoomListing ? ROOM_NOT_PUBLISHED : 'No bathroom count found in the overview text.',
+    );
+
+    track('location', !!domData.location, 'The LOCATION_DEFAULT section carried no place name — set the display location manually.');
     track('coverImage', allImages.length > 0, 'No listing photos were found, so there is no cover image.');
     track('images', allImages.length > 1, 'No additional photos beyond the cover image were found.');
+
+    // ── Property type tag ──
+    // Only a value the form can actually select counts as extracted. Anything
+    // else (a type Airbnb words differently, or an empty heading) falls back
+    // to the hard-coded default and is reported as defaulted, never as data.
+    const tagIsKnown =
+      !!domData.propertyTypeTag && KNOWN_PROPERTY_TYPE_TAGS.includes(domData.propertyTypeTag);
     trackDefault(
       'propertyTypeTag',
-      !!domData.propertyTypeTag,
+      tagIsKnown,
       'Entire home',
-      'Not extracted — "Entire home" is a hard-coded default, not listing data. Confirm it manually.',
+      domData.propertyTypeTag
+        ? `Read "${domData.propertyTypeTag}" from the listing, which is not one of the tags this form offers (${KNOWN_PROPERTY_TYPE_TAGS.join(', ')}). "Entire home" is a hard-coded default — pick the right tag.`
+        : 'Not extracted — "Entire home" is a hard-coded default, not listing data. Confirm it manually.',
     );
+
     track('highlights', domData.highlights.length > 0, 'No listing highlights were found.');
     track('amenities', topAmenities.length > 0, 'No top amenities — derived from offers, which are also empty.');
     track('offers', finalOffers.length > 0, 'Neither the embedded amenity JSON nor the amenities modal returned anything.');
+
+    // ── Check-in / check-out ──
+    // `checkIn`/`checkOut` are null unless a meridiem was read, so a time
+    // without AM/PM can never reach the form as extracted data.
     trackDefault(
       'checkIn',
-      !!domData.checkIn,
+      !!checkIn,
       '4:00 PM',
-      'Not extracted — "4:00 PM" is a hard-coded default, not listing data. Confirm it manually.',
+      domData.checkInRaw
+        ? `Read "${domData.checkInRaw}" but could not resolve an AM/PM time from it. "4:00 PM" is a hard-coded default — confirm it manually.`
+        : 'Not extracted — "4:00 PM" is a hard-coded default, not listing data. Confirm it manually.',
     );
     trackDefault(
       'checkOut',
-      !!domData.checkOut,
+      !!checkOut,
       '11:00 AM',
-      'Not extracted — "11:00 AM" is a hard-coded default, not listing data. Confirm it manually.',
+      domData.checkOutRaw
+        ? `Read "${domData.checkOutRaw}" but could not resolve an AM/PM time from it. "11:00 AM" is a hard-coded default — confirm it manually.`
+        : 'Not extracted — "11:00 AM" is a hard-coded default, not listing data. Confirm it manually.',
     );
+
     track('rules', domData.rules.length > 0, 'The POLICIES_DEFAULT house-rules list returned no entries.');
 
-    // The three permission booleans are only ever flipped inside the house-rules
-    // loop. With no rules, `false` means "unknown", not "not allowed" — report
-    // that rather than letting a default read as a fact.
-    const rulesParsed = domData.rules.length > 0;
+    // ── Permissions ──
+    // Extracted only when the page actually said so, either way. Airbnb's
+    // POLICIES_DEFAULT shows a truncated rule list behind a "Show more"
+    // control — measured 2026-09-21, the only visible rule on all four
+    // listings probed was "N guests maximum" — so a missing "No pets" line is
+    // silence, not permission. Reporting `false` as extracted here would
+    // recreate the original defect (the public UI stating "no pets" as fact
+    // when nothing was ever read) with a green badge on top of it.
     const permissionUnknown =
-      'House rules were not extracted, so this could not be determined. `false` here means unknown, not "not allowed".';
-    track('petsAllowed', rulesParsed, permissionUnknown);
-    track('smokingAllowed', rulesParsed, permissionUnknown);
-    track('partyAllowed', rulesParsed, permissionUnknown);
+      'The listing page does not state this in its visible house rules, so it could not be determined. `false` here means unknown, not "not allowed".';
+    track('petsAllowed', domData.petsRule !== null, permissionUnknown);
+    track('smokingAllowed', domData.smokingRule !== null, permissionUnknown);
+    track('partyAllowed', domData.partyRule !== null, permissionUnknown);
 
-    track(
+    // ── Price ──
+    // Not scraped at all. Listing URLs are normalised to carry no dates and
+    // Airbnb prints no nightly rate on an undated page, so reporting this as
+    // "failed" would flag a failure on every import forever.
+    trackAdminEntered(
       'price',
-      domData.price > 0,
-      'Airbnb shows no nightly price on a listing page opened without dates. Enter the price manually.',
+      'The admin sets the price — the scraper never reads it from Airbnb.',
     );
-    track('averageRating', reviewData.averageRating > 0, 'No overall rating was found on the page.');
-    track('totalReviewCount', reviewData.totalReviewCount > 0, 'No review count was found on the page.');
-    track('reviews', reviewData.reviews.length > 0, 'No individual reviews were extracted.');
+
+    // ── Rating ──
+    // A rating must be inside 0–5, and a listing with no reviews cannot have
+    // one. Airbnb states the empty case explicitly with REVIEWS_EMPTY_DEFAULT,
+    // which the extractor turns into count 0 / rating 0.
+    const ratingInRange =
+      reviewData.averageRating > 0 && reviewData.averageRating <= 5;
+    const hasReviews = reviewData.totalReviewCount > 0;
+    if (reviewData.averageRating !== 0 && !ratingInRange) {
+      track('averageRating', false, `Discarded an out-of-range rating (${reviewData.averageRating}); a rating must be between 0 and 5.`);
+      reviewData.averageRating = 0;
+    } else if (ratingInRange && !hasReviews) {
+      track('averageRating', false, 'A rating was found on a listing with no reviews, so it is not the listing\'s own — discarded.');
+      reviewData.averageRating = 0;
+    } else if (reviewData.countSource === 'reviews-empty') {
+      track('averageRating', false, 'This listing has no reviews yet (Airbnb shows its "No reviews yet" section), so there is no rating.');
+    } else {
+      track('averageRating', ratingInRange, 'No overall rating was found on the page.');
+    }
+
+    // ── Review count ──
+    // Only the listing's own count is acceptable. Anything read outside the
+    // listing's review section — in practice the host's lifetime total in
+    // MEET_YOUR_HOST — is refused rather than stored as this listing's.
+    if (reviewData.countSource === 'reviews-empty') {
+      // A positive zero: Airbnb says outright that there are no reviews.
+      fieldStatus.totalReviewCount = { status: 'extracted' };
+    } else if (reviewData.totalReviewCount > 0 && reviewData.countSource === 'none') {
+      track('totalReviewCount', false, 'A review count was found but not inside the listing\'s review section, so it could be the host\'s lifetime total — discarded.');
+      reviewData.totalReviewCount = 0;
+    } else {
+      track('totalReviewCount', reviewData.totalReviewCount > 0, 'No review count was found in the listing\'s review section.');
+    }
+
+    if (reviewData.countSource === 'reviews-empty') {
+      // Airbnb states there are none; an empty list is the correct answer.
+      fieldStatus.reviews = { status: 'extracted' };
+    } else {
+      track('reviews', reviewData.reviews.length > 0, 'No individual reviews were extracted.');
+    }
+
+    // Last: a field whose section never rendered is a timeout, not a miss.
+    applySectionTimeouts();
 
     const extractionSummary: ExtractionSummary = {
       extracted: 0,
       defaulted: 0,
       failed: 0,
+      'admin-entered': 0,
       total: 0,
     };
     for (const report of Object.values(fieldStatus)) {
@@ -1333,24 +1813,24 @@ export async function POST(request: Request) {
     const result = {
       name: domData.title || '',
       description: domData.description || '',
-      guests: domData.guests || 0,
+      guests: guests || 0,
       bedrooms: domData.bedrooms || 0,
       beds: domData.beds || 0,
       bathrooms: domData.bathrooms || 0,
       location: domData.location || '',
       coverImage: allImages[0] || '',
       images: allImages.slice(1) || [],
-      propertyTypeTag: domData.propertyTypeTag || 'Entire home',
+      // Only a tag the form can select is passed through as listing data.
+      propertyTypeTag: tagIsKnown ? domData.propertyTypeTag : 'Entire home',
       highlights: domData.highlights || [],
       amenities: topAmenities,
       offers: finalOffers,
-      checkIn: domData.checkIn || '4:00 PM',
-      checkOut: domData.checkOut || '11:00 AM',
+      checkIn: checkIn || '4:00 PM',
+      checkOut: checkOut || '11:00 AM',
       rules: domData.rules || [],
-      petsAllowed: domData.petsAllowed,
-      smokingAllowed: domData.smokingAllowed,
-      partyAllowed: domData.partyAllowed,
-      price: domData.price || 0,
+      petsAllowed: domData.petsRule ?? false,
+      smokingAllowed: domData.smokingRule ?? false,
+      partyAllowed: domData.partyRule ?? false,
       averageRating: reviewData.averageRating,
       totalReviewCount: reviewData.totalReviewCount,
       reviews: reviewData.reviews,

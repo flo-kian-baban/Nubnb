@@ -28,6 +28,23 @@ export const ReviewSchema = z.object({
   avatar: z.string().url().optional(),
 });
 
+/**
+ * Reviews as they exist on stored documents.
+ *
+ * Every one of the 142 reviews in the catalogue has `avatar: ""`. The scraper
+ * writes `avatar: avatar || ''` on every path, so an unresolved avatar is
+ * stored as an empty string rather than omitted. `z.string().url()` rejects
+ * "", and `.optional()` only permits `undefined` — so validating a real
+ * document with the strict schema fails on 35 of the 43, on a field that is
+ * empty everywhere and read by nothing.
+ *
+ * Updates therefore validate reviews with `urlOrEmpty`. Creation keeps the
+ * strict rule, so new imports are not encouraged to write "" going forward.
+ */
+export const StoredReviewSchema = ReviewSchema.extend({
+  avatar: urlOrEmpty.optional(),
+});
+
 export const PriceInfoSchema = z.object({
   nightly: z.number().nonnegative(),
   weekly: z.number().nonnegative(),
@@ -129,8 +146,8 @@ export const UpdatePropertySchema = z.object({
   airbnbUrl: urlOrEmpty.optional(),
   googleMapsUrl: urlOrEmpty.optional(),
 
-  // Reviews
-  reviews: z.array(ReviewSchema).optional(),
+  // Reviews — StoredReviewSchema, not ReviewSchema: see its comment above.
+  reviews: z.array(StoredReviewSchema).optional(),
   averageRating: z.number().min(0).max(5).optional(),
   totalReviewCount: z.number().int().nonnegative().optional(),
 

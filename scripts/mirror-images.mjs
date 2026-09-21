@@ -1,0 +1,627 @@
+#!/usr/bin/env node
+/**
+ * mirror-images.mjs — copy the catalogue's Airbnb-hosted images into this
+ * project's Firebase Storage bucket, and record the mirrored URLs on each
+ * property in two NEW fields.
+ *
+ *   node scripts/mirror-images.mjs --preflight   # checks only, no writes
+ *   node scripts/mirror-images.mjs --canary      # first property only, then stop
+ *   node scripts/mirror-images.mjs --run         # every remaining property
+ *   node scripts/mirror-images.mjs --verify      # B3 verification against live state
+ *
+ * ── Safety model ──────────────────────────────────────────────────
+ * ADDITIVE ONLY. The only fields ever written are `coverImageStored` (string)
+ * and `imagesStored` (array). Enforced three ways:
+ *   1. Writes go through `.update()` with exactly those two keys — never
+ *      `.set()`, which would replace the document.
+ *   2. `assertAdditiveOnly()` rejects any payload carrying another key.
+ *   3. Before a document is written, its live `coverImage` and `images[]` are
+ *      compared byte-for-byte against the reference backup. A mismatch skips
+ *      the property rather than writing against a shape that has moved.
+ *
+ * A document is written only after EVERY one of its images has been fetched,
+ * stored, and read back successfully. A partial `imagesStored` is never
+ * written — on any failure the document is left untouched and the run moves on.
+ *
+ * ── Resumability ──────────────────────────────────────────────────
+ * Object paths are derived deterministically from the source URL
+ * (sha256 → 16 hex chars), so a re-run recognises what it already stored.
+ * An existing object is re-verified (anonymous GET, byte count) and reused
+ * rather than re-fetched from Airbnb. State lives in the bucket and in
+ * Firestore; there is no local state file to get out of sync.
+ */
+
+import { readFileSync, writeFileSync, appendFileSync, mkdirSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { initializeApp, cert } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
+import { getStorage } from 'firebase-admin/storage';
+
+const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const ENV_FILE = join(PROJECT_ROOT, '.env.local');
+const REFERENCE_BACKUP = join(PROJECT_ROOT, 'backups/2026-09-21T04-48-44Z/properties.json');
+const LIVENESS_FILE = join(PROJECT_ROOT, 'tmp-audit/listing-liveness.json');
+const LOG_DIR = join(PROJECT_ROOT, 'backups/mirror-logs');
+
+/** The single pre-existing object from the production upload test. Never touched. */
+const BASELINE_OBJECT = 'properties/1789947877322_cb3b8518_064___A_Day_In_The_Life_CONNEX_Cover.jpg';
+const BASELINE_BYTES = 160507;
+
+/** Where mirrored objects live. Kept apart from the admin upload prefix. */
+const MIRROR_PREFIX = 'properties/mirrored';
+
+/** The only two fields this script may ever write. */
+const ALLOWED_FIELDS = ['coverImageStored', 'imagesStored'];
+
+const EXPECTED_PROPERTIES = 43;
+const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
+const FETCH_ATTEMPTS = 4;
+
+// ── env ──────────────────────────────────────────────────────────
+
+function readEnvFile(path) {
+  const raw = readFileSync(path, 'utf8');
+  const env = {};
+  for (const line of raw.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = line.indexOf('=');
+    if (eq < 1) continue;
+    env[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
+  }
+  return env;
+}
+
+function unquote(v) {
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+    return v.slice(1, -1);
+  }
+  return v;
+}
+
+// ── image identification ─────────────────────────────────────────
+
+/**
+ * Confirm the bytes really are an image, by magic number. Mirrors
+ * sniffImageType in /api/upload-image — the source is Airbnb's CDN rather
+ * than a browser upload, but "trust the bytes, not the label" is the same rule.
+ */
+function sniffImageType(buf) {
+  if (buf.length < 12) return null;
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+  if (buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+    return 'image/png';
+  }
+  if (
+    buf.subarray(0, 4).toString('ascii') === 'RIFF' &&
+    buf.subarray(8, 12).toString('ascii') === 'WEBP'
+  ) {
+    return 'image/webp';
+  }
+  if (buf.subarray(4, 8).toString('ascii') === 'ftyp') {
+    const brand = buf.subarray(8, 12).toString('ascii');
+    if (brand === 'avif' || brand === 'avis') return 'image/avif';
+  }
+  return null;
+}
+
+const EXT_FOR_TYPE = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/avif': 'avif',
+};
+
+/** Stable 16-hex-char identity for a source URL — the basis of resumability. */
+function urlHash(url) {
+  return createHash('sha256').update(url, 'utf8').digest('hex').slice(0, 16);
+}
+
+function slotLabel(index) {
+  return index === 0 ? 'cover' : `img-${String(index - 1).padStart(3, '0')}`;
+}
+
+function objectPathFor(propertyId, index, sourceUrl, ext) {
+  return `${MIRROR_PREFIX}/${propertyId}/${slotLabel(index)}_${urlHash(sourceUrl)}.${ext}`;
+}
+
+/** The bucket-relative key a resumed run matches on, ignoring extension. */
+function objectKeyFor(propertyId, index, sourceUrl) {
+  return `${slotLabel(index)}_${urlHash(sourceUrl)}`;
+}
+
+function downloadUrlFor(bucketName, objectPath, token) {
+  return (
+    `https://firebasestorage.googleapis.com/v0/b/${bucketName}` +
+    `/o/${encodeURIComponent(objectPath)}?alt=media&token=${token}`
+  );
+}
+
+// ── network ──────────────────────────────────────────────────────
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Fetch with serial retries.
+ *
+ * Phase A established that concurrent requests to a0.muscache.com produce
+ * connection resets that look exactly like dead URLs — 9 false positives in
+ * that run. Requests here are serial and retried, so a reset is reported as a
+ * reset only after the CDN has had several chances.
+ */
+async function fetchWithRetry(url, { anonymous = false } = {}) {
+  let lastErr;
+  for (let attempt = 1; attempt <= FETCH_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(url, {
+        redirect: 'follow',
+        headers: anonymous ? {} : { 'User-Agent': 'nubnb-image-mirror/1.0' },
+      });
+      if (!res.ok) {
+        lastErr = new Error(`HTTP ${res.status}`);
+      } else {
+        const buf = Buffer.from(await res.arrayBuffer());
+        return { ok: true, buf, status: res.status };
+      }
+    } catch (err) {
+      lastErr = err;
+    }
+    if (attempt < FETCH_ATTEMPTS) await sleep(300 * attempt);
+  }
+  return { ok: false, error: lastErr?.message || 'unknown fetch error' };
+}
+
+// ── write guard ──────────────────────────────────────────────────
+
+/**
+ * Refuse any update payload that would touch a field other than the two new
+ * ones. The run aborts rather than writing something unreviewed.
+ */
+function assertAdditiveOnly(payload) {
+  const keys = Object.keys(payload);
+  const illegal = keys.filter((k) => !ALLOWED_FIELDS.includes(k));
+  if (illegal.length > 0) {
+    throw new Error(
+      `REFUSED: update payload carries non-additive field(s): ${illegal.join(', ')}`,
+    );
+  }
+  if (keys.length === 0) throw new Error('REFUSED: empty update payload');
+}
+
+// ── ordering ─────────────────────────────────────────────────────
+
+/**
+ * Delisted properties first: their source images are the ones most at risk of
+ * being garbage-collected once the listing is gone (§C.6 of the audit).
+ *
+ * The audit's count is 14: 12 whose URL returns the literal 404 title, plus
+ * the 2 airbnb.com URLs that resolve to 404 against airbnb.ca. The stored
+ * `verdict` field in listing-liveness.json is from the first, buggy pass —
+ * it reads "LIVE" for every row — so it is deliberately not used here.
+ */
+function buildOrder(properties) {
+  let deadNames = new Set();
+  try {
+    const liveness = JSON.parse(readFileSync(LIVENESS_FILE, 'utf8'));
+    for (const row of liveness) {
+      if (row.title === '404 Page Not Found - Airbnb') deadNames.add(row.name);
+      else if (/airbnb\.com/.test(row.url || '')) deadNames.add(row.name);
+    }
+  } catch {
+    deadNames = new Set();
+  }
+
+  const byName = (a, b) => String(a.name).localeCompare(String(b.name));
+  const dead = properties.filter((p) => deadNames.has(p.name)).sort(byName);
+  const live = properties.filter((p) => !deadNames.has(p.name)).sort(byName);
+  return { ordered: [...dead, ...live], deadCount: dead.length };
+}
+
+// ── logging ──────────────────────────────────────────────────────
+
+let logPath = null;
+
+function initLog(mode) {
+  mkdirSync(LOG_DIR, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  logPath = join(LOG_DIR, `mirror-${mode}-${stamp}.jsonl`);
+  return logPath;
+}
+
+function logImage(record) {
+  if (logPath) appendFileSync(logPath, JSON.stringify(record) + '\n');
+}
+
+// ── core ─────────────────────────────────────────────────────────
+
+async function mirrorOneImage({ bucket, bucketName, propertyId, index, sourceUrl, existing }) {
+  const key = objectKeyFor(propertyId, index, sourceUrl);
+  const slot = slotLabel(index);
+  const base = { property: propertyId, slot, sourceUrl };
+
+  // ── Resume: object already present from an earlier run ──
+  const already = existing.get(key);
+  if (already) {
+    const token = already.metadata?.metadata?.firebaseStorageDownloadTokens;
+    if (token) {
+      const url = downloadUrlFor(bucketName, already.name, String(token).split(',')[0]);
+      const check = await fetchWithRetry(url, { anonymous: true });
+      const storedBytes = Number(already.metadata?.size || 0);
+      if (check.ok && check.buf.length === storedBytes) {
+        const rec = { ...base, outcome: 'skipped-already-stored', storedUrl: url, bytes: storedBytes };
+        logImage(rec);
+        return { ok: true, url, bytes: storedBytes, reused: true };
+      }
+    }
+    // Present but unverifiable — fall through and re-store it.
+  }
+
+  // ── Fetch from source ──
+  const got = await fetchWithRetry(sourceUrl);
+  if (!got.ok) {
+    const rec = { ...base, outcome: 'failed', reason: `source fetch failed: ${got.error}` };
+    logImage(rec);
+    return { ok: false, reason: rec.reason };
+  }
+  const bytes = got.buf;
+
+  if (bytes.length === 0) {
+    const rec = { ...base, outcome: 'failed', reason: 'source returned 0 bytes' };
+    logImage(rec);
+    return { ok: false, reason: rec.reason };
+  }
+  if (bytes.length > MAX_IMAGE_BYTES) {
+    const rec = { ...base, outcome: 'failed', reason: `oversize: ${bytes.length} bytes` };
+    logImage(rec);
+    return { ok: false, reason: rec.reason };
+  }
+
+  // ── Must be a real image ──
+  const sniffed = sniffImageType(bytes);
+  if (!sniffed) {
+    const rec = { ...base, outcome: 'failed', reason: 'content is not a recognised image format' };
+    logImage(rec);
+    return { ok: false, reason: rec.reason };
+  }
+
+  // ── Store ──
+  const objectPath = objectPathFor(propertyId, index, sourceUrl, EXT_FOR_TYPE[sniffed]);
+  const token = randomUUID();
+  try {
+    await bucket.file(objectPath).save(bytes, {
+      resumable: false,
+      contentType: sniffed,
+      metadata: {
+        contentType: sniffed,
+        cacheControl: 'public, max-age=31536000, immutable',
+        metadata: {
+          firebaseStorageDownloadTokens: token,
+          mirroredFrom: sourceUrl,
+          mirroredAt: new Date().toISOString(),
+        },
+      },
+    });
+  } catch (err) {
+    const rec = { ...base, outcome: 'failed', reason: `storage write failed: ${err.message}` };
+    logImage(rec);
+    return { ok: false, reason: rec.reason };
+  }
+
+  // ── Read back anonymously and compare byte count ──
+  const url = downloadUrlFor(bucketName, objectPath, token);
+  const back = await fetchWithRetry(url, { anonymous: true });
+  if (!back.ok) {
+    const rec = { ...base, outcome: 'failed', reason: `stored URL not readable: ${back.error}`, storedUrl: url };
+    logImage(rec);
+    return { ok: false, reason: rec.reason };
+  }
+  if (back.buf.length !== bytes.length) {
+    const rec = {
+      ...base,
+      outcome: 'failed',
+      reason: `byte count mismatch: stored ${bytes.length}, read back ${back.buf.length}`,
+      storedUrl: url,
+    };
+    logImage(rec);
+    return { ok: false, reason: rec.reason };
+  }
+
+  logImage({ ...base, outcome: 'mirrored', storedUrl: url, bytes: bytes.length, contentType: sniffed });
+  return { ok: true, url, bytes: bytes.length, reused: false };
+}
+
+async function mirrorProperty({ db, bucket, bucketName, reference, dryRun }) {
+  const propertyId = reference.id;
+  const result = {
+    id: propertyId,
+    name: reference.name,
+    attempted: 0,
+    mirrored: 0,
+    reused: 0,
+    failed: 0,
+    failures: [],
+    updated: false,
+    skipReason: null,
+  };
+
+  // ── Live document must still match the reference backup ──
+  const snap = await db.collection('properties').doc(propertyId).get();
+  if (!snap.exists) {
+    result.skipReason = 'document no longer exists in Firestore';
+    return result;
+  }
+  const live = snap.data();
+  if (live.coverImage !== reference.coverImage) {
+    result.skipReason = 'live coverImage differs from reference backup';
+    return result;
+  }
+  const liveImages = Array.isArray(live.images) ? live.images : [];
+  const refImages = Array.isArray(reference.images) ? reference.images : [];
+  if (
+    liveImages.length !== refImages.length ||
+    liveImages.some((u, i) => u !== refImages[i])
+  ) {
+    result.skipReason = 'live images[] differs from reference backup';
+    return result;
+  }
+
+  // ── What is already in the bucket for this property ──
+  const existing = new Map();
+  const [files] = await bucket.getFiles({ prefix: `${MIRROR_PREFIX}/${propertyId}/` });
+  for (const f of files) {
+    const base = f.name.split('/').pop() || '';
+    existing.set(base.replace(/\.[a-z0-9]+$/i, ''), f);
+  }
+
+  const sources = [reference.coverImage, ...refImages];
+  const storedUrls = [];
+
+  for (let i = 0; i < sources.length; i++) {
+    result.attempted++;
+    if (dryRun) continue;
+    const r = await mirrorOneImage({
+      bucket,
+      bucketName,
+      propertyId,
+      index: i,
+      sourceUrl: sources[i],
+      existing,
+    });
+    if (r.ok) {
+      storedUrls.push(r.url);
+      if (r.reused) result.reused++;
+      else result.mirrored++;
+      process.stdout.write(r.reused ? '·' : '.');
+    } else {
+      result.failed++;
+      result.failures.push({ slot: slotLabel(i), sourceUrl: sources[i], reason: r.reason });
+      process.stdout.write('x');
+    }
+  }
+  process.stdout.write('\n');
+
+  if (dryRun) return result;
+
+  // ── Update only if every image landed ──
+  if (result.failed > 0) {
+    result.skipReason = `${result.failed} image(s) failed — document left untouched`;
+    return result;
+  }
+
+  const payload = {
+    coverImageStored: storedUrls[0],
+    imagesStored: storedUrls.slice(1),
+  };
+  assertAdditiveOnly(payload);
+
+  if (payload.imagesStored.length !== refImages.length) {
+    result.skipReason =
+      `length guard: imagesStored ${payload.imagesStored.length} != images[] ${refImages.length}`;
+    return result;
+  }
+
+  await db.collection('properties').doc(propertyId).update(payload);
+  result.updated = true;
+  return result;
+}
+
+// ── preflight ────────────────────────────────────────────────────
+
+async function preflight({ bucket, reference }) {
+  const lines = [];
+  let ok = true;
+
+  if (reference.length !== EXPECTED_PROPERTIES) {
+    ok = false;
+    lines.push(`FAIL  reference backup holds ${reference.length} properties, expected ${EXPECTED_PROPERTIES}`);
+  } else {
+    lines.push(`OK    reference backup holds ${EXPECTED_PROPERTIES} properties`);
+  }
+
+  const [files] = await bucket.getFiles();
+  const mirrored = files.filter((f) => f.name.startsWith(`${MIRROR_PREFIX}/`));
+  const others = files.filter((f) => !f.name.startsWith(`${MIRROR_PREFIX}/`));
+
+  const baseline = others.find((f) => f.name === BASELINE_OBJECT);
+  if (others.length === 1 && baseline && Number(baseline.metadata.size) === BASELINE_BYTES) {
+    lines.push(`OK    bucket holds exactly 1 non-mirror object, ${BASELINE_BYTES} bytes — the upload test`);
+  } else {
+    ok = false;
+    lines.push(`FAIL  expected exactly 1 non-mirror object (${BASELINE_BYTES} bytes); found ${others.length}`);
+    for (const f of others) lines.push(`        ${f.name} (${f.metadata.size} bytes)`);
+  }
+
+  lines.push(`INFO  mirrored objects already present: ${mirrored.length}`);
+  return { ok, lines, mirroredCount: mirrored.length, totalObjects: files.length };
+}
+
+// ── verification (B3) ────────────────────────────────────────────
+
+async function verify({ db, bucket, reference }) {
+  const out = [];
+  const snap = await db.collection('properties').get();
+  const live = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+  out.push(`properties live: ${live.length} (expected ${EXPECTED_PROPERTIES})`);
+
+  const refById = new Map(reference.map((p) => [p.id, p]));
+  const liveById = new Map(live.map((p) => [p.id, p]));
+
+  // no document lost
+  const missing = [...refById.keys()].filter((id) => !liveById.has(id));
+  out.push(`documents missing vs reference: ${missing.length}${missing.length ? ' — ' + missing.join(', ') : ''}`);
+
+  // no field lost, and source image fields byte-identical
+  let fieldLoss = 0, coverDiff = 0, imagesDiff = 0, reviewsDiff = 0;
+  const lossDetail = [];
+  for (const [id, ref] of refById) {
+    const cur = liveById.get(id);
+    if (!cur) continue;
+    for (const k of Object.keys(ref)) {
+      if (!(k in cur)) { fieldLoss++; lossDetail.push(`${id}.${k}`); }
+    }
+    if (cur.coverImage !== ref.coverImage) coverDiff++;
+    const a = Array.isArray(cur.images) ? cur.images : [];
+    const b = Array.isArray(ref.images) ? ref.images : [];
+    if (a.length !== b.length || a.some((u, i) => u !== b[i])) imagesDiff++;
+    if (JSON.stringify(cur.reviews ?? null) !== JSON.stringify(ref.reviews ?? null)) reviewsDiff++;
+  }
+  out.push(`documents that lost a field: ${fieldLoss}${lossDetail.length ? ' — ' + lossDetail.join(', ') : ''}`);
+  out.push(`coverImage differs from reference: ${coverDiff}`);
+  out.push(`images[] differs from reference:   ${imagesDiff}`);
+  out.push(`reviews differs from reference:    ${reviewsDiff}`);
+
+  // new fields
+  let withCover = 0, withImages = 0, lengthOk = 0, lengthBad = [];
+  for (const p of live) {
+    if (typeof p.coverImageStored === 'string' && p.coverImageStored) withCover++;
+    if (Array.isArray(p.imagesStored)) {
+      withImages++;
+      const refLen = (refById.get(p.id)?.images || []).length;
+      if (p.imagesStored.length === refLen) lengthOk++;
+      else lengthBad.push(`${p.id}: ${p.imagesStored.length} vs ${refLen}`);
+    }
+  }
+  out.push(`coverImageStored present: ${withCover}`);
+  out.push(`imagesStored present:     ${withImages}`);
+  out.push(`imagesStored length == images[] length: ${lengthOk}${lengthBad.length ? ' — mismatches: ' + lengthBad.join('; ') : ''}`);
+
+  // every stored URL returns 200 anonymously
+  const urls = [];
+  for (const p of live) {
+    if (p.coverImageStored) urls.push(p.coverImageStored);
+    for (const u of p.imagesStored || []) urls.push(u);
+  }
+  let ok200 = 0; const bad = [];
+  for (const u of urls) {
+    const r = await fetchWithRetry(u, { anonymous: true });
+    if (r.ok) ok200++; else bad.push(`${u} — ${r.error}`);
+  }
+  out.push(`stored URLs checked: ${urls.length}, returned 200: ${ok200}, failed: ${bad.length}`);
+  for (const b of bad.slice(0, 10)) out.push(`    ${b}`);
+
+  // bucket totals
+  const [files] = await bucket.getFiles();
+  const total = files.reduce((s, f) => s + Number(f.metadata.size || 0), 0);
+  out.push(`bucket objects: ${files.length} (expected 872 if all succeed)`);
+  out.push(`bucket bytes:   ${total} (${(total / 1048576).toFixed(2)} MiB)`);
+
+  return out;
+}
+
+// ── main ─────────────────────────────────────────────────────────
+
+async function main() {
+  const args = process.argv.slice(2);
+  const mode =
+    args.includes('--verify') ? 'verify'
+    : args.includes('--canary') ? 'canary'
+    : args.includes('--run') ? 'run'
+    : 'preflight';
+
+  const env = readEnvFile(ENV_FILE);
+  const sa = JSON.parse(unquote(env.FIREBASE_SERVICE_ACCOUNT_KEY || ''));
+  const bucketName = env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET;
+  if (!bucketName) throw new Error('NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET is not set');
+
+  const app = initializeApp({ credential: cert(sa), storageBucket: bucketName });
+  const db = getFirestore(app);
+  const bucket = getStorage(app).bucket(bucketName);
+
+  const reference = JSON.parse(readFileSync(REFERENCE_BACKUP, 'utf8'));
+
+  console.log(`mode:    ${mode}`);
+  console.log(`project: ${sa.project_id}`);
+  console.log(`bucket:  ${bucketName}`);
+  console.log(`backup:  ${REFERENCE_BACKUP}`);
+  console.log('');
+
+  if (mode === 'verify') {
+    const lines = await verify({ db, bucket, reference });
+    console.log('── B3 VERIFICATION ──');
+    for (const l of lines) console.log(l);
+    return;
+  }
+
+  const pf = await preflight({ bucket, reference });
+  console.log('── PRE-FLIGHT ──');
+  for (const l of pf.lines) console.log(l);
+  console.log('');
+  if (!pf.ok) {
+    console.error('Pre-flight failed. Stopping without writing anything.');
+    process.exitCode = 1;
+    return;
+  }
+  if (mode === 'preflight') {
+    console.log('Pre-flight only. No writes performed.');
+    return;
+  }
+
+  const { ordered, deadCount } = buildOrder(reference);
+  console.log(`order: ${deadCount} delisted first, then ${ordered.length - deadCount} live`);
+  const log = initLog(mode);
+  console.log(`log:   ${log}`);
+  console.log('');
+
+  const targets = mode === 'canary' ? ordered.slice(0, 1) : ordered;
+  const results = [];
+
+  for (let i = 0; i < targets.length; i++) {
+    const p = targets[i];
+    const imgCount = 1 + (p.images || []).length;
+    process.stdout.write(
+      `[${String(i + 1).padStart(2)}/${targets.length}] ${p.name} (${imgCount} images)\n  `,
+    );
+    const r = await mirrorProperty({ db, bucket, bucketName, reference: p, dryRun: false });
+    results.push(r);
+    console.log(
+      `  → attempted ${r.attempted}, mirrored ${r.mirrored}, reused ${r.reused}, ` +
+        `failed ${r.failed}, document ${r.updated ? 'UPDATED' : 'untouched'}` +
+        (r.skipReason ? ` (${r.skipReason})` : ''),
+    );
+    for (const f of r.failures.slice(0, 5)) console.log(`      x ${f.slot}: ${f.reason}`);
+  }
+
+  console.log('');
+  console.log('── TOTALS ──');
+  const sum = (k) => results.reduce((s, r) => s + r[k], 0);
+  console.log(`properties processed: ${results.length}`);
+  console.log(`images attempted:     ${sum('attempted')}`);
+  console.log(`images mirrored:      ${sum('mirrored')}`);
+  console.log(`images reused:        ${sum('reused')}`);
+  console.log(`images failed:        ${sum('failed')}`);
+  console.log(`documents updated:    ${results.filter((r) => r.updated).length}`);
+  console.log(`documents untouched:  ${results.filter((r) => !r.updated).length}`);
+  for (const r of results.filter((x) => !x.updated)) {
+    console.log(`    untouched: ${r.name} — ${r.skipReason}`);
+  }
+  console.log(`log: ${log}`);
+}
+
+main().catch((err) => {
+  console.error('\nFATAL:', err.message);
+  process.exitCode = 1;
+});

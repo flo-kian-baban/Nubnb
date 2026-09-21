@@ -85,7 +85,45 @@ export function validateAirbnbUrl(input: unknown): ValidationResult {
     return { valid: false, error: 'URL must be an Airbnb listing URL (containing /rooms/)' };
   }
 
-  return { valid: true, value: urlResult.value };
+  // Normalise only after the domain and path checks above have passed, never
+  // before: `normalizeAirbnbUrl` rewrites the host, so running it first would
+  // turn `https://evil.example/rooms/123` into a valid-looking Airbnb URL.
+  return { valid: true, value: normalizeAirbnbUrl(urlResult.value!) };
+}
+
+/**
+ * Canonical form for an Airbnb listing: `https://www.airbnb.ca/rooms/<id>`.
+ *
+ * Two distinct problems, both measured against listing 1741714076179214383 on
+ * 2026-09-21:
+ *
+ *  - Tracking parameters (`source_impression_id`, `federated_search_id`,
+ *    `photo_id`, …) are per-session noise. All 43 catalogue URLs carried them.
+ *
+ *  - `check_in`/`check_out` change the page Airbnb serves, so a dated URL is
+ *    not the same scrape target as the listing itself. Scraping the dated URL
+ *    returned a nightly price of 189; the bare URL returned none. Price is
+ *    admin-entered, so the catalogue gains nothing from the dated variant and
+ *    pays for it by scraping a page that represents two specific nights
+ *    rather than the listing.
+ *
+ * Returns the input unchanged when no numeric listing id can be recovered.
+ * This function must never make an invalid URL look valid — callers validate
+ * first (see `validateAirbnbUrl` above).
+ */
+export function normalizeAirbnbUrl(input: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(input.trim());
+  } catch {
+    return input;
+  }
+
+  // Tolerates the /rooms/plus/<id> and /rooms/hotel-rooms/<id> variants.
+  const id = parsed.pathname.match(/\/rooms\/(?:[a-z-]+\/)?(\d+)/i)?.[1];
+  if (!id) return input;
+
+  return `https://www.airbnb.ca/rooms/${id}`;
 }
 
 // ─── iCal URL ─────────────────────────────────────────────

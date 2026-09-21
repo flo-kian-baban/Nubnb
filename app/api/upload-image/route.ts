@@ -43,9 +43,10 @@ const limiter = createRateLimiter({ windowMs: 60_000, maxRequests: 30, prefix: '
  * a higher cap here would pass locally and 413 in production. 4 MiB leaves
  * room for multipart framing underneath that ceiling.
  *
- * For scale: a web-sized property photo is 200 KB–1 MB. The 22.79 MiB PNG
- * sitting in the bucket today is an unoptimised desktop screenshot from a
- * March test run — exactly the kind of upload this limit is meant to stop.
+ * For scale, measured across the 871 mirrored catalogue photos: median
+ * 109 KiB, mean 122 KiB, largest 412 KiB — none within an order of magnitude
+ * of this cap. A real property photo has never come close to it. The limit is
+ * there for the other kind of upload: an unoptimised desktop screenshot.
  */
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
 

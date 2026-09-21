@@ -12,8 +12,13 @@
  *   substituted. The value in the payload is NOT listing data.
  * - `failed`    — extraction produced nothing and there is no default: the
  *   payload carries an empty string / 0 / [] / false placeholder.
+ * - `admin-entered` — the scraper deliberately does not read this field; the
+ *   operator supplies it. This is not a failure and must not be reported as
+ *   one. `price` is the only such field: Airbnb shows no nightly rate on an
+ *   undated listing page, and listing URLs are normalised to carry no dates,
+ *   so "failed" would be on every import forever.
  */
-export type FieldStatus = 'extracted' | 'defaulted' | 'failed';
+export type FieldStatus = 'extracted' | 'defaulted' | 'failed' | 'admin-entered';
 
 export interface FieldReport {
   status: FieldStatus;
@@ -30,6 +35,7 @@ export interface ExtractionSummary {
   extracted: number;
   defaulted: number;
   failed: number;
+  'admin-entered': number;
   total: number;
 }
 
