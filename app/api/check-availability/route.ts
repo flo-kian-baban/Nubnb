@@ -1,7 +1,7 @@
 import { startOfDay, endOfDay, parseISO } from 'date-fns';
 import { createRateLimiter } from '@/app/lib/api/rate-limit';
 import { validateIcalUrl, validateDateString } from '@/app/lib/api/validate';
-import { guardedFetch, GuardedFetchError } from '@/app/lib/api/url-guard';
+import { getIcalFeed, IcalFetchError } from '@/app/lib/api/ical-cache';
 import { apiSuccess, apiError, apiRateLimited } from '@/app/lib/api/safe-response';
 import { parseIcalEvents } from '@/app/lib/api/ical-parser';
 
@@ -41,21 +41,12 @@ export async function POST(request: Request) {
       return apiError('startDate must be before endDate', 400);
     }
 
-    // ── Fetch iCal (SSRF-safe) ─────────────────────────────
+    // ── Fetch iCal (SSRF-safe, cached for 10 minutes) ──────
     let icalData: string;
     try {
-      const response = await guardedFetch(urlCheck.value!, {
-        maxResponseBytes: 5 * 1024 * 1024, // 5 MB max for iCal
-        timeoutMs: 10_000,
-      });
-      if (!response.ok) {
-        return apiError('Failed to fetch the calendar feed', 502);
-      }
-      icalData = await response.text();
+      icalData = await getIcalFeed(urlCheck.value!);
     } catch (err) {
-      if (err instanceof GuardedFetchError) {
-        return apiError(err.message, 400);
-      }
+      if (err instanceof IcalFetchError) return apiError(err.message, err.status);
       return apiError('Failed to fetch the calendar feed', 502, err);
     }
 

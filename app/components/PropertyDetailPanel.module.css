@@ -143,12 +143,14 @@
   margin-bottom: 0;
 }
 
+/* Was a background-image div; now the <img> that next/image renders with
+   `fill`. `object-fit: cover` reproduces `background-size: cover` exactly,
+   and the fixed-height container above means swapping images cannot shift
+   layout. The old `transition: background-image` never animated anything —
+   background-image is not an animatable property — so nothing is lost. */
 .carouselHero {
-  width: 100%;
-  height: 100%;
-  background-size: cover;
-  background-position: center;
-  transition: background-image 0.4s ease-in-out;
+  object-fit: cover;
+  object-position: center;
 }
 
 .carouselNav {
@@ -226,10 +228,10 @@
 .galleryThumbnails::-webkit-scrollbar { display: none; }
 
 .galleryItem {
+  position: relative;
+  overflow: hidden;
   width: 100px;
   height: 68px;
-  background-size: cover;
-  background-position: center;
   background-color: var(--border-light);
   border-radius: 8px;
   flex-shrink: 0;
@@ -237,6 +239,12 @@
   transition: all 0.2s ease;
   opacity: 0.5;
   border: 2px solid transparent;
+}
+
+/* The tile is the positioning context for the `fill` image inside it. */
+.galleryImage {
+  object-fit: cover;
+  object-position: center;
 }
 
 .galleryItem:hover { opacity: 0.85; }

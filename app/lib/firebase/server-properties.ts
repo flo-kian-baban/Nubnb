@@ -31,8 +31,12 @@ const COLLECTION = 'properties';
  *
  * Deliberately omitted, with their share of the 1.43 MB collection:
  *   offers 1.05 MB · imagesStored 173 KB · images 117 KB · reviews 56 KB ·
- *   description 36 KB · coverImageStored 9 KB · terms, details, highlights,
- *   amenities, airbnbUrl, googleMapsUrl, averageRating, totalReviewCount
+ *   description 36 KB · terms, details, highlights, amenities, airbnbUrl,
+ *   googleMapsUrl, averageRating, totalReviewCount
+ *
+ * `coverImageStored` (9 KB) IS read, but it does not widen the payload: it is
+ * collapsed into `coverImage` by `toSummary`, so exactly one URL per property
+ * still reaches the browser.
  *
  * None of those is read by anything on the homepage. They arrive with
  * `getPropertyById` when a visitor opens a property.
@@ -49,6 +53,7 @@ const SUMMARY_FIELDS = [
   'bathrooms',
   'guests',
   'coverImage',
+  'coverImageStored',
   'type',
   'propertyTypeTag',
   'icalUrl',
@@ -76,7 +81,13 @@ function coordinates(value: unknown): [number, number] {
     : [0, 0];
 }
 
-function toSummary(id: string, data: Record<string, unknown>): PropertySummary {
+/**
+ * Exported so the stored-URL fallback can be exercised against a real
+ * Firestore *projection* — a `.select()` that omits `coverImageStored`
+ * produces exactly the shape of a property that was never mirrored, without
+ * editing a document to manufacture the case.
+ */
+export function toSummary(id: string, data: Record<string, unknown>): PropertySummary {
   const price = (data.priceInfo ?? {}) as Record<string, unknown>;
   const address = (data.addressDetails ?? {}) as Record<string, unknown>;
   const icalUrl = str(data.icalUrl);
@@ -93,7 +104,11 @@ function toSummary(id: string, data: Record<string, unknown>): PropertySummary {
     beds: num(data.beds),
     bathrooms: num(data.bathrooms),
     guests: num(data.guests),
-    coverImage: str(data.coverImage),
+    // The stored mirror wins, and the original is the fallback — resolved
+    // here, on the server, so the browser is handed one URL rather than two
+    // and never has to decide. A property with no mirror keeps its
+    // a0.muscache.com URL, which the image loader passes through untouched.
+    coverImage: str(data.coverImageStored) || str(data.coverImage),
     type: str(data.type),
     propertyTypeTag: str(data.propertyTypeTag),
     // Omitted rather than empty-stringed: the availability filter and the
@@ -153,5 +168,23 @@ export async function getPropertyById(id: string): Promise<Property | null> {
   // Raw document first, normalised summary second: the summary's values win
   // for the fields it owns, so `id` is always the document ID and the shared
   // fields are the same shape here as they are in the list.
-  return { ...data, ...toSummary(doc.id, data) } as Property;
+  //
+  // `images` is resolved to the mirror the same way `coverImage` is, and for
+  // the same reason — one URL per image reaches the browser, already pointing
+  // at whichever source exists. `imagesStored` is index-for-index with
+  // `images` by the mirror's own contract, so a per-index fallback is exact
+  // rather than positional guesswork.
+  const images = Array.isArray(data.images) ? data.images : [];
+  const stored = Array.isArray(data.imagesStored) ? data.imagesStored : [];
+  const resolvedImages = images.map((original, i) => str(stored[i]) || str(original));
+
+  // Both stored fields are dropped once they have been folded in. Leaving
+  // them would put a second copy of every image URL in the page payload —
+  // 173 KB of `imagesStored` across the catalogue — for no reader: nothing
+  // downstream consults them, and the resolution has already happened.
+  const { imagesStored: _stored, coverImageStored: _cover, ...rest } = data;
+  void _stored;
+  void _cover;
+
+  return { ...rest, ...toSummary(doc.id, data), images: resolvedImages } as Property;
 }

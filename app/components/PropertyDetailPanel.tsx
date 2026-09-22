@@ -3,6 +3,7 @@ import DOMPurify from "dompurify";
 import { Property, PropertySummary } from "@/app/types/property";
 import styles from "./PropertyDetailPanel.module.css";
 import { nightlyPrice } from "@/app/lib/price";
+import { StoredImage } from "./StoredImage";
 import { DayPicker, DateRange } from "react-day-picker";
 import "react-day-picker/style.css";
 import { format, differenceInDays, addDays, addYears, eachDayOfInterval, parseISO, isAfter, isBefore, startOfDay } from "date-fns";
@@ -35,6 +36,18 @@ interface PropertyDetailPanelProps {
   /** Party size from the map filter, when the visitor set one. */
   guests?: number;
 }
+
+/**
+ * The widths these two surfaces ask the image loader for.
+ *
+ * They exist to land on a generated variant rather than near one: the loader
+ * rounds a requested width up to the nearest of 200 / 750 / 1200, so the hero
+ * resolves to 750 on a phone and 1200 on a desktop panel, and a 100x68
+ * thumbnail resolves to 200 — the 2x size it actually needs, instead of the
+ * full-width original these tiles used to paint as a background-image.
+ */
+const HERO_SIZES = "(max-width: 900px) 100vw, 900px";
+const THUMB_SIZES = "100px";
 
 /**
  * True only once the component is running in the browser.
@@ -197,9 +210,12 @@ export function PropertyDetailPanel({
 
         <div className={styles.content}>
           <div className={styles.carouselContainer}>
-            <div
+            <StoredImage
+              src={summary.coverImage}
+              alt={summary.name}
               className={styles.carouselHero}
-              style={{ backgroundImage: `url(${summary.coverImage})` }}
+              sizes={HERO_SIZES}
+              priority
             />
           </div>
 
@@ -357,9 +373,12 @@ export function PropertyDetailPanel({
       <div className={styles.content}>
         {/* Hero Image Carousel */}
         <div className={styles.carouselContainer}>
-          <div 
-            className={styles.carouselHero} 
-            style={{ backgroundImage: `url(${allImages[currentImageIndex]})` }}
+          <StoredImage
+            src={allImages[currentImageIndex]}
+            alt={`${property.name} — image ${currentImageIndex + 1} of ${allImages.length}`}
+            className={styles.carouselHero}
+            sizes={HERO_SIZES}
+            priority
           />
 
           {allImages.length > 1 && (
@@ -404,13 +423,17 @@ export function PropertyDetailPanel({
                 <div
                   key={idx}
                   className={`${styles.galleryItem} ${currentImageIndex === idx ? styles.galleryItemActive : ''}`}
-                  style={{ backgroundImage: `url(${img})` }}
                   onClick={(e) => {
                     e.stopPropagation();
                     setCurrentImageIndex(idx);
                   }}
                   title={`View image ${idx + 1}`}
-                />
+                >
+                  {/* Decorative: the control is the tile, which carries the
+                      accessible name via `title`. An alt here would announce
+                      the same property name 39 times over. */}
+                  <StoredImage src={img} alt="" className={styles.galleryImage} sizes={THUMB_SIZES} />
+                </div>
               ))}
             </div>
           </div>

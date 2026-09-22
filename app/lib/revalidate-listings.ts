@@ -1,8 +1,9 @@
 /**
  * On-demand revalidation for the renter-facing pages.
  *
- * `/` and `/property/[slug]` are cached and regenerated on a timer, which on
- * its own would mean an admin edit sat invisible until the timer expired.
+ * `/`, `/property/[slug]` and `/api/property/[id]` are cached and regenerated
+ * on a timer, which on its own would mean an admin edit sat invisible until
+ * the timer expired.
  * Every write path that can change what a visitor sees calls this instead, so
  * a create, an edit or a delete is live on the next request.
  *
@@ -40,6 +41,10 @@ export function revalidateListingPages(reason: string): void {
     // rendered from it — the right blast radius when a rename can move a
     // property from one slug to another.
     revalidatePath('/property/[slug]', 'page');
+    // The prerendered per-property JSON the detail panel opens from. Without
+    // this an edit would show on the pages but not in the panel, which is the
+    // more confusing half of being stale.
+    revalidatePath('/api/property/[id]', 'page');
   } catch (err) {
     console.error(`[revalidate] ${reason}: failed to revalidate listing pages`, err);
   }

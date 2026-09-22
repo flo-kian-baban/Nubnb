@@ -23,6 +23,16 @@ interface PropertyCardProps {
    * 6.8s on the same build depending on when the lazy loader got to it.
    */
   priority?: boolean;
+  /**
+   * False while the list is translated off-screen behind an open detail
+   * panel. Chrome's lazy-loading threshold reaches thousands of pixels past
+   * the viewport on a slow connection, so `loading="lazy"` alone still
+   * fetched all 35 cards on a /property/<slug> arrival — 1,594 KB for a list
+   * the visitor is not looking at. The only reliable gate is not rendering
+   * the <img> at all. The box keeps its size either way, so revealing the
+   * list shifts nothing.
+   */
+  showImage?: boolean;
 }
 
 /**
@@ -47,6 +57,7 @@ export function PropertyCard({
   onLeave,
   onClick,
   priority = false,
+  showImage = true,
 }: PropertyCardProps) {
   return (
     <div 
@@ -59,14 +70,22 @@ export function PropertyCard({
       onMouseLeave={onLeave}
     >
       <div className={styles.imageContainer}>
-        <Image 
-          src={property.coverImage} 
-          alt={property.name} 
-          className={styles.image}
-          fill
-          sizes="(max-width: 768px) 100vw, (max-width: 1024px) 380px, 480px"
-          priority={priority}
-        />
+        {showImage && (
+          <Image
+            src={property.coverImage}
+            alt={property.name}
+            className={styles.image}
+            fill
+            sizes="(max-width: 768px) 100vw, (max-width: 1024px) 380px, 480px"
+            priority={priority}
+            /* `priority` emits the <link rel="preload"> and drops
+               loading="lazy", but Next does not put fetchpriority on the
+               <img> itself, so the request still queues behind the scripts.
+               Setting it here is what actually moves the LCP image to the
+               front. Measured Load Delay of 3,962 ms without it. */
+            fetchPriority={priority ? "high" : undefined}
+          />
+        )}
       </div>
       
       <div className={styles.gradientOverlay} />

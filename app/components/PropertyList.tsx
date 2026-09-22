@@ -9,7 +9,7 @@ import { SearchX, Home } from "lucide-react";
  * what fits above the fold on a phone, and the first of them is the page's
  * LCP element.
  */
-const PRIORITY_CARDS = 1;
+const PRIORITY_CARDS = 2;
 
 interface PropertyListProps {
   /** The properties left after filtering. */
@@ -31,6 +31,11 @@ interface PropertyListProps {
   selectedId: string | null;
   onHover: (id: string | null) => void;
   onSelect: (id: string | null) => void;
+  /**
+   * False while the whole list sits off-screen behind an open detail panel.
+   * See `showImage` on PropertyCard for why lazy-loading is not enough.
+   */
+  showImages?: boolean;
 }
 
 export function PropertyList({
@@ -41,6 +46,7 @@ export function PropertyList({
   selectedId,
   onHover,
   onSelect,
+  showImages = true,
 }: PropertyListProps) {
 
   // Smoothly scroll the list to the selected property card when it changes
@@ -100,8 +106,11 @@ export function PropertyList({
             onLeave={() => onHover(null)}
             onClick={() => onSelect(property.id)}
             /* Only the cards that are actually above the fold. Preloading the
-               whole list would put 43 images in front of everything else. */
-            priority={index < PRIORITY_CARDS}
+               whole list would put 43 images in front of everything else.
+               A deferred list preloads nothing: there is no point putting an
+               off-screen image at the front of the queue. */
+            priority={showImages && index < PRIORITY_CARDS}
+            showImage={showImages}
           />
         </div>
       ))}

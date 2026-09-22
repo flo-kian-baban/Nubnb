@@ -9,6 +9,9 @@
  *   node scripts/mirror-images.mjs --run         # every remaining property
  *   node scripts/mirror-images.mjs --verify      # B3 verification against live state
  *   node scripts/mirror-images.mjs --run --only=<id|name>   # one property
+ *   node scripts/mirror-images.mjs --variants    # backfill WebP variants only
+ *   node scripts/mirror-images.mjs --variants --dry-run     # report, write nothing
+ *   node scripts/mirror-images.mjs --variants --concurrency=8
  *
  * ── Safety model ──────────────────────────────────────────────────
  * ADDITIVE ONLY. The only fields ever written are `coverImageStored` (string)
@@ -24,6 +27,26 @@
  * stored, and read back successfully. A partial `imagesStored` is never
  * written — on any failure the document is left untouched and the run moves on.
  *
+ * ── Variants (--variants) ─────────────────────────────────────────
+ * Every mirrored original also carries WebP variants at 200/750/1200px,
+ * stored beside it as `<original-without-ext>_w<width>.webp` and written with
+ * THE SAME download token as the original. That is what lets the public
+ * surfaces derive a variant's URL from the stored URL alone, with no second
+ * Firestore field. See app/lib/image-variants.ts.
+ *
+ * `--variants` is a STORAGE-ONLY mode: it reads `coverImageStored` /
+ * `imagesStored` from Firestore and writes nothing back. No document is
+ * touched, and `assertAdditiveOnly` is never reached because no payload is
+ * built. It is idempotent — a re-run over a complete catalogue writes nothing
+ * and downloads nothing, so it is safe to interrupt and restart at any point.
+ *
+ * `--concurrency=N` (default 1) processes N images at a time. Each image
+ * writes only to its own derived paths, so parallel workers never contend for
+ * an object; the shared `present` set is only ever added to. Serial is the
+ * default because the `--run` mode it shares code with must stay gentle with
+ * Airbnb's CDN — the variant backfill talks only to our own bucket, so it can
+ * be pushed harder.
+ *
  * ── Resumability ──────────────────────────────────────────────────
  * Object paths are derived deterministically from the source URL
  * (sha256 → 16 hex chars), so a re-run recognises what it already stored.
@@ -36,6 +59,8 @@ import { readFileSync, writeFileSync, appendFileSync, mkdirSync } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import sharp from 'sharp';
 
 import { initializeApp, cert } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
@@ -56,6 +81,10 @@ const MIRROR_PREFIX = 'properties/mirrored';
 
 /** The only two fields this script may ever write. */
 const ALLOWED_FIELDS = ['coverImageStored', 'imagesStored'];
+
+/** Variant widths and encoding. Kept in sync with app/lib/image-variants.ts. */
+const VARIANT_WIDTHS = [200, 750, 1200];
+const VARIANT_QUALITY = 75;
 
 const EXPECTED_PROPERTIES = 43;
 const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
@@ -233,7 +262,7 @@ function logImage(record) {
 
 // ── core ─────────────────────────────────────────────────────────
 
-async function mirrorOneImage({ bucket, bucketName, propertyId, index, sourceUrl, existing }) {
+async function mirrorOneImage({ bucket, bucketName, propertyId, index, sourceUrl, existing, present }) {
   const key = urlHash(sourceUrl);
   const slot = slotLabel(index);
   const base = { property: propertyId, slot, sourceUrl };
@@ -247,6 +276,16 @@ async function mirrorOneImage({ bucket, bucketName, propertyId, index, sourceUrl
       const check = await fetchWithRetry(url, { anonymous: true });
       const storedBytes = Number(already.metadata?.size || 0);
       if (check.ok && check.buf.length === storedBytes) {
+        // An image is not complete until its variants exist too.
+        try {
+          await ensureVariants({
+            bucket, objectPath: already.name, token: String(token).split(',')[0], present, dryRun: false,
+          });
+        } catch (err) {
+          const rec = { ...base, outcome: 'failed', reason: `variant generation failed: ${err.message}` };
+          logImage(rec);
+          return { ok: false, reason: rec.reason };
+        }
         const rec = { ...base, outcome: 'skipped-already-stored', storedUrl: url, bytes: storedBytes };
         logImage(rec);
         return { ok: true, url, bytes: storedBytes, reused: true };
@@ -325,6 +364,16 @@ async function mirrorOneImage({ bucket, bucketName, propertyId, index, sourceUrl
     return { ok: false, reason: rec.reason };
   }
 
+  // ── Variants, from the bytes already in hand ──
+  present.add(objectPath);
+  try {
+    await ensureVariants({ bucket, objectPath, token, present, dryRun: false });
+  } catch (err) {
+    const rec = { ...base, outcome: 'failed', reason: `variant generation failed: ${err.message}`, storedUrl: url };
+    logImage(rec);
+    return { ok: false, reason: rec.reason };
+  }
+
   logImage({ ...base, outcome: 'mirrored', storedUrl: url, bytes: bytes.length, contentType: sniffed });
   return { ok: true, url, bytes: bytes.length, reused: false };
 }
@@ -394,8 +443,15 @@ async function mirrorProperty({ db, bucket, bucketName, reference, dryRun }) {
   // would re-upload bytes already stored under the old name. Nothing is ever
   // deleted here, so that would leak an object on every reorder.
   const existing = new Map();
+  // Every object name under this property, so `ensureVariants` can test a
+  // variant's existence without a request per width.
+  const present = new Set();
   const [files] = await bucket.getFiles({ prefix: `${MIRROR_PREFIX}/${propertyId}/` });
   for (const f of files) {
+    present.add(f.name);
+    // A variant is not a reuse candidate for an original, and parsing one as
+    // if it were yields a "hash" of `w200`. Skip them.
+    if (/_w\d+\.webp$/i.test(f.name)) continue;
     const base = (f.name.split('/').pop() || '').replace(/\.[a-z0-9]+$/i, '');
     const hash = base.includes('_') ? base.slice(base.lastIndexOf('_') + 1) : base;
     existing.set(hash, f);
@@ -414,6 +470,7 @@ async function mirrorProperty({ db, bucket, bucketName, reference, dryRun }) {
       index: i,
       sourceUrl: sources[i],
       existing,
+      present,
     });
     if (r.ok) {
       storedUrls.push(r.url);
@@ -578,15 +635,144 @@ async function verify({ db, bucket, reference }) {
   return out;
 }
 
+// ── variants ─────────────────────────────────────────────────────
+
+/** `properties/mirrored/x/cover_ab12.jpg` -> `properties/mirrored/x/cover_ab12_w750.webp` */
+function variantObjectPath(originalPath, width) {
+  return `${originalPath.replace(/\.[a-z0-9]+$/i, '')}_w${width}.webp`;
+}
+
+/** The object path and token inside one of our own download URLs, or null. */
+function ownObjectRef(url) {
+  const m = /^https:\/\/firebasestorage\.googleapis\.com\/v0\/b\/[^/]+\/o\/([^?]+)\?(.*)$/.exec(url);
+  if (!m) return null;
+  const token = new URLSearchParams(m[2]).get('token');
+  if (!token) return null;
+  try {
+    return { path: decodeURIComponent(m[1]), token };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Write any missing variants of `objectPath`, each carrying `token`.
+ *
+ * `present` is the set of object names already in the bucket, so a complete
+ * image costs one set lookup per width and no network at all. The original is
+ * downloaded only when something is actually missing.
+ */
+async function ensureVariants({ bucket, objectPath, token, present, dryRun }) {
+  const missing = VARIANT_WIDTHS.filter((w) => !present.has(variantObjectPath(objectPath, w)));
+  if (missing.length === 0) return { written: 0, missing: [] };
+  if (dryRun) return { written: 0, missing };
+
+  const [bytes] = await bucket.file(objectPath).download();
+
+  for (const width of missing) {
+    const target = variantObjectPath(objectPath, width);
+    const out = await sharp(bytes)
+      .resize({ width, withoutEnlargement: true })
+      .webp({ quality: VARIANT_QUALITY })
+      .toBuffer();
+
+    await bucket.file(target).save(out, {
+      resumable: false,
+      contentType: 'image/webp',
+      metadata: {
+        contentType: 'image/webp',
+        cacheControl: 'public, max-age=31536000, immutable',
+        metadata: {
+          // Same token as the original — this is what makes the variant URL
+          // derivable from the stored URL. See app/lib/image-variants.ts.
+          firebaseStorageDownloadTokens: token,
+          variantOf: objectPath,
+          variantWidth: String(width),
+        },
+      },
+    });
+    present.add(target);
+    logImage({ property: '-', slot: `w${width}`, outcome: 'variant', storedUrl: target, bytes: out.length });
+  }
+
+  return { written: missing.length, missing };
+}
+
+/**
+ * Backfill variants for every stored image in the live catalogue.
+ *
+ * Firestore is READ ONLY here: `coverImageStored` and `imagesStored` are read
+ * to find the objects, and no document is written. Storage is the only thing
+ * that changes.
+ */
+async function backfillVariants({ db, bucket, dryRun, concurrency = 1 }) {
+  const lines = [];
+  const snap = await db.collection('properties').select('name', 'coverImageStored', 'imagesStored').get();
+
+  // One listing of the whole prefix, so existence is a set lookup.
+  const present = new Set();
+  const [files] = await bucket.getFiles({ prefix: 'properties/' });
+  for (const f of files) present.add(f.name);
+  lines.push(`objects in bucket before: ${present.size}`);
+
+  let complete = 0, written = 0, done = 0;
+  const unaddressable = [], failed = [];
+
+  // Flatten to one work item per stored image, so the pool is evenly fed
+  // regardless of how many images each property has (6 to 48).
+  const work = [];
+  for (const doc of snap.docs) {
+    const d = doc.data();
+    const urls = [d.coverImageStored, ...(Array.isArray(d.imagesStored) ? d.imagesStored : [])]
+      .filter((u) => typeof u === 'string' && u);
+    for (const url of urls) work.push({ id: doc.id, url });
+  }
+  const images = work.length;
+
+  let next = 0;
+  async function worker() {
+    for (;;) {
+      const i = next++;
+      if (i >= work.length) return;
+      const { id, url } = work[i];
+      const ref = ownObjectRef(url);
+      if (!ref) { unaddressable.push(`${id} ${url.slice(0, 60)}`); continue; }
+      try {
+        const r = await ensureVariants({ bucket, objectPath: ref.path, token: ref.token, present, dryRun });
+        if (r.missing.length === 0) complete++;
+        written += r.written;
+      } catch (err) {
+        failed.push(`${id} ${ref.path}: ${err.message}`);
+      }
+      if (++done % 25 === 0) process.stdout.write(`\r  ${done}/${images} images`);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.max(1, concurrency) }, worker));
+  process.stdout.write(`\r  ${done}/${images} images\n`);
+
+  lines.push(`properties:            ${snap.size}`);
+  lines.push(`stored images:         ${images}`);
+  lines.push(`already complete:      ${complete}`);
+  lines.push(`variants written:      ${written}${dryRun ? ' (dry run — nothing written)' : ''}`);
+  lines.push(`concurrency:           ${concurrency}`);
+  lines.push(`unaddressable URLs:    ${unaddressable.length}${unaddressable.length ? ' — ' + unaddressable.join('; ') : ''}`);
+  lines.push(`failed:                ${failed.length}${failed.length ? ' — ' + failed.join('; ') : ''}`);
+  lines.push(`FIRESTORE WRITES:      0 (this mode never writes a document)`);
+  return { lines, ok: failed.length === 0 };
+}
+
 // ── main ─────────────────────────────────────────────────────────
 
 async function main() {
   const args = process.argv.slice(2);
   const mode =
-    args.includes('--verify') ? 'verify'
+    args.includes('--variants') ? 'variants'
+    : args.includes('--verify') ? 'verify'
     : args.includes('--canary') ? 'canary'
     : args.includes('--run') ? 'run'
     : 'preflight';
+  const dryRun = args.includes('--dry-run');
+  const concurrency = Number((args.find((a) => a.startsWith('--concurrency=')) || '').split('=')[1]) || 1;
 
   const env = readEnvFile(ENV_FILE);
   const sa = JSON.parse(unquote(env.FIREBASE_SERVICE_ACCOUNT_KEY || ''));
@@ -604,6 +790,16 @@ async function main() {
   console.log(`bucket:  ${bucketName}`);
   console.log(`backup:  ${REFERENCE_BACKUP}`);
   console.log('');
+
+  if (mode === 'variants') {
+    console.log(`log:   ${initLog('variants')}`);
+    console.log('');
+    const { lines, ok } = await backfillVariants({ db, bucket, dryRun, concurrency });
+    console.log('── VARIANT BACKFILL ──');
+    for (const l of lines) console.log(l);
+    if (!ok) process.exitCode = 1;
+    return;
+  }
 
   if (mode === 'verify') {
     const lines = await verify({ db, bucket, reference });

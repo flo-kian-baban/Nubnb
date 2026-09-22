@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import styles from "../page.module.css";
 import { Property, PropertySummary } from "@/app/types/property";
-import { MapView } from "./MapView";
+import { DeferredMap } from "./DeferredMap";
 import { PropertyList } from "./PropertyList";
 import { TopFilters } from "./TopFilters";
 import { MapFilters } from "./MapFilters";
@@ -259,7 +259,9 @@ export default function HomePage({ properties, initialSlug, initialProperty }: H
 
     (async () => {
       try {
-        const res = await fetch(`/api/properties/${selectedId}`, {
+        // The static twin of /api/properties/[id]: prerendered per property
+        // and served from the CDN, so opening a panel runs no function.
+        const res = await fetch(`/api/property/${selectedId}`, {
           signal: AbortSignal.timeout(DETAIL_FETCH_TIMEOUT_MS),
         });
         if (!res.ok) throw new Error(`Request failed with ${res.status}`);
@@ -286,6 +288,24 @@ export default function HomePage({ properties, initialSlug, initialProperty }: H
   }, [selectedId, detailCache, detailAttempt]);
 
   const handleDetailRetry = useCallback(() => setDetailAttempt((n) => n + 1), []);
+
+  /**
+   * Whether the list's images are worth loading yet.
+   *
+   * Arriving on /property/<slug> opens the detail panel immediately and
+   * translates the whole list off-screen, but the cards are still in the DOM
+   * and Chrome's lazy-loading threshold reaches far enough past the viewport
+   * to fetch every one of them: 35 card images, 1,594 KB, for a list nobody
+   * is looking at. They are held back until the panel closes and the list is
+   * actually on screen.
+   *
+   * One-way: once revealed the images stay, so closing and reopening a
+   * property does not re-gate them.
+   */
+  const [listRevealed, setListRevealed] = useState(!initialProperty);
+  useEffect(() => {
+    if (!selectedId) setListRevealed(true);
+  }, [selectedId]);
 
   // ── Debounced availability fetch ──
   // Uses a ref-based debounce so rapid date changes don't flood the API.
@@ -498,6 +518,7 @@ export default function HomePage({ properties, initialSlug, initialProperty }: H
             selectedId={selectedId}
             onHover={setHoveredId}
             onSelect={handleSelectProperty}
+            showImages={listRevealed}
           />
         </div>
         <Link href="/about" className={styles.aboutBtnSidebar}>
@@ -521,7 +542,7 @@ export default function HomePage({ properties, initialSlug, initialProperty }: H
         <Link href="/about" className={styles.aboutBtn}>
           About Us
         </Link>
-        <MapView
+        <DeferredMap
           properties={filteredProperties}
           hoveredId={hoveredId}
           selectedId={selectedId}

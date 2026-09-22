@@ -13,7 +13,11 @@
  * `scripts/mirror-images.mjs` remains the catch-up tool.
  *
  * Request:  `{ id: string }`
- * Response: `{ success: true, data: { mirrored, reused, alreadyStored, imageCount } }`
+ * Response: `{ success: true, data: { mirrored, reused, alreadyStored, variants, imageCount } }`
+ *
+ * An image counts as stored only once its original *and* all three WebP
+ * variants exist, because the public surfaces derive a variant's URL from the
+ * stored URL and a missing variant would render a 403.
  */
 
 import { NextRequest } from 'next/server';
@@ -21,6 +25,7 @@ import { getAdminDb } from '@/app/lib/firebase/admin';
 import { verifyAdminSession } from '@/app/lib/api/verify-admin';
 import { apiSuccess, apiError, apiFailure } from '@/app/lib/api/safe-response';
 import { mirrorPropertyImages } from '@/app/lib/mirror-images';
+import { revalidateListingPages } from '@/app/lib/revalidate-listings';
 
 const COLLECTION = 'properties';
 
@@ -77,6 +82,7 @@ export async function POST(request: NextRequest) {
           reason: result.reason || 'unknown',
           mirrored: result.mirrored,
           reused: result.reused,
+          variants: result.variants,
           failed: result.failed,
         },
       });
@@ -90,15 +96,25 @@ export async function POST(request: NextRequest) {
       imagesStored: result.imagesStored,
     });
 
+    // The public pages read `coverImageStored`/`imagesStored` now, so this
+    // route changes what renters see and has to invalidate like any other
+    // write. Without it a newly mirrored image waits out the hour-long ISR
+    // window before appearing. The create/update/delete routes already do
+    // this; until these fields were read by anything, this one had no reason
+    // to.
+    revalidateListingPages(`mirror ${id}`);
+
     console.log(
       `[mirror-property-images] ${id}: mirrored=${result.mirrored} reused=${result.reused} ` +
-        `alreadyStored=${result.alreadyStored} total=${(result.imagesStored?.length ?? 0) + 1}`,
+        `alreadyStored=${result.alreadyStored} variants=${result.variants} ` +
+        `total=${(result.imagesStored?.length ?? 0) + 1}`,
     );
 
     return apiSuccess({
       mirrored: result.mirrored,
       reused: result.reused,
       alreadyStored: result.alreadyStored,
+      variants: result.variants,
       imageCount: (result.imagesStored?.length ?? 0) + 1,
     });
   } catch (err) {
