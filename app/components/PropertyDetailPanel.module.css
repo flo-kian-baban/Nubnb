@@ -32,7 +32,10 @@
   --bg-overlay: rgba(15, 15, 17, 0.85);
   --text-primary: #F0F0F0;
   --text-secondary: #A0A0A0;
-  --text-tertiary: #707070;
+  /* Was #707070, which is 3.44:1 on --bg-secondary and failed WCAG AA.
+     #949494 clears 4.5:1 against all three panel backgrounds:
+     6.31:1 on #0F0F11, 5.61:1 on #1C1C1E, 4.59:1 on #2C2C2E. */
+  --text-tertiary: #949494;
   --brand-navy: #0A0A0C;
   --brand-navy-light: #1A1A1C;
   --brand-dark-blue: #93B5DD;
@@ -181,30 +184,54 @@
 .carouselNavPrev { left: 20px; }
 .carouselNavNext { right: 20px; }
 
+/* The row scrolls rather than overflowing: with 24px touch targets a
+   48-image property would otherwise lay out 1,152px of indicators inside a
+   375px panel. The scrollbar is hidden, as it is on the thumbnail strip. */
 .carouselIndicators {
   position: absolute;
   bottom: 20px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
-  gap: 6px;
+  gap: 0;
+  max-width: min(88%, 420px);
+  overflow-x: auto;
+  scrollbar-width: none;
   z-index: 10;
 }
 
+.carouselIndicators::-webkit-scrollbar { display: none; }
+
+/* The button is the touch target — 24x24, the WCAG 2.2 minimum and what
+   Lighthouse's target-size audit measures. It reads the element's own
+   bounding box, so expanding the hit area with a pseudo-element would not
+   have counted. The dot the visitor sees is drawn by ::before at its
+   original 7px, so nothing looks different. */
 .carouselDot {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  display: grid;
+  place-items: center;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.carouselDot::before {
+  content: "";
+  display: block;
   width: 7px;
   height: 7px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.45);
-  border: none;
-  cursor: pointer;
-  padding: 0;
   transition: all 0.25s ease;
 }
 
-.carouselDot:hover { background: rgba(255, 255, 255, 0.75); }
+.carouselDot:hover::before { background: rgba(255, 255, 255, 0.75); }
 
-.carouselDotActive {
+.carouselDotActive::before {
   background: white;
   width: 20px;
   border-radius: 10px;

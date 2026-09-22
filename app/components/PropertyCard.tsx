@@ -5,6 +5,29 @@ import { MapPin } from "lucide-react";
 import { PropertySummary } from "@/app/types/property";
 import styles from "./PropertyCard.module.css";
 import { nightlyPrice } from "@/app/lib/price";
+import { useNearViewport } from "@/app/lib/useNearViewport";
+import { withMinVariantWidth } from "@/app/lib/image-variants";
+
+/**
+ * How far ahead of the viewport a card asks for its image.
+ *
+ * One screen-ish. Tight enough that a card well below the fold stays
+ * unrequested — the whole point, since 618 KB of off-screen card images were
+ * competing with the LCP image for bandwidth — and loose enough that an
+ * image is in flight before a normal scroll reaches it.
+ */
+const IMAGE_PRELOAD_MARGIN = "400px";
+
+/**
+ * The narrowest variant a card may ever be served.
+ *
+ * A card is between 375 and 480 CSS px wide, so w200 would be a visibly soft
+ * upscale. `next/image` does not offer a way to restrict a single image's
+ * candidate widths, so the floor is declared on the src and enforced by our
+ * own loader — see `withMinVariantWidth`. It is a no-op today and a guard
+ * against next/image changing how it picks candidates.
+ */
+const CARD_MIN_WIDTH = 400;
 
 interface PropertyCardProps {
   property: PropertySummary;
@@ -31,6 +54,10 @@ interface PropertyCardProps {
    * the visitor is not looking at. The only reliable gate is not rendering
    * the <img> at all. The box keeps its size either way, so revealing the
    * list shifts nothing.
+   *
+   * When true the card still waits until it is within
+   * IMAGE_PRELOAD_MARGIN of the viewport, unless `priority` says it is
+   * above the fold.
    */
   showImage?: boolean;
 }
@@ -59,6 +86,14 @@ export function PropertyCard({
   priority = false,
   showImage = true,
 }: PropertyCardProps) {
+  // An above-the-fold card never waits: it is the LCP candidate and is
+  // preloaded from the HTML.
+  const [imageRef, nearViewport] = useNearViewport<HTMLDivElement>(
+    IMAGE_PRELOAD_MARGIN,
+    priority,
+  );
+  const loadImage = showImage && nearViewport;
+
   return (
     <div 
       className={`
@@ -69,13 +104,22 @@ export function PropertyCard({
       onMouseEnter={onHover}
       onMouseLeave={onLeave}
     >
-      <div className={styles.imageContainer}>
-        {showImage && (
+      <div className={styles.imageContainer} ref={imageRef}>
+        {loadImage && (
           <Image
-            src={property.coverImage}
+            src={withMinVariantWidth(property.coverImage, CARD_MIN_WIDTH)}
             alt={property.name}
             className={styles.image}
             fill
+            /* The honest figure: a card fills the screen at phone width.
+
+               A DPR-2 phone therefore asks for 750px and gets the w750
+               variant. The w400 variant serves DPR-1 and the narrower
+               breakpoints. An earlier revision declared 51vw to force w400
+               everywhere; that traded sharpness for bytes by lying about the
+               layout, and it leaned on next/image's candidate arithmetic to
+               keep the 200px thumbnail size out of this srcset. Both are
+               stated directly now — the width below, and CARD_MIN_WIDTH. */
             sizes="(max-width: 768px) 100vw, (max-width: 1024px) 380px, 480px"
             priority={priority}
             /* `priority` emits the <link rel="preload"> and drops

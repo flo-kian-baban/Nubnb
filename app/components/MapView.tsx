@@ -11,6 +11,26 @@ import { nightlyPrice } from "@/app/lib/price";
 
 /* Pins price through the shared helper, like every other surface. */
 
+/**
+ * A ref that gives a marker's own element a useful accessible name.
+ *
+ * MapLibre builds the `.maplibregl-marker` wrapper itself and hard-codes
+ * `aria-label="Map marker"` with `role="button"` on it. react-map-gl renders
+ * our content *inside* that wrapper and offers no way to set the label, so
+ * every price pin announced as "Map marker" while visibly showing a price.
+ * That is what Lighthouse's label-content-name-mismatch audit was failing on.
+ *
+ * A callback ref rather than a hook, because two of the three marker sites
+ * are inside a `.map()` where a hook cannot be called. `closest` rather than
+ * `parentElement` because how many wrapper levels react-map-gl uses is its
+ * business, not ours.
+ */
+function markerLabel(label: string) {
+  return (node: HTMLElement | null) => {
+    node?.closest<HTMLElement>(".maplibregl-marker")?.setAttribute("aria-label", label);
+  };
+}
+
 /* ── Memoized single-property marker ──
  * Only re-renders when its own hover/select/condensed state changes.
  * Prevents N marker re-creates on every zoom tick.
@@ -44,6 +64,7 @@ const PropertyMarker = React.memo(function PropertyMarker({
       }}
     >
       <div
+        ref={markerLabel(`${property.name}, $${nightlyPrice(property)} per night`)}
         className={`
           ${styles.marker} 
           ${(isCondensed && !isHovered && !isSelected) ? styles.condensed : ""} 
@@ -366,7 +387,14 @@ export function MapView({
                 }, 1000);
               }}
             >
-              <div className={`${styles.clusterMarker} ${clusterHovered ? styles.clusterHovered : ""}`}>
+              <div
+                ref={markerLabel(
+                  `${cluster.properties.length} properties here, from $${Math.min(
+                    ...cluster.properties.map((p) => nightlyPrice(p)),
+                  )} per night`,
+                )}
+                className={`${styles.clusterMarker} ${clusterHovered ? styles.clusterHovered : ""}`}
+              >
                 <span className={styles.clusterCount}>{cluster.properties.length}</span>
                 <span className={styles.clusterLabel}>units</span>
               </div>
@@ -396,6 +424,7 @@ export function MapView({
                   }}
                 >
                   <div
+                    ref={markerLabel(`${property.name}, $${nightlyPrice(property)} per night`)}
                     className={styles.expandedOffset}
                     style={{ transform: `translateY(${yOffset}px)` }}
                   >

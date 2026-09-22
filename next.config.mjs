@@ -26,7 +26,7 @@ const nextConfig = {
      * The sources cap at 1200px wide — Airbnb serves `im_w=1200` — so there
      * is nothing above 1200 to offer.
      */
-    deviceSizes: [750, 1200],
+    deviceSizes: [400, 750, 1200],
     imageSizes: [200],
 
     /**

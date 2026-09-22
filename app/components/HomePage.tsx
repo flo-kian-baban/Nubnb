@@ -330,11 +330,9 @@ export default function HomePage({ properties, initialSlug, initialProperty }: H
       Promise.all(
         propsWithICal.map(async (p) => {
           try {
-            const res = await fetch("/api/fetch-booked-dates", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ icalUrl: p.icalUrl }),
-            });
+            // GET keyed by property: edge-cacheable, so the availability
+            // filter stops running one function per property per change.
+            const res = await fetch(`/api/booked-dates/${p.id}`);
             if (!res.ok) return { id: p.id, dates: new Set<string>() };
             const result = await res.json();
             const dateSet = new Set<string>();

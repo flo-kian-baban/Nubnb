@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useState } from "react";
+import { bareStoredUrl } from "@/app/lib/image-variants";
 
 /**
  * A property image, served from Nubnb's own Storage through the custom
@@ -38,7 +39,7 @@ export function StoredImage({ src, alt, sizes, className, priority = false }: St
   return (
     <Image
       key={src}
-      src={src}
+      src={variantFailed ? bareStoredUrl(src) : src}
       alt={alt}
       fill
       sizes={sizes}

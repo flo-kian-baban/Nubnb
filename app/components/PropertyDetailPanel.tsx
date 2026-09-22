@@ -4,6 +4,7 @@ import { Property, PropertySummary } from "@/app/types/property";
 import styles from "./PropertyDetailPanel.module.css";
 import { nightlyPrice } from "@/app/lib/price";
 import { StoredImage } from "./StoredImage";
+import { GalleryThumb } from "./GalleryThumb";
 import { DayPicker, DateRange } from "react-day-picker";
 import "react-day-picker/style.css";
 import { format, differenceInDays, addDays, addYears, eachDayOfInterval, parseISO, isAfter, isBefore, startOfDay } from "date-fns";
@@ -153,11 +154,9 @@ export function PropertyDetailPanel({
     const fetchBookedDates = async () => {
       setCalendarLoading(true);
       try {
-        const res = await fetch('/api/fetch-booked-dates', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ icalUrl: property.icalUrl }),
-        });
+        // A GET keyed by property, so Vercel's CDN can answer it and the
+        // panel costs no function on a repeat open. See the route's header.
+        const res = await fetch(`/api/booked-dates/${property.id}`);
 
         if (!res.ok) throw new Error('Failed to fetch');
 
@@ -420,20 +419,16 @@ export function PropertyDetailPanel({
           <div className={styles.thumbnailContainer}>
             <div className={styles.galleryThumbnails}>
               {allImages.map((img, idx) => (
-                <div
+                <GalleryThumb
                   key={idx}
+                  src={img}
+                  index={idx}
+                  active={currentImageIndex === idx}
                   className={`${styles.galleryItem} ${currentImageIndex === idx ? styles.galleryItemActive : ''}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setCurrentImageIndex(idx);
-                  }}
-                  title={`View image ${idx + 1}`}
-                >
-                  {/* Decorative: the control is the tile, which carries the
-                      accessible name via `title`. An alt here would announce
-                      the same property name 39 times over. */}
-                  <StoredImage src={img} alt="" className={styles.galleryImage} sizes={THUMB_SIZES} />
-                </div>
+                  imageClassName={styles.galleryImage}
+                  sizes={THUMB_SIZES}
+                  onSelect={() => setCurrentImageIndex(idx)}
+                />
               ))}
             </div>
           </div>

@@ -28,7 +28,7 @@
  * written — on any failure the document is left untouched and the run moves on.
  *
  * ── Variants (--variants) ─────────────────────────────────────────
- * Every mirrored original also carries WebP variants at 200/750/1200px,
+ * Every mirrored original also carries WebP variants at 200/400/750/1200px,
  * stored beside it as `<original-without-ext>_w<width>.webp` and written with
  * THE SAME download token as the original. That is what lets the public
  * surfaces derive a variant's URL from the stored URL alone, with no second
@@ -83,7 +83,7 @@ const MIRROR_PREFIX = 'properties/mirrored';
 const ALLOWED_FIELDS = ['coverImageStored', 'imagesStored'];
 
 /** Variant widths and encoding. Kept in sync with app/lib/image-variants.ts. */
-const VARIANT_WIDTHS = [200, 750, 1200];
+const VARIANT_WIDTHS = [200, 400, 750, 1200];
 const VARIANT_QUALITY = 75;
 
 const EXPECTED_PROPERTIES = 43;

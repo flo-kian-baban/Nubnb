@@ -6,7 +6,13 @@ import { PropertySummary } from "@/app/types/property";
 import styles from "./MapView.module.css";
 
 /**
- * MapLibre, loaded after the list has painted.
+ * The longest the map waits for the page to finish loading before mounting
+ * anyway. A visitor on a flaky connection still gets a map.
+ */
+const MAP_MOUNT_BACKSTOP_MS = 4000;
+
+/**
+ * MapLibre, loaded after the page's own resources have.
  *
  * MapLibre GL is 271 KB over the wire and 1,025 KB unpacked, and it cost
  * 710 ms of main-thread time (547 ms of it scripting) during the first paint.
@@ -45,38 +51,51 @@ export function DeferredMap(props: DeferredMapProps) {
   useEffect(() => {
     let cancelled = false;
     let idleHandle: number | undefined;
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let idleFallback: ReturnType<typeof setTimeout> | undefined;
 
     const mount = () => {
       if (!cancelled) setMounted(true);
     };
 
-    // One frame to let the hydrated list paint, then the first idle moment
-    // after it. The 1.5 s timeout is the backstop: on a slow phone the main
-    // thread may never go properly idle, and a map that never appears is a
-    // worse outcome than one that appears a beat late.
-    const frame = requestAnimationFrame(() => {
+    // Idle alone was not enough. The first idle callback fires about 100 ms
+    // into the page load, which is long before the LCP image has arrived, so
+    // MapLibre's 271 KB chunk and ~300 KB of tiles were still competing with
+    // it for bandwidth. Measured on production: blocking those two took the
+    // LCP image's load time from 5,799 ms to 1,106 ms — 81% of it was
+    // contention with the map, not origin latency.
+    //
+    // So the gate is the `load` event, which fires only once the images the
+    // page asked for up front have finished, and then idle on top of it.
+    const afterLoad = () => {
       if (cancelled) return;
       const ric = typeof window !== "undefined" ? window.requestIdleCallback : undefined;
-      if (ric) idleHandle = ric(mount, { timeout: 1500 });
-      else timer = setTimeout(mount, 300);
-    });
+      if (ric) idleHandle = ric(mount, { timeout: 1000 });
+      else idleFallback = setTimeout(mount, 200);
+    };
+
+    // A stalled third-party image must not be able to hold the map back
+    // forever, so `load` races a hard backstop.
+    const backstop = setTimeout(mount, MAP_MOUNT_BACKSTOP_MS);
+
+    if (document.readyState === "complete") afterLoad();
+    else window.addEventListener("load", afterLoad, { once: true });
 
     return () => {
       cancelled = true;
-      cancelAnimationFrame(frame);
+      window.removeEventListener("load", afterLoad);
       if (idleHandle !== undefined) window.cancelIdleCallback?.(idleHandle);
-      if (timer) clearTimeout(timer);
+      if (idleFallback) clearTimeout(idleFallback);
+      clearTimeout(backstop);
     };
   }, []);
 
   if (!mounted) {
-    return (
-      <div className={styles.mapContainer} aria-hidden="true">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo-nubnb.png" alt="" className={styles.mapLogo} />
-      </div>
-    );
+    // Deliberately empty. The logo the real map carries is 35.9 KB, and
+    // rendering it here put it in flight alongside the LCP image for the sake
+    // of a watermark on a grey rectangle nobody is looking at yet. MapView
+    // draws it the moment it mounts, which is the first point it means
+    // anything.
+    return <div className={styles.mapContainer} aria-hidden="true" />;
   }
 
   return <MapView {...props} />;

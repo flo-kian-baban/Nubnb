@@ -37,16 +37,22 @@
 /**
  * The widths generated for every mirrored image.
  *
- * Three, not five, because the sources cap at 1200px wide (Airbnb serves
- * `im_w=1200`) and the surfaces only ask for three sizes:
+ * Four, because the sources cap at 1200px wide (Airbnb serves `im_w=1200`)
+ * and the surfaces ask for four sizes:
  *   200  — the 100x68 detail-panel thumbnails at 2x
- *   750  — a card at phone width, and the detail hero on mobile, at 2x
+ *   400  — a card at phone width (see the `sizes` note in PropertyCard)
+ *   750  — a card on a tablet, and the detail hero on mobile, at 2x
  *  1200  — the detail hero on desktop; also the source's native width
+ *
+ * 400 was added after the production acceptance test: the card's LCP image
+ * was 87.3 KB at w750, and at the throttled 200 KB/s Lighthouse simulates
+ * that is 437 ms of transfer on its own. The same image at w400 is about
+ * 14 KB.
  *
  * Kept in sync with `images.deviceSizes` / `images.imageSizes` in
  * next.config.mjs, so `next/image` only ever asks for a width that exists.
  */
-export const VARIANT_WIDTHS = [200, 750, 1200] as const;
+export const VARIANT_WIDTHS = [200, 400, 750, 1200] as const;
 
 export type VariantWidth = (typeof VARIANT_WIDTHS)[number];
 
@@ -90,11 +96,50 @@ export function variantObjectPath(originalPath: string, width: number): string {
  * is the best we have — the sources are 1200px wide and there is nothing
  * sharper to serve.
  */
-export function pickVariantWidth(requested: number): VariantWidth {
+export function pickVariantWidth(requested: number, floor: number = 0): VariantWidth {
+  const wanted = Math.max(requested, floor);
   for (const w of VARIANT_WIDTHS) {
-    if (w >= requested) return w;
+    if (w >= wanted) return w;
   }
   return VARIANT_WIDTHS[VARIANT_WIDTHS.length - 1];
+}
+
+/**
+ * The URL fragment a call site uses to say "never serve me below this width".
+ *
+ * ── Why a fragment ──
+ * The `next/image` loader is handed only `{ src, width, quality }`, so a
+ * per-call-site rule has to travel inside `src`. A fragment is the one part
+ * of a URL the network layer ignores: browsers strip it before the request,
+ * it never reaches Storage, and it cannot affect caching. The loader reads it
+ * and removes it.
+ *
+ * ── Why this exists ──
+ * `next/image` decides which widths go in a `srcset` with an internal rule:
+ * a candidate survives when `w >= deviceSizes[0] * smallestRatio`, where
+ * `smallestRatio` comes from the smallest `vw` in `sizes`. With the honest
+ * `100vw` for a phone card that threshold is 400 and the 200px thumbnail
+ * size is excluded, which is what we want — but the card is relying on
+ * arithmetic inside a dependency, and a change to that rule would silently
+ * start serving 200px images stretched across a 375px card.
+ *
+ * `#minw=400` states the requirement in our own code instead. It is a no-op
+ * against today's `next/image`, because no 200w candidate is offered in the
+ * first place; it is there so that a future one cannot regress the card
+ * without us noticing.
+ */
+const MIN_WIDTH_FRAGMENT = /#minw=(\d+)$/;
+
+/** Tag `url` so the loader will never resolve it below `min`. */
+export function withMinVariantWidth(url: string, min: VariantWidth): string {
+  return `${url}#minw=${min}`;
+}
+
+/** Split a `#minw=` tag off a URL. Returns the bare URL and the floor. */
+export function readMinVariantWidth(url: string): { url: string; floor: number } {
+  const m = MIN_WIDTH_FRAGMENT.exec(url);
+  if (!m) return { url, floor: 0 };
+  return { url: url.slice(0, m.index), floor: Number(m[1]) };
 }
 
 /**
@@ -109,7 +154,9 @@ export function pickVariantWidth(requested: number): VariantWidth {
  * for objects that predate that rule.
  */
 export function variantUrl(storedUrl: string, width: number): string | null {
-  const m = DOWNLOAD_URL.exec(storedUrl);
+  const { url, floor } = readMinVariantWidth(storedUrl);
+
+  const m = DOWNLOAD_URL.exec(url);
   if (!m) return null;
 
   const [, origin, encodedPath, query] = m;
@@ -123,7 +170,21 @@ export function variantUrl(storedUrl: string, width: number): string | null {
 
   if (!objectPath.startsWith(VARIANT_PREFIX)) return null;
 
-  return origin + encodeURIComponent(variantObjectPath(objectPath, pickVariantWidth(width))) + query;
+  return (
+    origin +
+    encodeURIComponent(variantObjectPath(objectPath, pickVariantWidth(width, floor))) +
+    query
+  );
+}
+
+/**
+ * The URL to fall back to when a derived variant will not load.
+ *
+ * Strips any `#minw=` tag, so `unoptimized` renders the stored original
+ * rather than a URL with our private marker still on the end.
+ */
+export function bareStoredUrl(url: string): string {
+  return readMinVariantWidth(url).url;
 }
 
 /**
