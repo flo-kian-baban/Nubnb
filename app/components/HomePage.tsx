@@ -11,6 +11,7 @@ import { PropertyDetailPanel } from "./PropertyDetailPanel";
 import { ChevronRight, Map, LayoutList, MapPinOff } from "lucide-react";
 import Link from "next/link";
 import { toSlug, resolvePropertySlug } from "../lib/slug";
+import { preloadPropertyDetail } from "../lib/on-demand";
 
 export { toSlug };
 
@@ -217,8 +218,24 @@ export default function HomePage({ properties, initialSlug, initialProperty }: H
   }, []);
 
   const handleSelectProperty = useCallback((id: string | null) => {
-    if (id) setOpenedByUser(true);
+    if (id) {
+      setOpenedByUser(true);
+      preloadPropertyDetail();
+    }
     setSelectedId(id);
+  }, []);
+
+  /**
+   * Hovering or focusing a card or a pin is the cue to start downloading the
+   * detail panel's calendar and icon sanitiser, which the page no longer
+   * ships up front. A pointer normally rests on a card for a moment before
+   * the click, and that moment is enough for both to arrive before the panel
+   * needs them. Touchscreens have no hover; the list's `onPointerDown` below
+   * stands in for it.
+   */
+  const handleHover = useCallback((id: string | null) => {
+    if (id) preloadPropertyDetail();
+    setHoveredId(id);
   }, []);
 
   // Filter state
@@ -507,14 +524,14 @@ export default function HomePage({ properties, initialSlug, initialProperty }: H
           </div>
         </div>
 
-        <div className={styles.scrollArea}>
+        <div className={styles.scrollArea} onPointerDown={preloadPropertyDetail}>
           <PropertyList
             properties={filteredProperties}
             catalogueIsEmpty={properties.length === 0}
             onClearFilters={clearAllFilters}
             hoveredId={hoveredId}
             selectedId={selectedId}
-            onHover={setHoveredId}
+            onHover={handleHover}
             onSelect={handleSelectProperty}
             showImages={listRevealed}
           />
@@ -544,7 +561,7 @@ export default function HomePage({ properties, initialSlug, initialProperty }: H
           properties={filteredProperties}
           hoveredId={hoveredId}
           selectedId={selectedId}
-          onHover={setHoveredId}
+          onHover={handleHover}
           onSelect={handleSelectProperty}
         />
       </div>

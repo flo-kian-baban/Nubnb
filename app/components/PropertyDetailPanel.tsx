@@ -1,13 +1,13 @@
-import { useState, useEffect, useRef, useSyncExternalStore } from "react";
-import DOMPurify from "dompurify";
+import { useState, useEffect, useRef } from "react";
 import { Property, PropertySummary } from "@/app/types/property";
 import styles from "./PropertyDetailPanel.module.css";
 import { nightlyPrice } from "@/app/lib/price";
+import { calendarCode, svgSanitizer, useOnDemand, preloadPropertyDetail } from "@/app/lib/on-demand";
 import { StoredImage } from "./StoredImage";
 import { GalleryThumb } from "./GalleryThumb";
-import { DayPicker, DateRange } from "react-day-picker";
+import type { StaySelection } from "./Calendars";
+// Static, although the calendar's code is not: see the note in Calendars.tsx.
 import "react-day-picker/style.css";
-import { format, differenceInDays, addDays, addYears, eachDayOfInterval, parseISO, isAfter, isBefore, startOfDay } from "date-fns";
 import Link from "next/link";
 import {
   X, Star, Share, Users,
@@ -51,17 +51,77 @@ const HERO_SIZES = "(max-width: 900px) 100vw, 900px";
 const THUMB_SIZES = "100px";
 
 /**
- * True only once the component is running in the browser.
+ * An amenity icon, sanitised.
  *
- * `useSyncExternalStore` with a `false` server snapshot is the hydration-safe
- * way to ask this: the server render and the first client render both see
- * `false`, so nothing mismatches, and the second client render sees `true`.
+ * The icons are SVG markup stored on the document, so they have to be
+ * sanitised before they are injected. DOMPurify needs a real DOM and is not
+ * callable during a server render, and it is downloaded on demand rather than
+ * with the page, so an icon waits for it: `fallback` — the generic tick that
+ * already stands in for a missing icon — is shown until it is here. The
+ * server snapshot of `svgSanitizer` is always "pending", so the server render
+ * and the hydration render both show the fallback and nothing mismatches. The
+ * amenity's name is server-rendered either way, so nothing readable is
+ * deferred — only the decoration.
+ *
+ * Each icon subscribes on its own, so DOMPurify's arrival re-renders the
+ * icons and not the whole panel around them.
  */
-function useIsHydrated(): boolean {
-  return useSyncExternalStore(
-    () => () => {},
-    () => true,
-    () => false,
+function AmenityIcon({ markup, className, fallback }: {
+  markup: string;
+  className: string;
+  fallback: React.ReactNode;
+}) {
+  const sanitizer = useOnDemand(svgSanitizer, false);
+  const clean = sanitizer.status === 'loaded' ? sanitizer.value(markup) : '';
+  if (!clean) return <>{fallback}</>;
+  return <span className={className} dangerouslySetInnerHTML={{ __html: clean }} />;
+}
+
+/**
+ * The booking calendar, or what stands in for it.
+ *
+ * Its code — react-day-picker and date-fns — is downloaded on demand, so
+ * "Loading availability" also covers that code on its way down. It is fetched
+ * alongside the booked dates, so it is normally here first. The slot
+ * subscribes on its own, so the code's arrival re-renders the slot and not
+ * the whole panel.
+ *
+ * A chunk that failed cannot be fetched again in the same page (see
+ * app/lib/on-demand.ts), so the way out is a reload, which keeps the property
+ * open.
+ */
+function BookingCalendarSlot({ loading, selected, bookedDates, onSelect }: {
+  /** The booked dates are still on their way. */
+  loading: boolean;
+  selected: StaySelection['range'] | undefined;
+  bookedDates: Date[];
+  onSelect: (selection: StaySelection | undefined) => void;
+}) {
+  const calendar = useOnDemand(calendarCode, false);
+
+  if (calendar.status === 'failed' && !loading) {
+    return (
+      <div className={`${styles.statusMessage} ${styles.error}`} role="alert">
+        The calendar could not be loaded.{' '}
+        <button type="button" className={styles.detailNoticeRetry} onClick={() => window.location.reload()}>
+          <RefreshCw size={16} />
+          Reload the page
+        </button>
+      </div>
+    );
+  }
+  if (loading || calendar.status !== 'loaded') {
+    return <div className={styles.calendarLoading}>Loading availability...</div>;
+  }
+
+  const { BookingCalendar } = calendar.value;
+  return (
+    <BookingCalendar
+      selected={selected}
+      bookedDates={bookedDates}
+      onSelect={onSelect}
+      className={styles.calendarDayPicker}
+    />
   );
 }
 
@@ -76,16 +136,16 @@ export function PropertyDetailPanel({
   guests,
 }: PropertyDetailPanelProps) {
   /**
-   * The amenity icons are SVG markup stored on the document, so they have to
-   * be sanitised before they are injected. DOMPurify's default build needs a
-   * real DOM and its `sanitize` is not callable during a server render —
-   * which never came up before, because the panel only ever rendered in the
-   * browser. Now that /property/<slug> renders it on the server, the icons
-   * wait for hydration and the generic tick that already stands in for a
-   * missing icon is shown until then. The amenity's name is server-rendered
-   * either way, so nothing readable is deferred — only the decoration.
+   * The calendar's code and the icon sanitiser, started as soon as there is a
+   * property to show. On a /property/<slug> arrival that is just after
+   * hydration; from the list, HomePage has normally started both already, on
+   * hover, focus or press. Started, not subscribed to: AmenityIcon and
+   * BookingCalendarSlot subscribe, so an arrival re-renders them alone.
    */
-  const isHydrated = useIsHydrated();
+  const hasProperty = Boolean(property);
+  useEffect(() => {
+    if (hasProperty) preloadPropertyDetail();
+  }, [hasProperty]);
 
   /**
    * Focus management for the panel.
@@ -108,13 +168,9 @@ export function PropertyDetailPanel({
     event.stopPropagation();
     onClose();
   };
-  const safeIcon = (markup: string | undefined): string | null => {
-    if (!markup || !isHydrated) return null;
-    return DOMPurify.sanitize(markup, { USE_PROFILES: { svg: true, svgFilters: true } });
-  };
 
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
-  const [dateRange, setDateRange] = useState<DateRange | undefined>();
+  const [selection, setSelection] = useState<StaySelection | undefined>();
   /**
    * `no-dates` and `no-calendar` replace the two alert() calls that used to
    * sit on this path. A blocking, unstyled OS dialog is a poor way to tell
@@ -156,24 +212,17 @@ export function PropertyDetailPanel({
       try {
         // A GET keyed by property, so Vercel's CDN can answer it and the
         // panel costs no function on a repeat open. See the route's header.
-        const res = await fetch(`/api/booked-dates/${property.id}`);
+        // The calendar's code comes down alongside it, so the calendar is
+        // ready by the time there are dates to show on it.
+        const [res, { expandBookedRanges }] = await Promise.all([
+          fetch(`/api/booked-dates/${property.id}`),
+          calendarCode.load(),
+        ]);
 
         if (!res.ok) throw new Error('Failed to fetch');
 
         const result = await res.json();
-        const dates: Date[] = [];
-
-        // Expand each booked range into individual Date objects
-        for (const range of result.data.bookedRanges) {
-          const start = parseISO(range.start);
-          const end = parseISO(range.end);
-          if (start >= end) continue;
-          // eachDayOfInterval is inclusive of start, exclusive-ish — we use addDays to stop before end (checkout day is available)
-          const days = eachDayOfInterval({ start, end: addDays(end, -1) });
-          dates.push(...days);
-        }
-
-        setBookedDates(dates);
+        setBookedDates(expandBookedRanges(result.data.bookedRanges));
         lastFetchedIcalUrl.current = property.icalUrl;
       } catch (err) {
         console.error('Error fetching booked dates:', err);
@@ -185,8 +234,6 @@ export function PropertyDetailPanel({
 
     fetchBookedDates();
   }, [property?.icalUrl]);
-
-  const oneYearFromNow = addYears(new Date(), 1);
 
   // ── Nothing selected ──
   if (!property && !summary) return null;
@@ -278,7 +325,7 @@ export function PropertyDetailPanel({
 
 
   const handleCheckAvailability = async () => {
-    if (!dateRange?.from || !dateRange?.to) {
+    if (!selection?.checkIn || !selection?.checkOut || selection.nights === undefined) {
       setAvailabilityStatus('no-dates');
       return;
     }
@@ -289,14 +336,14 @@ export function PropertyDetailPanel({
     // nights on a one-month-minimum listing was told the dates were
     // available. A stay the host will not accept is not an available stay,
     // whatever the iCal feed says.
-    const selectedNights = differenceInDays(dateRange.to, dateRange.from);
+    const selectedNights = selection.nights;
     if (minNights > 1 && selectedNights < minNights) {
       setAvailabilityStatus('below-minimum');
       return;
     }
 
-    const startDate = format(dateRange.from, 'yyyy-MM-dd');
-    const endDate = format(dateRange.to, 'yyyy-MM-dd');
+    const startDate = selection.checkIn;
+    const endDate = selection.checkOut;
 
     if (!property.icalUrl) {
       setAvailabilityStatus('no-calendar');
@@ -339,8 +386,8 @@ export function PropertyDetailPanel({
    */
   const requestHref = (() => {
     const params = new URLSearchParams({ propertyId: property.id, property: property.name });
-    if (dateRange?.from) params.set('checkIn', format(dateRange.from, 'yyyy-MM-dd'));
-    if (dateRange?.to) params.set('checkOut', format(dateRange.to, 'yyyy-MM-dd'));
+    if (selection?.checkIn) params.set('checkIn', selection.checkIn);
+    if (selection?.checkOut) params.set('checkOut', selection.checkOut);
     if (guests && guests > 0) params.set('guests', String(guests));
     return `/contact?${params.toString()}`;
   })();
@@ -526,13 +573,13 @@ export function PropertyDetailPanel({
                   const matchingOffer = property.offers?.find(o => 
                     o.name.toLowerCase() === amenity.toLowerCase() && o.icon
                   );
-                  const iconMarkup = safeIcon(matchingOffer?.icon);
+                  const tick = <Check size={18} className={styles.amenityGridIcon} />;
                   return (
                     <div key={idx} className={styles.amenityGridItem}>
-                      {iconMarkup ? (
-                        <span className={styles.amenityGridIcon} dangerouslySetInnerHTML={{ __html: iconMarkup }} />
+                      {matchingOffer?.icon ? (
+                        <AmenityIcon markup={matchingOffer.icon} className={styles.amenityGridIcon} fallback={tick} />
                       ) : (
-                        <Check size={18} className={styles.amenityGridIcon} />
+                        tick
                       )}
                       <span>{amenity}</span>
                     </div>
@@ -595,13 +642,13 @@ export function PropertyDetailPanel({
                           <h3 className={styles.featureCategoryTitle}>{cat}</h3>
                           <ul className={styles.featureList}>
                             {visibleItems.map((offer, idxi) => {
-                              const iconMarkup = safeIcon(offer.icon);
+                              const fallback = offer.available ? <Check size={18} /> : <X size={18} className={styles.featureItemExcludedIcon} />;
                               return (
                                 <li key={idxi} className={offer.available ? styles.featureItemIncluded : styles.featureItemExcluded}>
-                                  {iconMarkup ? (
-                                    <span className={styles.svgIcon} dangerouslySetInnerHTML={{ __html: iconMarkup }} />
+                                  {offer.icon ? (
+                                    <AmenityIcon markup={offer.icon} className={styles.svgIcon} fallback={fallback} />
                                   ) : (
-                                    offer.available ? <Check size={18} /> : <X size={18} className={styles.featureItemExcludedIcon} />
+                                    fallback
                                   )}
                                   <span className={offer.available ? '' : styles.featureItemExcludedText}>{offer.name}</span>
                                 </li>
@@ -721,42 +768,15 @@ export function PropertyDetailPanel({
                 <div className={`${styles.inputGroup} ${styles.full}`}>
                   <span className={styles.inputLabel}>Select Dates</span>
                   <div className={styles.dayPickerWrapper}>
-                    {calendarLoading ? (
-                      <div className={styles.calendarLoading}>Loading availability...</div>
-                    ) : (
-                      <DayPicker
-                        mode="range"
-                        selected={dateRange}
-                        onSelect={(range) => {
-                          // If a full range is selected, check for booked days in between
-                          if (range?.from && range?.to && bookedDates.length > 0) {
-                            const from = startOfDay(range.from);
-                            const to = startOfDay(range.to);
-                            const hasBookedInBetween = bookedDates.some(d => {
-                              const day = startOfDay(d);
-                              return (isAfter(day, from) || day.getTime() === from.getTime()) && 
-                                     isBefore(day, to);
-                            });
-                            if (hasBookedInBetween) {
-                              // Reset selection — don't allow ranges spanning booked days
-                              setDateRange(undefined);
-                              setAvailabilityStatus('idle');
-                              return;
-                            }
-                          }
-                          setDateRange(range);
-                          setAvailabilityStatus('idle');
-                        }}
-                        disabled={[
-                          { before: new Date() },
-                          { after: oneYearFromNow },
-                          ...bookedDates,
-                        ]}
-                        startMonth={new Date()}
-                        endMonth={oneYearFromNow}
-                        className={styles.calendarDayPicker}
-                      />
-                    )}
+                    <BookingCalendarSlot
+                      loading={calendarLoading}
+                      selected={selection?.range}
+                      bookedDates={bookedDates}
+                      onSelect={(next) => {
+                        setSelection(next);
+                        setAvailabilityStatus('idle');
+                      }}
+                    />
                   </div>
                 </div>
               </div>
@@ -768,8 +788,8 @@ export function PropertyDetailPanel({
                 const nightlyRate = nightlyPrice(property);
                 const cleaningFee = property.priceInfo?.cleaningFee || 0;
 
-                if (dateRange?.from && dateRange?.to) {
-                  const nights = Math.max(differenceInDays(dateRange.to, dateRange.from), 1);
+                if (selection?.nights !== undefined) {
+                  const nights = Math.max(selection.nights, 1);
                   const nightlyTotal = nightlyRate * nights;
                   const grandTotal = nightlyTotal + cleaningFee;
 

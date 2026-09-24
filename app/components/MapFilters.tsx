@@ -1,12 +1,12 @@
 "use client";
 
 import { X } from "lucide-react";
-import { DayPicker, DateRange } from "react-day-picker";
+// Static, although the calendar's code is not: see the note in Calendars.tsx.
 import "react-day-picker/style.css";
 import styles from "./MapFilters.module.css";
 import { useState, useRef, useEffect, useMemo, useId, useCallback } from "react";
-import { format, addYears } from "date-fns";
 import { PropertySummary } from "@/app/types/property";
+import { calendarCode, useOnDemand } from "@/app/lib/on-demand";
 
 interface MapFiltersProps {
   selectedCity: string;
@@ -26,6 +26,26 @@ type Section = "where" | "who" | "when";
 
 const FOCUSABLE =
   'button:not([disabled]), [href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])';
+
+/**
+ * `yyyy-MM-dd` → `MM/dd`, for the pill.
+ *
+ * This was `format(new Date(iso + "T00:00:00"), "MM/dd")`, which kept
+ * date-fns on the homepage's critical path for two digits and a slash. The
+ * strings only ever come from `format(date, "yyyy-MM-dd")` in the calendar,
+ * so the zero-padded month and day are already in them: reading them out
+ * gives the same answer without the library.
+ */
+function monthDay(iso: string): string {
+  return `${iso.slice(5, 7)}/${iso.slice(8, 10)}`;
+}
+
+/**
+ * The height of the calendar in a five-week month, which is most of them.
+ * Held by the popover while the calendar's code is on its way, so the panel
+ * opens at close to its final size rather than growing into it.
+ */
+const CALENDAR_PENDING_HEIGHT = 291;
 
 export function MapFilters({
   selectedCity,
@@ -78,18 +98,29 @@ export function MapFilters({
     who: null,
     when: null,
   });
+  /**
+   * The "When" calendar's code, downloaded on demand. It is asked for as soon
+   * as the visitor points at or tabs into the pill (see the bar below), so it
+   * is normally here before the popover opens; opening it asks regardless.
+   */
+  const calendar = useOnDemand(calendarCode, openSection === "when");
+  const calendarSettled = calendar.status === "loaded" || calendar.status === "failed";
+
   /** Set when a panel was opened deliberately (click / Enter / Space), so
    *  focus follows it in. Hover-opened panels never steal focus. */
   const pendingFocus = useRef<Section | null>(null);
 
   useEffect(() => {
     const section = pendingFocus.current;
+    // The calendar popover has nothing to focus until its code is here, so
+    // the move waits for it rather than being dropped.
+    if (section === "when" && openSection === "when" && !calendarSettled) return;
     pendingFocus.current = null;
     if (!section || openSection !== section) return;
     panelRefs.current[section]
       ?.querySelector<HTMLElement>(FOCUSABLE)
       ?.focus({ preventScroll: true });
-  }, [openSection]);
+  }, [openSection, calendarSettled]);
 
   const closeAll = useCallback(() => setOpenSection(null), []);
 
@@ -151,16 +182,6 @@ export function MapFilters({
     return ["All Cities", ...sorted];
   }, [properties]);
 
-  const dateRange: DateRange | undefined = useMemo(() => {
-    if (!availStart) return undefined;
-    const from = new Date(availStart + "T00:00:00");
-    const to = availEnd ? new Date(availEnd + "T00:00:00") : undefined;
-    return { from, to };
-  }, [availStart, availEnd]);
-
-  const today = new Date();
-  const oneYearFromNow = addYears(today, 1);
-
   const hasActiveFilters =
     selectedCity !== "All Cities" ||
     minGuests > 0 ||
@@ -176,9 +197,9 @@ export function MapFilters({
 
   const datesValue = useMemo(() => {
     if (!availStart) return "Add dates";
-    const from = format(new Date(availStart + "T00:00:00"), "MM/dd");
+    const from = monthDay(availStart);
     if (!availEnd) return `${from} → MM/DD`;
-    const to = format(new Date(availEnd + "T00:00:00"), "MM/dd");
+    const to = monthDay(availEnd);
     return `${from} → ${to}`;
   }, [availStart, availEnd]);
 
@@ -191,6 +212,10 @@ export function MapFilters({
       ref={barRef}
       onKeyDown={handleKeyDown}
       onBlur={handleBlur}
+      // Pointing at the pill or tabbing into it is the cue to start the
+      // calendar's download, ahead of the "When" popover that needs it.
+      onPointerEnter={calendarCode.preload}
+      onFocus={calendarCode.preload}
     >
       <div className={styles.pill} role="group" aria-label="Filter properties">
         {/* Each trigger takes its accessible name from its own visible text —
@@ -299,27 +324,25 @@ export function MapFilters({
           className={styles.calendarPopover}
           role="group"
           aria-label="Check-in and check-out dates"
+          aria-busy={calendarSettled ? undefined : true}
         >
-          <DayPicker
-            mode="range"
-            selected={dateRange}
-            onSelect={(range) => {
-              if (range?.from) {
-                setAvailStart(format(range.from, "yyyy-MM-dd"));
-              } else {
-                setAvailStart("");
-              }
-              if (range?.to) {
-                setAvailEnd(format(range.to, "yyyy-MM-dd"));
-              } else {
-                setAvailEnd("");
-              }
-            }}
-            disabled={[{ before: today }]}
-            startMonth={today}
-            endMonth={oneYearFromNow}
-            className={styles.calendarDayPicker}
-          />
+          {calendar.status === "loaded" ? (
+            <calendar.value.FilterCalendar
+              availStart={availStart}
+              availEnd={availEnd}
+              setAvailStart={setAvailStart}
+              setAvailEnd={setAvailEnd}
+              className={styles.calendarDayPicker}
+            />
+          ) : calendar.status === "failed" ? (
+            // A failed chunk cannot be fetched again in the same page (see
+            // app/lib/on-demand.ts); a reload is the only retry that works.
+            <button type="button" className={styles.dropdownOption} onClick={() => window.location.reload()}>
+              The calendar could not be loaded. Reload the page
+            </button>
+          ) : (
+            <div style={{ height: CALENDAR_PENDING_HEIGHT }} />
+          )}
         </div>
       )}
 

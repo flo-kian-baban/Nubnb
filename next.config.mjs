@@ -1,6 +1,13 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  transpilePackages: ['react-map-gl', 'lucide-react'],
+  /**
+   * `lucide-react` used to be listed here as well. It needs no transpiling:
+   * it ships ESM with `sideEffects: false` and is on Next's default
+   * `optimizePackageImports` list, and the bundle already held only the
+   * icons in use. Taking it out was checked to leave every client chunk and
+   * every prerendered page byte-identical.
+   */
+  transpilePackages: ['react-map-gl'],
   serverExternalPackages: ['@sparticuz/chromium-min'],
   images: {
     /**
