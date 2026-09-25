@@ -52,6 +52,15 @@ export function apiRateLimited(retryAfterMs: number): NextResponse {
 }
 
 /**
+ * Mark a response as never to be kept by a browser or a CDN. For routes that
+ * return personal data, and for reads that must reflect the last write.
+ */
+export function noStore(response: NextResponse): NextResponse {
+  response.headers.set('Cache-Control', 'no-store');
+  return response;
+}
+
+/**
  * Return a 422 Unprocessable Entity response with typed validation issues.
  * Field-level errors are safe to surface to the client.
  *

@@ -111,7 +111,8 @@
 /* ── Stats Grid ── */
 .statsGrid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  /* New leads + the four property stats. */
+  grid-template-columns: repeat(5, 1fr);
   gap: 16px;
   margin-bottom: 28px;
 }
@@ -161,6 +162,66 @@
   color: rgba(255, 255, 255, 0.4);
   font-weight: 500;
   letter-spacing: 0.02em;
+}
+
+/* ── New-leads card: a stat that links to the inbox ── */
+.statCardLink {
+  position: relative;
+  color: inherit;
+  text-decoration: none;
+}
+.statCardLink .statContent {
+  min-width: 0;
+}
+.statCardLink:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 2px;
+}
+
+.statArrow {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.25);
+  transition: transform 0.2s ease, color 0.2s ease;
+}
+.statCardLink:hover .statArrow {
+  color: rgba(255, 255, 255, 0.7);
+  transform: translateX(2px);
+}
+
+.statCardAccent {
+  border-color: rgba(101, 153, 205, 0.35);
+  background: rgba(101, 153, 205, 0.06);
+}
+.statCardAccent:hover {
+  border-color: rgba(101, 153, 205, 0.55);
+}
+.statCardAccent .statIcon {
+  color: #8dbbe8;
+  background: rgba(101, 153, 205, 0.14);
+}
+
+.statCardAlert {
+  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.05);
+}
+.statCardAlert:hover {
+  border-color: rgba(239, 68, 68, 0.5);
+}
+.statCardAlert .statIcon {
+  color: #ef5350;
+  background: rgba(239, 68, 68, 0.1);
+}
+.statCardAlert .statValue {
+  color: #ef5350;
+  font-size: 18px;
+}
+
+.statDetail {
+  font-size: 11.5px;
+  color: rgba(239, 83, 80, 0.8);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 /* ── Toolbar: Search & Filters ── */

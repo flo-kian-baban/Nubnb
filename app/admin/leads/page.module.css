@@ -1,0 +1,455 @@
+/* ══════════════════════════════════════════════
+   Lead inbox — layout, list and detail pane.
+   Container, header, toolbar, table, loading and
+   error styles come from ../page.module.css.
+   ══════════════════════════════════════════════ */
+
+/* ── Layout: list beside the open lead ── */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 460px);
+  gap: 20px;
+  align-items: start;
+}
+
+.listPane {
+  min-width: 0;
+}
+
+.detailPane {
+  position: sticky;
+  top: 88px;
+  max-height: calc(100vh - 108px);
+  overflow-y: auto;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  scroll-margin-top: 88px;
+}
+
+.tableScroll {
+  overflow-x: auto;
+}
+
+/* ── Buttons ── */
+.btnGhost {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.2s ease;
+}
+.btnGhost:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.btnGhost:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ── List rows ── */
+.row {
+  cursor: pointer;
+}
+
+.rowOpen,
+.rowOpen:hover {
+  background: rgba(101, 153, 205, 0.08) !important;
+  box-shadow: inset 3px 0 0 #7fb0e0;
+}
+
+.rowButton {
+  display: block;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #ffffff;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-align: left;
+  cursor: pointer;
+}
+.rowButton:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.rowButton:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+.subline {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.45);
+  overflow-wrap: anywhere;
+}
+
+.whenCell {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  white-space: nowrap;
+}
+
+.subjectCell {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+/* ── Absent / empty: never a blank ── */
+.absent {
+  font-style: italic;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.32);
+}
+
+/* ── Badges ── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.badgeNew {
+  background: rgba(101, 153, 205, 0.14);
+  color: #8dbbe8;
+  border-color: rgba(101, 153, 205, 0.3);
+}
+.badgeAnswered {
+  background: rgba(74, 222, 128, 0.1);
+  color: #6ee7a0;
+  border-color: rgba(74, 222, 128, 0.18);
+}
+.badgeClosed {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.5);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.badgeOdd {
+  background: rgba(245, 158, 11, 0.08);
+  color: #f0a63a;
+  border-color: rgba(245, 158, 11, 0.22);
+}
+
+.badgeStay {
+  background: rgba(192, 132, 252, 0.1);
+  color: #c9a0fc;
+  border-color: rgba(192, 132, 252, 0.2);
+}
+.badgePartner {
+  background: rgba(45, 212, 191, 0.08);
+  color: #5eead4;
+  border-color: rgba(45, 212, 191, 0.18);
+}
+.badgeFund {
+  background: rgba(250, 204, 21, 0.08);
+  color: #fde047;
+  border-color: rgba(250, 204, 21, 0.18);
+}
+.badgeGeneral {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.65);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.badgeUnknown {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+  border-color: rgba(255, 255, 255, 0.14);
+  border-style: dashed;
+}
+
+/* ── Detail pane: states ── */
+.detailState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 56px 28px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.detailState h2 {
+  font-size: 16px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.detailStateError {
+  color: rgba(239, 68, 68, 0.6);
+}
+.detailStateError h2 {
+  color: #ef5350;
+}
+
+.detailStateActions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+/* ── Detail pane: the lead ── */
+.detail {
+  padding: 22px 24px 20px;
+}
+
+.detailHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.detailHeadText {
+  min-width: 0;
+}
+
+.detailTitle {
+  font-size: 18px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.detailMeta {
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.closeBtn {
+  flex-shrink: 0;
+  display: inline-flex;
+  padding: 6px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.closeBtn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* ── Status control ── */
+.statusBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 18px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.statusGroup {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 3px;
+  gap: 3px;
+  border-radius: 11px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.statusBtn {
+  min-width: 92px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.statusBtn:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.07);
+}
+.statusBtn:disabled {
+  cursor: default;
+}
+.statusBtn:disabled:not(.statusBtnActive) {
+  opacity: 0.55;
+}
+.statusBtn:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 1px;
+}
+
+.statusBtnActive {
+  background: #ffffff;
+  color: #0a0a0c;
+}
+
+.statusNote {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+  line-height: 1.5;
+}
+
+.detailNotice {
+  margin-top: 2px;
+}
+
+/* ── Fields ── */
+.fields {
+  display: flex;
+  flex-direction: column;
+}
+
+.fieldRow {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+.fieldRow:last-child {
+  border-bottom: none;
+}
+
+.fieldLabel {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.38);
+  padding-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+.fieldValue {
+  font-size: 13.5px;
+  color: rgba(255, 255, 255, 0.85);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.basis {
+  display: block;
+  margin-top: 5px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #8dbbe8;
+  text-decoration: none;
+}
+.link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.propertyValue {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.note {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.noteWarn {
+  font-size: 12px;
+  color: #f0a63a;
+}
+
+.mono {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  overflow-wrap: anywhere;
+}
+
+/* ── Sections ── */
+.section {
+  padding-top: 16px;
+  margin-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 13.5px;
+}
+
+.sectionTitle {
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.38);
+}
+
+.message {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.65;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.docId {
+  margin-top: 20px;
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.3);
+}
+
+/* ── Responsive ── */
+@media (max-width: 1100px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .detailPane {
+    position: static;
+    max-height: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .detail {
+    padding: 18px 16px;
+  }
+  .fieldRow {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+  .statusBtn {
+    min-width: 0;
+  }
+}

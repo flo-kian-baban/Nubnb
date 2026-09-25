@@ -7,6 +7,7 @@ import { nightlyPrice } from "@/app/lib/price";
 import { PropertyForm } from "./components/PropertyForm";
 import { PinGate } from "./components/PinGate";
 import { NoticeBanner, useNotice } from "./components/Notice";
+import { NewLeadsCard } from "./components/NewLeadsCard";
 import styles from "./page.module.css";
 import { Plus, Edit2, Trash2, Home, Search, SlidersHorizontal, Building2, BedDouble, DollarSign, LayoutGrid, AlertTriangle, RefreshCw } from "lucide-react";
 import Link from "next/link";
@@ -210,39 +211,44 @@ export default function AdminPage() {
         {/* ── Notices (deletes, seeding) ── */}
         <NoticeBanner notice={notice} onDismiss={clearNotice} className={styles.pageNotice} />
 
-        {/* ── Stats Cards ── */}
-        {!isLoading && properties.length > 0 && (
-          <section className={styles.statsGrid}>
-            <div className={styles.statCard}>
-              <div className={styles.statIcon}><LayoutGrid size={20} /></div>
-              <div className={styles.statContent}>
-                <span className={styles.statValue}>{stats.total}</span>
-                <span className={styles.statLabel}>Total Properties</span>
+        {/* ── Stats Cards ──
+            The lead count is always shown: it is its own read, and whether it
+            loaded has nothing to do with whether the properties did. */}
+        <section className={styles.statsGrid}>
+          <NewLeadsCard />
+          {!isLoading && properties.length > 0 && (
+            <>
+              <div className={styles.statCard}>
+                <div className={styles.statIcon}><LayoutGrid size={20} /></div>
+                <div className={styles.statContent}>
+                  <span className={styles.statValue}>{stats.total}</span>
+                  <span className={styles.statLabel}>Total Properties</span>
+                </div>
               </div>
-            </div>
-            <div className={styles.statCard}>
-              <div className={styles.statIcon}><DollarSign size={20} /></div>
-              <div className={styles.statContent}>
-                <span className={styles.statValue}>${stats.avgPrice.toLocaleString()}</span>
-                <span className={styles.statLabel}>Avg. Price / Night</span>
+              <div className={styles.statCard}>
+                <div className={styles.statIcon}><DollarSign size={20} /></div>
+                <div className={styles.statContent}>
+                  <span className={styles.statValue}>${stats.avgPrice.toLocaleString()}</span>
+                  <span className={styles.statLabel}>Avg. Price / Night</span>
+                </div>
               </div>
-            </div>
-            <div className={styles.statCard}>
-              <div className={styles.statIcon}><BedDouble size={20} /></div>
-              <div className={styles.statContent}>
-                <span className={styles.statValue}>{stats.totalBedrooms}</span>
-                <span className={styles.statLabel}>Total Bedrooms</span>
+              <div className={styles.statCard}>
+                <div className={styles.statIcon}><BedDouble size={20} /></div>
+                <div className={styles.statContent}>
+                  <span className={styles.statValue}>{stats.totalBedrooms}</span>
+                  <span className={styles.statLabel}>Total Bedrooms</span>
+                </div>
               </div>
-            </div>
-            <div className={styles.statCard}>
-              <div className={styles.statIcon}><Building2 size={20} /></div>
-              <div className={styles.statContent}>
-                <span className={styles.statValue}>{stats.types}</span>
-                <span className={styles.statLabel}>Property Types</span>
+              <div className={styles.statCard}>
+                <div className={styles.statIcon}><Building2 size={20} /></div>
+                <div className={styles.statContent}>
+                  <span className={styles.statValue}>{stats.types}</span>
+                  <span className={styles.statLabel}>Property Types</span>
+                </div>
               </div>
-            </div>
-          </section>
-        )}
+            </>
+          )}
+        </section>
 
         {/* ── Search & Filters ── */}
         {!isLoading && properties.length > 0 && (
