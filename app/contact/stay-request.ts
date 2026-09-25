@@ -9,6 +9,8 @@
  * the contact form falls back to its ordinary self.
  */
 
+import { sourceFromParams, type InquirySource } from '@/app/lib/inquiry';
+
 export interface StayRequest {
   propertyId: string;
   propertyName: string;
@@ -47,4 +49,20 @@ export function parseStayRequest(params: Params): StayRequest | null {
   const guests = Number.isFinite(parsed) ? Math.min(50, Math.max(1, parsed)) : 1;
 
   return { propertyId, propertyName, checkIn, checkOut, guests };
+}
+
+/** How the visitor reached the form, as the contact page read it from the URL. */
+export interface InquiryOrigin {
+  source: InquirySource;
+  /** Present exactly when `source` is "property". */
+  stay: StayRequest | null;
+}
+
+/**
+ * A stay request is a property arrival. Anything else is whatever the link
+ * they followed says it was — the partner or Fund page — or a general visit.
+ */
+export function parseInquiryOrigin(params: Params): InquiryOrigin {
+  const stay = parseStayRequest(params);
+  return stay ? { source: 'property', stay } : { source: sourceFromParams(params), stay: null };
 }

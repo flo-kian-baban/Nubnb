@@ -5,14 +5,22 @@
  * rows and the admin pages use it to filter, search and render them, so both
  * sides read a document — and derive its source — the same way.
  *
- * Two document shapes exist, and neither is assumed:
+ * Three document shapes exist, and none is assumed:
  *   before dispatch 10  name, email, subject, message, status, createdAt
- *   since               the same, plus `stay` on a dates request:
+ *   dispatch 10         the same, plus `stay` on a dates request:
  *                       { propertyId, propertyName, checkIn, checkOut, guests }
+ *   dispatch 15         the same, plus `source` (how the visitor reached the
+ *                       form) and `notification` (whether the team was told)
  * app/api/contact/route.ts is the only writer. Every field is read
  * defensively: one that is not on the document is reported as absent, never
  * filled in, and one this module does not know is still shown (`otherFields`).
  */
+
+import {
+  INQUIRY_SOURCES,
+  classifySource,
+  type ClassifiedSource,
+} from '@/app/lib/inquiry';
 
 // ─── Status ────────────────────────────────────────────────────
 
@@ -31,12 +39,14 @@ export function isLeadStatus(value: unknown): value is LeadStatus {
 }
 
 // ─── Source ────────────────────────────────────────────────────
+// The values and the classifier live in app/lib/inquiry.ts, beside the
+// contact form and route that write them, so they cannot drift apart.
 
-export const LEAD_SOURCES = ['stay', 'partner', 'fund', 'general', 'unknown'] as const;
-export type LeadSource = (typeof LEAD_SOURCES)[number];
+export const LEAD_SOURCES = [...INQUIRY_SOURCES, 'unknown'] as const;
+export type LeadSource = ClassifiedSource;
 
 export const LEAD_SOURCE_LABELS: Record<LeadSource, string> = {
-  stay: 'Stay request',
+  property: 'Stay request',
   partner: 'Partner inquiry',
   fund: 'Fund inquiry',
   general: 'General message',
@@ -47,70 +57,52 @@ export function isLeadSource(value: unknown): value is LeadSource {
   return typeof value === 'string' && (LEAD_SOURCES as readonly string[]).includes(value);
 }
 
+// ─── Notification ──────────────────────────────────────────────
+
 /**
- * Whether anything stored today can produce this source. `fund` cannot — see
- * `deriveSource` — and the inbox says so rather than offer a filter that can
- * only ever come back empty.
+ * Whether the team was emailed about a lead, as the contact route recorded
+ * it in `notification`:
+ *
+ *   sent        the mail server accepted the email
+ *   failed      the email was not sent: nobody was told
+ *   pending     the outcome was never recorded, so nobody can say anyone was
+ *   unexpected  `notification` holds something the route never writes
+ *   unrecorded  the lead predates notification tracking — not a failure,
+ *               just not known
  */
-export function isRecordedSource(source: LeadSource): boolean {
-  return source !== 'fund';
+export type NotificationState = 'sent' | 'failed' | 'pending' | 'unexpected' | 'unrecorded';
+
+export interface NotificationRecord {
+  state: NotificationState;
+  /** When the outcome was recorded. */
+  at: string | null;
+  /** The mail server's reply on success, the reason on failure, the raw value when unexpected. */
+  detail: string | null;
 }
 
-/**
- * The subjects the contact form offers. Copied from the form's schema in
- * app/api/contact/route.ts, which stays the source of truth; the form is out
- * of scope here. A subject outside this list is not guessed at.
- */
-const SUBJECT_BOOKING = "I'm looking to book";
-const SUBJECT_LISTING = 'I want to list my property';
-const SUBJECT_GENERAL = 'General enquiry';
+export function notificationOf(fields: LeadFields): NotificationRecord {
+  const n = fields.notification;
+  if (n === undefined) return { state: 'unrecorded', at: null, detail: null };
+  if (!n || typeof n !== 'object' || Array.isArray(n)) {
+    return { state: 'unexpected', at: null, detail: JSON.stringify(n) };
+  }
 
-export interface SourceFinding {
-  source: LeadSource;
-  /** What on the document the source was read from, for the operator. */
-  basis: string;
+  const record = n as Record<string, unknown>;
+  const at = typeof record.at === 'string' ? record.at : null;
+  switch (record.status) {
+    case 'sent':
+      return { state: 'sent', at, detail: fieldText(record.response) };
+    case 'failed':
+      return { state: 'failed', at, detail: fieldText(record.error) };
+    case 'pending':
+      return { state: 'pending', at, detail: null };
+  }
+  return { state: 'unexpected', at, detail: JSON.stringify(n) };
 }
 
-/**
- * Where a lead came from, read only from what the document holds:
- *
- *   stay     its stay fields name a property
- *   partner  the subject is "I want to list my property"
- *   general  the subject is "General enquiry", or "I'm looking to book"
- *            without a property named
- *   unknown  anything else
- *
- * `fund` is never returned. /fund links to the plain contact form, which has
- * no Fund subject and records no origin, so a Fund inquiry is stored under
- * whichever subject its sender picked and nothing on it says it came from the
- * Fund page. The message text is not searched for hints: that would be a
- * guess, and "unknown" is an acceptable answer.
- */
-export function deriveSource(fields: LeadFields): SourceFinding {
-  const stay = stayOf(fields);
-  if (stay && (hasText(stay.propertyId) || hasText(stay.propertyName))) {
-    return { source: 'stay', basis: 'Its stay fields name a property.' };
-  }
-
-  switch (fields.subject) {
-    case SUBJECT_LISTING:
-      return { source: 'partner', basis: `Its subject is “${SUBJECT_LISTING}”.` };
-    case SUBJECT_GENERAL:
-      return { source: 'general', basis: `Its subject is “${SUBJECT_GENERAL}”.` };
-    case SUBJECT_BOOKING:
-      return {
-        source: 'general',
-        basis: `Its subject is “${SUBJECT_BOOKING}”, but it names no property.`,
-      };
-  }
-
-  return {
-    source: 'unknown',
-    basis:
-      fields.subject === undefined || fields.subject === null
-        ? 'It has no subject and names no property.'
-        : 'Its subject is not one the contact form offers, and it names no property.',
-  };
+/** A lead the team may never have heard about. */
+export function mayBeUnnotified(state: NotificationState): boolean {
+  return state === 'failed' || state === 'pending' || state === 'unexpected';
 }
 
 // ─── Shapes ────────────────────────────────────────────────────
@@ -131,6 +123,7 @@ export interface LeadSummary {
   /** Only a stay request names a property. */
   propertyName: string | null;
   propertyId: string | null;
+  notification: NotificationState;
 }
 
 /** The live listing a stay request names, looked up by ID when the lead is opened. */
@@ -159,10 +152,6 @@ export interface LeadStatusChange {
 
 // ─── Reading fields ────────────────────────────────────────────
 
-function hasText(value: unknown): boolean {
-  return typeof value === 'string' && value.trim() !== '';
-}
-
 /**
  * A field as text. null when it is absent. A value that is not a string is
  * written out rather than dropped, so a malformed field is still visible.
@@ -189,6 +178,8 @@ const KNOWN_FIELDS = new Set([
   'createdAt',
   'statusChangedAt',
   'stay',
+  'source',
+  'notification',
 ]);
 
 const KNOWN_STAY_FIELDS = new Set(['propertyId', 'propertyName', 'checkIn', 'checkOut', 'guests']);
@@ -224,9 +215,10 @@ export function toLeadSummary(id: string, fields: LeadFields): LeadSummary {
     subject: fieldText(fields.subject),
     createdAt: fieldText(fields.createdAt),
     status: fieldText(fields.status),
-    source: deriveSource(fields).source,
+    source: classifySource(fields).source,
     propertyName: stay ? fieldText(stay.propertyName) : null,
     propertyId: stay ? fieldText(stay.propertyId) : null,
+    notification: notificationOf(fields).state,
   };
 }
 

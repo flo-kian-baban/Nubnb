@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import Link from "next/link";
+import { contactHref } from "@/app/lib/inquiry";
 import Image from "next/image";
 import { motion } from "framer-motion";
 import {
@@ -218,7 +219,7 @@ export default function PartnersPage() {
           <Link href="/about/guests" className={styles.navLink}>
             For Guests
           </Link>
-          <Link href="/contact" className={styles.navLink}>
+          <Link href={contactHref("partner")} prefetch={false} className={styles.navLink}>
             Contact
           </Link>
           <Link href="/" className={styles.navCta}>
@@ -524,7 +525,7 @@ export default function PartnersPage() {
           custom={2}
           style={{ position: "relative", zIndex: 1 }}
         >
-          <Link href="/contact" className={styles.btnPrimary}>
+          <Link href={contactHref("partner")} prefetch={false} className={styles.btnPrimary}>
             Schedule a Consultation
             <ArrowRight size={16} className={styles.btnArrow} />
           </Link>
@@ -543,7 +544,7 @@ export default function PartnersPage() {
           <Link href="/about/guests" className={styles.footerLink}>
             For Guests
           </Link>
-          <Link href="/contact" className={styles.footerLink}>
+          <Link href={contactHref("partner")} prefetch={false} className={styles.footerLink}>
             Contact
           </Link>
           <Link href="/" className={styles.footerLink}>

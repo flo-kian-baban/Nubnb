@@ -29,14 +29,13 @@ import {
   LEAD_STATUS_LABELS,
   isLeadSource,
   isLeadStatus,
-  isRecordedSource,
   matchesLeadSearch,
   type LeadSource,
   type LeadStatus,
   type LeadSummary,
 } from "@/app/lib/leads";
 import { LeadDetailPane } from "./LeadDetailPane";
-import { FieldText, SourceBadge, StatusBadge, When } from "./lead-display";
+import { FieldText, NotificationFlag, SourceBadge, StatusBadge, When } from "./lead-display";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
 
@@ -68,7 +67,7 @@ function LeadInbox() {
   });
   const [sourceFilter, setSourceFilter] = useState<LeadSource | "all">(() => {
     const value = params.get("source");
-    return isLeadSource(value) && isRecordedSource(value) ? value : "all";
+    return isLeadSource(value) ? value : "all";
   });
   const [selectedId, setSelectedId] = useState<string | null>(() => params.get("lead"));
   const detailRef = useRef<HTMLElement>(null);
@@ -233,22 +232,11 @@ function LeadInbox() {
                     onChange={(e) => setSourceFilter(e.target.value as LeadSource | "all")}
                   >
                     <option value="all">All sources</option>
-                    {LEAD_SOURCES.map((s) =>
-                      isRecordedSource(s) ? (
-                        <option key={s} value={s}>
-                          {LEAD_SOURCE_LABELS[s]} ({sourceCounts.get(s) ?? 0})
-                        </option>
-                      ) : (
-                        <option
-                          key={s}
-                          value={s}
-                          disabled
-                          title="The contact form does not yet record that a message came from the Fund page"
-                        >
-                          {LEAD_SOURCE_LABELS[s]} (not recorded yet)
-                        </option>
-                      ),
-                    )}
+                    {LEAD_SOURCES.map((s) => (
+                      <option key={s} value={s}>
+                        {LEAD_SOURCE_LABELS[s]} ({sourceCounts.get(s) ?? 0})
+                      </option>
+                    ))}
                   </select>
                 </div>
 
@@ -318,14 +306,15 @@ function LeadInbox() {
                               </td>
                               <td>
                                 <SourceBadge source={lead.source} />
-                                {lead.source === "stay" && (
+                                {lead.source === "property" && (
                                   <span className={styles.subline}>
                                     <FieldText value={lead.propertyName} />
                                   </span>
                                 )}
                               </td>
-                              <td>
+                              <td className={styles.statusCell}>
                                 <StatusBadge status={lead.status} />
+                                <NotificationFlag state={lead.notification} />
                               </td>
                             </tr>
                           );

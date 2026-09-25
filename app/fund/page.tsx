@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { contactHref } from "@/app/lib/inquiry";
 import { motion } from "framer-motion";
 import { ArrowLeft, ArrowRight, Check, ChevronDown, Send, TrendingUp, Shield } from "lucide-react";
 import styles from "./page.module.css";
@@ -195,7 +196,7 @@ export default function FundPage() {
           <Link href="/about/partners" className={styles.navLink}>
             For Partners
           </Link>
-          <Link href="/contact" className={styles.navLink}>
+          <Link href={contactHref("fund")} prefetch={false} className={styles.navLink}>
             Contact
           </Link>
           <Link href="/" className={styles.navCta}>
@@ -253,7 +254,7 @@ export default function FundPage() {
             View Opportunities
             <ArrowRight size={16} className={styles.btnArrow} />
           </a>
-          <Link href="/contact" className={styles.btnSecondary}>
+          <Link href={contactHref("fund")} prefetch={false} className={styles.btnSecondary}>
             Talk to Us
             <ArrowRight size={16} className={styles.btnArrow} />
           </Link>
@@ -329,7 +330,7 @@ export default function FundPage() {
               ))}
             </ul>
             <div className={styles.cardCta}>
-              <Link href="/contact" className={styles.btnPrimary}>
+              <Link href={contactHref("fund")} prefetch={false} className={styles.btnPrimary}>
                 Invest at 12%
                 <ArrowRight size={16} className={styles.btnArrow} />
               </Link>
@@ -375,7 +376,7 @@ export default function FundPage() {
               ))}
             </ul>
             <div className={styles.cardCta}>
-              <Link href="/contact" className={styles.btnPrimary}>
+              <Link href={contactHref("fund")} prefetch={false} className={styles.btnPrimary}>
                 Become a Partner
                 <ArrowRight size={16} className={styles.btnArrow} />
               </Link>
@@ -454,7 +455,7 @@ export default function FundPage() {
         <p className={styles.ctaBandSub}>
           Speak with the NuBnb investment team. No obligation.
         </p>
-        <Link href="/contact" className={styles.btnWhite}>
+        <Link href={contactHref("fund")} prefetch={false} className={styles.btnWhite}>
           Get in Touch
           <ArrowRight size={16} className={styles.btnArrow} />
         </Link>
@@ -467,7 +468,7 @@ export default function FundPage() {
         </span>
         <div className={styles.footerLinks}>
           <Link href="/about" className={styles.footerLink}>About</Link>
-          <Link href="/contact" className={styles.footerLink}>Contact</Link>
+          <Link href={contactHref("fund")} prefetch={false} className={styles.footerLink}>Contact</Link>
           <Link href="/" className={styles.footerLink}>Properties</Link>
         </div>
       </footer>

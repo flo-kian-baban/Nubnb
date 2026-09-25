@@ -11,24 +11,30 @@
  * A status change is not optimistic. The buttons show the stored status until
  * the server confirms the write, and a failed write is reported in a Notice:
  * the operator is never left looking at a status that was not saved.
+ *
+ * A lead whose notification email failed, or whose outcome was never
+ * recorded, opens with an error Notice: the message was stored, but nobody
+ * may have been told it exists.
  */
 
 import { useEffect, useState, type ReactNode } from "react";
 import { AlertTriangle, ExternalLink, RefreshCw, X } from "lucide-react";
-import { NoticeBanner, useNotice } from "../components/Notice";
+import { NoticeBanner, useNotice, type Notice } from "../components/Notice";
 import { changeLeadStatus, fetchLead, type LeadResult } from "@/app/lib/leads-client";
 import {
   LEAD_STATUSES,
   LEAD_STATUS_LABELS,
-  deriveSource,
   fieldText,
   isLeadStatus,
+  notificationOf,
   otherFields,
   stayOf,
   type LeadDetail,
   type LeadStatus,
+  type NotificationRecord,
   type PropertyLink,
 } from "@/app/lib/leads";
+import { classifySource } from "@/app/lib/inquiry";
 import { Absent, FieldText, SourceBadge, StayDate, When } from "./lead-display";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
@@ -144,7 +150,9 @@ export function LeadDetailPane({ id, onStatusChanged, onClose }: LeadDetailPaneP
   const fields = lead.fields;
   const storedStatus = fieldText(fields.status);
   const current = isLeadStatus(fields.status) ? fields.status : null;
-  const source = deriveSource(fields);
+  const source = classifySource(fields);
+  const notification = notificationOf(fields);
+  const unnotifiedNotice = describeUnnotified(notification);
   const stay = stayOf(fields);
   const others = otherFields(fields);
   const email = fieldText(fields.email);
@@ -165,6 +173,10 @@ export function LeadDetailPane({ id, onStatusChanged, onClose }: LeadDetailPaneP
           <X size={16} />
         </button>
       </header>
+
+      {unnotifiedNotice && (
+        <NoticeBanner notice={unnotifiedNotice} className={styles.unnotifiedNotice} />
+      )}
 
       <section className={styles.statusBlock}>
         <div className={styles.statusGroup} role="group" aria-label="Status">
@@ -216,6 +228,9 @@ export function LeadDetailPane({ id, onStatusChanged, onClose }: LeadDetailPaneP
         <Row label="Source">
           <SourceBadge source={source.source} />
           <span className={styles.basis}>{source.basis}</span>
+        </Row>
+        <Row label="Team notified">
+          <NotificationValue record={notification} />
         </Row>
       </dl>
 
@@ -348,4 +363,71 @@ function describeStatusFailure(failure: LeadFailure): string {
     return `${why} Reload to see the stored status.`;
   }
   return `${why} (HTTP ${failure.status}) The status was not changed.`;
+}
+
+/** What is known about the email to the team, in the detail list. */
+function NotificationValue({ record }: { record: NotificationRecord }) {
+  switch (record.state) {
+    case "sent":
+      return (
+        <div className={styles.propertyValue}>
+          <span>
+            Emailed <When iso={record.at} />
+          </span>
+          {record.detail && <span className={styles.mono}>{record.detail}</span>}
+        </div>
+      );
+    case "failed":
+      return (
+        <div className={styles.propertyValue}>
+          <span className={styles.noteError}>
+            No — the email failed <When iso={record.at} />
+          </span>
+          <span className={styles.mono}>
+            <FieldText value={record.detail} />
+          </span>
+        </div>
+      );
+    case "pending":
+      return <span className={styles.noteWarn}>Not confirmed — the outcome was never recorded</span>;
+    case "unexpected":
+      return (
+        <div className={styles.propertyValue}>
+          <span className={styles.noteWarn}>Not confirmed — the record is not one the form writes</span>
+          <span className={styles.mono}>
+            <FieldText value={record.detail} />
+          </span>
+        </div>
+      );
+    case "unrecorded":
+      return <Absent label="Not recorded — this lead arrived before notifications were tracked." />;
+  }
+}
+
+/**
+ * The Notice for a lead the team may never have heard about, or null. A lead
+ * from before notifications were tracked gets none: that is not known to have
+ * failed.
+ */
+function describeUnnotified(record: NotificationRecord): Notice | null {
+  switch (record.state) {
+    case "failed":
+      return {
+        tone: "error",
+        title: "Nobody was told about this lead.",
+        detail: `The message was stored, but the notification email failed${
+          record.detail ? `: ${record.detail}` : "."
+        }`,
+      };
+    case "pending":
+    case "unexpected":
+      return {
+        tone: "error",
+        title: "Nobody may have been told about this lead.",
+        detail:
+          "The message was stored, but there is no record that the notification email was sent.",
+      };
+    default:
+      return null;
+  }
 }

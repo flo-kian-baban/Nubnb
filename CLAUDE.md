@@ -56,6 +56,9 @@ no checkout. Do not build toward one unless asked.
 - **Check contents, not counts.** A count of 44 proves nothing about what is
   in the 44.
 - **Never claim a path works from reading the code.** Exercise it.
+- **Never use production credentials to log into the production admin
+  panel.** Verify against a local build reading production data; Kian
+  performs any check that genuinely requires a live admin session.
 
 ## Accepted state — do not re-raise
 

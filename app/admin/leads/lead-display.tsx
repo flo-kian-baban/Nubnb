@@ -12,6 +12,7 @@ import {
   isLeadStatus,
   type LeadSource,
   type LeadStatus,
+  type NotificationState,
 } from "@/app/lib/leads";
 import styles from "./page.module.css";
 
@@ -27,7 +28,7 @@ export function FieldText({ value }: { value: string | null }) {
 }
 
 const SOURCE_CLASS: Record<LeadSource, string> = {
-  stay: styles.badgeStay,
+  property: styles.badgeStay,
   partner: styles.badgePartner,
   fund: styles.badgeFund,
   general: styles.badgeGeneral,
@@ -62,6 +63,32 @@ export function StatusBadge({ status }: { status: string | null }) {
       {status.trim() === "" ? "Empty" : status}
     </span>
   );
+}
+
+/**
+ * The list's flag for a lead the team may never have heard about. Nothing is
+ * shown for a lead that was emailed, or for one from before notifications
+ * were recorded — the detail pane says which.
+ */
+export function NotificationFlag({ state }: { state: NotificationState }) {
+  if (state === "failed") {
+    return (
+      <span className={`${styles.badge} ${styles.badgeUnnotified}`} title="The notification email failed">
+        Not notified
+      </span>
+    );
+  }
+  if (state === "pending" || state === "unexpected") {
+    return (
+      <span
+        className={`${styles.badge} ${styles.badgeOdd}`}
+        title="No record that the notification email was sent"
+      >
+        Unconfirmed
+      </span>
+    );
+  }
+  return null;
 }
 
 /** A stored timestamp in the operator's local time. One that does not parse is shown as stored. */

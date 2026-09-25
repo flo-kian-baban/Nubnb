@@ -4,13 +4,8 @@ import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, CalendarDays, CheckCircle, Send, Users } from "lucide-react";
 import styles from "./page.module.css";
-import type { StayRequest } from "./stay-request";
-
-const SUBJECTS = [
-  "I'm looking to book",
-  "I want to list my property",
-  "General enquiry",
-] as const;
+import { DEFAULT_SUBJECT, INQUIRY_SUBJECTS } from "@/app/lib/inquiry";
+import type { InquiryOrigin } from "./stay-request";
 
 type FormState = "idle" | "sending" | "success" | "error";
 
@@ -22,10 +17,11 @@ function prettyDate(iso: string): string {
   });
 }
 
-export default function ContactForm({ stay }: { stay: StayRequest | null }) {
+export default function ContactForm({ origin }: { origin: InquiryOrigin }) {
+  const { stay } = origin;
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [subject, setSubject] = useState<string>(stay ? SUBJECTS[0] : SUBJECTS[0]);
+  const [subject, setSubject] = useState<string>(DEFAULT_SUBJECT[origin.source]);
   const [message, setMessage] = useState(
     stay
       ? `I'd like to request ${stay.propertyName} from ${stay.checkIn} to ${stay.checkOut}.`
@@ -53,6 +49,9 @@ export default function ContactForm({ stay }: { stay: StayRequest | null }) {
           email: email.trim(),
           subject,
           message: message.trim(),
+          // How the visitor reached this form, from the link they followed —
+          // never from the subject they picked.
+          source: origin.source,
           // Additive: absent on every ordinary enquiry, so nothing about the
           // existing submission shape changes.
           ...(stay ? { stay: { ...stay, guests } } : {}),
@@ -185,7 +184,7 @@ export default function ContactForm({ stay }: { stay: StayRequest | null }) {
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
               >
-                {SUBJECTS.map((s) => (
+                {INQUIRY_SUBJECTS.map((s) => (
                   <option key={s} value={s}>{s}</option>
                 ))}
               </select>
