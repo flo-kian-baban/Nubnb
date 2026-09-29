@@ -5,6 +5,11 @@
  *
  *   code → property → photo → items → sent
  *
+ * "My receipts" (dispatch 19) opens from the property and sent screens: the
+ * cleaner's own receipts and what became of each. It is a view over the
+ * steps, not a step: the draft is untouched, and Back returns to where the
+ * cleaner was.
+ *
  * ── State ──
  * Before a cleaner is in, the app is loading, on the code screen, or unable
  * to reach the server. Once in, the receipt being worked on is the draft
@@ -67,6 +72,7 @@ import { PropertyScreen } from "./PropertyScreen";
 import { PhotoScreen } from "./PhotoScreen";
 import { ItemsScreen } from "./ItemsScreen";
 import { DoneScreen, type SentReceipt } from "./DoneScreen";
+import { ReceiptsScreen } from "./ReceiptsScreen";
 import styles from "./cleaner.module.css";
 
 type Phase =
@@ -135,6 +141,8 @@ export function CleanerApp() {
   const [sendMessage, setSendMessage] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [showProblems, setShowProblems] = useState(false);
+  /** True while "My receipts" is open over the current step. */
+  const [viewing, setViewing] = useState(false);
   const online = useSyncExternalStore(subscribeToConnection, () => navigator.onLine, () => true);
 
   // The latest draft and cleaner for handlers that run between renders:
@@ -191,6 +199,7 @@ export function CleanerApp() {
       setSendMessage(null);
       setNotice(null);
       setShowProblems(false);
+      setViewing(false);
       window.history.replaceState({ cleanerStep: step }, "");
       setPhase({ kind: "in", start });
     },
@@ -212,6 +221,7 @@ export function CleanerApp() {
   useEffect(() => {
     const onPopState = (event: PopStateEvent) => {
       stepsPushedRef.current = Math.max(0, stepsPushedRef.current - 1);
+      setViewing(event.state?.cleanerView === "receipts");
       const current = draftRef.current;
       if (!current || !cleanerIdRef.current) return;
       const requested: unknown = event.state?.cleanerStep;
@@ -258,8 +268,35 @@ export function CleanerApp() {
     setDraftState(null);
     setSent(null);
     setNotice(null);
+    setViewing(false);
     setPhase({ kind: "code" });
   };
+
+  /** "My receipts", as a new history entry over the current step, so Back closes it. */
+  const openReceipts = () => {
+    setNotice(null);
+    setViewing(true);
+    window.history.pushState({ cleanerStep: draftRef.current?.step ?? "property", cleanerView: "receipts" }, "");
+    stepsPushedRef.current += 1;
+    window.scrollTo(0, 0);
+  };
+
+  /** The list's own Back: the phone's Back when this page added the entry, else closed in place. */
+  const closeReceipts = () => {
+    if (stepsPushedRef.current > 0) {
+      window.history.back();
+      return;
+    }
+    setViewing(false);
+    window.history.replaceState({ cleanerStep: draftRef.current?.step ?? "property" }, "");
+    window.scrollTo(0, 0);
+  };
+
+  /** The session ended while the list was open: the code, then back to the receipt as it was. */
+  const receiptsSignedOut = useCallback(() => {
+    setViewing(false);
+    setPhase({ kind: "code" });
+  }, []);
 
   /** Move to a step, as a new history entry. */
   const goTo = (step: Step) => {
@@ -498,8 +535,10 @@ export function CleanerApp() {
   const propertyName = property?.name ?? current.propertyName ?? "Property";
 
   let screen;
-  if (sent) {
-    screen = <DoneScreen sent={sent} onAnother={() => setSent(null)} />;
+  if (viewing) {
+    screen = <ReceiptsScreen properties={start.properties} onBack={closeReceipts} onSignedOut={receiptsSignedOut} />;
+  } else if (sent) {
+    screen = <DoneScreen sent={sent} onAnother={() => setSent(null)} onMyReceipts={openReceipts} />;
   } else if (current.step === "property") {
     screen = (
       <PropertyScreen
@@ -508,6 +547,7 @@ export function CleanerApp() {
         recentPropertyIds={start.recentPropertyIds}
         selectedId={current.propertyId}
         onChoose={chooseProperty}
+        onMyReceipts={openReceipts}
         onSignOut={leave}
       />
     );
@@ -555,7 +595,7 @@ export function CleanerApp() {
           {notice}
         </p>
       )}
-      {!kept && !sent && current.step !== "property" && (
+      {!kept && !sent && !viewing && current.step !== "property" && (
         <p className={styles.note}>This phone can’t keep a copy. Keep this page open until it is sent.</p>
       )}
       {screen}

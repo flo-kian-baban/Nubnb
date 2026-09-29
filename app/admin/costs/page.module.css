@@ -1,0 +1,917 @@
+/* ══════════════════════════════════════════════
+   Costs — filters, totals, the entry table and
+   the entry pane. Container, header, table,
+   loading, empty and error styles come from
+   ../page.module.css. Button, badge and pane
+   values are copied from ../leads/page.module.css,
+   which is left as it is.
+   ══════════════════════════════════════════════ */
+
+.tableScroll {
+  overflow-x: auto;
+}
+
+.num {
+  text-align: right !important;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.muted {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.note {
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.noteWarn {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #f0a63a;
+}
+
+.mono {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  overflow-wrap: anywhere;
+}
+
+/* ── Buttons ── */
+.btnGhost,
+.btnApprove,
+.btnReject {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.btnGhost {
+  color: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.btnGhost:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.btnApprove {
+  color: #0a0a0c;
+  background: #ffffff;
+  border: 1px solid #ffffff;
+}
+.btnApprove:hover:not(:disabled) {
+  background: #e8e8ea;
+}
+.btnReject {
+  color: #ffffff;
+  background: rgba(239, 68, 68, 0.75);
+  border: 1px solid rgba(239, 68, 68, 0.9);
+}
+.btnReject:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.9);
+}
+.btnGhost:disabled,
+.btnApprove:disabled,
+.btnReject:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.btnGhost:focus-visible,
+.btnApprove:focus-visible,
+.btnReject:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 2px;
+}
+
+.linkButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #8dbbe8;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.linkButton:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ── Filters ── */
+.filters {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.filterRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.dateField {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.dateInput {
+  padding: 9px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 13px;
+  font-family: inherit;
+  color-scheme: dark;
+  outline: none;
+}
+.dateInput:focus {
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.presetRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.preset {
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.preset:hover {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.22);
+}
+.presetActive,
+.presetActive:hover {
+  background: #ffffff;
+  border-color: #ffffff;
+  color: #0a0a0c;
+}
+
+.presetNote {
+  margin-left: 6px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+/* ── Totals ── */
+.totals {
+  margin-bottom: 20px;
+  padding: 18px 20px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.totalsHead {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-bottom: 10px;
+}
+
+.totalsTitle {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.totalsRange {
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.totalsTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.totalsTable th,
+.totalsTable td {
+  padding: 7px 10px;
+  text-align: left;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+.totalsTable th {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.38);
+}
+.totalsTable td {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.totalsAll td {
+  font-weight: 700;
+  color: #ffffff;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.exportRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  margin-top: 14px;
+}
+
+.exportLabel {
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* ── Tabs (one property) ── */
+.tabs {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  margin-bottom: 14px;
+  border-radius: 11px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.tab {
+  padding: 7px 16px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tab:hover {
+  color: #fff;
+}
+.tabActive,
+.tabActive:hover {
+  background: #ffffff;
+  color: #0a0a0c;
+}
+
+/* ── Layout: list beside the open entry ── */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(380px, 500px);
+  gap: 20px;
+  align-items: start;
+}
+
+.listPane {
+  min-width: 0;
+}
+
+.detailPane {
+  position: sticky;
+  top: 88px;
+  max-height: calc(100vh - 108px);
+  overflow-y: auto;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  scroll-margin-top: 88px;
+}
+
+.detailState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 56px 28px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+/* ── Table rows ── */
+.row {
+  cursor: pointer;
+}
+
+.rowOpen,
+.rowOpen:hover {
+  background: rgba(101, 153, 205, 0.08) !important;
+  box-shadow: inset 3px 0 0 #7fb0e0;
+}
+
+/* Rejected and removed: still listed, clearly out of the count. */
+.rowOut td {
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.rowButton {
+  display: block;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #ffffff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.rowButton:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.rowButton:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+.whenCell {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  white-space: nowrap;
+}
+
+.nameCell {
+  font-size: 13.5px;
+  color: rgba(255, 255, 255, 0.85);
+  overflow-wrap: anywhere;
+}
+
+.totalCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.struck {
+  text-decoration: line-through;
+  text-decoration-color: rgba(255, 255, 255, 0.45);
+}
+
+.correctedMark {
+  display: inline-flex;
+  color: #f0a63a;
+}
+
+.receiptIcon {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* ── Badges ── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.badgePending {
+  background: rgba(101, 153, 205, 0.14);
+  color: #8dbbe8;
+  border-color: rgba(101, 153, 205, 0.3);
+}
+.badgeApproved {
+  background: rgba(74, 222, 128, 0.1);
+  color: #6ee7a0;
+  border-color: rgba(74, 222, 128, 0.18);
+}
+.badgeRejected {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef5350;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+.badgeRemoved {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.5);
+  border-color: rgba(255, 255, 255, 0.14);
+  border-style: dashed;
+}
+.badgeOdd {
+  background: rgba(245, 158, 11, 0.08);
+  color: #f0a63a;
+  border-color: rgba(245, 158, 11, 0.22);
+}
+.badgeAdded,
+.badgeCorrected {
+  margin-left: 8px;
+  padding: 1px 7px;
+  font-size: 10.5px;
+  background: rgba(245, 158, 11, 0.08);
+  color: #f0a63a;
+  border-color: rgba(245, 158, 11, 0.22);
+}
+
+/* ── The entry pane ── */
+.detail {
+  padding: 22px 24px 20px;
+}
+
+.detailHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.detailHeadText {
+  min-width: 0;
+}
+
+.detailTitle {
+  font-size: 18px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.detailMeta {
+  margin: 4px 0 2px;
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.closeBtn {
+  flex-shrink: 0;
+  display: inline-flex;
+  padding: 6px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+}
+.closeBtn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.detailNotice {
+  margin-bottom: 14px;
+}
+
+.statusBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.statusRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.statusSince {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.statusNote {
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.reasonText {
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.8);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.inlineForm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.formRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.fieldLabel {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.textInput {
+  width: 100%;
+  padding: 9px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  color: #f0f0f0;
+  font-size: 13px;
+  font-family: inherit;
+  line-height: 1.4;
+  outline: none;
+  resize: vertical;
+}
+.textInput:focus {
+  border-color: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.06);
+}
+.textInput:disabled {
+  opacity: 0.6;
+}
+
+.editorTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.editorGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 10px;
+}
+
+.editorField {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+/* ── Sections ── */
+.section {
+  padding-top: 16px;
+  margin-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 13.5px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.sectionTitle {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.38);
+}
+
+.fieldValue {
+  font-size: 13.5px;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.message {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* ── Items on one entry ── */
+.linesScroll {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.lines {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.lines th,
+.lines td {
+  padding: 8px 8px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.lines th {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.38);
+}
+.lines td {
+  color: rgba(255, 255, 255, 0.85);
+}
+.lines tfoot td {
+  font-weight: 700;
+  color: #ffffff;
+  border-bottom: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+.lineNumber {
+  color: rgba(255, 255, 255, 0.4) !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.lineName {
+  overflow-wrap: anywhere;
+}
+
+/* Headers wrap, so the amounts keep their column and the item its width. */
+.lines th {
+  vertical-align: bottom;
+}
+.lines th.num {
+  white-space: normal;
+}
+
+.cleanerCell {
+  white-space: nowrap;
+}
+
+.lineEditing td {
+  background: rgba(101, 153, 205, 0.1);
+}
+
+.earlier {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.42);
+}
+.earlier s {
+  text-decoration-color: rgba(255, 255, 255, 0.45);
+}
+
+.earlierWhen {
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.lineAction {
+  display: block;
+  margin-top: 6px;
+  padding: 3px 10px;
+  border-radius: 7px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.lineAction:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+.lineAction:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.rawLines {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* ── Receipt ── */
+.receiptState {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.receiptError {
+  color: #ef5350;
+}
+
+.receiptErrorTitle {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.receiptError .btnGhost {
+  margin-top: 8px;
+}
+
+.smallSpinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top-color: rgba(255, 255, 255, 0.7);
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.receipt {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.receiptButton {
+  display: block;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  background: #ffffff;
+  overflow: hidden;
+  cursor: zoom-in;
+  width: fit-content;
+  max-width: 100%;
+}
+.receiptButton img {
+  display: block;
+  max-width: 100%;
+  max-height: 340px;
+  object-fit: contain;
+}
+
+.receiptCaption {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* Full size: the same image element, in a frame over the page. */
+.receiptLarge {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.92);
+}
+.receiptLarge .receiptButton {
+  cursor: zoom-out;
+  border: none;
+}
+.receiptLarge .receiptButton img {
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 110px);
+}
+
+.receiptClose {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* ── History ── */
+.history {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.history li {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.historyWhen {
+  color: rgba(255, 255, 255, 0.45);
+  white-space: nowrap;
+}
+
+.historyWhat {
+  color: rgba(255, 255, 255, 0.85);
+  overflow-wrap: anywhere;
+}
+.historyWhat s {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.historyReason {
+  display: block;
+  margin-top: 2px;
+  color: rgba(255, 255, 255, 0.65);
+  white-space: pre-wrap;
+}
+
+.docId {
+  margin-top: 20px;
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.3);
+}
+
+/* ── Responsive ── */
+@media (max-width: 1100px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .detailPane {
+    position: static;
+    max-height: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .detail {
+    padding: 18px 16px;
+  }
+  .editorGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .history li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+  .presetNote {
+    margin-left: 0;
+    flex-basis: 100%;
+  }
+}

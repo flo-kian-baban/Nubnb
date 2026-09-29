@@ -307,8 +307,8 @@ export function lineProblems(line: DraftLine): LineProblems {
   const problems: LineProblems = {};
   if (line.name.trim() === '') problems.name = 'Type the item';
   if (readQuantity(line.quantity) === null) problems.quantity = 'Check how many';
-  if (line.price.trim() === '') problems.price = 'Type the price';
-  else if (readPrice(line.price) === null) problems.price = 'Check the price';
+  if (line.price.trim() === '') problems.price = 'Type the amount';
+  else if (readPrice(line.price) === null) problems.price = 'Check the amount';
   return problems;
 }
 

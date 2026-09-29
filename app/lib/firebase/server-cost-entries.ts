@@ -26,10 +26,16 @@
  * zero — is a validation rule; nothing computes, adjusts or corrects an
  * amount.
  *
- * ── Written once ──
- * An entry is written with `create()` and never edited: only its review
- * fields will change, through the future review route. A mistake or a
- * duplicate is rejected with a reason and submitted again.
+ * ── Written once, then reviewed ──
+ * An entry is written with `create()`, and its `lines` are never rewritten.
+ * Review (dispatch 19) changes only `status`, `statusChangedAt` and
+ * `statusReason`, and appends to `history`: an admin approves, rejects with a
+ * reason, or removes an entry, and corrects or adds a line as a history event
+ * that carries the line before and after (readLinesNow in model.ts applies
+ * them). Nothing is ever deleted, so every earlier state stays readable.
+ * Each review is one transaction that first checks the entry is as the admin
+ * last saw it — its history the same length — so two admins acting at once
+ * cannot write over each other.
  *
  * ── Sent once ──
  * The cleaner's phone gives each receipt a one-time `submissionKey`. The
@@ -51,6 +57,7 @@ import type { DocumentReference } from 'firebase-admin/firestore';
 import { getAdminDb } from './admin';
 import { isDocumentId } from './server-leads';
 import {
+  ADMIN_ACTOR,
   CLEANERS_COLLECTION,
   COST_ENTRIES_COLLECTION,
   COST_ENTRY_SCHEMA_VERSION,
@@ -58,16 +65,21 @@ import {
   COST_ENTRY_SUBMISSION_SCHEMA_VERSION,
   CURRENCY,
   LIMITS,
+  RECEIPTS_PREFIX,
   SUBMISSION_KEY_PATTERN,
   fieldText,
   newestFirst,
   readCostEntryFields,
+  readLinesNow,
+  type CleanerEntry,
   type CostEntryFields,
   type CostEntryView,
   type HistoryEvent,
   type Line,
   type LookupState,
   type ReceiptRef,
+  type Refusal,
+  type ReviewStatus,
 } from '@/app/lib/cleaners/model';
 
 /**
@@ -140,7 +152,12 @@ function purchasedOnProblem(value: string): string | null {
   return null;
 }
 
-const LineInputSchema = z
+/**
+ * One line as typed: the cleaner's, and an admin's correction or added line.
+ * The amount is the line's total as printed on the receipt; the quantity is
+ * informational. Stored as a `Line`.
+ */
+export const LineInputSchema = z
   .strictObject({
     name: z
       .string()
@@ -532,6 +549,7 @@ function toView(
     note: entry.note,
     currency: entry.currency,
     lines: entry.lines,
+    linesNow: readLinesNow(entry.lines, entry.history),
     receipts: entry.receipts,
   };
 }
@@ -543,7 +561,9 @@ function toView(
  * Deliberately no `orderBy` and no `limit`: Firestore leaves out every
  * document that lacks the ordered field, and a limit hides the rest, so an
  * entry could silently vanish. The collection is read whole and sorted here.
- * No pagination yet: it comes with the approval screen.
+ * No pagination: the costs page filters and adds up in the browser, which
+ * needs every entry, and at a few entries a week the whole collection is a
+ * small read. Worth revisiting near 1,000 entries.
  *
  * Reads: one per entry, plus one per distinct cleaner and one per distinct
  * property, in two batched lookups.
@@ -560,4 +580,275 @@ export async function listCostEntries(): Promise<CostEntryView[]> {
   ]);
 
   return entries.map((entry) => toView(entry, cleaners, properties)).sort(newestFirst);
+}
+
+/** One entry with the current names of its cleaner and property: two small lookups. */
+async function viewOne(id: string, stored: Record<string, unknown>): Promise<CostEntryView> {
+  const entry = readCostEntryFields(id, stored);
+  const [cleaners, properties] = await Promise.all([
+    lookUpCleaners(distinctIds([entry.cleanerId])),
+    lookUpProperties(distinctIds([entry.propertyId])),
+  ]);
+  return toView(entry, cleaners, properties);
+}
+
+// ─── Review ────────────────────────────────────────────────────
+
+export type ReviewResult =
+  /** `changed` is false when the entry already said this: nothing was written. */
+  | { kind: 'done'; entry: CostEntryView; changed: boolean }
+  /** No entry has this ID. */
+  | { kind: 'not-found' }
+  /** The entry's history is not the length the admin saw: someone changed it since. Nothing was written. */
+  | { kind: 'changed-since' }
+  /** The stored entry is not in a shape this change can be made to. Nothing was written. */
+  | { kind: 'unreadable' }
+  /** A correction names a line the entry does not have. Nothing was written. */
+  | { kind: 'no-such-line' }
+  /** Adding a line would take the entry past LIMITS.LINES_MAX_AFTER_REVIEW. Nothing was written. */
+  | { kind: 'too-many-lines' }
+  /** The transaction failed: it may or may not have landed. */
+  | { kind: 'failed' };
+
+/** What the review routes answer for every outcome but `done`. */
+export const REVIEW_REFUSALS: Record<Exclude<ReviewResult['kind'], 'done'>, Refusal> = {
+  'not-found': {
+    status: 404,
+    code: 'ENTRY_NOT_FOUND',
+    message: 'Entry not found',
+  },
+  'changed-since': {
+    status: 409,
+    code: 'ENTRY_CHANGED',
+    message: 'This entry changed since it was loaded.',
+    hint: 'Nothing was saved. Reload it, check what changed, and try again.',
+  },
+  unreadable: {
+    status: 500,
+    code: 'ENTRY_RECORD_UNREADABLE',
+    message: 'This entry’s stored record is not in the shape this change needs.',
+    hint: 'Nothing was changed.',
+  },
+  'no-such-line': {
+    status: 422,
+    code: 'ENTRY_LINE_NOT_FOUND',
+    message: 'This entry has no such line.',
+    hint: 'Nothing was changed. Reload the entry.',
+  },
+  'too-many-lines': {
+    status: 422,
+    code: 'ENTRY_TOO_MANY_LINES',
+    message: `An entry can have at most ${LIMITS.LINES_MAX_AFTER_REVIEW} lines.`,
+    hint: 'Nothing was changed.',
+  },
+  // The transaction failed. A failure can come after the commit landed, so
+  // this does not claim that nothing was saved.
+  failed: {
+    status: 502,
+    code: 'ENTRY_REVIEW_FAILED',
+    message: 'Could not save the change.',
+    hint: 'It may or may not have been saved. Reload the entry to see what is stored.',
+  },
+};
+
+type Decision =
+  | { kind: 'write'; event: HistoryEvent; changes?: Record<string, unknown> }
+  | { kind: 'nothing' }
+  | { kind: 'refuse'; result: ReviewResult };
+
+/**
+ * One review, in one transaction: read the entry; refuse unless its history
+ * is the length `seen` says the admin last saw; decide; then append the one
+ * event to the history, with any status fields, in a single update.
+ *
+ * `seen` makes two admins acting at once safe: the second finds a longer
+ * history than the one they saw and is refused rather than writing over the
+ * first. The history is read and written back whole, never with arrayUnion,
+ * which would drop an event identical to one already there.
+ */
+async function review(
+  id: string,
+  seen: number,
+  decide: (entry: CostEntryFields, now: string) => Decision,
+): Promise<ReviewResult> {
+  if (!isDocumentId(id)) return { kind: 'not-found' };
+
+  let outcome: ReviewResult | { stored: Record<string, unknown>; changed: boolean };
+  try {
+    const db = getAdminDb();
+    const ref = db.collection(COST_ENTRIES_COLLECTION).doc(id);
+
+    outcome = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) return { kind: 'not-found' } as const;
+
+      const stored = snap.data() ?? {};
+      const history: unknown = stored.history;
+      if (!Array.isArray(history)) return { kind: 'unreadable' } as const;
+      if (history.length !== seen) return { kind: 'changed-since' } as const;
+
+      const decision = decide(readCostEntryFields(id, stored), new Date().toISOString());
+      if (decision.kind === 'refuse') return decision.result;
+      if (decision.kind === 'nothing') return { stored, changed: false };
+
+      const changes = { ...decision.changes, history: [...history, decision.event] };
+      tx.update(ref, changes);
+      return { stored: { ...stored, ...changes }, changed: true };
+    });
+  } catch (err) {
+    console.error(`[cost-entries] review of ${id} failed: grpc code ${grpcCode(err)}`);
+    return { kind: 'failed' };
+  }
+
+  if ('kind' in outcome) return outcome;
+  return { kind: 'done', entry: await viewOne(id, outcome.stored), changed: outcome.changed };
+}
+
+/**
+ * Approve, reject or remove an entry. A rejection carries its reason, which
+ * the cleaner sees; the other two carry none. The status before goes into
+ * the event, so every earlier status stays readable; removing leaves the
+ * entry where it is, marked, and out of totals and reports.
+ */
+export function setEntryStatus(
+  id: string,
+  target: ReviewStatus,
+  reason: string | null,
+  seen: number,
+): Promise<ReviewResult> {
+  return review(id, seen, (entry, now) => {
+    if (entry.status === target) return { kind: 'nothing' };
+    const why = target === 'rejected' ? reason : null;
+    return {
+      kind: 'write',
+      event: { at: now, action: target, from: entry.status, to: target, actor: ADMIN_ACTOR, reason: why },
+      changes: { status: target, statusChangedAt: now, statusReason: why },
+    };
+  });
+}
+
+/**
+ * Correct a line (`index` is its place, from 0) or add one (`index` null),
+ * as a history event holding the line before and after. `lines` is never
+ * touched. The amount is what the receipt prints for the line, as the admin
+ * typed it; nothing is multiplied or worked out here.
+ */
+export function changeEntryLine(id: string, index: number | null, line: Line, seen: number): Promise<ReviewResult> {
+  return review(id, seen, (entry, now) => {
+    const current = readLinesNow(entry.lines, entry.history);
+    if (current.kind !== 'ok') return { kind: 'refuse', result: { kind: 'unreadable' } };
+
+    if (index === null) {
+      if (current.lines.length >= LIMITS.LINES_MAX_AFTER_REVIEW) {
+        return { kind: 'refuse', result: { kind: 'too-many-lines' } };
+      }
+      return {
+        kind: 'write',
+        event: {
+          at: now,
+          action: 'line_added',
+          from: null,
+          to: null,
+          actor: ADMIN_ACTOR,
+          reason: null,
+          line: { index: current.lines.length, before: null, after: line },
+        },
+      };
+    }
+
+    const was = current.lines[index];
+    if (!was) return { kind: 'refuse', result: { kind: 'no-such-line' } };
+    if (was.name === line.name && was.quantity === line.quantity && was.lineTotalCents === line.lineTotalCents) {
+      return { kind: 'nothing' };
+    }
+    return {
+      kind: 'write',
+      event: {
+        at: now,
+        action: 'line_corrected',
+        from: null,
+        to: null,
+        actor: ADMIN_ACTOR,
+        reason: null,
+        line: {
+          index,
+          before: { name: was.name, quantity: was.quantity, lineTotalCents: was.lineTotalCents },
+          after: line,
+        },
+      },
+    };
+  });
+}
+
+// ─── Receipt ───────────────────────────────────────────────────
+
+export type ReceiptFound =
+  | { kind: 'found'; path: string }
+  /** No entry has this ID. */
+  | { kind: 'no-entry' }
+  /** The entry has no receipt at that place, or one whose path is not under receipts/. */
+  | { kind: 'no-receipt' };
+
+/**
+ * The Storage path of an entry's receipt, from the entry itself: the path is
+ * never rebuilt, never taken from a request, and never returned. Only a path
+ * under receipts/ is accepted, so a link can never be made to anything else
+ * in the bucket. One read, with a field mask of `receipts`.
+ *
+ * @throws if the read fails.
+ */
+export async function findReceipt(entryId: string, index: number): Promise<ReceiptFound> {
+  if (!isDocumentId(entryId)) return { kind: 'no-entry' };
+
+  const db = getAdminDb();
+  const [doc] = await db.getAll(db.collection(COST_ENTRIES_COLLECTION).doc(entryId), { fieldMask: ['receipts'] });
+  if (!doc.exists) return { kind: 'no-entry' };
+
+  const receipts: unknown = doc.get('receipts');
+  const receipt: unknown = Array.isArray(receipts) ? receipts[index] : undefined;
+  const path = receipt && typeof receipt === 'object' ? (receipt as Record<string, unknown>).path : undefined;
+  if (typeof path !== 'string' || !path.startsWith(`${RECEIPTS_PREFIX}/`) || path.includes('..')) {
+    return { kind: 'no-receipt' };
+  }
+  return { kind: 'found', path };
+}
+
+// ─── A cleaner's own entries ───────────────────────────────────
+
+/** An entry in the form the cleaner app lists it. */
+function toCleanerEntry(entry: CostEntryFields): CleanerEntry {
+  const now = readLinesNow(entry.lines, entry.history);
+  return {
+    id: entry.id,
+    createdAt: entry.createdAt,
+    propertyId: entry.propertyId,
+    propertyNameAtEntry: entry.propertyNameAtEntry,
+    lineCount: entry.lines?.length ?? null,
+    totalCents: now.kind === 'ok' ? now.totalCents : null,
+    sentTotalCents: now.kind === 'ok' ? now.sentTotalCents : null,
+    corrected: now.kind === 'ok' && now.corrected,
+    status: entry.status,
+    statusReason: entry.status === 'rejected' ? entry.statusReason : null,
+  };
+}
+
+/**
+ * This cleaner's entries, newest first, and never anyone else's: the query
+ * names the cleaner from the verified session, and each document is checked
+ * again here. Only the fields the list needs are read. One read per entry.
+ *
+ * @throws if the read fails — which is not an empty list.
+ */
+export async function listCleanerEntries(cleanerId: string): Promise<CleanerEntry[]> {
+  const snapshot = await getAdminDb()
+    .collection(COST_ENTRIES_COLLECTION)
+    .where('cleanerId', '==', cleanerId)
+    .select('cleanerId', 'createdAt', 'propertyId', 'propertyNameAtEntry', 'lines', 'history', 'status', 'statusReason')
+    .get();
+
+  return snapshot.docs
+    .map((doc) => readCostEntryFields(doc.id, doc.data()))
+    .filter((entry) => entry.cleanerId === cleanerId)
+    .map(toCleanerEntry)
+    .sort(newestFirst);
 }

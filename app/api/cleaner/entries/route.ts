@@ -1,5 +1,13 @@
 /**
  * POST /api/cleaner/entries — Log one receipt's costs for one property (cleaner-only).
+ * GET  /api/cleaner/entries — The signed-in cleaner's own entries, newest first (dispatch 19).
+ *
+ * GET answers `{ success: true, data: { entries: CleanerEntry[] } }`: for each
+ * of this cleaner's entries, when it was sent, the property, how many lines,
+ * what it adds up to now and what was sent, its status, and the reason when
+ * it was rejected. Only the entries the verified session's cleaner sent —
+ * the query names them and each document is checked again — and nothing
+ * else: no receipt, no history, no other cleaner. One read per entry.
  *
  * Request:  multipart/form-data with exactly two parts —
  *             receipt  the photo: JPEG, PNG or WebP, at most 4 MiB
@@ -65,6 +73,7 @@ import {
   SessionRevokedError,
   createCostEntry,
   findSubmission,
+  listCleanerEntries,
   lookupPropertyName,
   newEntryRef,
   parseEntryPart,
@@ -341,6 +350,26 @@ export async function POST(request: Request) {
         status: 502,
         code: 'ENTRY_WRITE_FAILED',
         hint: 'The receipt was received but the entry may not have been recorded; check before submitting again.',
+      }),
+    );
+  }
+}
+
+export async function GET(request: Request) {
+  // ── Auth ──
+  const session = await verifyCleanerSession(request);
+  if (!session.ok) return noStore(apiFailure(session.refusal));
+
+  try {
+    return noStore(apiSuccess({ entries: await listCleanerEntries(session.cleaner.id) }));
+  } catch (err) {
+    // A read that failed is not an empty list.
+    console.error(`[cleaner-entries] list failed: code ${errorCode(err)}`);
+    return noStore(
+      apiFailure({
+        message: 'Could not load your receipts. Try again.',
+        status: 503,
+        code: 'CLEANER_ENTRIES_UNAVAILABLE',
       }),
     );
   }

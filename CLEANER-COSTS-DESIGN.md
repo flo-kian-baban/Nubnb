@@ -1,4 +1,4 @@
-# Cleaner cost logging: design (dispatches 17 and 18)
+# Cleaner cost logging: design (dispatches 17, 18 and 19)
 
 **Status.**
 - **Dispatch 17** was approved by Kian on 2026-09-26 with decisions D1–D4. It was amended on 2026-09-28 by Kian's ruling that **cleaner codes are 4 digits, not 6**, and corrected the same day after independent review (§3.11's exit rule, a design error, and an in-app Back guard on the one-time code panel, since removed with the panel).
@@ -7,7 +7,8 @@
 - **Verified 2026-09-29** against a local production build reading production data, as §9 plans.
   - KiKi's two documents were deleted by ID and all test data by exact ID and path.
   - The closing export is byte-identical to the opening one, KiKi's documents excepted, and the Storage listing is unchanged.
-- Implemented in the working tree; not committed or deployed.
+- **Dispatches 17 and 18** were committed as `5056bac` and deployed on 2026-09-29.
+- **Dispatch 19** (2026-09-29) adds the admin's review and reports: the costs page at `/admin/costs`, approve / reject / correct / remove, receipts through 60-second signed links, per-property Excel and PDF, the unambiguous amount label, and a cleaner's own receipts (§11). Kian's decisions D1–D5 and defaults are in §11. Verified on 2026-09-29 against a local production build reading production data; implemented in the working tree, not committed or deployed.
 
 > **Codes are stored readably, by Kian's ruling of 2026-09-28.** A code is the ID of its `cleaner_codes` document and the value of its cleaner's `code` field. **Any copy of the database therefore exposes every cleaner code, current and replaced:** a `./backups/` export, a console export, or anything read with the service-account key. The ruling and this exposure are recorded in CLAUDE.md under "Accepted risks".
 
@@ -117,7 +118,7 @@ The ID is a Firestore auto ID, pre-allocated with `collection('cost_entries').do
 | `currency` | `'CAD'`, set by the server, always present | never |
 | `lines` | `Line[]`, 1–100 items | never |
 | `receipts` | `ReceiptRef[]`, **exactly 1** in v1 | never |
-| `status` | `'pending'` at create. The future review route writes `'approved' \| 'rejected'`. | workflow |
+| `status` | `'pending'` at create. The review route (§11) writes `'approved' \| 'rejected' \| 'removed'`. | workflow |
 | `statusChangedAt` | ISO; equals `createdAt` at create | workflow |
 | `statusReason` | `null` at create. Later a string of 1–500 characters, required when the status is `rejected`. | workflow |
 | `history` | `HistoryEvent[]`: `[{ action: 'submitted', from: null, to: 'pending', actor: { role: 'cleaner', id, name }, reason: null, at }]` | append only |
@@ -128,8 +129,8 @@ The ID is a Firestore auto ID, pre-allocated with `collection('cost_entries').do
   - `lineTotalCents`: a safe integer from −99,999,999 to 99,999,999 inclusive. It is **the amount printed on that receipt line** (D1). Negative means money back (a discount or a return), and 0 is allowed.
 - **Entry rule:** the sum of `lineTotalCents` must be greater than 0. The sum is **computed on read for display and is never stored**. No code computes, adjusts or corrects any amount.
 - **`ReceiptRef`** is `{ path, contentType, bytes, sha256, uploadedAt }`. The server takes every value from the bytes it stored: `contentType` is the sniffed type and `sha256` is hex.
-- **After create, only `status`, `statusChangedAt`, `statusReason` and appended `history` ever change**, and only through the future review route.
-- **Mistakes and duplicates** are handled by rejecting the entry with a reason and submitting a new one. Nothing is edited or deleted.
+- **After create, only `status`, `statusChangedAt`, `statusReason` and appended `history` ever change**, and only through the review routes (§11). **`lines` is never rewritten**: a correction or an added line is a history event carrying the line before and after, and the lines that count are computed on read (§11.1).
+- **Mistakes and duplicates** are handled by rejecting or removing the entry, or correcting a line. Nothing is deleted; every earlier state stays in the history.
 
 ```json
 { "schemaVersion": 1, "cleanerId": "Qm3x…", "cleanerNameAtEntry": "Marie Tremblay",
@@ -208,11 +209,11 @@ There are no backfills, so every document keeps the shape it was written with fo
 8. **Name snapshots sit alongside the IDs** (`cleanerNameAtEntry`, `propertyNameAtEntry`). `DELETE /api/properties/[id]` hard-deletes, and a snapshot cannot be recovered for entries written without one.
 9. **Timestamps are ISO strings, never Firestore `Timestamp`.** Mixing the two types splits ordering and range queries.
 10. **The status vocabulary and event shape.**
-    - Cleaners are `active | deactivated`; entries are `pending | approved | rejected`.
+    - Cleaners are `active | deactivated`; entries are `pending | approved | rejected | removed` (`removed` added in dispatch 19).
     - Fields are `status`, `statusChangedAt` and `statusReason` (the leads naming), plus an append-only `history` with `Actor` and `from`/`to`.
     - Words once written are permanent. Documents written without history would need synthetic readers for ever.
 11. **Fields that are always present:** `status`, `createdAt`, `cleanerId`, `propertyId`, `currency`, `purchasedOn` (possibly `null`) and `note` (possibly `null`). Firestore `where` and `orderBy` silently drop documents that lack the field (the `listLeads` lesson).
-12. **Entries are immutable apart from their workflow fields.** If edits are ever allowed, older entries will simply have no edit history.
+12. **Entries are immutable apart from their workflow fields.** Since dispatch 19 a line can be corrected or added, but only as a history event (`line_corrected`, `line_added`) carrying the line before and after; `lines` itself never changes. An entry written before dispatch 19 has no such events and reads exactly as it did.
 13. **Readers always use the stored `receipts[].path` and never rebuild it.** That keeps the path scheme changeable for new uploads. Rebuilding paths would freeze the scheme.
 14. **`schemaVersion` on every document.** It cannot be added to documents already written.
 15. **The send-again guard's ID, `<cleanerId>_<submissionKey>` (dispatch 18).** Every entry from dispatch 18 on has one; older entries (test data only) have none.
@@ -438,7 +439,7 @@ A read-only script, `scripts/check-admin-pin-vs-cleaner-codes.mjs`, closes that 
 - Object paths are never returned.
 - Enrichment failures become `'unreadable'`; they never fail the list.
 - Display prefers the live name and falls back to the snapshot.
-- There is no pagination in this dispatch. It comes with the approval screen.
+- There is no pagination. The costs page (dispatch 19) filters and adds up in the browser, which needs every entry; revisit near 1,000 entries.
 
 **Admin route order:**
 1. `verifyAdminSession` (401 via `apiError(auth.error, auth.status)` + `noStore`).
@@ -481,7 +482,7 @@ z.string().transform(s => s.normalize('NFC').trim()).pipe(z.string().min(1).max(
     - Every failure path, the duplicate included, logs `[cost-entries] orphaned receipt <path> (entry <id> not written: <reason>)`.
 
 **No route exists only for testing.**
-- `GET /api/admin/cost-entries` is the permanent reader the approval screen will reuse.
+- `GET /api/admin/cost-entries` is the permanent reader; the costs page (§11) reads it.
 - `GET /api/cleaner/start` is the cleaner page's gate and its one read on opening; `GET /api/cleaner/session` stays as the lighter "who am I".
 - `POST /api/cleaner/entries` is the single validating writer.
 
@@ -597,10 +598,10 @@ getAdminBucket().file(path).save(bytes, {
 | Upload succeeded, transaction failed or session revoked | An orphan object at `receipts/<entryId>/…` with no `cost_entries/<entryId>`. The exact path is logged. The object is private, costs cents, and its `entryId` and `cleanerId` metadata say whose it is. Nothing deletes it. It can be detected as a `receipts/<id>/` with no matching entry doc. |
 | Entry committed, response lost | Since dispatch 18, sending again with the same one-time key answers 200 `alreadyReceived` and writes nothing (§1d). Only a receipt changed after such a send, which gets a new key, can make a duplicate; the admin rejects it with the reason "duplicate". |
 
-**How an admin views a receipt** (deferred to the approval dispatch; the design is recorded here):
+**How an admin views a receipt** (built in dispatch 19, §11.4; the link lives 60 seconds, not the 5 minutes first designed):
 - `GET /api/admin/cost-entries/[id]/receipt?i=0`, admin only.
 - It reads the entry and the object metadata. **If `firebaseStorageDownloadTokens` is present, it flags `PUBLIC_TOKEN_PRESENT` without modifying the object.**
-- It returns a V4 signed URL, valid for 5 minutes, with `responseDisposition: 'inline'`. The URL is signed locally with the service-account key; firebase-admin passes the key to the Storage client.
+- It returns a V4 signed URL, valid for 60 seconds, with `responseDisposition: 'inline'`. The URL is signed locally with the service-account key; firebase-admin passes the key to the Storage client.
 - Google serves the bytes, so this adds no Vercel bandwidth and the file never runs in the nubnb.ca origin.
 
 **Accepted limitations:**
@@ -700,11 +701,12 @@ These are file edits only. They are not deployed and change no behaviour.
 | Item | Where it goes |
 |---|---|
 | ~~The `/cleaner` page: code gate, property search, entry form, client shrink, logout~~ | Built in dispatch 18 (§10) |
-| "My entries" for a cleaner (their own, never another's) | Later |
+| ~~"My entries" for a cleaner (their own, never another's)~~ | Built in dispatch 19 as "My receipts" (§11.6) |
 | ~~`robots.ts` disallow plus `noindex` for `/cleaner`~~ | Done in dispatch 18 |
 | A non-secret "has session" hint cookie at `Path=/cleaner`, so an anonymous view makes no function call | Not done: the page makes one call on opening. Only cleaners open it. |
 | Property list from a static or CDN list | Not done: `GET /api/cleaner/start` reads the property names (about 44 reads) once per opening, not per search. The search runs on the phone. |
-| Approve and reject routes (appending `history` with the admin Actor), the admin entries screen, the signed-URL receipt view with the token flag, list pagination | Approval dispatch |
+| ~~Approve and reject routes (appending `history` with the admin Actor), the admin entries screen, the signed-URL receipt view with the token flag~~ | Built in dispatch 19 (§11) |
+| List pagination | Not needed yet: the page reads the collection whole; revisit near 1,000 entries |
 | ~~Code reissue~~ | Done in dispatch 18 as the admin's code change (§3.12) |
 | Cleaner rename | Later |
 | ~~Idempotent submission~~ | Done in dispatch 18 (§1d) |
@@ -766,7 +768,7 @@ Its code-issuance steps (V1 and V1-dup: the one-time panel, the exhaustive hash 
 3. **Photo.** "Photo of the receipt": a big "Take photo" (camera) and "Choose from phone".
    - The photo is shrunk on the phone (§6), then shown with "Next" and "Take again".
 4. **Items.** "What did you buy?", with a "See the receipt" thumbnail that opens full size.
-   - One card per line: **Item** (suggestions as they type), **How many** (− value +), and **Price paid** (the amount printed on that line, D1; `$`, number pad).
+   - One card per line: **Item** (suggestions as they type), **How many** (− value +), and **Amount on receipt** (the amount printed on that line, D1; `$`, number pad). Under the amount, a line that follows How many: "As printed on the receipt", or "For all 3 together, as printed" (dispatch 19; it read "Price paid" before, which could mean per item).
    - Then "Add item" and "Start over". The bar at the bottom holds "Total $…" and "Send", with a progress bar while sending.
    - Anything missing is named under its field ("Type the item", "Type the price", "Check how many"), and the first one is scrolled into view.
 5. **Sent.** A green check, "Sent", the property, "{n} items · $…", and "Log another receipt".
@@ -800,3 +802,82 @@ Names that differ only in capitals, accents or spacing are one name, offered in 
 - A send is one call: 3 reads, a transaction of 2 reads and 2 writes, and one Storage upload of a photo of about 1–2 MB.
 - Signing in is one call and 1–2 reads.
 - Nothing is read per keystroke or per search.
+
+---
+
+## 11. Review, receipts and reports (dispatch 19)
+
+**Kian's decisions (2026-09-29), all as recommended:**
+- **D1:** `lines` stays exactly as the cleaner sent it. A correction is a history event carrying the line before and after; the lines that count are computed on read and never stored.
+- **D2:** an admin can add a line — above all the discount or return a phone's number pad cannot enter. Dropping a line is correcting it to $0.00.
+- **D3:** reports hold approved entries only; the page asks first when pending entries fall in the period. The table shows pending apart.
+- **D4:** the PDF adds "What was bought" and a 6-character reference, and names no cleaner.
+- **D5:** "per-house inventory" is an **Items bought** tab for one property: every line that counts, in the range.
+- **Defaults kept:** the receipt link lives 60 seconds; a rejection needs a reason, which the cleaner sees; dates are the day an entry was sent, in Toronto time; the page opens on all time.
+
+### 11.1 Stored shape
+
+- **Status** gains `removed`: `pending | approved | rejected | removed`. Approve, reject and remove each work from any other status (approving undoes a removal); nothing goes back to pending. **Counted:** approved and pending. **Not counted:** rejected, removed, and any unknown stored status.
+- **Status events:** `{ at, action: 'approved' | 'rejected' | 'removed', from: <status before>, to, actor: admin, reason }`. `statusReason` holds a rejection's reason and is `null` otherwise; an earlier reason stays in its event.
+- **Line events:** `{ at, action: 'line_corrected' | 'line_added', from: null, to: null, actor: admin, reason: null, line: { index, before, after } }`. `index` is the line's place from 0; added lines come after the sent ones; `before` is `null` on an added line.
+- **The lines that count** (`readLinesNow` in model.ts): the sent lines with every line event applied in order, each corrected line keeping its earlier versions. A stored amount that is not whole cents, or a line event that cannot be applied, makes the entry **unreadable**: shown, flagged, never added into a total, and not correctable here.
+- **New history words** (permanent): `approved`, `rejected`, `removed`, `line_corrected`, `line_added`. The actor is `{ role: 'admin', id: null, name: null }`: one shared PIN, so never which admin.
+- **Every review is one transaction.** The page sends `seen`, the history length it shows; if the stored history is longer, nothing is written and the answer is 409 `ENTRY_CHANGED`. The history is read and written back whole (never `arrayUnion`). No `set()`, no `delete()`, no new collection, index or rules change.
+
+### 11.2 Routes
+
+| Route | Door | Request | Success | Refusals |
+|---|---|---|---|---|
+| `POST /api/admin/cost-entries/[id]/status` | admin | `{ status: 'approved' \| 'rejected' \| 'removed', reason?, seen }` | 200 `{ entry: CostEntryView, changed }` | 422 (a rejection without a reason; a reason on anything else); 404 `ENTRY_NOT_FOUND`; 409 `ENTRY_CHANGED`; 500 `ENTRY_RECORD_UNREADABLE`; 502 `ENTRY_REVIEW_FAILED` ("may or may not have been saved") |
+| `POST /api/admin/cost-entries/[id]/lines` | admin | `{ index: number \| null, line: { name, quantity, lineTotal }, seen }` | 200 `{ entry, changed }` | 422 (the line, as the cleaner's is validated; `lineTotal` may be negative); 422 `ENTRY_LINE_NOT_FOUND` / `ENTRY_TOO_MANY_LINES` (120); 404, 409, 500, 502 as above |
+| `GET /api/admin/cost-entries/[id]/receipt?i=0` | admin | none | 200 `{ url, expiresAt, seconds: 60, publicToken }` | 404 `ENTRY_NOT_FOUND` / `RECEIPT_NOT_ON_ENTRY` / `RECEIPT_OBJECT_MISSING`; 502 `RECEIPT_LINK_FAILED` |
+| `GET /api/cleaner/entries` | cleaner | none | 200 `{ entries: CleanerEntry[] }`, newest first | 401 `CLEANER_SESSION_INVALID`; 503 `CLEANER_ENTRIES_UNAVAILABLE` |
+
+- The two admin writes follow the admin route order of §4, `refuseCrossSite` and `requireMediaType` included. `GET /api/admin/cost-entries` now carries `linesNow` on each entry.
+- **The receipt route** reads the path from the entry (field mask `receipts`) and accepts only a path under `receipts/`; the path is never taken from the request or returned. It reads the object's metadata, flags a `firebaseStorageDownloadTokens` without changing it, and signs a V4 read URL for 60 seconds, `inline`. The URL is never logged; failures log a code only.
+- **The cleaner route** queries `where('cleanerId', '==', <session cleaner>)`, checks each document again, and returns per entry: when sent, the property's ID and recorded name, how many lines were sent, the total now and as sent, whether corrected, the status, and the reason only when rejected. No receipt, no history, nothing of anyone else's.
+
+### 11.3 The costs page, `/admin/costs`
+
+- Static, behind PinGate; a "Costs" link beside "Cleaners" in the /admin header. One call on opening (the list); a review is one call; a receipt is one call for its link; exports are none.
+- **Filters:** property, status (with counts), From and To dates, and presets This month / Last month / This year / All time (the default). Mirrored into the URL with the view and the open entry.
+- **Totals for what is shown:** one row per property, and all together: entries, approved, pending, counted, and what is not counted (rejected, removed, unknown status; unreadable entries said apart).
+- **Table:** sent (Toronto time), property, cleaner, total (✎ when corrected), status, receipt. Rejected and removed rows stay, dimmed, their totals struck through.
+- **Entry pane:** status and the actions (Approve; Reject… with a required reason; Remove… after a confirm); the receipt; the items with each earlier version struck through beneath its line, "Added by admin" on added lines, Correct under each line and Add a line; the cleaner's note and purchase date when present; the full history.
+- **States:** "Could not load cost entries — It is not empty — it has not loaded." with no table, totals or export; "No cost entries yet"; "No entries match these filters"; "Could not load the receipt" with Retry, never "no receipt". An answer that does not say whether a review landed shows "The change may or may not have been saved. Refresh to see what is stored."
+
+### 11.4 Receipts
+
+- The page puts the signed URL straight into an `<img>` (`referrerPolicy="no-referrer"`) and keeps it nowhere else; "Full size" enlarges the same element, so the image is never fetched twice. GCS serves the bytes with the object's `Cache-Control: private, max-age=0, no-store`, so nothing costs Vercel bandwidth.
+- **The limit, as reported to Kian:** a signed URL is a bearer link. Copied out of the page, it works until it expires — at most 60 seconds.
+
+### 11.5 Reports
+
+- **Built in the browser** from the page's data (`app/lib/costs/report.ts`), with no package: `xlsx.ts` writes the workbook (a stored ZIP, `zip.ts`, of seven XML parts with inline strings), `pdf.ts` writes PDF 1.4 with the built-in Helvetica faces and Adobe's metrics (text in WinAnsiEncoding: accents print; an emoji prints "?").
+- **One property, one period, approved entries only**, oldest first. An open start is the property's first entry; an open end is today. A report is refused while an approved entry in it cannot be read.
+- **PDF** (Letter, portrait; header row repeated per page; "Page n of m"): NUBNB · PROPERTY COSTS, the property, the period, "Approved costs, in Canadian dollars"; `#`, date, what was bought, ref, total (`*` when corrected); entries count and period total; the notes "* Corrected by Nubnb against the receipt.", "Amounts in brackets were taken off…" (when there are any) and "Each entry is one receipt…"; generated at, Toronto time. No cleaner's name.
+- **What was bought** (Kian, 2026-09-29): the names of the lines that cost something, once each, then every discount or return with its amount — "Instant savings (-$5.00)" — so each total can be read from what is listed. A line of exactly $0.00 adds nothing and is left out. When the column is too narrow the item names are cut with "…"; the money taken off never is. The Excel Entries sheet lists the same, uncut.
+- **Excel:** sheet Entries (date sent, ref, entry ID, cleaner, what was bought, lines, total, corrected; period total) and sheet Items (date sent, ref, item, quantity for reference only, line total as printed, corrected / added by admin; total). Real dates and numbers; totals written as values worked out in whole cents, not formulas.
+- File names: `nubnb-costs-<property>-<from>-to-<to>.xlsx|pdf`.
+
+### 11.6 The cleaner app
+
+- **The amount's label:** "Amount on receipt", and under it a line that follows How many: "As printed on the receipt", or "For all 3 together, as printed". The error reads "Type the amount". The admin side says "Qty (reference)" and "Line total as printed", with "Each amount is what the receipt prints for that line, for all of that item together. Quantities are for reference and are never multiplied." Stored entries are untouched; the draft's field keeps its name, so drafts on phones survive.
+- **My receipts:** a button beside Sign out and on the Sent screen. The cleaner's own receipts, newest first: property, total (struck through when rejected or removed), date, items, and "Waiting for review" / "Approved" / "Rejected" with the office's reason / "Removed"; "Changed by the office. You sent $X." when corrected. A list that did not load says so. It is a view over the steps, not a step: the draft is untouched, and Back returns.
+
+### 11.7 Verification (2026-09-29)
+
+Against a local production build reading production data (no `.env.local` in the build copy; throwaway `ADMIN_PIN` and `CLEANER_SESSION_SECRET`), with `__TEST__` cleaners and entries sent through the real cleaner route:
+- the table, filters, presets, custom dates and totals, including rejected and removed rows left out of every sum and the Items tab adding up to the counted total;
+- approve, reject, correct, add and remove through the page and the API, each recorded in the history with the line before and after, `lines` unchanged in the raw document; 409 `ENTRY_CHANGED` on a stale history, both from the API and from a real two-sided change in the page;
+- a receipt shown through its link; the same link fetched with no cookie answered 200 with the stored SHA-256, and 400 `ExpiredToken` after its minute; the object's metadata showed no download token and was never updated;
+- the Excel file opened in Microsoft Excel and the PDF in poppler and Quick Look, with the right numbers and period;
+- each cleaner saw their own receipts and not the other's, in the API and on a phone-sized screen, and the new label and hint;
+- genuine failures (a service-account key Google does not know): "Could not load cost entries", "Could not load the receipt", and a review reported as possibly unsaved while nothing was written;
+- cleanup by exact ID and path after `__TEST__` checks; the closing export byte-identical to the opening one (49 documents), and Storage unchanged at 4,640 objects. Deleted test receipts stay soft-deleted for 7 days.
+
+**Second round (Kian, 2026-09-29):** discounts shown in "What was bought", and the dates at a month boundary.
+- Two `__TEST__` entries were written directly in the route's shape (the route stamps its own clock) at `2026-09-01T03:59:30.000Z` and `2026-09-01T04:00:30.000Z`: 23:59:30 on 31 August and 00:00:30 on 1 September in Toronto, both 1 September in UTC. The discount was added and both were approved through the real routes.
+- In a browser running on Asia/Tokyo time (both instants on 1 September there), the page put the first in August and the second in September: Last month, This month, and single-day ranges either side of midnight. The August and September Excel files and PDFs, opened in Excel, poppler and Quick Look, held one entry each, dated 31 Aug and 1 Sep.
+- The September PDF listed `__TEST__ Paper towel…, __TEST__ Instant savings (-$5.00)`: the item names cut, the discount whole. A $0.00 line stayed out of the summary.
+- Deleted by ID; the closing export byte-identical to the opening one, and Storage unchanged.

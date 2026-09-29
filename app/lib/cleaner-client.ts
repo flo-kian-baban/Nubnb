@@ -12,7 +12,7 @@
  * Client-safe. From the cleaner library it imports only the model.
  */
 
-import type { CleanerStart } from '@/app/lib/cleaners/model';
+import type { CleanerEntry, CleanerStart } from '@/app/lib/cleaners/model';
 
 /** The `entry` part of a send, exactly as POST /api/cleaner/entries reads it. */
 export interface EntryPayload {
@@ -48,6 +48,14 @@ export type SendResult =
    */
   | { kind: 'not-sent'; offline: boolean };
 
+export type MyEntriesResult =
+  | { kind: 'ok'; entries: CleanerEntry[] }
+  /** No session, or one that no longer holds: show the code screen. */
+  | { kind: 'signed-out' }
+  /** No answer at all. */
+  | { kind: 'offline' }
+  | { kind: 'failed' };
+
 /** Long enough for a 4 MiB photo on a weak signal. */
 const SEND_TIMEOUT_MS = 120_000;
 
@@ -70,6 +78,24 @@ function isCleanerStart(data: unknown): data is CleanerStart {
     data.recentPropertyIds.every((id) => typeof id === 'string') &&
     Array.isArray(data.itemNames) &&
     data.itemNames.every((name) => typeof name === 'string')
+  );
+}
+
+const isNumberOrNull = (value: unknown): boolean => value === null || typeof value === 'number';
+
+function isCleanerEntry(data: unknown): data is CleanerEntry {
+  return (
+    isRecord(data) &&
+    typeof data.id === 'string' &&
+    isTextOrNull(data.createdAt) &&
+    isTextOrNull(data.propertyId) &&
+    isTextOrNull(data.propertyNameAtEntry) &&
+    isNumberOrNull(data.lineCount) &&
+    isNumberOrNull(data.totalCents) &&
+    isNumberOrNull(data.sentTotalCents) &&
+    typeof data.corrected === 'boolean' &&
+    isTextOrNull(data.status) &&
+    isTextOrNull(data.statusReason)
   );
 }
 
@@ -102,6 +128,23 @@ export async function loadStart(): Promise<StartResult> {
   if (res.status === 401) return { kind: 'signed-out' };
   const body = await readJson(res);
   if (res.ok && isCleanerStart(body.data)) return { kind: 'ok', start: body.data };
+  return { kind: 'failed' };
+}
+
+/** This cleaner's own entries, newest first, with their status. A failure is never an empty list. */
+export async function loadMyEntries(): Promise<MyEntriesResult> {
+  let res: Response;
+  try {
+    res = await fetch('/api/cleaner/entries', { cache: 'no-store' });
+  } catch {
+    return { kind: 'offline' };
+  }
+  if (res.status === 401) return { kind: 'signed-out' };
+  const body = await readJson(res);
+  const data = isRecord(body.data) ? body.data : null;
+  if (res.ok && data && Array.isArray(data.entries) && data.entries.every(isCleanerEntry)) {
+    return { kind: 'ok', entries: data.entries };
+  }
   return { kind: 'failed' };
 }
 

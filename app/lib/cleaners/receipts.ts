@@ -12,9 +12,10 @@
  * no download token, no ACL option and no public flag. It takes the bucket's
  * project-private default ACL; storage.rules denies every client read, list
  * and write; and with no token, the Firebase download endpoint has no
- * credential to accept. Admins will read receipts through short-lived signed
- * URLs. Never open a receipt in the Firebase console's Storage browser: that
- * can mint a download token, which is a permanent public URL.
+ * credential to accept. Admins read receipts through signed URLs that work
+ * for 60 seconds (receiptLink). Never open a receipt in the Firebase
+ * console's Storage browser: that can mint a download token, which is a
+ * permanent public URL.
  *
  * ── Create-only ──
  * Written with `ifGenerationMatch: 0`, so the app can never overwrite a
@@ -124,4 +125,67 @@ export async function saveReceipt(input: SaveReceiptInput): Promise<ReceiptRef> 
     });
 
   return { path, contentType, bytes: bytes.length, sha256, uploadedAt };
+}
+
+// ─── Reading one back ──────────────────────────────────────────
+
+/**
+ * How long a receipt link works. The admin page loads the image the moment
+ * it has the link, so a minute is ample; a link copied out of the page stops
+ * working within that minute.
+ */
+export const RECEIPT_LINK_SECONDS = 60;
+
+export type ReceiptLink =
+  | {
+      kind: 'ok';
+      /** A V4 signed URL for reading this one object. A bearer link: never logged, never stored. */
+      url: string;
+      expiresAt: string;
+      /**
+       * True when the object carries a Firebase download token — a permanent
+       * public URL, minted outside the app (the console's Storage browser can
+       * do it). Reported, never changed here.
+       */
+      publicToken: boolean;
+    }
+  /** The entry names an object that is not in the bucket. */
+  | { kind: 'missing' };
+
+/**
+ * A link that reads one receipt for RECEIPT_LINK_SECONDS and then stops
+ * working. It is signed with the service account's own key; nothing is
+ * written to the object, and no download token is made. The object's
+ * `Cache-Control: private, max-age=0, no-store`, set at upload, keeps the
+ * image out of the browser's disk cache.
+ *
+ * @throws if the metadata read or the signing fails.
+ */
+export async function receiptLink(path: string): Promise<ReceiptLink> {
+  const file = getAdminBucket().file(path);
+
+  let custom: Record<string, unknown>;
+  try {
+    const [metadata] = await file.getMetadata();
+    custom = (metadata.metadata ?? {}) as Record<string, unknown>;
+  } catch (err) {
+    if ((err as { code?: unknown } | null)?.code === 404) return { kind: 'missing' };
+    throw err;
+  }
+  const token = custom.firebaseStorageDownloadTokens;
+
+  const expires = Date.now() + RECEIPT_LINK_SECONDS * 1000;
+  const [url] = await file.getSignedUrl({
+    version: 'v4',
+    action: 'read',
+    expires,
+    responseDisposition: 'inline',
+  });
+
+  return {
+    kind: 'ok',
+    url,
+    expiresAt: new Date(expires).toISOString(),
+    publicToken: typeof token === 'string' && token.trim() !== '',
+  };
 }

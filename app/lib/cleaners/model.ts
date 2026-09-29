@@ -32,7 +32,15 @@
  * Money is integer cents. `lineTotalCents` is the amount printed on the
  * receipt line; quantity is informational and never multiplied. No total is
  * stored. Nothing here computes, adjusts or corrects an amount — formatCents
- * only writes one out.
+ * only writes one out, and readLinesNow only adds up what is stored.
+ *
+ * ── Review (dispatch 19) ──
+ * An entry's `lines` stay exactly as the cleaner sent them. When an admin
+ * corrects a line or adds one, the change is a history event that carries
+ * the line before and after, and the lines that count are the sent lines
+ * with those events applied in order (readLinesNow). So the cleaner's own
+ * claim is never overwritten, every earlier version stays readable, and an
+ * entry nobody corrected reads exactly as it was written.
  */
 
 // ─── Collections ───────────────────────────────────────────────
@@ -90,6 +98,13 @@ export const LIMITS = {
   LINE_TOTAL_MAX_CENTS: 99_999_999,
   /** One line's quantity: more than 0, at most three decimals. Informational only. */
   QUANTITY_MAX: 99_999.999,
+  /**
+   * Lines on one entry once an admin has added some: the 100 a cleaner can
+   * send, and room for the discounts and returns the phone cannot enter.
+   */
+  LINES_MAX_AFTER_REVIEW: 120,
+  /** A rejection's reason, after trimming. The cleaner sees it. */
+  REASON_MAX: 500,
   /** The earliest purchase date accepted. The latest is tomorrow, in UTC. */
   PURCHASED_ON_MIN: '2020-01-01',
   /** The `entry` part of an entry submission: a JSON string. */
@@ -133,29 +148,72 @@ export function isCleanerStatus(value: unknown): value is CleanerStatus {
   return typeof value === 'string' && (CLEANER_STATUSES as readonly string[]).includes(value);
 }
 
-/** An entry's review states. Every entry is written "pending"; review comes later. */
-export const ENTRY_STATUSES = ['pending', 'approved', 'rejected'] as const;
+/**
+ * An entry's review states. Every entry is written "pending". An admin moves
+ * it to approved, rejected or removed, from any other of those, whenever they
+ * choose; nothing goes back to pending. Removed means left out of totals and
+ * reports, never erased: the entry stays, marked.
+ */
+export const ENTRY_STATUSES = ['pending', 'approved', 'rejected', 'removed'] as const;
 export type EntryStatus = (typeof ENTRY_STATUSES)[number];
 
 export const ENTRY_STATUS_LABELS: Record<EntryStatus, string> = {
   pending: 'Pending',
   approved: 'Approved',
   rejected: 'Rejected',
+  removed: 'Removed',
+};
+
+/** The same states in the cleaner app's words. */
+export const ENTRY_STATUS_CLEANER_LABELS: Record<EntryStatus, string> = {
+  pending: 'Waiting for review',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  removed: 'Removed',
 };
 
 export function isEntryStatus(value: unknown): value is EntryStatus {
   return typeof value === 'string' && (ENTRY_STATUSES as readonly string[]).includes(value);
 }
 
+/** The statuses an admin's review can set. */
+export const REVIEW_STATUSES = ['approved', 'rejected', 'removed'] as const;
+export type ReviewStatus = (typeof REVIEW_STATUSES)[number];
+
+/**
+ * Whether an entry's amount counts in totals: approved and pending entries
+ * do; rejected and removed ones do not, and neither does a status this
+ * module does not know, which is shown as stored instead.
+ */
+export function countsInTotals(status: string | null): boolean {
+  return status === 'approved' || status === 'pending';
+}
+
 /**
  * The events a history records. Words once written are permanent. A later
- * dispatch adds `renamed` to cleaners, and review events to entries.
+ * dispatch adds `renamed` to cleaners.
  *
  * On `code_changed`, `from` and `to` are the old and new codes rather than
  * statuses; `from` is null when the old code was never on record (a
  * version 1 cleaner, whose code was stored only as a digest).
+ *
+ * An entry's review (dispatch 19): `approved`, `rejected` and `removed` carry
+ * the status before and after in `from` and `to`, and a rejection its reason.
+ * `line_corrected` and `line_added` leave `from` and `to` null and carry the
+ * line instead, in `line`.
  */
-export const HISTORY_ACTIONS = ['created', 'deactivated', 'reactivated', 'code_changed', 'submitted'] as const;
+export const HISTORY_ACTIONS = [
+  'created',
+  'deactivated',
+  'reactivated',
+  'code_changed',
+  'submitted',
+  'approved',
+  'rejected',
+  'removed',
+  'line_corrected',
+  'line_added',
+] as const;
 export type HistoryAction = (typeof HISTORY_ACTIONS)[number];
 
 export const HISTORY_ACTION_LABELS: Record<HistoryAction, string> = {
@@ -164,6 +222,11 @@ export const HISTORY_ACTION_LABELS: Record<HistoryAction, string> = {
   reactivated: 'Reactivated',
   code_changed: 'Code changed',
   submitted: 'Submitted',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  removed: 'Removed',
+  line_corrected: 'Line corrected',
+  line_added: 'Line added',
 };
 
 // ─── Stored shapes ─────────────────────────────────────────────
@@ -197,6 +260,8 @@ export interface HistoryEvent {
   to: string | null;
   actor: Actor;
   reason: string | null;
+  /** On `line_corrected` and `line_added` only: which line, and what it said before and after. */
+  line?: LineChange;
 }
 
 /** One receipt line, as stored. */
@@ -207,6 +272,28 @@ export interface Line {
   quantity: number;
   /** The amount printed on the line, in cents. Negative is money back; 0 is allowed. */
   lineTotalCents: number;
+}
+
+/**
+ * A line as it stood before a correction: taken from the stored entry, so
+ * its name and quantity are whatever was stored; its amount is whole cents,
+ * or the correction would have been refused.
+ */
+export interface LineBefore {
+  name: string | null;
+  quantity: number | string | null;
+  lineTotalCents: number;
+}
+
+/**
+ * What a line event changed. `index` is the line's place on the entry from 0;
+ * lines an admin adds come after the ones the cleaner sent. An added line has
+ * no `before`.
+ */
+export interface LineChange {
+  index: number;
+  before: LineBefore | null;
+  after: Line;
 }
 
 /** One stored receipt image. Every value is taken from the bytes the server stored. */
@@ -240,6 +327,16 @@ export interface HistoryEventView {
   to: string | null;
   actor: ActorView | null;
   reason: string | null;
+  /** The line a line event changed; null on every other event. */
+  line: LineChangeView | null;
+}
+
+/** A line event's change, as stored. */
+export interface LineChangeView {
+  /** A number as stored; any other stored value as text. */
+  index: number | string | null;
+  before: LineView | null;
+  after: LineView | null;
 }
 
 /** One cleaner as the admin list shows it, code included. Never carries the session epoch. */
@@ -335,8 +432,75 @@ export interface CostEntryView {
   purchasedOn: string | null;
   note: string | null;
   currency: string | null;
+  /** The lines as the cleaner sent them. */
   lines: LineView[] | null;
+  /** The lines that count: the sent lines with every correction applied. */
+  linesNow: LinesNow;
   receipts: ReceiptView[] | null;
+}
+
+/** One line as it now counts. */
+export interface LineNow {
+  /** Its place on the entry, from 0. Lines an admin added come after the ones the cleaner sent. */
+  index: number;
+  name: string | null;
+  quantity: number | string | null;
+  /** Whole cents: the amount printed on the receipt line. */
+  lineTotalCents: number;
+  /** Sent by the cleaner, or added by an admin. */
+  origin: 'sent' | 'added';
+  /** What the line said before each correction, oldest first; empty when it was never corrected. */
+  earlier: LineVersion[];
+}
+
+/** An earlier version of a corrected line. */
+export interface LineVersion {
+  name: string | null;
+  quantity: number | string | null;
+  lineTotalCents: number;
+  /** When a correction replaced it. */
+  replacedAt: string | null;
+}
+
+/**
+ * An entry's lines as they now count. 'unreadable' when a stored amount is not
+ * whole cents or a recorded line change cannot be applied: such an entry is
+ * shown, and flagged, but never added into a total.
+ */
+export type LinesNow =
+  | {
+      kind: 'ok';
+      lines: LineNow[];
+      /** The lines' amounts added up, in cents. Worked out to show; never stored. */
+      totalCents: number;
+      /** The lines as the cleaner sent them, added up. */
+      sentTotalCents: number;
+      /** True once an admin has corrected a line or added one. */
+      corrected: boolean;
+    }
+  | { kind: 'unreadable'; reason: string };
+
+/**
+ * One of a cleaner's own entries, as the cleaner app lists it. Nothing of
+ * anyone else's, and nothing of the review but its outcome: no receipt, no
+ * history, no admin note.
+ */
+export interface CleanerEntry {
+  id: string;
+  createdAt: string | null;
+  propertyId: string | null;
+  propertyNameAtEntry: string | null;
+  /** How many lines the cleaner sent; null when the entry has no lines array. */
+  lineCount: number | null;
+  /** What the entry now adds up to; null when its lines cannot be read. */
+  totalCents: number | null;
+  /** What the cleaner sent, added up; null when the lines cannot be read. */
+  sentTotalCents: number | null;
+  /** True once an admin has corrected a line or added one. */
+  corrected: boolean;
+  status: string | null;
+  /** Why it was rejected, when it is; null otherwise. */
+  statusReason: string | null;
 }
 
 /** A property as the cleaner app lists it. */
@@ -406,7 +570,7 @@ function readActor(value: unknown): ActorView | null {
 function readEvent(value: unknown): HistoryEventView {
   const event = asMap(value);
   if (!event) {
-    return { at: null, action: shown(value), from: null, to: null, actor: null, reason: null };
+    return { at: null, action: shown(value), from: null, to: null, actor: null, reason: null, line: null };
   }
   return {
     at: fieldText(event.at),
@@ -415,6 +579,7 @@ function readEvent(value: unknown): HistoryEventView {
     to: fieldText(event.to),
     actor: readActor(event.actor),
     reason: fieldText(event.reason),
+    line: readLineChange(event.line),
   };
 }
 
@@ -429,6 +594,100 @@ function readLine(value: unknown): LineView {
     name: fieldText(line.name),
     quantity: fieldNumber(line.quantity),
     lineTotalCents: fieldNumber(line.lineTotalCents),
+  };
+}
+
+/** A line event's `line`. null when the event has none; a value that is not a map is kept, written out, as `after`. */
+function readLineChange(value: unknown): LineChangeView | null {
+  if (value === undefined || value === null) return null;
+  const change = asMap(value);
+  if (!change) return { index: null, before: null, after: readLine(value) };
+  return {
+    index: fieldNumber(change.index),
+    before: change.before === undefined || change.before === null ? null : readLine(change.before),
+    after: change.after === undefined || change.after === null ? null : readLine(change.after),
+  };
+}
+
+const isWholeCents = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value);
+
+/**
+ * The lines that count: the lines as sent, with each `line_corrected` and
+ * `line_added` event in the history applied in the order recorded. Every
+ * earlier version of a corrected line is kept, oldest first, beside the line.
+ *
+ * Refuses rather than guesses: a stored amount that is not whole cents, or a
+ * line event that names no line or carries no readable amount, makes the
+ * whole entry 'unreadable', so a total is never built from part of it.
+ *
+ * The one arithmetic is adding the amounts up, for display. Nothing is
+ * multiplied, and nothing is stored.
+ */
+export function readLinesNow(lines: LineView[] | null, history: HistoryEventView[] | null): LinesNow {
+  if (lines === null) return { kind: 'unreadable', reason: 'The entry has no list of lines.' };
+
+  const now: LineNow[] = [];
+  for (const [index, line] of lines.entries()) {
+    if (!isWholeCents(line.lineTotalCents)) {
+      return { kind: 'unreadable', reason: `Line ${index + 1}'s amount is not stored in whole cents.` };
+    }
+    now.push({
+      index,
+      name: line.name,
+      quantity: line.quantity,
+      lineTotalCents: line.lineTotalCents,
+      origin: 'sent',
+      earlier: [],
+    });
+  }
+  const sentTotalCents = now.reduce((sum, line) => sum + line.lineTotalCents, 0);
+
+  let corrected = false;
+  for (const event of history ?? []) {
+    if (event.action !== 'line_corrected' && event.action !== 'line_added') continue;
+    const index = event.line?.index;
+    const after = event.line?.after ?? null;
+    const unreadable: LinesNow = {
+      kind: 'unreadable',
+      reason: `A line change recorded ${event.at ?? 'at an unknown time'} cannot be applied.`,
+    };
+    if (typeof index !== 'number' || !Number.isSafeInteger(index) || !after || !isWholeCents(after.lineTotalCents)) {
+      return unreadable;
+    }
+
+    if (event.action === 'line_corrected') {
+      const line = now[index];
+      if (index < 0 || !line) return unreadable;
+      line.earlier.push({
+        name: line.name,
+        quantity: line.quantity,
+        lineTotalCents: line.lineTotalCents,
+        replacedAt: event.at,
+      });
+      line.name = after.name;
+      line.quantity = after.quantity;
+      line.lineTotalCents = after.lineTotalCents;
+    } else {
+      // An added line goes on the end, so the index it was given is the next one.
+      if (index !== now.length) return unreadable;
+      now.push({
+        index,
+        name: after.name,
+        quantity: after.quantity,
+        lineTotalCents: after.lineTotalCents,
+        origin: 'added',
+        earlier: [],
+      });
+    }
+    corrected = true;
+  }
+
+  return {
+    kind: 'ok',
+    lines: now,
+    totalCents: now.reduce((sum, line) => sum + line.lineTotalCents, 0),
+    sentTotalCents,
+    corrected,
   };
 }
 

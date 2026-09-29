@@ -18,6 +18,7 @@ interface PropertyScreenProps {
   recentPropertyIds: string[];
   selectedId: string | null;
   onChoose: (property: CleanerProperty) => void;
+  onMyReceipts: () => void;
   onSignOut: () => void;
 }
 
@@ -35,6 +36,7 @@ export function PropertyScreen({
   recentPropertyIds,
   selectedId,
   onChoose,
+  onMyReceipts,
   onSignOut,
 }: PropertyScreenProps) {
   const [query, setQuery] = useState("");
@@ -86,9 +88,14 @@ export function PropertyScreen({
     <main className={styles.screen}>
       <header className={styles.topBar}>
         <p className={styles.greeting}>{firstName ? `Hi ${firstName}` : "Hi"}</p>
-        <button type="button" className={styles.textButton} onClick={onSignOut}>
-          Sign out
-        </button>
+        <div className={styles.topBarActions}>
+          <button type="button" className={styles.textButton} onClick={onMyReceipts}>
+            My receipts
+          </button>
+          <button type="button" className={styles.textButton} onClick={onSignOut}>
+            Sign out
+          </button>
+        </div>
       </header>
 
       <h1 className={styles.title}>Which property?</h1>

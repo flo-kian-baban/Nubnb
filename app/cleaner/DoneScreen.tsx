@@ -1,7 +1,8 @@
 "use client";
 
 /**
- * Sent: a clear yes, what was sent, and the way to the next receipt.
+ * Sent: a clear yes, what was sent, the way to the next receipt, and to the
+ * receipts sent so far.
  */
 
 import { useEffect, useRef } from "react";
@@ -15,7 +16,15 @@ export interface SentReceipt {
   totalCents: number;
 }
 
-export function DoneScreen({ sent, onAnother }: { sent: SentReceipt; onAnother: () => void }) {
+export function DoneScreen({
+  sent,
+  onAnother,
+  onMyReceipts,
+}: {
+  sent: SentReceipt;
+  onAnother: () => void;
+  onMyReceipts: () => void;
+}) {
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   // Announced on arrival.
@@ -35,6 +44,9 @@ export function DoneScreen({ sent, onAnother }: { sent: SentReceipt; onAnother: 
       <p className={styles.doneSummary}>
         {sent.lineCount === 1 ? "1 item" : `${sent.lineCount} items`} · {formatCents(sent.totalCents)}
       </p>
+      <button type="button" className={styles.textButton} onClick={onMyReceipts}>
+        See my receipts
+      </button>
       <div className={styles.bottomBar}>
         <button type="button" className={styles.primary} onClick={onAnother}>
           Log another receipt

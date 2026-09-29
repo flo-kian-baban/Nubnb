@@ -2,11 +2,14 @@
 
 /**
  * What was bought: one card per receipt line — the item, how many, and the
- * price paid, which is the amount printed on that line of the receipt (D1;
- * the quantity is never multiplied into it). Item names are suggested from
- * the ones already in use, so the same thing is picked rather than typed a
- * new way. The total is shown to check against the receipt; it is added up
- * here for display only and never stored.
+ * amount on the receipt, which is the line's total as printed: for all of
+ * that item together, never for one (D1; the quantity is never multiplied
+ * into it). Under the amount, a line that follows "How many" says so in
+ * words ("For all 3 together, as printed"), because "Price paid" beside
+ * "How many" read as either. Item names are suggested from the ones already
+ * in use, so the same thing is picked rather than typed a new way. The total
+ * is shown to check against the receipt; it is added up here for display
+ * only and never stored.
  *
  * The receipt photo stays at the top, and opens full size, so the items can
  * be read off it.
@@ -59,6 +62,15 @@ function suggest(itemNames: string[], typed: string): string[] {
     .sort((a, b) => a.rank - b.rank || a.order - b.order)
     .slice(0, SUGGESTIONS_SHOWN)
     .map(({ name }) => name);
+}
+
+/**
+ * What the amount is, in words that follow "How many": the receipt's amount
+ * for all of them together, never for one.
+ */
+function amountHint(quantity: string | null): string {
+  if (quantity === null || quantity === "1") return "As printed on the receipt";
+  return /^[0-9]+$/.test(quantity) ? `For all ${quantity} together, as printed` : "For all of it together, as printed";
 }
 
 function Problem({ id, text }: { id: string; text?: string }) {
@@ -231,7 +243,7 @@ function ItemCard({
 
         <div className={styles.itemRowCell}>
           <label className={styles.fieldLabel} htmlFor={`${base}-price`}>
-            Price paid
+            Amount on receipt
           </label>
           <div className={`${styles.priceField} ${problems.price ? styles.fieldInvalid : ""}`}>
             <span aria-hidden>$</span>
@@ -244,7 +256,7 @@ function ItemCard({
               autoComplete="off"
               enterKeyHint="done"
               aria-invalid={!!problems.price}
-              aria-describedby={problems.price ? `${base}-price-problem` : undefined}
+              aria-describedby={problems.price ? `${base}-price-hint ${base}-price-problem` : `${base}-price-hint`}
               onChange={(e) => onChange({ price: e.target.value })}
               // "8" becomes "8.00": what will be sent, shown before it is.
               onBlur={() => {
@@ -253,6 +265,9 @@ function ItemCard({
               }}
             />
           </div>
+          <p id={`${base}-price-hint`} className={styles.fieldHint}>
+            {amountHint(quantity)}
+          </p>
           <Problem id={`${base}-price-problem`} text={problems.price} />
         </div>
       </div>

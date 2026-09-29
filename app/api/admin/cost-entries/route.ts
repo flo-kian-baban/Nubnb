@@ -8,12 +8,12 @@
  * shows as 'unreadable' on that entry and never fails the list.
  *
  * The collection is read whole — no orderBy, no limit — so an entry can never
- * silently drop out of the list; see listCostEntries. There is no pagination
- * yet: it comes with the approval screen, which will read this same route.
- * Receipt object paths are never returned.
+ * silently drop out of the list; see listCostEntries. Each entry also carries
+ * `linesNow`, its lines with every correction applied, which is what totals
+ * and reports add up. Receipt object paths are never returned.
  *
- * No page calls this yet, and no public page ever will, so it adds no
- * function call to a renter's page view.
+ * Read by the costs page, /admin/costs, once when it opens and on Refresh. No
+ * public page calls it, so it adds no function call to a renter's page view.
  */
 
 import { NextRequest } from 'next/server';

@@ -9,7 +9,7 @@ import { PinGate } from "./components/PinGate";
 import { NoticeBanner, useNotice } from "./components/Notice";
 import { NewLeadsCard } from "./components/NewLeadsCard";
 import styles from "./page.module.css";
-import { Plus, Edit2, Trash2, Home, Search, SlidersHorizontal, Building2, BedDouble, DollarSign, LayoutGrid, AlertTriangle, RefreshCw, Users } from "lucide-react";
+import { Plus, Edit2, Trash2, Home, Search, SlidersHorizontal, Building2, BedDouble, DollarSign, LayoutGrid, AlertTriangle, RefreshCw, Users, Receipt } from "lucide-react";
 import Link from "next/link";
 
 type SortOption = "newest" | "price-asc" | "price-desc" | "name-asc";
@@ -199,6 +199,10 @@ export default function AdminPage() {
           </div>
 
           <div className={styles.headerRight}>
+            <Link href="/admin/costs" className={styles.backBtn}>
+              <Receipt size={16} />
+              <span>Costs</span>
+            </Link>
             <Link href="/admin/cleaners" className={styles.backBtn}>
               <Users size={16} />
               <span>Cleaners</span>
