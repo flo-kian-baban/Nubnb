@@ -21,6 +21,15 @@ rules_version = '2';
 // client SDK returned storage/unauthorized for both read and write. Serving
 // images needs nothing from this file.
 //
+// Receipts are different: they have no public URL at all. Cleaner receipt
+// photos live under receipts/<entryId>/<uuid>.<ext> and are written by
+// POST /api/cleaner/entries through the Admin SDK with NO download token, so
+// there is no token URL to serve them and the deny-all below refuses every
+// client read, list and write of the prefix. Admins will read them through
+// short-lived V4 signed URLs. Never open a receipt in the Firebase console's
+// Storage browser: doing so can mint a download token, which is a permanent
+// public URL to that receipt.
+//
 // What replaced what: the rules deployed 2026-03-17 were the stock starter
 // template, `allow read, write: if request.time < timestamp.date(2026, 4, 16)`.
 // That expired on 2026-04-16 and had been denying all client traffic since —

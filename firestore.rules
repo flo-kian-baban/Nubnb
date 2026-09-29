@@ -17,6 +17,23 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Cleaner cost logging: cleaner accounts, the code index, cost entries
+    // and the one-time keys that stop a receipt being logged twice.
+    // Server-only, through the Admin SDK, which bypasses these rules. Never
+    // readable or writable from a browser: cleaner codes are stored readably
+    // (the code is the `cleaner_codes` document ID, and each cleaner holds
+    // their current code), so a browser read of either collection would hand
+    // out working codes.
+    //
+    // These blocks add no protection on their own: rules are OR-combined, so
+    // an `if false` here cannot cancel an `allow` elsewhere. The invariant is
+    // that NO allow rule may ever match these paths. The catch-all below
+    // already denies them.
+    match /cleaners/{cleanerId} { allow read, write: if false; }
+    match /cleaner_codes/{code} { allow read, write: if false; }
+    match /cost_entries/{entryId} { allow read, write: if false; }
+    match /cost_entry_submissions/{submissionId} { allow read, write: if false; }
+
     // Everything else: denied.
     match /{document=**} {
       allow read, write: if false;

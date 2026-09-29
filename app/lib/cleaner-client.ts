@@ -1,0 +1,183 @@
+/**
+ * Browser-side calls to the cleaner API, for the cleaner app at /cleaner.
+ *
+ * Every call resolves and never throws. Each answer is sorted into what the
+ * app does next — carry on, ask for the code, say the phone is offline, or
+ * say what was refused — rather than handed over as a status code.
+ *
+ * Sending an entry uses XMLHttpRequest rather than fetch, for one reason:
+ * upload progress. A receipt photo on a weak signal takes a while, and a bar
+ * that moves tells the cleaner it is working.
+ *
+ * Client-safe. From the cleaner library it imports only the model.
+ */
+
+import type { CleanerStart } from '@/app/lib/cleaners/model';
+
+/** The `entry` part of a send, exactly as POST /api/cleaner/entries reads it. */
+export interface EntryPayload {
+  submissionKey: string;
+  propertyId: string;
+  lines: { name: string; quantity: string; lineTotal: string }[];
+}
+
+export type StartResult =
+  | { kind: 'ok'; start: CleanerStart }
+  /** No session, or one that no longer holds: show the code screen. */
+  | { kind: 'signed-out' }
+  /** No answer at all. */
+  | { kind: 'offline' }
+  | { kind: 'failed' };
+
+export type SignInResult =
+  | { kind: 'ok' }
+  | { kind: 'not-recognised' }
+  | { kind: 'offline' }
+  | { kind: 'failed' };
+
+export type SendResult =
+  /** Recorded now, or by an earlier send of the same receipt whose answer was lost. */
+  | { kind: 'sent'; id: string; alreadyReceived: boolean }
+  /** The session ended (code changed, deactivated, 12 hours passed). Nothing was recorded. */
+  | { kind: 'signed-out' }
+  /** The server turned the entry down as it stands. Nothing was recorded. */
+  | { kind: 'refused'; code: string | null }
+  /**
+   * No confirmation: no answer, a timeout, or a server failure. Sending
+   * again is safe — the one-time key stops a second entry.
+   */
+  | { kind: 'not-sent'; offline: boolean };
+
+/** Long enough for a 4 MiB photo on a weak signal. */
+const SEND_TIMEOUT_MS = 120_000;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === 'object' && !Array.isArray(value);
+
+const isTextOrNull = (value: unknown): boolean => value === null || typeof value === 'string';
+
+function isCleanerStart(data: unknown): data is CleanerStart {
+  return (
+    isRecord(data) &&
+    isRecord(data.cleaner) &&
+    typeof data.cleaner.id === 'string' &&
+    isTextOrNull(data.cleaner.name) &&
+    Array.isArray(data.properties) &&
+    data.properties.every(
+      (p) => isRecord(p) && typeof p.id === 'string' && isTextOrNull(p.name) && isTextOrNull(p.city),
+    ) &&
+    Array.isArray(data.recentPropertyIds) &&
+    data.recentPropertyIds.every((id) => typeof id === 'string') &&
+    Array.isArray(data.itemNames) &&
+    data.itemNames.every((name) => typeof name === 'string')
+  );
+}
+
+async function readJson(res: Response): Promise<Record<string, unknown>> {
+  try {
+    const body = await res.json();
+    return isRecord(body) ? body : {};
+  } catch {
+    return {};
+  }
+}
+
+function parseJson(text: string): Record<string, unknown> {
+  try {
+    const body: unknown = JSON.parse(text);
+    return isRecord(body) ? body : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Who is signed in, and what the app lists. */
+export async function loadStart(): Promise<StartResult> {
+  let res: Response;
+  try {
+    res = await fetch('/api/cleaner/start', { cache: 'no-store' });
+  } catch {
+    return { kind: 'offline' };
+  }
+  if (res.status === 401) return { kind: 'signed-out' };
+  const body = await readJson(res);
+  if (res.ok && isCleanerStart(body.data)) return { kind: 'ok', start: body.data };
+  return { kind: 'failed' };
+}
+
+/** Sign in with a four-digit code. The session cookie comes back with a 200. */
+export async function signIn(code: string): Promise<SignInResult> {
+  let res: Response;
+  try {
+    res = await fetch('/api/cleaner/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+      cache: 'no-store',
+    });
+  } catch {
+    return { kind: 'offline' };
+  }
+  if (res.ok) return { kind: 'ok' };
+  if (res.status === 401) return { kind: 'not-recognised' };
+  return { kind: 'failed' };
+}
+
+/** Take the session cookie off this phone. True when the server confirmed it. */
+export async function signOut(): Promise<boolean> {
+  try {
+    const res = await fetch('/api/cleaner/session', { method: 'DELETE', cache: 'no-store' });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+function sortSend(status: number, body: Record<string, unknown>): SendResult {
+  const data = isRecord(body.data) ? body.data : null;
+  if ((status === 200 || status === 201) && data && typeof data.id === 'string') {
+    return { kind: 'sent', id: data.id, alreadyReceived: data.alreadyReceived === true };
+  }
+  if (status === 401) return { kind: 'signed-out' };
+
+  const code = typeof body.code === 'string' ? body.code : null;
+  // An application answer in the 4xx range: the entry, as it stands, will not go.
+  if (status >= 400 && status < 500 && body.success === false) return { kind: 'refused', code };
+  // Anything else — a 5xx, a platform error page, a 2xx in the wrong form —
+  // does not say whether the entry was recorded. The one-time key makes
+  // sending again safe.
+  return { kind: 'not-sent', offline: false };
+}
+
+/**
+ * Send one receipt: the entry as JSON text and the photo. `onProgress` gets
+ * the share of the upload done, from 0 to 1, when the browser can tell.
+ */
+export function sendEntry(
+  entry: EntryPayload,
+  photo: Blob,
+  fileName: string,
+  onProgress: (done: number) => void,
+): Promise<SendResult> {
+  return new Promise((resolve) => {
+    const form = new FormData();
+    form.append('entry', JSON.stringify(entry));
+    form.append('receipt', photo, fileName);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/cleaner/entries');
+    xhr.timeout = SEND_TIMEOUT_MS;
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable && event.total > 0) onProgress(event.loaded / event.total);
+    };
+    xhr.onload = () => resolve(sortSend(xhr.status, parseJson(xhr.responseText)));
+    xhr.onerror = () => resolve({ kind: 'not-sent', offline: !navigator.onLine });
+    xhr.ontimeout = () => resolve({ kind: 'not-sent', offline: !navigator.onLine });
+    xhr.onabort = () => resolve({ kind: 'not-sent', offline: !navigator.onLine });
+    try {
+      xhr.send(form);
+    } catch {
+      resolve({ kind: 'not-sent', offline: !navigator.onLine });
+    }
+  });
+}

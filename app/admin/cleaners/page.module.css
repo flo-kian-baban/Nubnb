@@ -1,0 +1,270 @@
+/* ══════════════════════════════════════════════
+   Cleaners — create row, code editor and list.
+   Container, header, table, loading, empty and
+   error styles come from ../page.module.css.
+   Button and badge values are copied from
+   ../leads/page.module.css, which is left as it
+   is.
+   ══════════════════════════════════════════════ */
+
+.tableScroll {
+  overflow-x: auto;
+}
+
+/* ── Buttons ── */
+.btnGhost {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.2s ease;
+}
+.btnGhost:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.btnGhost:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ── Create row ── */
+.createRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  margin-bottom: 24px;
+}
+
+.createLabel {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.createInput {
+  flex: 1;
+  max-width: 400px;
+  min-width: 220px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  color: #f0f0f0;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: all 0.2s ease;
+}
+.createInput::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+.createInput:focus {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.04);
+}
+.createInput:disabled {
+  opacity: 0.6;
+}
+
+/* The shared primary button has no disabled look of its own. */
+.createBtn:disabled,
+.createBtn:disabled:hover {
+  opacity: 0.45;
+  cursor: default;
+  background: #ffffff;
+  transform: none;
+  box-shadow: none;
+}
+
+/* ── Code editor ── */
+.codeEditor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 24px;
+  padding: 20px 22px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.codeEditorTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #ffffff;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.codeEditorNote {
+  max-width: 640px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.codeEditorRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+}
+
+.codeInput {
+  width: 7.5em;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  color: #ffffff;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+  transition: all 0.2s ease;
+}
+.codeInput:focus {
+  border-color: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.04);
+}
+.codeInput:disabled {
+  opacity: 0.6;
+}
+
+.codeEditorOr {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* ── List ── */
+.code,
+.codeInline {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #ffffff;
+}
+.code {
+  font-size: 15px;
+  letter-spacing: 0.14em;
+}
+.codeInline {
+  letter-spacing: 0.08em;
+}
+
+.nameCell {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #ffffff;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.whenCell {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  white-space: nowrap;
+}
+
+.mono {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  overflow-wrap: anywhere;
+}
+
+.actionCell {
+  text-align: right;
+  white-space: nowrap;
+}
+.actionCell .rowAction + .rowAction {
+  margin-left: 8px;
+}
+
+.rowAction {
+  min-width: 96px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.2s ease;
+}
+.rowAction:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.rowAction:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.rowAction:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 2px;
+}
+
+/* ── Badges ── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.badgeActive {
+  background: rgba(74, 222, 128, 0.1);
+  color: #6ee7a0;
+  border-color: rgba(74, 222, 128, 0.18);
+}
+.badgeDeactivated {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.5);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.badgeOdd {
+  background: rgba(245, 158, 11, 0.08);
+  color: #f0a63a;
+  border-color: rgba(245, 158, 11, 0.22);
+}
+
+/* ── Responsive ── */
+@media (max-width: 640px) {
+  .createInput {
+    max-width: none;
+    min-width: 0;
+    flex-basis: 100%;
+  }
+  .codeEditor {
+    padding: 18px 16px;
+  }
+}

@@ -1,0 +1,865 @@
+/* ══════════════════════════════════════════════
+   The cleaner app. Built for a phone held in one
+   hand in a hallway, by someone who may not read
+   small print: large type (20px body), targets at
+   least 48px and usually 60px, strong contrast,
+   one light theme whatever the phone's setting,
+   and the main button within reach of a thumb.
+   ══════════════════════════════════════════════ */
+
+.app {
+  --ink: #111111;
+  --muted: #4a4a4a;
+  --line: #d2d2d2;
+  --field-border: #767676;
+  --soft: #f3f3f1;
+  --primary: #153d6d;
+  --primary-pressed: #0d2a4c;
+  --primary-soft: #eaf0f8;
+  --danger: #b3261e;
+  --danger-soft: #fdecea;
+  --ok: #1e7b34;
+  --warn-ink: #5e4300;
+  --warn-soft: #fff3d1;
+  --focus: #1a66d6;
+
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: #ffffff;
+  color: var(--ink);
+  /* Manrope straight from next/font's variable on <body>. Not var(--font-sans):
+     globals.css defines that on :root, above <body>, where --font-manrope does
+     not exist yet, so it resolves to nothing and the text falls back to Times. */
+  font-family: var(--font-manrope, system-ui), system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 20px;
+  line-height: 1.4;
+}
+
+.app *,
+.app *::before,
+.app *::after {
+  box-sizing: border-box;
+}
+
+.app :focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 560px;
+  min-height: 100vh;
+  min-height: 100dvh;
+  margin: 0 auto;
+  padding: 8px 16px calc(20px + env(safe-area-inset-bottom));
+}
+
+.centered {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  max-width: 560px;
+  min-height: 100vh;
+  min-height: 100dvh;
+  margin: 0 auto;
+  padding: 24px 16px;
+  text-align: center;
+}
+
+.centeredMessage {
+  font-size: 24px;
+  font-weight: 700;
+}
+
+/* ── Buttons ── */
+.primary,
+.secondary {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 20px;
+  border-radius: 16px;
+  font-family: inherit;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.primary {
+  min-height: 64px;
+  background: var(--primary);
+  color: #ffffff;
+  border: 2px solid var(--primary);
+  font-size: 22px;
+}
+.primary:active:not(:disabled) {
+  background: var(--primary-pressed);
+}
+.secondary {
+  min-height: 60px;
+  background: #ffffff;
+  color: var(--primary);
+  border: 2px solid var(--primary);
+  font-size: 20px;
+}
+.secondary:active:not(:disabled) {
+  background: var(--primary-soft);
+}
+.primary:disabled,
+.secondary:disabled,
+.disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.disabled {
+  pointer-events: none;
+}
+.primary svg,
+.secondary svg {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+}
+
+.buttonStack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* The file input lives inside its label: a tap on the label opens it. */
+.fileInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.textButton {
+  min-height: 48px;
+  padding: 0 8px;
+  color: var(--primary);
+  font-size: 18px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.backButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 48px;
+  padding: 0 8px 0 0;
+  color: var(--primary);
+  font-size: 19px;
+  font-weight: 700;
+}
+.backButton svg {
+  width: 30px;
+  height: 30px;
+}
+.backButton:disabled {
+  opacity: 0.4;
+}
+
+/* ── Top of a screen ── */
+.topBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 56px;
+}
+
+.greeting {
+  font-size: 22px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.topBarProperty {
+  max-width: 60%;
+  color: var(--muted);
+  font-size: 17px;
+  font-weight: 600;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+/* ── Messages ── */
+.problem,
+.notice {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 18px;
+  font-weight: 700;
+}
+.notice,
+.note {
+  width: calc(100% - 32px);
+  max-width: 528px;
+  margin: 12px auto 0;
+}
+.note {
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--warn-soft);
+  color: var(--warn-ink);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.offlineBar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: #2b2b2b;
+  color: #ffffff;
+  font-size: 17px;
+  font-weight: 600;
+}
+.offlineBar svg {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+.working {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.spinner {
+  display: inline-block;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border: 4px solid #cfd8e3;
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── Code ── */
+.codeScreen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 24px 16px 22vh;
+}
+
+.codeBoxes {
+  position: relative;
+  display: flex;
+  gap: 14px;
+  cursor: text;
+}
+.codeBoxesWrong {
+  animation: shake 0.4s ease-in-out;
+}
+
+.codeBox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 80px;
+  border: 3px solid var(--field-border);
+  border-radius: 14px;
+  background: #ffffff;
+  font-size: 40px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.codeBoxActive {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px rgba(21, 61, 109, 0.22);
+}
+.codeBoxChecking {
+  opacity: 0.5;
+}
+
+/* One real input over the four boxes: it takes the taps and the typing. */
+.codeInput {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  border: 0;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+  font-size: 16px; /* 16px or more, or an iPhone zooms in on focus */
+  cursor: text;
+}
+
+.codeMessage {
+  min-height: 1.5em;
+  color: var(--danger);
+  font-size: 20px;
+  font-weight: 700;
+  text-align: center;
+}
+
+@keyframes shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20%,
+  60% {
+    transform: translateX(-8px);
+  }
+  40%,
+  80% {
+    transform: translateX(8px);
+  }
+}
+
+/* ── Property ── */
+.searchField {
+  position: relative;
+}
+.searchIcon {
+  position: absolute;
+  top: 50%;
+  left: 16px;
+  width: 26px;
+  height: 26px;
+  color: var(--muted);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.searchInput {
+  width: 100%;
+  height: 62px;
+  padding: 0 56px;
+  border: 2px solid var(--field-border);
+  border-radius: 14px;
+  background: #ffffff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 20px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.searchInput::-webkit-search-cancel-button {
+  display: none;
+}
+.searchInput:focus {
+  border-color: var(--focus);
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+.searchClear {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 50px;
+  height: 50px;
+  color: var(--muted);
+  transform: translateY(-50%);
+}
+.searchClear svg {
+  width: 26px;
+  height: 26px;
+}
+
+.sectionLabel {
+  margin: 4px 0 8px;
+  color: var(--muted);
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.propertyList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.propertyRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 74px;
+  padding: 12px 16px;
+  border: 2px solid var(--line);
+  border-radius: 14px;
+  background: #ffffff;
+  color: var(--ink);
+  text-align: left;
+}
+.propertyRow:active {
+  background: var(--soft);
+}
+.propertyRowSelected {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.propertyText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.propertyName {
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.propertyCity {
+  color: var(--muted);
+  font-size: 17px;
+}
+
+.rowIcon,
+.rowIconMuted {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+.rowIcon {
+  color: var(--primary);
+}
+.rowIconMuted {
+  color: #7a7a7a;
+}
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px 0;
+  font-size: 20px;
+  text-align: center;
+}
+
+/* ── Photo ── */
+.photoPreview {
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+  border: 2px solid var(--line);
+  border-radius: 14px;
+  background: var(--soft);
+}
+.photoPreview img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  max-height: 55vh;
+  object-fit: contain;
+}
+
+/* ── Items ── */
+.thumbButton {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px;
+  border: 2px solid var(--line);
+  border-radius: 14px;
+  background: #ffffff;
+  color: var(--primary);
+  font-size: 19px;
+  font-weight: 700;
+  text-align: left;
+}
+.thumbButton img {
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.itemList {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.itemCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px 16px;
+  border: 2px solid var(--line);
+  border-radius: 16px;
+  background: #ffffff;
+}
+.itemCard[data-problem="true"] {
+  border-color: var(--danger);
+}
+
+.itemHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 40px;
+}
+.itemNumber {
+  color: var(--muted);
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.removeButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  margin-right: -8px;
+  border-radius: 12px;
+  color: var(--muted);
+}
+.removeButton svg {
+  width: 26px;
+  height: 26px;
+}
+
+.fieldLabel {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.field {
+  width: 100%;
+  height: 58px;
+  padding: 0 14px;
+  border: 2px solid var(--field-border);
+  border-radius: 12px;
+  background: #ffffff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 20px;
+}
+.field:focus {
+  border-color: var(--focus);
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+.fieldInvalid,
+.fieldInvalid:focus {
+  border-color: var(--danger);
+}
+
+.fieldProblem {
+  margin: 0;
+  color: var(--danger);
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.suggestWrap {
+  position: relative;
+}
+.suggestions {
+  margin: 6px 0 0;
+  padding: 0;
+  overflow: hidden;
+  border: 2px solid var(--field-border);
+  border-radius: 12px;
+  background: #ffffff;
+  list-style: none;
+}
+.suggestions li + li {
+  border-top: 1px solid var(--line);
+}
+.suggestion {
+  width: 100%;
+  min-height: 56px;
+  padding: 10px 14px;
+  background: #ffffff;
+  color: var(--ink);
+  font-size: 20px;
+  text-align: left;
+}
+.suggestion:active {
+  background: var(--soft);
+}
+
+.itemRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: start;
+  margin-top: 4px;
+}
+.itemRowCell {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.stepper {
+  display: flex;
+  gap: 6px;
+}
+.stepButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 50px;
+  height: 58px;
+  flex-shrink: 0;
+  border: 2px solid var(--primary);
+  border-radius: 12px;
+  background: #ffffff;
+  color: var(--primary);
+}
+.stepButton:active:not(:disabled) {
+  background: var(--primary-soft);
+}
+.stepButton:disabled {
+  opacity: 0.35;
+}
+.stepButton svg {
+  width: 24px;
+  height: 24px;
+}
+.stepValue {
+  flex: 1;
+  min-width: 0;
+  padding: 0 4px;
+  text-align: center;
+}
+
+.priceField {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 58px;
+  padding: 0 12px;
+  border: 2px solid var(--field-border);
+  border-radius: 12px;
+  background: #ffffff;
+  font-size: 20px;
+  font-weight: 700;
+}
+.priceField:focus-within {
+  border-color: var(--focus);
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+.priceField.fieldInvalid {
+  border-color: var(--danger);
+}
+.priceField input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 20px;
+  font-weight: 400;
+}
+
+.startOver {
+  align-self: center;
+  min-height: 48px;
+  padding: 0 12px;
+  color: var(--muted);
+  font-size: 18px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.startOver:disabled {
+  opacity: 0.4;
+}
+
+/* Stays at the bottom of the screen while the items scroll above it. */
+.bottomBar {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: auto;
+  padding: 12px 0 calc(8px + env(safe-area-inset-bottom));
+  background: linear-gradient(to top, #ffffff 85%, rgba(255, 255, 255, 0));
+}
+
+.total {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 4px;
+  font-size: 22px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.progress {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #dde3ea;
+}
+.progress div {
+  height: 100%;
+  background: var(--primary);
+  transition: width 0.2s ease;
+}
+
+/* The receipt, full size, over everything. */
+.viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  overflow: auto;
+  background: #111111;
+}
+.viewer img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.viewerClose {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 64px;
+  background: #111111;
+  color: #ffffff;
+  font-size: 20px;
+  font-weight: 700;
+  border-bottom: 1px solid #333333;
+}
+.viewerClose svg {
+  width: 28px;
+  height: 28px;
+}
+
+/* ── Sent ── */
+.doneScreen {
+  align-items: center;
+  padding-top: 56px;
+  text-align: center;
+}
+.doneIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 112px;
+  height: 112px;
+  border-radius: 50%;
+  background: var(--ok);
+  color: #ffffff;
+}
+.doneIcon svg {
+  width: 64px;
+  height: 64px;
+  stroke-width: 3;
+}
+.doneTitle {
+  margin: 8px 0 0;
+  font-size: 40px;
+  font-weight: 800;
+}
+.doneTitle:focus {
+  outline: none;
+}
+.doneProperty {
+  font-size: 22px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.doneSummary {
+  color: var(--muted);
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.doneScreen .bottomBar {
+  width: 100%;
+}
+
+/* ── Small phones ── */
+@media (max-width: 359px) {
+  .codeBox {
+    width: 56px;
+    height: 72px;
+    font-size: 34px;
+  }
+  .itemRow {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .codeBoxesWrong {
+    animation: none;
+  }
+  .spinner {
+    animation-duration: 2.4s;
+  }
+  .progress div {
+    transition: none;
+  }
+}

@@ -67,3 +67,24 @@ no checkout. Do not build toward one unless asked.
 - `priceInfo.weekly` / `priceInfo.monthly` stored but unused.
 - 3 divergent prices.
 - Rate limiting disabled, pending Upstash.
+
+## Ruled out — do not propose again
+
+- **Upstash, Sentry, rate limiting, analytics.** Ruled out by Kian.
+
+## Accepted risks
+
+- **No rate limiting in production.**
+- **No error monitoring.**
+- **No analytics.**
+- **The admin PIN doubles as the session signing key.** One leaked session
+  cookie yields the PIN offline in ~16 ms.
+- **Cleaner codes are 4 digits.** 10,000 combinations and no rate limiting,
+  so the cleaner door can be brute-forced. Exposure is limited to submitting
+  cost entries under another cleaner's name; receipts and admin approval
+  remain required.
+- **Cleaner codes are stored readably**, by Kian's ruling (2026-09-28): any
+  admin can see and change any cleaner's code. A code is its `cleaner_codes`
+  document ID and sits on the cleaner's document, so a copy of the database
+  — every `./backups/` export included — exposes every cleaner code, current
+  and replaced.

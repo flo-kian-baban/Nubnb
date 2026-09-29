@@ -6,7 +6,7 @@ export default function robots(): MetadataRoute.Robots {
       {
         userAgent: "*",
         allow: ["/", "/about", "/about/guests", "/about/partners"],
-        disallow: ["/admin", "/api/"],
+        disallow: ["/admin", "/cleaner", "/api/"],
       },
     ],
     sitemap: "https://nubnb.ca/sitemap.xml",
