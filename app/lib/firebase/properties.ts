@@ -182,6 +182,44 @@ export async function updateProperty(
   return { ok: true, data: { id } };
 }
 
+// ─── The name cleaners see (dispatch 21) ────────────────────────
+// Its own server-only collection, reached through the admin routes below:
+// never a field on the property document, which is world-readable.
+
+/** The property's cleaner-facing name, or null when it has none. */
+export async function getCleanerFacingName(id: string): Promise<ReadResult<string | null>> {
+  let res: Response;
+  try {
+    res = await fetch(`/api/admin/properties/${encodeURIComponent(id)}/cleaner-name`, { cache: 'no-store' });
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'Could not reach the server.' };
+  }
+  const body = await res.json().catch(() => ({}));
+  const data = body && typeof body === 'object' ? (body as { data?: { name?: unknown } }).data : undefined;
+  if (!res.ok || !data || (data.name !== null && typeof data.name !== 'string')) {
+    return { ok: false, error: `Could not read the name cleaners see (HTTP ${res.status}).` };
+  }
+  return { ok: true, data: data.name as string | null };
+}
+
+/** Set the property's cleaner-facing name; an empty string or null clears it. */
+export async function setCleanerFacingName(id: string, name: string | null): Promise<MutationResult<{ name: string | null }>> {
+  let res: Response;
+  try {
+    res = await fetch(`/api/admin/properties/${encodeURIComponent(id)}/cleaner-name`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+  } catch (error) {
+    return networkFailure(error, 'Could not reach the server to save the name cleaners see');
+  }
+  if (!res.ok) return toFailure(res, 'Failed to save the name cleaners see');
+  const body = await res.json().catch(() => ({}));
+  const stored = body && typeof body === 'object' ? (body as { data?: { name?: unknown } }).data?.name : undefined;
+  return { ok: true, data: { name: typeof stored === 'string' ? stored : null } };
+}
+
 export async function deleteProperty(id: string): Promise<MutationResult<{ id: string }>> {
   let res: Response;
   try {

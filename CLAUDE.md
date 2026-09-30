@@ -117,3 +117,44 @@ no checkout. Do not build toward one unless asked.
 - **Spend is capped in code:** 40 readings per cleaner per day, 300 per day
   in all (`receipt_reading_quota/YYYY-MM-DD`), about $0.60 a day at most at
   the measured $0.002 a reading. Google's project quota is the backstop.
+
+## Costs — Kian's rulings of 2026-09-30 (dispatch 21)
+
+- **Tax is its own field on a cost entry, never a line among the items.** An
+  item line is something that was bought. Entries written before this store
+  any tax the cleaner typed as a line; they are never backfilled, so both
+  shapes must display correctly for good.
+- **A property may have a cleaner-facing name**, which cleaners see instead
+  of the real name everywhere in their app. It lives in the server-only
+  collection `property_cleaner_names/{propertyId}`, denied to browsers in
+  `firestore.rules`, **never on the property document**: `properties` is
+  world-readable and these names will sometimes be street addresses. Admins
+  set it through `/api/admin/properties/[id]/cleaner-name`; cleaners read it
+  through `/api/cleaner/start`; the public site never sees it. A property
+  without one falls back to its real name.
+- **`/admin/costs` is the review queue** and opens on what still needs
+  attention rather than everything ever logged. **Each property's page is
+  its ledger:** clicking a property in the admin list opens its costs —
+  approved entries only, a date range the admin picks, its totals, and its
+  Excel and PDF exports. An approved entry moves from the queue into its
+  property's ledger. A rejected or removed entry never appears in a ledger;
+  it stays in the queue, marked, with its prior state readable. The queue
+  and the ledger read the same entries: nothing is erased, duplicated,
+  copied or moved between collections.
+
+## Costs — Kian's rulings of 2026-09-30 (the ledger, and approved entries)
+
+- **A property's ledger is reachable the obvious way:** from the property's
+  name or a clearly labelled control on its row in the admin list, not an
+  icon an admin has to be told about. Clicking through lands on that
+  property's costs with its date range and both exports, without further
+  clicks. The edit form stays reachable.
+- **Approved entries stay editable and removable.** An approved entry is
+  already in a co-owner's PDF, so an admin who finds a wrong amount can
+  correct a line, correct the tax or remove the entry after approval, not
+  only before. Each is recorded in the entry's history. A removal takes the
+  entry out of the ledger, its totals and its exports, and it stays visible
+  in the queue, marked. Nothing is erased.
+- **If an entry is corrected after it appeared in an exported PDF, the
+  ledger makes that visible:** an admin can tell that what a co-owner
+  already received no longer matches.

@@ -5,9 +5,12 @@
  *
  *   Entries   one row per approved entry: date sent, ref, entry ID, cleaner,
  *             what was bought (discounts and returns listed with their
- *             amounts), lines, total, corrected; then the period total
+ *             amounts), lines, items, tax, total, corrected; then the period
+ *             total. Tax is its own column (dispatch 21); an entry sent
+ *             before tax was its own field reads "in items" there.
  *   Items     one row per line of those entries: the item, its quantity (for
- *             reference only) and its line total as printed; then the total
+ *             reference only) and its line total as printed, then one "Tax"
+ *             row per entry that keeps its tax apart; then the total
  *
  * Dates are real Excel dates and amounts real numbers, so both sort and add
  * up in Excel. The totals are written as values worked out in whole cents,
@@ -162,6 +165,12 @@ function lineNote(line: LineNow): string {
   return line.earlier.length > 0 ? 'Corrected' : '';
 }
 
+/** An entry's tax cell: the amount, "none" when the cleaner gave none, "in items" on an older entry. */
+function taxCell(entry: CostReport['entries'][number]): Cell {
+  if (entry.taxShape === 'in-lines') return text('in items');
+  return entry.taxCents === null ? text('none') : money(entry.taxCents);
+}
+
 function quantity(value: LineNow['quantity']): Cell {
   if (value === null) return null;
   return typeof value === 'number' ? count(value) : text(value);
@@ -179,8 +188,8 @@ export function workbookFor(report: CostReport): Uint8Array<ArrayBuffer> {
 
   const entries: Cell[][] = [
     ...heading('Approved entries only'),
-    ['Date sent', 'Ref', 'Entry ID', 'Cleaner', 'What was bought', 'Lines', 'Total (CAD)', 'Corrected'].map((h) =>
-      text(h, true),
+    ['Date sent', 'Ref', 'Entry ID', 'Cleaner', 'What was bought', 'Lines', 'Items (CAD)', 'Tax (CAD)', 'Total (CAD)', 'Corrected'].map(
+      (h) => text(h, true),
     ),
     ...(report.entries.length === 0
       ? [[text('No approved costs in this period.')]]
@@ -191,10 +200,25 @@ export function workbookFor(report: CostReport): Uint8Array<ArrayBuffer> {
           text(entry.cleaner),
           text(whatWasBoughtText(entry.lines)),
           count(entry.lines.length),
+          money(entry.itemsCents),
+          taxCell(entry),
           money(entry.totalCents),
           text(entry.corrected ? 'Yes' : ''),
         ])),
-    [text('Period total', true), null, null, null, null, null, money(report.totalCents, true)],
+    [
+      text('Period total', true),
+      null,
+      null,
+      null,
+      null,
+      null,
+      money(report.itemsCents, true),
+      money(report.taxCents, true),
+      money(report.totalCents, true),
+    ],
+    ...(report.taxInLines
+      ? [[text('Entries marked "in items" were sent before tax was its own field: any tax the cleaner typed is a line among their items, and inside their Items amount.')]]
+      : []),
   ];
 
   const items: Cell[][] = [
@@ -202,8 +226,8 @@ export function workbookFor(report: CostReport): Uint8Array<ArrayBuffer> {
     ['Date sent', 'Ref', 'Item', 'Qty (reference only)', 'Line total as printed (CAD)', 'Note'].map((h) =>
       text(h, true),
     ),
-    ...report.entries.flatMap((entry) =>
-      entry.lines.map((line) => [
+    ...report.entries.flatMap((entry) => [
+      ...entry.lines.map((line) => [
         day(entry.day),
         text(entry.ref),
         text(line.name ?? ''),
@@ -211,7 +235,11 @@ export function workbookFor(report: CostReport): Uint8Array<ArrayBuffer> {
         money(line.lineTotalCents),
         text(lineNote(line)),
       ]),
-    ),
+      // The entry's tax, apart from its items (dispatch 21), so the sheet's rows add up to the total.
+      ...(entry.taxShape === 'field' && entry.taxCents !== null
+        ? [[day(entry.day), text(entry.ref), text('Tax'), null, money(entry.taxCents), text('Tax')]]
+        : []),
+    ]),
     [text('Total', true), null, null, null, money(report.totalCents, true)],
   ];
 
@@ -223,7 +251,7 @@ export function workbookFor(report: CostReport): Uint8Array<ArrayBuffer> {
       { name: 'xl/workbook.xml', data: encoder.encode(WORKBOOK_XML) },
       { name: 'xl/_rels/workbook.xml.rels', data: encoder.encode(WORKBOOK_RELS_XML) },
       { name: 'xl/styles.xml', data: encoder.encode(STYLES_XML) },
-      { name: 'xl/worksheets/sheet1.xml', data: encoder.encode(sheetXml([13, 9, 24, 22, 60, 7, 14, 11], entries)) },
+      { name: 'xl/worksheets/sheet1.xml', data: encoder.encode(sheetXml([13, 9, 24, 22, 60, 7, 13, 12, 13, 11], entries)) },
       { name: 'xl/worksheets/sheet2.xml', data: encoder.encode(sheetXml([13, 9, 40, 20, 26, 16], items)) },
     ],
     report.generatedAt,

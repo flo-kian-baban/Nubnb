@@ -1,9 +1,9 @@
 "use client";
 
 import { Property, Offer } from "@/app/types/property";
-import { addProperty, updateProperty, MutationIssue } from "@/app/lib/firebase/properties";
+import { addProperty, updateProperty, MutationIssue, getCleanerFacingName, setCleanerFacingName } from '@/app/lib/firebase/properties';
 import { hasPriceDivergence, nightlyPrice } from "@/app/lib/price";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import styles from "./PropertyForm.module.css";
 import { Plus, Trash2, X, ImageIcon, ImagePlus, Link2, Star, ChevronDown, Check, AlertTriangle, XCircle } from "lucide-react";
 
@@ -220,12 +220,43 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
 
   // Save failures. The modal stays open and every entered value is kept.
   const [saveError, setSaveError] = useState<{ title: string; detail?: string } | null>(null);
+  /**
+   * The name cleaners see (dispatch 21): kept in its own server-only
+   * collection, so it is read and saved apart from the property document.
+   * `loaded` is what the server holds (null: none; undefined: not known yet
+   * or could not be read), and `cleanerFacingName` is what is typed.
+   */
+  const [cleanerFacingName, setCleanerFacingName_] = useState("");
+  const [loadedCleanerFacingName, setLoadedCleanerFacingName] = useState<string | null | undefined>(undefined);
+  const [cleanerFacingNameState, setCleanerFacingNameState] = useState<"none" | "loading" | "ready" | "unavailable">(
+    initialData?.id ? "loading" : "none",
+  );
   /** Post-save image mirroring is in flight. The save itself is already done. */
   const [isMirroring, setIsMirroring] = useState(false);
   const [saveIssues, setSaveIssues] = useState<MutationIssue[]>([]);
 
   // Uploads and other in-form failures — one mechanism, no alert().
   const { notice: formNotice, show: showFormNotice, clear: clearFormNotice } = useNotice();
+
+  // The cleaner-facing name comes from its own route, not from the property.
+  useEffect(() => {
+    const id = initialData?.id;
+    if (!id) return;
+    let cancelled = false;
+    getCleanerFacingName(id).then((result) => {
+      if (cancelled) return;
+      if (result.ok) {
+        setLoadedCleanerFacingName(result.data);
+        setCleanerFacingName_(result.data ?? "");
+        setCleanerFacingNameState("ready");
+      } else {
+        setCleanerFacingNameState("unavailable");
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [initialData?.id]);
 
   const toggleSection = (key: string) => {
     setOpenSections(prev => ({ ...prev, [key]: !prev[key] }));
@@ -867,6 +898,8 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
     const finalData = { ...formData };
     const isEdit = !!initialData?.id;
 
+
+
     // ── One price ──
     // The form has a single nightly-price input; the legacy top-level `price`
     // is written from it rather than entered separately. This is the only
@@ -939,6 +972,29 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
       // so the operator learns that the property saved but its images did
       // not mirror. scripts/mirror-images.mjs catches up afterwards.
       const savedId = initialData?.id || (result.data as { id?: string })?.id;
+
+      // ── The name cleaners see, as its own write, when it changed ──
+      // It lives in its own collection, so it is saved by its own route once
+      // the property is safely saved. A failure here leaves the property
+      // saved and says so; the modal stays open to retry.
+      if (savedId && cleanerFacingNameState !== "unavailable") {
+        const typed = cleanerFacingName.trim();
+        const loaded = loadedCleanerFacingName ?? null;
+        if (typed !== (loaded ?? "")) {
+          const named = await setCleanerFacingName(savedId, typed === "" ? null : typed);
+          if (!named.ok) {
+            showFormNotice({
+              tone: "warning",
+              title: "Saved — but the name for cleaners was not.",
+              detail: `${named.error} The property itself is saved. Save again to retry the name.`,
+            });
+            return;
+          }
+          setLoadedCleanerFacingName(named.data.name);
+          setCleanerFacingName_(named.data.name ?? "");
+        }
+      }
+
       if (savedId) {
         setIsMirroring(true);
         try {
@@ -1242,6 +1298,29 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
                 <input type="text" name="name" value={formData.name || ""} onChange={handleChange} required placeholder="e.g. Modern Villa" className={`${scrapeClass('name')} ${issueClass('name')}`} />
                 {fieldIssue('name')}
                 {fieldIssue('slug')}
+              </div>
+              {/* The name cleaners see (dispatch 21): its own server-only record, never a field of the property. */}
+              <div className={styles.field}>
+                <label>Name for cleaners</label>
+                <input
+                  type="text"
+                  name="cleanerFacingName"
+                  value={cleanerFacingName}
+                  onChange={(e) => setCleanerFacingName_(e.target.value)}
+                  maxLength={120}
+                  placeholder={
+                    cleanerFacingNameState === "loading"
+                      ? "Loading…"
+                      : `Leave empty to show cleaners “${formData.name || "the title"}”`
+                  }
+                  disabled={cleanerFacingNameState === "loading" || cleanerFacingNameState === "unavailable"}
+                />
+                <small>
+                  Cleaners see this name in their app instead of the title, in search, on the property screen and in their
+                  receipts. The public site and this admin keep the title. It is stored apart from the property and never
+                  reaches the public site.
+                  {cleanerFacingNameState === "unavailable" && " It could not be read just now, so it cannot be changed here until the form is reopened."}
+                </small>
               </div>
               <div className={styles.field}>
                 <label>Display Location * {scrapeBadge('location')}</label>

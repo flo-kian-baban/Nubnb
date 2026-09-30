@@ -50,8 +50,18 @@ const torontoTime = new Intl.DateTimeFormat("en-CA", {
   timeStyle: "short",
 });
 
-/** A stored timestamp, in Toronto time. One that does not parse is shown as stored. */
-export function SentAt({ iso }: { iso: string | null }) {
+const torontoTimeToTheSecond = new Intl.DateTimeFormat("en-CA", {
+  timeZone: REPORT_TIME_ZONE,
+  dateStyle: "medium",
+  timeStyle: "medium",
+});
+
+/**
+ * A stored timestamp, in Toronto time. One that does not parse is shown as
+ * stored. `seconds` writes the time to the second, for the times PDFs were
+ * exported: two made in the same minute must not read alike.
+ */
+export function SentAt({ iso, seconds = false }: { iso: string | null; seconds?: boolean }) {
   if (iso === null) return <Absent />;
   const time = Date.parse(iso);
   if (!Number.isFinite(time)) {
@@ -59,9 +69,20 @@ export function SentAt({ iso }: { iso: string | null }) {
   }
   return (
     <time dateTime={iso} title={iso}>
-      {torontoTime.format(time)}
+      {(seconds ? torontoTimeToTheSecond : torontoTime).format(time)}
     </time>
   );
+}
+
+/**
+ * When a PDF was exported, as words for a sentence or a tooltip, in Toronto
+ * time and to the second: "Sep 30, 2026, 11:42:07 a.m.". A timestamp that
+ * does not parse is given as stored.
+ */
+export function whenText(iso: string | null): string {
+  if (iso === null) return "at a time not recorded";
+  const time = Date.parse(iso);
+  return Number.isFinite(time) ? torontoTimeToTheSecond.format(time) : iso;
 }
 
 /** A quantity as text: a number as it is; anything else as stored. */

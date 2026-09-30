@@ -13,6 +13,23 @@
  * with the line before and after, and every earlier version stays beneath its
  * line, struck through.
  *
+ * ── Items, tax, total (dispatch 21) ──
+ * Under the receipt: the items bought, then the tax, then the total, each
+ * apart and unmistakable. Tax is its own field on an entry sent since
+ * dispatch 21 and can be corrected here; an older entry keeps whatever tax
+ * the cleaner typed as a line among its items, is shown as such, and its
+ * tax line is corrected like any other line. The two are told apart by the
+ * stored field, never by a line's name.
+ *
+ * ── After approval (Kian's ruling of 2026-09-30) ──
+ * Nothing above depends on the entry's status: an approved entry is
+ * corrected, or removed, exactly as a pending one is, and the pane says so.
+ * An approved entry may already be in a PDF a co-owner holds, so the pane
+ * lists every PDF the entry went out in, with what each printed for it, says
+ * plainly when the newest PDF for its day no longer matches it, and sets each
+ * PDF in the history at the point it was made, so what came after it is
+ * plain to see.
+ *
  * Changes are not optimistic. Each sends the length of the history this pane
  * shows, and the server refuses it if the entry changed since — another
  * admin, say. The pane changes only to the entry the server returns. An
@@ -20,9 +37,9 @@
  */
 
 import { useState, type FormEvent, type ReactNode } from "react";
-import { Ban, Check, Plus, Trash2, X } from "lucide-react";
+import { AlertTriangle, Ban, Check, Plus, Trash2, X } from "lucide-react";
 import { NoticeBanner, useNotice, type Notice } from "../components/Notice";
-import { changeEntryLine, setEntryStatus, type CostResult, type EntryChange } from "@/app/lib/costs-client";
+import { changeEntryLine, changeEntryTax, setEntryStatus, type CostResult, type EntryChange } from "@/app/lib/costs-client";
 import {
   ENTRY_STATUS_LABELS,
   HISTORY_ACTION_LABELS,
@@ -33,23 +50,34 @@ import {
   type LineNow,
   type ReviewStatus,
 } from "@/app/lib/cleaners/model";
-import { cleanerLabel, propertyLabel } from "@/app/lib/costs/report";
+import {
+  cleanerLabel,
+  propertyLabel,
+  shortDay,
+  type EntryPdfState,
+  type PdfAppearance,
+  type PdfRecord,
+} from "@/app/lib/costs/report";
 import { Absent, FieldText } from "../leads/lead-display";
 import {
   EntryStatusBadge,
   SentAt,
   amountField,
+  amountText,
   lineText,
   quantityText,
   readAmount,
   readQuantity,
   statusWord,
+  whenText,
 } from "./cost-display";
 import { ReceiptImage } from "./ReceiptImage";
 import styles from "./page.module.css";
 
 interface EntryPaneProps {
   entry: CostEntryView;
+  /** The PDFs this entry went out in, and how it stands beside the newest for its day; null when it was never in one. */
+  pdf: EntryPdfState | null;
   /** The entry as the server now stores it, after a review. */
   onChanged: (entry: CostEntryView) => void;
   onClose: () => void;
@@ -66,17 +94,19 @@ interface LineDraft {
 const SESSION_HINT = "Your admin session may have expired — reload and sign in again.";
 
 const STATUS_DONE: Record<ReviewStatus, string> = {
-  approved: "It counts in totals and reports.",
-  rejected: "The cleaner sees the reason in their app. It no longer counts in totals or reports.",
-  removed: "It stays here, marked, and no longer counts in totals or reports.",
+  approved: "It counts in its property’s ledger, totals and reports. It can still be corrected or removed.",
+  rejected: "The cleaner sees the reason in their app. It no longer counts in totals or reports, and stays in the review queue, marked.",
+  removed: "It has left its property’s ledger, totals and reports, and stays in the review queue, marked.",
 };
 
-export function EntryPane({ entry, onChanged, onClose }: EntryPaneProps) {
+export function EntryPane({ entry, pdf, onChanged, onClose }: EntryPaneProps) {
   /** What is being saved, for its button's label; null when nothing is. */
-  const [saving, setSaving] = useState<ReviewStatus | "line" | null>(null);
+  const [saving, setSaving] = useState<ReviewStatus | "line" | "tax" | null>(null);
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
   const [draft, setDraft] = useState<LineDraft | null>(null);
+  /** The tax being corrected, as typed; null when it is not. */
+  const [taxDraft, setTaxDraft] = useState<string | null>(null);
   const { notice, show, clear } = useNotice();
 
   /** The history length this pane shows; null when there is no history to add to. */
@@ -84,6 +114,14 @@ export function EntryPane({ entry, onChanged, onClose }: EntryPaneProps) {
   const reviewable = seen !== null;
   const busy = saving !== null;
   const now = entry.linesNow;
+  /**
+   * The PDF to go by still lists this approved entry, so taking the entry out
+   * of the ledger makes that PDF wrong: said before the admin does it.
+   */
+  const listedIn = entry.status === "approved" && pdf !== null && pdf.latest !== "not-listed" ? pdf.lastListed.record : null;
+  const leavesPdf = listedIn
+    ? ` It is in the PDF exported ${whenText(listedIn.createdAt)}: that PDF will no longer match the ledger.`
+    : "";
 
   /** Show the server's answer: the new entry, or why not, or that nobody can tell. */
   const settle = (result: CostResult<EntryChange>, done: (change: EntryChange) => Notice): boolean => {
@@ -109,7 +147,7 @@ export function EntryPane({ entry, onChanged, onClose }: EntryPaneProps) {
     if (
       status === "removed" &&
       !window.confirm(
-        "Remove this entry? It stays in the record, marked removed, and stops counting in totals and reports. Approving it later counts it again.",
+        `Remove this entry? It stays in the record, marked removed, and stops counting in totals and reports. Approving it later counts it again.${leavesPdf}`,
       )
     ) {
       return;
@@ -145,6 +183,27 @@ export function EntryPane({ entry, onChanged, onClose }: EntryPaneProps) {
   const add = () => {
     clear();
     setDraft({ index: null, name: "", quantity: "1", amount: "" });
+  };
+
+  const saveTax = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (taxDraft === null || busy || seen === null) return;
+    const typed = taxDraft.trim();
+    const tax = typed === "" ? null : readAmount(typed);
+    if (typed !== "" && (tax === null || tax.startsWith("-"))) {
+      show({ tone: "error", title: "The tax was not saved.", items: ["Check the tax: dollars and cents as printed, like 12.71, or empty for none."] });
+      return;
+    }
+    clear();
+    setSaving("tax");
+    const result = await changeEntryTax(entry.id, { tax, seen });
+    setSaving(null);
+    const saved = settle(result, (change) =>
+      change.changed
+        ? { tone: "success", title: "Tax corrected.", detail: "What it was before stays in the history." }
+        : { tone: "info", title: "Nothing was changed: the tax already said that." },
+    );
+    if (saved) setTaxDraft(null);
   };
 
   const saveLine = async (event: FormEvent<HTMLFormElement>) => {
@@ -212,11 +271,18 @@ export function EntryPane({ entry, onChanged, onClose }: EntryPaneProps) {
         )}
         {entry.status === "removed" && (
           <p className={styles.statusNote}>
-            Removed: it stays here, marked, and does not count in totals or reports. Approve it to count it again.
+            Removed: it stays in the record and in the review queue, marked, and does not count in totals or reports.
+            Approve it to count it again.
           </p>
         )}
         {entry.status === "rejected" && (
           <p className={styles.statusNote}>Rejected: it does not count in totals or reports.</p>
+        )}
+        {entry.status === "approved" && reviewable && (
+          <p className={styles.statusNote}>
+            Approved: it counts in its property’s ledger and reports. It can still be corrected or removed; every
+            change is recorded in the history below, and nothing is erased.
+          </p>
         )}
 
         {reviewable ? (
@@ -265,6 +331,7 @@ export function EntryPane({ entry, onChanged, onClose }: EntryPaneProps) {
             <label htmlFor="reject-reason" className={styles.fieldLabel}>
               Why is it rejected? The cleaner sees this.
             </label>
+            {leavesPdf !== "" && <p className={styles.noteWarn}>{leavesPdf.trim()}</p>}
             <textarea
               id="reject-reason"
               className={styles.textInput}
@@ -295,6 +362,9 @@ export function EntryPane({ entry, onChanged, onClose }: EntryPaneProps) {
         )}
       </section>
 
+      {/* ── The PDFs it went out in, when there are any ── */}
+      {pdf !== null && <PdfSection entry={entry} pdf={pdf} />}
+
       {/* ── Receipt ── */}
       <section className={styles.section}>
         <h3 className={styles.sectionTitle}>Receipt</h3>
@@ -305,9 +375,9 @@ export function EntryPane({ entry, onChanged, onClose }: EntryPaneProps) {
         )}
       </section>
 
-      {/* ── Items ── */}
+      {/* ── Items, then tax, then total ── */}
       <section className={styles.section}>
-        <h3 className={styles.sectionTitle}>Items</h3>
+        <h3 className={styles.sectionTitle}>Items bought</h3>
         {now.kind === "unreadable" ? (
           <div>
             <p className={styles.noteWarn}>
@@ -376,6 +446,37 @@ export function EntryPane({ entry, onChanged, onClose }: EntryPaneProps) {
                 <tfoot>
                   <tr>
                     <td />
+                    <td colSpan={2}>Items</td>
+                    <td className={styles.num}>{formatCents(now.itemsCents)}</td>
+                  </tr>
+                  <tr className={styles.taxRow}>
+                    <td />
+                    <td colSpan={2}>
+                      Tax
+                      {now.taxShape === "in-lines" && (
+                        <span className={styles.note}> · sent before tax was its own field: any tax is a line among the items above</span>
+                      )}
+                      {now.taxShape === "field" && reviewable && taxDraft === null && (
+                        <button
+                          type="button"
+                          className={styles.lineAction}
+                          disabled={busy}
+                          onClick={() => {
+                            clear();
+                            setTaxDraft(now.taxCents === null ? "" : amountField(now.taxCents));
+                          }}
+                          aria-label="Correct the tax"
+                        >
+                          Correct
+                        </button>
+                      )}
+                    </td>
+                    <td className={styles.num}>
+                      {now.taxShape === "in-lines" ? "in items" : now.taxCents === null ? "none" : formatCents(now.taxCents)}
+                    </td>
+                  </tr>
+                  <tr className={styles.totalRow}>
+                    <td />
                     <td colSpan={2}>Total</td>
                     <td className={styles.num}>{formatCents(now.totalCents)}</td>
                   </tr>
@@ -387,8 +488,34 @@ export function EntryPane({ entry, onChanged, onClose }: EntryPaneProps) {
             )}
             <p className={styles.note}>
               Each amount is what the receipt prints for that line, for all of that item together. Quantities are for
-              reference and are never multiplied.
+              reference and are never multiplied. The total is the items plus the tax.
             </p>
+
+            {taxDraft !== null && (
+              <form className={styles.inlineForm} onSubmit={saveTax} aria-label="Tax editor">
+                <p className={styles.editorTitle}>Correct the tax</p>
+                <label className={styles.editorField}>
+                  <span className={styles.fieldLabel}>Tax as printed ($)</span>
+                  <input
+                    className={styles.textInput}
+                    inputMode="decimal"
+                    placeholder="12.71, or empty for none"
+                    value={taxDraft}
+                    onChange={(e) => setTaxDraft(e.target.value)}
+                    disabled={busy}
+                    autoFocus
+                  />
+                </label>
+                <div className={styles.formRow}>
+                  <button type="submit" className={styles.btnApprove} disabled={busy}>
+                    {saving === "tax" ? "Saving…" : "Save tax"}
+                  </button>
+                  <button type="button" className={styles.btnGhost} disabled={busy} onClick={() => setTaxDraft(null)}>
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
 
             {draft ? (
               <form className={styles.inlineForm} onSubmit={saveLine} aria-label="Line editor">
@@ -469,14 +596,27 @@ export function EntryPane({ entry, onChanged, onClose }: EntryPaneProps) {
           <Absent label="No history on record" />
         ) : (
           <ol className={styles.history}>
-            {entry.history.map((event, i) => (
-              <li key={i}>
-                <span className={styles.historyWhen}>
-                  <SentAt iso={event.at} />
-                </span>
-                <span className={styles.historyWhat}>{describe(event)}</span>
-              </li>
-            ))}
+            {timeline(entry.history, pdf).map((item, i) =>
+              item.kind === "event" ? (
+                <li key={i}>
+                  <span className={styles.historyWhen}>
+                    <SentAt iso={item.event.at} />
+                  </span>
+                  <span className={styles.historyWhat}>{describe(item.event)}</span>
+                </li>
+              ) : (
+                /* Not an event of the entry's own: a PDF, set where it was made, so what came after it is plain. */
+                <li key={i} className={styles.historyPdf}>
+                  <span className={styles.historyWhen}>
+                    <SentAt iso={item.appearance.record.createdAt} seconds />
+                  </span>
+                  <span className={styles.historyWhat}>
+                    <span className={`${styles.badge} ${styles.badgePdfTag}`}>PDF</span> Went out in a PDF for{" "}
+                    {periodText(item.appearance.record)}, shown at {formatCents(item.appearance.printed.totalCents)}
+                  </span>
+                </li>
+              ),
+            )}
           </ol>
         )}
       </section>
@@ -513,6 +653,118 @@ function NameNotes({ entry }: { entry: CostEntryView }) {
         </p>
       ))}
     </>
+  );
+}
+
+/** A PDF's period in a few words: "1 Sep 2026 – 30 Sep 2026", or one day alone. */
+function periodText(record: PdfRecord): string {
+  return record.from === record.to ? shortDay(record.from) : `${shortDay(record.from)} – ${shortDay(record.to)}`;
+}
+
+type TimelineItem = { kind: "event"; event: HistoryEventView } | { kind: "pdf"; appearance: PdfAppearance };
+
+/**
+ * The entry's history with each PDF it went out in set at the point it was
+ * made: a PDF made when the history held n events comes after the n-th. The
+ * history itself is shown whole, in its stored order.
+ */
+function timeline(history: HistoryEventView[], pdf: EntryPdfState | null): TimelineItem[] {
+  const oldestFirst = [...(pdf?.appearances ?? [])].reverse();
+  const items: TimelineItem[] = [];
+  history.forEach((event, index) => {
+    for (const appearance of oldestFirst) {
+      if (appearance.printed.historyLength === index) items.push({ kind: "pdf", appearance });
+    }
+    items.push({ kind: "event", event });
+  });
+  for (const appearance of oldestFirst) {
+    if (appearance.printed.historyLength >= history.length) items.push({ kind: "pdf", appearance });
+  }
+  return items;
+}
+
+/** What a PDF printed as an entry's tax: the amount, or why there is none. */
+function printedTax(entry: CostEntryView, cents: number | null): string {
+  if (cents !== null) return `tax ${formatCents(cents)}`;
+  return entry.taxShape === "in-lines" ? "tax in items" : "no tax";
+}
+
+/** How the entry stands now beside one PDF, in a few words. */
+function sinceText(since: PdfAppearance["since"]): string {
+  switch (since.kind) {
+    case "same":
+      return "still the same";
+    case "corrected":
+      return "corrected since, the amounts unchanged";
+    case "amount-changed":
+      return `now ${formatCents(since.nowTotalCents)}`;
+    case "left":
+      return `${statusWord(since.status)} since`;
+    case "unreadable":
+      return "cannot be added up now";
+    case "missing":
+      return "no longer on record";
+  }
+}
+
+/** How many of an entry's PDFs the pane lists, newest first; every one is still set in the history. */
+const PDFS_LISTED = 3;
+
+/**
+ * The PDFs an entry went out in, newest first, with what each printed for
+ * it — and, when the newest PDF for its day no longer says what the entry
+ * says, a plain statement of that: someone may be holding it.
+ */
+function PdfSection({ entry, pdf }: { entry: CostEntryView; pdf: EntryPdfState }) {
+  const { record, printed } = pdf.lastListed;
+  const when = whenText(record.createdAt);
+  const was = formatCents(printed.totalCents);
+  const nowTotal = entry.linesNow.kind === "ok" ? formatCents(entry.linesNow.totalCents) : "an amount that cannot be worked out";
+  const alert =
+    pdf.latest === "amount-changed"
+      ? `Changed since it went out in a PDF. The PDF exported ${when} shows this entry at ${was}; it now adds up to ${nowTotal}. Whoever received that PDF holds the old figure: export the PDF again for the same dates.`
+      : pdf.latest === "left"
+        ? `This entry is ${statusWord(entry.status)}, but the PDF exported ${when} still lists it at ${was}. Whoever received that PDF holds a total that includes it: export the PDF again for the same dates.`
+        : pdf.latest === "unreadable" || pdf.latest === "missing"
+          ? `The PDF exported ${when} shows this entry at ${was}, and it cannot be compared now.`
+          : null;
+  return (
+    <section className={styles.section} aria-label="PDFs it went out in">
+      <h3 className={styles.sectionTitle}>PDFs it went out in</h3>
+      {alert !== null && (
+        <p className={styles.pdfAlert} role="status">
+          <AlertTriangle size={15} aria-hidden />
+          <span>{alert}</span>
+        </p>
+      )}
+      {pdf.latest === "corrected" && (
+        <p className={styles.note}>
+          Corrected after the PDF exported {when}, without changing an amount: what was bought may read differently
+          there.
+        </p>
+      )}
+      {pdf.latest === "not-listed" && <p className={styles.note}>A newer PDF covering its day does not list it.</p>}
+      <ul className={styles.pdfList}>
+        {pdf.appearances.slice(0, PDFS_LISTED).map((appearance) => (
+          <li key={appearance.record.id}>
+            <span className={styles.pdfWhen}>
+              Exported <SentAt iso={appearance.record.createdAt} seconds /> · {periodText(appearance.record)}
+            </span>
+            <span className={styles.pdfSaid}>
+              showed {formatCents(appearance.printed.totalCents)} (items {formatCents(appearance.printed.itemsCents)},{" "}
+              {printedTax(entry, appearance.printed.taxCents)}) · {sinceText(appearance.since)}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {pdf.appearances.length > PDFS_LISTED && (
+        <p className={styles.note}>
+          and {pdf.appearances.length - PDFS_LISTED} earlier{" "}
+          {pdf.appearances.length - PDFS_LISTED === 1 ? "PDF" : "PDFs"}, each set in the history below and listed in
+          the property’s ledger.
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -559,6 +811,12 @@ function describe(event: HistoryEventView): ReactNode {
       return (
         <>
           Line {lineNumber(event)} added by {by}: {lineText(event.line?.after)}
+        </>
+      );
+    case "tax_corrected":
+      return (
+        <>
+          Tax corrected by {by}: <s>{amountText(event.tax?.before ?? null)}</s> → {amountText(event.tax?.after ?? null)}
         </>
       );
     default:

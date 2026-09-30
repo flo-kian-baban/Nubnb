@@ -30,14 +30,15 @@
  * that already arrived is reported as sent and nothing is written twice. A
  * receipt changed after a send whose outcome is unknown gets a new key.
  *
- * ── Reading the receipt (dispatch 20) ──
+ * ── Reading the receipt (dispatches 20 and 21) ──
  * As soon as the photo is kept, it goes to the server to be read, and the
- * cleaner moves on to the items without waiting. When the answer comes, the
- * lines it read appear on the form marked "From the photo", underneath
- * anything already typed and never over it. No answer, or a failed one,
- * leaves the form as it is with a quiet note; the photo is kept either way.
- * The signed answer stays in the draft and goes with the entry as evidence.
- * The purchase date is never filled from it (Kian's ruling of 2026-09-30).
+ * cleaner moves on to the items screen, which stays locked until the answer
+ * comes. Then the lines it read are the form's lines, marked "From the
+ * photo", and the receipt's tax is in the tax field. No answer, or a failed
+ * one, unlocks the form for typing with a quiet note; the photo is kept
+ * either way. The signed answer stays in the draft and goes with the entry
+ * as evidence. The purchase date is never filled from it (Kian's ruling of
+ * 2026-09-30).
  *
  * A cleaner never reaches /admin from here, and never sees another cleaner's
  * work: the API gives this page their own name and recent properties, the
@@ -433,6 +434,10 @@ export function CleanerApp() {
     changeReceipt((d) => ({ ...d, lines: d.lines.map((line) => (line.key === key ? { ...line, ...change } : line)) }));
   };
 
+  const changeTax = (tax: string) => {
+    changeReceipt((d) => ({ ...d, tax }));
+  };
+
   const addLine = () => {
     const line = newLine();
     changeReceipt((d) => ({ ...d, lines: [...d.lines, line] }));
@@ -506,7 +511,7 @@ export function CleanerApp() {
         setSent({
           propertyName,
           lineCount: payload.lines.length,
-          totalCents: totalCents(current.lines),
+          totalCents: totalCents(current.lines, current.tax),
         });
         replacePhoto(null);
         commit(newDraft());
@@ -642,12 +647,15 @@ export function CleanerApp() {
         lines={current.lines}
         itemNames={start.itemNames}
         reading={readingStatus(current, readingPhotoKey)}
+        tax={current.tax}
+        taxFromReading={current.taxFromReading}
         showProblems={showProblems}
         sending={sending}
         sendMessage={sendMessage}
-        totalCents={totalCents(current.lines)}
+        totalCents={totalCents(current.lines, current.tax)}
         onBack={stepBack}
         onChangeLine={changeLine}
+        onChangeTax={changeTax}
         onAddLine={addLine}
         onRemoveLine={removeLine}
         onSend={() => send(propertyName)}

@@ -14,23 +14,31 @@
  * The receipt photo stays at the top, and opens full size, so the items can
  * be read off it.
  *
- * ── Read from the photo (dispatch 20) ──
- * Under the photo, a quiet line says what the reading is doing: reading,
- * how many items it filled in (and what it had to leave off, so the total
- * here is not taken for the receipt's), or that it could not read the photo.
- * A line it filled in carries "From the photo"; once the cleaner changes it,
- * "Edited". Every line is the cleaner's to change, remove or add to, and
- * what they send is what is stored.
+ * ── Read from the photo (dispatches 20 and 21) ──
+ * While the photo is being read the form is locked: nothing can be typed,
+ * and a panel says the receipt is being read. When the answer comes the
+ * lines are there, each marked "From the photo" until the cleaner changes
+ * it, then "Edited"; the tax the receipt prints fills the tax field, never a
+ * line. A reading that failed unlocks the form for typing, with a quiet
+ * note. Every line is the cleaner's to change, remove or add to, and what
+ * they send is what is stored.
+ *
+ * ── Tax (dispatch 21) ──
+ * Tax is its own field under the items, never a line among them: an item
+ * line is something that was bought. The total is the items plus the tax.
  */
 
 import { useMemo, useState, type ReactNode } from "react";
 import { ChevronLeft, Minus, Plus, X } from "lucide-react";
 import {
   isEdited,
+  itemsCents,
   lineProblems,
   readPrice,
   readQuantity,
+  readTax,
   stepQuantity,
+  taxProblem,
   type DraftLine,
   type LineProblems,
 } from "@/app/lib/cleaner-draft";
@@ -54,6 +62,9 @@ interface ItemsScreenProps {
   lines: DraftLine[];
   itemNames: string[];
   reading: ReadingStatus;
+  /** The tax as typed, and what the reading filled in (null when it filled none), to tell an edit. */
+  tax: string;
+  taxFromReading: string | null;
   /** After a Send with something missing: show what, under each field. */
   showProblems: boolean;
   /** Upload progress from 0 to 1 while sending; null otherwise. */
@@ -63,6 +74,7 @@ interface ItemsScreenProps {
   totalCents: number;
   onBack: () => void;
   onChangeLine: (key: string, change: Partial<Omit<DraftLine, "key">>) => void;
+  onChangeTax: (tax: string) => void;
   onAddLine: () => void;
   onRemoveLine: (key: string) => void;
   onSend: () => void;
@@ -90,17 +102,9 @@ function amountHint(quantity: string | null): string {
   return /^[0-9]+$/.test(quantity) ? `For all ${quantity} together, as printed` : "For all of it together, as printed";
 }
 
-/** The quiet line under the photo. Nothing while there is nothing to say. */
+/** The line under the photo once the reading has answered. Nothing while there is nothing to say. */
 function ReadingNote({ reading }: { reading: ReadingStatus }) {
-  if (reading.kind === "none") return null;
-  if (reading.kind === "reading") {
-    return (
-      <p className={styles.readingNote} role="status">
-        <span className={`${styles.spinner} ${styles.spinnerSmall}`} aria-hidden />
-        <span>Reading the receipt…</span>
-      </p>
-    );
-  }
+  if (reading.kind === "none" || reading.kind === "reading") return null;
   if (reading.kind === "failed") {
     return (
       <p className={styles.readingNote} role="status">
@@ -111,7 +115,7 @@ function ReadingNote({ reading }: { reading: ReadingStatus }) {
   const { applied, leftOut } = reading;
   return (
     <p className={styles.readingNote} role="status">
-      {applied === 1 ? "1 item" : `${applied} items`} read from the photo. Check each one.
+      {applied === 1 ? "1 line" : `${applied} lines`} read from the photo. Check each one.
       {leftOut.count > 0 &&
         ` ${leftOut.count === 1 ? "One line" : `${leftOut.count} lines`} on the receipt (${formatCents(leftOut.cents)}) couldn’t be added here, so the total below will differ from the receipt.`}
     </p>
@@ -342,8 +346,12 @@ function PhotoViewer({ url, onClose }: { url: string; onClose: () => void }) {
 }
 
 export function ItemsScreen(props: ItemsScreenProps) {
-  const { propertyName, photoUrl, lines, itemNames, reading, showProblems, sending, sendMessage, totalCents } = props;
+  const { propertyName, photoUrl, lines, itemNames, reading, tax, taxFromReading, showProblems, sending, sendMessage, totalCents } = props;
   const [viewing, setViewing] = useState(false);
+  /** Nothing can be typed while the receipt is being read (dispatch 21), nor while a send is in flight. */
+  const locked = reading.kind === "reading" || sending !== null;
+  const taxIssue = showProblems ? taxProblem(tax) : undefined;
+  const taxTag = taxFromReading === null ? null : tax === taxFromReading ? "From the photo" : "Edited";
 
   let sendLabel: ReactNode = "Send";
   if (sending !== null) sendLabel = sending < 1 ? `Sending… ${Math.round(sending * 100)}%` : "Sending…";
@@ -369,10 +377,16 @@ export function ItemsScreen(props: ItemsScreenProps) {
           <span>See the receipt</span>
         </button>
       )}
+      {reading.kind === "reading" && (
+        <div className={styles.readingLock} role="status" aria-live="polite">
+          <span className={styles.spinner} aria-hidden />
+          <p>Reading the receipt… The items will appear here in a moment.</p>
+        </div>
+      )}
       <ReadingNote reading={reading} />
 
-      {/* Nothing changes under a send in flight. */}
-      <ol className={styles.itemList} inert={sending !== null}>
+      {/* Nothing changes while the receipt is being read, or under a send in flight. */}
+      <ol className={styles.itemList} inert={locked}>
         {lines.map((line, i) => (
           <ItemCard
             key={line.key}
@@ -388,13 +402,49 @@ export function ItemsScreen(props: ItemsScreenProps) {
       </ol>
 
       {lines.length < LIMITS.LINES_MAX && (
-        <button type="button" className={styles.secondary} onClick={props.onAddLine} disabled={sending !== null}>
+        <button type="button" className={styles.secondary} onClick={props.onAddLine} disabled={locked}>
           <Plus aria-hidden />
           <span>Add item</span>
         </button>
       )}
 
-      <button type="button" className={styles.startOver} onClick={props.onStartOver} disabled={sending !== null}>
+      {/* The tax, apart from the items (dispatch 21). */}
+      <div className={`${styles.taxCard} ${taxIssue ? styles.taxCardProblem : ""}`} inert={locked} data-problem={taxIssue ? true : undefined}>
+        <div className={styles.itemHead}>
+          <span className={styles.itemNumberWrap}>
+            <span className={styles.itemNumber}>Tax</span>
+            {taxTag && <span className={`${styles.aiTag} ${taxTag === "Edited" ? styles.aiTagEdited : ""}`}>{taxTag}</span>}
+          </span>
+        </div>
+        <label className={styles.fieldLabel} htmlFor="entry-tax">
+          Tax on the receipt
+        </label>
+        <div className={`${styles.priceField} ${taxIssue ? styles.fieldInvalid : ""}`}>
+          <span aria-hidden>$</span>
+          <input
+            id="entry-tax"
+            type="text"
+            inputMode="decimal"
+            placeholder="0.00"
+            value={tax}
+            autoComplete="off"
+            enterKeyHint="done"
+            aria-invalid={!!taxIssue}
+            aria-describedby={taxIssue ? "entry-tax-hint entry-tax-problem" : "entry-tax-hint"}
+            onChange={(e) => props.onChangeTax(e.target.value)}
+            onBlur={() => {
+              const read = readTax(tax);
+              if (read && read.text !== tax) props.onChangeTax(read.text);
+            }}
+          />
+        </div>
+        <p id="entry-tax-hint" className={styles.fieldHint}>
+          The HST, or GST and QST together, as printed. Leave it empty if the receipt shows none.
+        </p>
+        <Problem id="entry-tax-problem" text={taxIssue} />
+      </div>
+
+      <button type="button" className={styles.startOver} onClick={props.onStartOver} disabled={locked}>
         Start over
       </button>
 
@@ -404,6 +454,10 @@ export function ItemsScreen(props: ItemsScreenProps) {
             {sendMessage}
           </p>
         )}
+        <p className={styles.totalParts}>
+          <span>Items {formatCents(itemsCents(lines))}</span>
+          <span>Tax {readTax(tax) ? formatCents(readTax(tax)!.cents) : "—"}</span>
+        </p>
         <p className={styles.total}>
           <span>Total</span>
           <span>{formatCents(totalCents)}</span>
@@ -412,7 +466,7 @@ export function ItemsScreen(props: ItemsScreenProps) {
           type="button"
           className={styles.primary}
           onClick={props.onSend}
-          disabled={sending !== null}
+          disabled={locked}
           aria-live="polite"
         >
           {sendLabel}

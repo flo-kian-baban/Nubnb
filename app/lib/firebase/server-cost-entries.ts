@@ -35,7 +35,18 @@
  * them). Nothing is ever deleted, so every earlier state stays readable.
  * Each review is one transaction that first checks the entry is as the admin
  * last saw it — its history the same length — so two admins acting at once
- * cannot write over each other.
+ * cannot write over each other. None of it depends on the entry's status: an
+ * approved entry is corrected or removed exactly as a pending one is (Kian's
+ * ruling of 2026-09-30).
+ *
+ * ── Reports handed out ──
+ * A PDF goes to a property's co-owners, and an entry in it can still be
+ * corrected or removed afterwards. So each PDF is recorded before the page
+ * downloads it (recordReportExport): one `cost_report_exports` document
+ * holding, for every entry in the PDF, its history length and the amounts
+ * printed. The server works the report out again from what is stored and
+ * records it only if that is what the page built the PDF from. A record is
+ * written once and never changed; no entry is touched by it.
  *
  * ── Sent once ──
  * The cleaner's phone gives each receipt a one-time `submissionKey`. The
@@ -49,7 +60,7 @@
  * returns an empty list or a missing property. The name lookups that enrich
  * the list are the exception, as findProperty is for leads: a failed lookup
  * shows as 'unreadable' and never fails the list. `properties` is only ever
- * read, by ID, with a field mask of `name`.
+ * read, and only its `name` field.
  */
 
 import { z } from 'zod';
@@ -57,6 +68,7 @@ import type { DocumentReference } from 'firebase-admin/firestore';
 import { getAdminDb } from './admin';
 import { isDocumentId } from './server-leads';
 import type { ReadingAttachment } from '@/app/lib/cleaners/readings';
+import { inRange, sentDay } from '@/app/lib/costs/report';
 import {
   ADMIN_ACTOR,
   CLEANERS_COLLECTION,
@@ -66,6 +78,8 @@ import {
   COST_ENTRY_SUBMISSION_SCHEMA_VERSION,
   COST_ENTRY_READINGS_COLLECTION,
   COST_ENTRY_READING_SCHEMA_VERSION,
+  COST_REPORT_EXPORTS_COLLECTION,
+  COST_REPORT_EXPORT_SCHEMA_VERSION,
   CURRENCY,
   ENTRY_TIME_ZONE,
   LIMITS,
@@ -76,16 +90,22 @@ import {
   newestFirst,
   prefillFromReading,
   readCostEntryFields,
+  readReportExport,
+  taxFromReading,
   readLinesNow,
   type CleanerEntry,
   type CostEntryFields,
   type CostEntryView,
+  type CostsView,
   type HistoryEvent,
   type Line,
   type LookupState,
   type ReadingLineOutcome,
   type ReceiptRef,
   type Refusal,
+  type ReportExport,
+  type ReportExportEntry,
+  type ReportExportView,
   type ReviewStatus,
 } from '@/app/lib/cleaners/model';
 
@@ -126,6 +146,22 @@ const QUANTITY = /^(0|[1-9][0-9]{0,4})(\.[0-9]{1,3})?$/;
 
 /** Dollars and exactly two decimals, either sign: "7.98", "-1.00", "0.00". Up to 999999.99. */
 const LINE_TOTAL = /^-?(0|[1-9][0-9]{0,5})\.[0-9]{2}$/;
+
+/** The tax: dollars and two decimals, never negative: "12.71", "0.00". Up to 999999.99. */
+const TAX_AMOUNT = /^(0|[1-9][0-9]{0,5})\.[0-9]{2}$/;
+
+/**
+ * A tax as typed ("12.71") or absent, to cents or null (dispatch 21). Tax is
+ * its own field on the entry, never a line: an item line is something that
+ * was bought.
+ */
+export const TaxInputSchema = z
+  .string()
+  .regex(TAX_AMOUNT, 'A tax amount with two decimals, like 12.71')
+  .transform(toCents)
+  .nullable()
+  .optional()
+  .transform((value) => value ?? null);
 
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
@@ -244,6 +280,8 @@ export const EntryInputSchema = z.strictObject({
     .array(LineInputSchema)
     .min(1, 'At least one line')
     .max(LIMITS.LINES_MAX, `At most ${LIMITS.LINES_MAX} lines`),
+  /** The receipt's tax, apart from the items; absent or null when the cleaner gave none. */
+  tax: TaxInputSchema,
 });
 
 export type CostEntryInput = z.output<typeof EntryInputSchema>;
@@ -371,6 +409,8 @@ function readingDocument(entryId: string, cleanerId: string, now: string, entry:
     const entryLine = fromReading.indexOf(index);
     const shown = prefillFromReading(line);
     const base = { index, name: line.name, quantity: line.quantity, amount: line.amount, kind: line.kind };
+    // A tax line fills the tax field, never an item line (dispatch 21).
+    if (line.kind === 'tax') return { ...base, outcome: 'tax' as ReadingLineOutcome, entryLine: null, edited: [] as string[] };
     if (entryLine === -1 || !shown) return { ...base, outcome: 'left_out' as ReadingLineOutcome, entryLine: null, edited: [] as string[] };
     const sent = entry.lines[entryLine];
     const edited: string[] = [];
@@ -381,6 +421,8 @@ function readingDocument(entryId: string, cleanerId: string, now: string, entry:
   });
   const added = fromReading.map((from, i) => (from === null ? i : -1)).filter((i) => i !== -1);
   const tally = (outcome: ReadingLineOutcome) => lines.filter((line) => line.outcome === outcome).length;
+  const readTax = taxFromReading(record.output);
+  const readTaxCents = readTax === null ? null : toCents(readTax);
   return {
     schemaVersion: COST_ENTRY_READING_SCHEMA_VERSION,
     entryId,
@@ -401,11 +443,14 @@ function readingDocument(entryId: string, cleanerId: string, now: string, entry:
     },
     lines,
     added,
+    /** The tax the model read against the tax the cleaner sent (dispatch 21). */
+    tax: { readCents: readTaxCents, sentCents: entry.tax, edited: readTaxCents !== entry.tax },
     summary: {
       modelLines: modelLines.length,
       unchanged: tally('unchanged'),
       edited: tally('edited'),
       leftOut: tally('left_out'),
+      taxLines: tally('tax'),
       added: added.length,
       sentLines: entry.lines.length,
     },
@@ -503,6 +548,8 @@ export async function createCostEntry(input: NewCostEntry): Promise<CostEntryCre
         note: entry.note,
         currency: CURRENCY,
         lines: entry.lines.map(({ name, quantity, lineTotalCents }) => ({ name, quantity, lineTotalCents })),
+        // Its own field, always present on a version 2 entry (dispatch 21): null when the cleaner gave none.
+        taxCents: entry.tax,
         receipts: [
           {
             path: receipt.path,
@@ -643,37 +690,67 @@ function toView(
     note: entry.note,
     currency: entry.currency,
     lines: entry.lines,
-    linesNow: readLinesNow(entry.lines, entry.history),
+    linesNow: readLinesNow(entry.lines, entry.history, { shape: entry.taxShape, cents: entry.taxCents }),
     receipts: entry.receipts,
+    taxShape: entry.taxShape,
   };
 }
 
 /**
- * Every cost entry, newest first, with the current name and status of its
- * cleaner and the current name of its property.
+ * Every property that exists, by ID, with its name; null when the lookup
+ * failed. One read per property, of `name` alone. A ledger can be opened for
+ * a property that has no entries yet, and it still has to say whose it is.
+ */
+async function lookUpAllProperties(): Promise<Map<string, PropertyNow> | null> {
+  try {
+    const snapshot = await getAdminDb().collection('properties').select('name').get();
+    return new Map(snapshot.docs.map((doc): [string, PropertyNow] => [doc.id, { name: fieldText(doc.get('name')) }]));
+  } catch (err) {
+    console.error(`[cost-entries] could not look up properties: grpc code ${grpcCode(err)}`);
+    return null;
+  }
+}
+
+/**
+ * Everything the costs page works from, in one answer: every cost entry,
+ * newest first, with the current name and status of its cleaner and the
+ * current name of its property; every recorded PDF, newest first; and every
+ * property's current name, A to Z.
  *
  * Deliberately no `orderBy` and no `limit`: Firestore leaves out every
  * document that lacks the ordered field, and a limit hides the rest, so an
- * entry could silently vanish. The collection is read whole and sorted here.
- * No pagination: the costs page filters and adds up in the browser, which
- * needs every entry, and at a few entries a week the whole collection is a
- * small read. Worth revisiting near 1,000 entries.
+ * entry could silently vanish. Both collections are read whole and sorted
+ * here. No pagination: the costs page filters and adds up in the browser,
+ * which needs every entry, and at a few entries a week the whole collection
+ * is a small read. Worth revisiting near 1,000 entries.
  *
- * Reads: one per entry, plus one per distinct cleaner and one per distinct
- * property, in two batched lookups.
+ * Reads: one per entry, one per recorded PDF, one per property (its name
+ * alone) and one per distinct cleaner.
  *
- * @throws if the entries cannot be read. A failed lookup does not throw.
+ * @throws if the entries or the recorded PDFs cannot be read: a PDF record
+ * that did not load must never read as "no PDF was exported". A failed name
+ * lookup does not throw.
  */
-export async function listCostEntries(): Promise<CostEntryView[]> {
-  const snapshot = await getAdminDb().collection(COST_ENTRIES_COLLECTION).get();
-  const entries = snapshot.docs.map((doc) => readCostEntryFields(doc.id, doc.data()));
-
-  const [cleaners, properties] = await Promise.all([
-    lookUpCleaners(distinctIds(entries.map((entry) => entry.cleanerId))),
-    lookUpProperties(distinctIds(entries.map((entry) => entry.propertyId))),
+export async function listCosts(): Promise<CostsView> {
+  const db = getAdminDb();
+  const [snapshot, exported, properties] = await Promise.all([
+    db.collection(COST_ENTRIES_COLLECTION).get(),
+    db.collection(COST_REPORT_EXPORTS_COLLECTION).get(),
+    lookUpAllProperties(),
   ]);
+  const entries = snapshot.docs.map((doc) => readCostEntryFields(doc.id, doc.data()));
+  const cleaners = await lookUpCleaners(distinctIds(entries.map((entry) => entry.cleanerId)));
 
-  return entries.map((entry) => toView(entry, cleaners, properties)).sort(newestFirst);
+  return {
+    entries: entries.map((entry) => toView(entry, cleaners, properties)).sort(newestFirst),
+    exports: exported.docs.map((doc) => readReportExport(doc.id, doc.data())).sort(newestFirst),
+    properties:
+      properties === null
+        ? null
+        : [...properties.entries()]
+            .map(([id, now]) => ({ id, name: now.name }))
+            .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', 'en-CA') || a.id.localeCompare(b.id)),
+  };
 }
 
 /** One entry with the current names of its cleaner and property: two small lookups. */
@@ -689,6 +766,8 @@ async function viewOne(id: string, stored: Record<string, unknown>): Promise<Cos
 // ─── Review ────────────────────────────────────────────────────
 
 export type ReviewResult =
+  /** The entry keeps its tax among its lines (an older entry): correct the line instead. */
+  | { kind: 'tax-in-lines' }
   /** `changed` is false when the entry already said this: nothing was written. */
   | { kind: 'done'; entry: CostEntryView; changed: boolean }
   /** No entry has this ID. */
@@ -706,6 +785,12 @@ export type ReviewResult =
 
 /** What the review routes answer for every outcome but `done`. */
 export const REVIEW_REFUSALS: Record<Exclude<ReviewResult['kind'], 'done'>, Refusal> = {
+  'tax-in-lines': {
+    status: 409,
+    code: 'ENTRY_TAX_IN_LINES',
+    message: 'This entry keeps its tax among its lines.',
+    hint: 'It was sent before tax became its own field. Correct the tax line instead; nothing was changed.',
+  },
   'not-found': {
     status: 404,
     code: 'ENTRY_NOT_FOUND',
@@ -829,7 +914,7 @@ export function setEntryStatus(
  */
 export function changeEntryLine(id: string, index: number | null, line: Line, seen: number): Promise<ReviewResult> {
   return review(id, seen, (entry, now) => {
-    const current = readLinesNow(entry.lines, entry.history);
+    const current = readLinesNow(entry.lines, entry.history, { shape: entry.taxShape, cents: entry.taxCents });
     if (current.kind !== 'ok') return { kind: 'refuse', result: { kind: 'unreadable' } };
 
     if (index === null) {
@@ -874,6 +959,170 @@ export function changeEntryLine(id: string, index: number | null, line: Line, se
   });
 }
 
+/**
+ * Correct an entry's tax (dispatch 21), as a history event holding the tax
+ * before and after; `taxCents` itself is never touched. Only an entry that
+ * keeps its tax apart takes one: on an older entry the tax, if any, is a
+ * line among the items, and it is that line that is corrected.
+ */
+export function changeEntryTax(id: string, taxCents: number | null, seen: number): Promise<ReviewResult> {
+  return review(id, seen, (entry, now) => {
+    if (entry.taxShape !== 'field') return { kind: 'refuse', result: { kind: 'tax-in-lines' } };
+    const current = readLinesNow(entry.lines, entry.history, { shape: entry.taxShape, cents: entry.taxCents });
+    if (current.kind !== 'ok') return { kind: 'refuse', result: { kind: 'unreadable' } };
+    if (current.taxCents === taxCents) return { kind: 'nothing' };
+    return {
+      kind: 'write',
+      event: {
+        at: now,
+        action: 'tax_corrected',
+        from: null,
+        to: null,
+        actor: ADMIN_ACTOR,
+        reason: null,
+        tax: { before: current.taxCents, after: taxCents },
+      },
+    };
+  });
+}
+
+// ─── Reports handed out ────────────────────────────────────────
+
+/**
+ * A PDF as the costs page is about to make it: the property, the period it
+ * prints, and each entry in it with the history length the page saw.
+ */
+export interface ReportClaim {
+  propertyId: string;
+  /** yyyy-mm-dd, both days included: the period as the PDF prints it, never an open end. */
+  from: string;
+  to: string;
+  entries: { id: string; seen: number }[];
+}
+
+export type ReportRecordResult =
+  | { kind: 'recorded'; export: ReportExportView }
+  /**
+   * What is stored is not what the page built the PDF from: since the page
+   * loaded an entry in the period was corrected, approved, rejected or
+   * removed. Nothing was written, and the page downloads nothing.
+   */
+  | { kind: 'changed-since' }
+  /** An approved entry in the period cannot be added up, so no report can be made. Nothing was written. */
+  | { kind: 'unreadable' }
+  /** No property has this ID and no entry names it. Nothing was written. */
+  | { kind: 'no-such-property' }
+  /** The transaction failed: it may or may not have landed. */
+  | { kind: 'failed' };
+
+/** What the report route answers for every outcome but `recorded`. */
+export const REPORT_REFUSALS: Record<Exclude<ReportRecordResult['kind'], 'recorded'>, Refusal> = {
+  'changed-since': {
+    status: 409,
+    code: 'REPORT_CHANGED',
+    message: 'An entry in this report changed since the page loaded.',
+    hint: 'Nothing was recorded and nothing was downloaded. Refresh, check what changed, and export again.',
+  },
+  unreadable: {
+    status: 409,
+    code: 'REPORT_ENTRY_UNREADABLE',
+    message: 'An approved entry in this period cannot be added up.',
+    hint: 'Nothing was recorded and nothing was downloaded. Refresh and open the entry to see why.',
+  },
+  'no-such-property': {
+    status: 404,
+    code: 'PROPERTY_NOT_FOUND',
+    message: 'Property not found',
+  },
+  // As with a review: a failure can come after the commit landed.
+  failed: {
+    status: 502,
+    code: 'REPORT_RECORD_FAILED',
+    message: 'Could not record the PDF.',
+    hint: 'Nothing was downloaded. The record may or may not have been made: refresh to see what is on record.',
+  },
+};
+
+/**
+ * Record one PDF before the page downloads it, in one transaction: read the
+ * property's entries, work the report out again — its approved entries in
+ * the period, each as it now adds up — and write the record only if that is
+ * exactly what the page says it built the PDF from (the same entries, each
+ * with the history length the page saw). So a PDF is never recorded, or
+ * downloaded, from a page that has fallen behind what is stored.
+ *
+ * The record holds each entry's history length and the amounts the PDF
+ * prints for it. Nothing on any entry is written.
+ *
+ * Reads: the property's name and one per entry of that property.
+ */
+export async function recordReportExport(claim: ReportClaim): Promise<ReportRecordResult> {
+  let outcome: Exclude<ReportRecordResult, { kind: 'recorded' }> | { id: string; stored: ReportExport };
+  try {
+    const db = getAdminDb();
+    const exportRef = db.collection(COST_REPORT_EXPORTS_COLLECTION).doc();
+
+    outcome = await db.runTransaction(async (tx) => {
+      const [property] = await tx.getAll(db.collection('properties').doc(claim.propertyId), { fieldMask: ['name'] });
+      const snapshot = await tx.get(
+        db.collection(COST_ENTRIES_COLLECTION).where('propertyId', '==', claim.propertyId),
+      );
+      const all = snapshot.docs.map((doc) => readCostEntryFields(doc.id, doc.data())).sort(newestFirst);
+      if (all.length === 0 && !property.exists) return { kind: 'no-such-property' } as const;
+
+      // The report as buildReport (costs/report.ts) makes it: approved, sent in the period, oldest first.
+      const approved = all
+        .filter((entry) => entry.status === 'approved' && inRange(sentDay(entry.createdAt), claim.from, claim.to))
+        .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '') || a.id.localeCompare(b.id));
+
+      const seen = new Map(claim.entries.map((entry) => [entry.id, entry.seen]));
+      const asThePageSawIt =
+        approved.length === seen.size &&
+        approved.every((entry) => entry.history !== null && seen.get(entry.id) === entry.history.length);
+      if (!asThePageSawIt) return { kind: 'changed-since' } as const;
+
+      const entries: ReportExportEntry[] = [];
+      for (const entry of approved) {
+        const now = readLinesNow(entry.lines, entry.history, { shape: entry.taxShape, cents: entry.taxCents });
+        if (now.kind !== 'ok' || entry.history === null) return { kind: 'unreadable' } as const;
+        entries.push({
+          entryId: entry.id,
+          historyLength: entry.history.length,
+          itemsCents: now.itemsCents,
+          taxCents: now.taxCents,
+          totalCents: now.totalCents,
+        });
+      }
+
+      // The live name, or, for a property that no longer exists, the name its newest entry recorded.
+      const liveName: unknown = property.exists ? property.get('name') : undefined;
+      const recordedName = all.find((entry) => entry.propertyNameAtEntry !== null)?.propertyNameAtEntry ?? null;
+      const stored: ReportExport = {
+        schemaVersion: COST_REPORT_EXPORT_SCHEMA_VERSION,
+        kind: 'pdf',
+        propertyId: claim.propertyId,
+        propertyNameAtExport: typeof liveName === 'string' && liveName.trim() !== '' ? liveName : recordedName,
+        from: claim.from,
+        to: claim.to,
+        createdAt: new Date().toISOString(),
+        actor: ADMIN_ACTOR,
+        entries,
+        itemsCents: entries.reduce((sum, entry) => sum + entry.itemsCents, 0),
+        taxCents: entries.reduce((sum, entry) => sum + (entry.taxCents ?? 0), 0),
+        totalCents: entries.reduce((sum, entry) => sum + entry.totalCents, 0),
+      };
+      tx.create(exportRef, stored);
+      return { id: exportRef.id, stored };
+    });
+  } catch (err) {
+    console.error(`[cost-entries] recording a PDF for property ${claim.propertyId} failed: grpc code ${grpcCode(err)}`);
+    return { kind: 'failed' };
+  }
+
+  if ('kind' in outcome) return outcome;
+  return { kind: 'recorded', export: readReportExport(outcome.id, { ...outcome.stored }) };
+}
+
 // ─── Receipt ───────────────────────────────────────────────────
 
 export type ReceiptFound =
@@ -911,7 +1160,7 @@ export async function findReceipt(entryId: string, index: number): Promise<Recei
 
 /** An entry in the form the cleaner app lists it. */
 function toCleanerEntry(entry: CostEntryFields): CleanerEntry {
-  const now = readLinesNow(entry.lines, entry.history);
+  const now = readLinesNow(entry.lines, entry.history, { shape: entry.taxShape, cents: entry.taxCents });
   return {
     id: entry.id,
     createdAt: entry.createdAt,
@@ -920,6 +1169,8 @@ function toCleanerEntry(entry: CostEntryFields): CleanerEntry {
     lineCount: entry.lines?.length ?? null,
     totalCents: now.kind === 'ok' ? now.totalCents : null,
     sentTotalCents: now.kind === 'ok' ? now.sentTotalCents : null,
+    taxCents: now.kind === 'ok' ? now.taxCents : null,
+    taxShape: entry.taxShape,
     corrected: now.kind === 'ok' && now.corrected,
     status: entry.status,
     statusReason: entry.status === 'rejected' ? entry.statusReason : null,
@@ -937,7 +1188,7 @@ export async function listCleanerEntries(cleanerId: string): Promise<CleanerEntr
   const snapshot = await getAdminDb()
     .collection(COST_ENTRIES_COLLECTION)
     .where('cleanerId', '==', cleanerId)
-    .select('cleanerId', 'createdAt', 'propertyId', 'propertyNameAtEntry', 'lines', 'history', 'status', 'statusReason')
+    .select('cleanerId', 'createdAt', 'propertyId', 'propertyNameAtEntry', 'lines', 'taxCents', 'history', 'status', 'statusReason')
     .get();
 
   return snapshot.docs

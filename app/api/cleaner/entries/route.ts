@@ -13,7 +13,10 @@
  *             receipt  the photo: JPEG, PNG or WebP, at most 4 MiB
  *             entry    JSON text of at most 32,768 characters:
  *                      { submissionKey, propertyId, purchasedOn?, note?,
- *                        lines: [{ name, quantity, lineTotal }] }
+ *                        lines: [{ name, quantity, lineTotal }], tax? }
+ *                      `tax` (dispatch 21) is the receipt's tax as printed,
+ *                      "12.71", its own field and never a line; absent or
+ *                      null when the cleaner gave none
  *             reading  (dispatch 20) JSON text of at most 65,536 characters:
  *                      { readingText, signature, fromReading: (number|null)[] }
  *                      — the signed record POST /api/cleaner/read-receipt

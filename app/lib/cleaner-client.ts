@@ -19,6 +19,8 @@ export interface EntryPayload {
   submissionKey: string;
   propertyId: string;
   lines: { name: string; quantity: string; lineTotal: string }[];
+  /** The receipt's tax as printed, "12.71", apart from the items (dispatch 21); null when none. */
+  tax: string | null;
 }
 
 /**

@@ -11,11 +11,14 @@
  * The receipt link is a bearer link that works for 60 seconds. It is handed
  * to the page to put into an image and is never stored.
  *
+ * A PDF is recorded before it is downloaded (recordPdfExport): the page
+ * downloads only when the server has answered with the record.
+ *
  * Client-safe. From the cleaner library it imports only model.ts.
  */
 
 import { describeErrorBody, readErrorBody } from '@/app/lib/api/http-failure';
-import type { CostEntryView, LinesNow, ReviewStatus } from '@/app/lib/cleaners/model';
+import type { CostEntryView, CostsView, LinesNow, ReportExportView, ReviewStatus } from '@/app/lib/cleaners/model';
 
 export type CostResult<T> =
   | { ok: true; data: T }
@@ -165,12 +168,80 @@ async function call<T>(
   return { ok: true, data: body.data as T };
 }
 
-export function fetchCostEntries(): Promise<CostResult<CostEntryView[]>> {
+const isTextOrNumberOrNull = (value: unknown): boolean =>
+  value === null || typeof value === 'string' || typeof value === 'number';
+
+/** A recorded PDF in the shape the page reads. */
+function isReportExportView(data: unknown): data is ReportExportView {
+  return (
+    isRecord(data) &&
+    typeof data.id === 'string' &&
+    isTextOrNull(data.createdAt) &&
+    isTextOrNull(data.kind) &&
+    isTextOrNull(data.propertyId) &&
+    isTextOrNull(data.propertyNameAtExport) &&
+    isTextOrNull(data.from) &&
+    isTextOrNull(data.to) &&
+    (data.entries === null ||
+      (Array.isArray(data.entries) &&
+        data.entries.every(
+          (entry) =>
+            isRecord(entry) &&
+            isTextOrNull(entry.entryId) &&
+            isTextOrNumberOrNull(entry.historyLength) &&
+            isTextOrNumberOrNull(entry.itemsCents) &&
+            isTextOrNumberOrNull(entry.taxCents) &&
+            isTextOrNumberOrNull(entry.totalCents),
+        ))) &&
+    isTextOrNumberOrNull(data.totalCents)
+  );
+}
+
+/** Everything the costs page works from: the entries, the recorded PDFs and the property names. */
+export function fetchCosts(): Promise<CostResult<CostsView>> {
   return call(
     '/api/admin/cost-entries',
     {},
     'Loading cost entries failed',
-    (data) => Array.isArray(data) && data.every(isCostEntryView),
+    (data) =>
+      isRecord(data) &&
+      Array.isArray(data.entries) &&
+      data.entries.every(isCostEntryView) &&
+      Array.isArray(data.exports) &&
+      data.exports.every(isReportExportView) &&
+      (data.properties === null ||
+        (Array.isArray(data.properties) &&
+          data.properties.every((p) => isRecord(p) && typeof p.id === 'string' && isTextOrNull(p.name)))),
+  );
+}
+
+/**
+ * Record a PDF before downloading it: the property, the period the PDF
+ * prints, and each entry in it with the history length the page shows. The
+ * server records it only if that is what is stored now; REPORT_CHANGED means
+ * the page has fallen behind and nothing may be downloaded.
+ */
+export function recordPdfExport(request: {
+  propertyId: string;
+  from: string;
+  to: string;
+  entries: { id: string; seen: number }[];
+}): Promise<CostResult<{ export: ReportExportView }>> {
+  return call(
+    '/api/admin/cost-reports',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    },
+    'Recording the PDF failed',
+    (data) =>
+      isRecord(data) &&
+      isReportExportView(data.export) &&
+      data.export.propertyId === request.propertyId &&
+      typeof data.export.createdAt === 'string' &&
+      Number.isFinite(Date.parse(data.export.createdAt)),
+    ['REPORT_RECORD_FAILED'],
   );
 }
 
@@ -213,6 +284,25 @@ export function changeEntryLine(
       body: JSON.stringify(request),
     },
     'Saving the line failed',
+    (data) =>
+      isRecord(data) && isCostEntryView(data.entry) && data.entry.id === id && typeof data.changed === 'boolean',
+    ['ENTRY_REVIEW_FAILED'],
+  );
+}
+
+/** Correct the entry's tax (dispatch 21): the amount as printed, "12.71", or null for none. */
+export function changeEntryTax(
+  id: string,
+  request: { tax: string | null; seen: number },
+): Promise<CostResult<EntryChange>> {
+  return call(
+    `/api/admin/cost-entries/${encodeURIComponent(id)}/tax`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    },
+    'Saving the tax failed',
     (data) =>
       isRecord(data) && isCostEntryView(data.entry) && data.entry.id === id && typeof data.changed === 'boolean',
     ['ENTRY_REVIEW_FAILED'],

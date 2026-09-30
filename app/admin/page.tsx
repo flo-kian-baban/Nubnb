@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, type MouseEvent } from "react";
+import { useRouter } from "next/navigation";
 import { Property } from "@/app/types/property";
 import { getPropertiesResult, deleteProperty, addProperty } from "@/app/lib/firebase/properties";
 import { nightlyPrice } from "@/app/lib/price";
@@ -14,7 +15,11 @@ import Link from "next/link";
 
 type SortOption = "newest" | "price-asc" | "price-desc" | "name-asc";
 
+/** A property's costs: its ledger, with its date range and both exports (dispatch 21). */
+const costsHref = (id: string) => `/admin/costs?property=${encodeURIComponent(id)}&status=approved`;
+
 export default function AdminPage() {
+  const router = useRouter();
   const [properties, setProperties] = useState<Property[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   // null = the read succeeded. A failed read must never render as "no properties
@@ -138,6 +143,18 @@ export default function AdminPage() {
   const handleEdit = (property: Property) => {
     setEditingProperty(property);
     setIsFormOpen(true);
+  };
+
+  /**
+   * Clicking a property opens its costs. The name and the Costs control are
+   * real links, for the keyboard and for opening in a new tab; a click
+   * anywhere else on the row goes to the same place. A click on a control is
+   * that control's own, and one that ends a text selection is not a click.
+   */
+  const openCosts = (event: MouseEvent<HTMLTableRowElement>, id: string) => {
+    if ((event.target as HTMLElement).closest("a, button")) return;
+    if (window.getSelection()?.toString()) return;
+    router.push(costsHref(id));
   };
 
   const handleAddNew = () => {
@@ -352,7 +369,7 @@ export default function AdminPage() {
             <p>Try adjusting your search or filter criteria.</p>
           </div>
         ) : (
-          <div className={styles.tableContainer}>
+          <div className={`${styles.tableContainer} ${styles.tableScroll}`}>
             <table className={styles.table}>
               <thead>
                 <tr>
@@ -366,15 +383,22 @@ export default function AdminPage() {
               </thead>
               <tbody>
                 {filteredProperties.map((p) => (
-                  <tr key={p.id}>
+                  <tr
+                    key={p.id}
+                    className={styles.propertyRow}
+                    onClick={(event) => openCosts(event, p.id)}
+                    title={`Open the costs for ${p.name}`}
+                  >
                     <td>
-                      <div className={styles.propertyCell}>
-                        <div className={styles.thumbWrapper}>
+                      {/* The picture and the name are one link to the property's costs. Not prefetched:
+                          every row in view would ask the server for the costs page before anyone clicked. */}
+                      <Link href={costsHref(p.id)} prefetch={false} className={styles.propertyCell}>
+                        <span className={styles.thumbWrapper}>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={p.coverImage} alt={p.name} className={styles.thumb} />
-                        </div>
+                          <img src={p.coverImage} alt="" className={styles.thumb} />
+                        </span>
                         <span className={styles.propertyName}>{p.name}</span>
-                      </div>
+                      </Link>
                     </td>
                     <td><span className={styles.locationText}>{p.location}</span></td>
                     <td>
@@ -384,12 +408,29 @@ export default function AdminPage() {
                     </td>
                     <td><span className={styles.bedsText}>{p.bedrooms}</span></td>
                     <td><span className={styles.priceText}>${nightlyPrice(p).toLocaleString()} {p.currency}</span></td>
-                    <td>
+                    {/* A click in this cell that misses a control does nothing: it is beside Delete. */}
+                    <td className={styles.actionsCell} onClick={(event) => event.stopPropagation()} title="">
                       <div className={styles.actionsFlex}>
-                        <button className={styles.iconBtn} onClick={() => handleEdit(p)} title="Edit">
-                          <Edit2 size={15} />
+                        <Link
+                          href={costsHref(p.id)}
+                          prefetch={false}
+                          className={styles.rowAction}
+                          title={`Costs for ${p.name}: its ledger, dates and exports`}
+                        >
+                          <Receipt size={14} aria-hidden />
+                          <span>Costs</span>
+                        </Link>
+                        <button type="button" className={styles.rowAction} onClick={() => handleEdit(p)} title={`Edit ${p.name}`}>
+                          <Edit2 size={14} aria-hidden />
+                          <span>Edit</span>
                         </button>
-                        <button className={styles.iconBtnDelete} onClick={() => handleDelete(p.id, p.name)} title="Delete">
+                        <button
+                          type="button"
+                          className={styles.iconBtnDelete}
+                          onClick={() => handleDelete(p.id, p.name)}
+                          title="Delete"
+                          aria-label={`Delete ${p.name}`}
+                        >
                           <Trash2 size={15} />
                         </button>
                       </div>

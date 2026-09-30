@@ -986,3 +986,175 @@ Against the repo's production build (`next start` on 4620 and 4621) reading prod
 - Cost of the verification's real readings: 2 calls to Gemini (about $0.004).
 
 **Not exercised:** a real phone camera (the photo came from a file), a receipt photographed sideways, and the day limit of 300.
+
+---
+
+## 13. Tax apart, a locked read, a camera frame, cleaner-facing names, the queue and the ledgers (dispatch 21)
+
+**Rulings (Kian, 2026-09-30):** tax is its own field on the entry, never a line among the items; the form is locked while the receipt is read; the camera shows a frame that never blocks a photo; each property may carry a name cleaners see; `/admin/costs` is the review queue, and each property's page is its ledger of approved entries. Delete keeps dispatch 19's behaviour: excluded, still visible, marked, prior state readable.
+
+### 13.1 What the investigation found first
+
+Kian reported that admins could not see or review cost logs. On production, `/admin/costs` answered 200, its API refused without a session, and the admin header carried the Costs link. On a local build of the deployed commit reading production, the page listed the one entry Kian had logged (pending, $110.47), rendered its receipt from Storage, showed Approve, Reject and Remove and the Correct buttons, and the Excel export downloaded once a property was chosen, after a confirm that the pending entry was not in it: "0 approved entries · $0". Nothing was broken. What the page did not do: open as a queue, hold anything in a report until an entry was approved, or keep the tax apart from the items (that entry stored "HST 13.0000 %" as line 8).
+
+### 13.2 Tax is a field
+
+- **New entries** (schemaVersion 2) carry **`taxCents`**: whole cents, or `null` when the cleaner gave none. Always present on the document. The entry rule is unchanged: the lines must add up to more than zero; the tax is never negative.
+- **How the two shapes are told apart:** by the presence of the `taxCents` field on the document (`taxShape` in model.ts: `field` when present, even as null; `in-lines` when absent). Never by the schema version alone, and never by a line's name. An older entry keeps whatever tax the cleaner typed as a line among its items, exactly as sent; nothing is backfilled.
+- **Totals** (`readLinesNow`): `itemsCents` is the lines added up; `taxCents` is the tax as it now stands; `totalCents` is the two together. On an `in-lines` entry the tax, if any, is already inside `itemsCents`, and `taxCents` is null.
+- **Admins correct the tax** as a history event, `tax_corrected`, carrying `{ tax: { before, after } }` (`POST /api/admin/cost-entries/[id]/tax`, `{ tax: "12.71" | null, seen }`). `taxCents` itself is never rewritten. An `in-lines` entry refuses it with 409 `ENTRY_TAX_IN_LINES`: its tax line is corrected like any line.
+- **The AI reading:** the model's lines of kind `tax` fill the tax field (`taxFromReading`: their amounts added up) and are never item lines; in the reading document they carry outcome `tax`, and `tax: { readCents, sentCents, edited }` records whether the cleaner changed it.
+- **The cleaner form:** a Tax card under the items, "Tax on the receipt", optional; "From the photo" or "Edited" when the reading filled it. The bottom bar shows Items, Tax and Total.
+- **The admin pane:** the receipt, then "Items bought", then a footer of Items, Tax (with Correct, or "sent before tax was its own field" on an older entry) and Total.
+- **Excel:** the Entries sheet has Items (CAD), Tax (CAD) and Total (CAD) columns; an older entry's tax cell reads "in items"; the period total row carries all three; a note explains "in items". The Items sheet lists each entry's lines and then one "Tax" row per entry that keeps its tax apart, so its rows add up to the total.
+- **PDF:** columns Items, Tax and Total; "in items" on an older entry; the period total for all three; the note.
+
+### 13.3 The form is locked while the receipt is read
+
+The items screen is `inert` from the moment the photo is kept until the answer comes, with a panel: "Reading the receipt… The items will appear here in a moment." Then the lines are there and the tax is in its field. A failed or timed-out reading unlocks the form with the quiet note from dispatch 20. Because nothing can be typed during a read, a reading now **replaces** the lines rather than merging underneath typed ones; a reading with nothing the form can take leaves the lines as they were. A retaken photo still drops the untouched read lines and the read tax, and keeps anything the cleaner typed or changed.
+
+### 13.4 The camera frame
+
+"Take photo" opens the page's own camera (`CameraScreen.tsx`): the back camera through `getUserMedia` on a secure page, which iPhone Safari and Android Chrome both give, at the largest size offered; a receipt-shaped frame in the middle with the rest dimmed and "Fit the receipt in the frame"; one shutter. The frame is a guide only: the whole picture is kept, nothing is detected, cropped or refused, and the photo goes through the same shrink as one from the phone's camera app. Where the page cannot have the camera (refused, none, an old browser) the screen offers the phone's camera app through the file input, as before. "Choose from phone" is unchanged.
+
+### 13.5 Cleaner-facing property names
+
+**Kian's ruling (2026-09-30, second round):** the name lives in its own server-only collection, never on the property document, because `properties` is world-readable through the client SDK and these names will sometimes be street addresses.
+
+- **`property_cleaner_names/{propertyId}`**: `{ schemaVersion: 1, propertyId, name, setAt }`, one document per property that has a name. `firestore.rules` denies every browser read and write. The export script exports it like every root collection.
+- **Admins set it** through `GET`/`PUT /api/admin/properties/[id]/cleaner-name` (`{ name: string | null }`; NFC, trimmed, 1–120 characters, no control characters; null or empty clears, which deletes the document, so "absent" stays the one way of saying "none"). The property must exist. The property form has "Name for cleaners": it loads the current name from that route when the form opens, and after the property itself is saved it saves the name through that route only when it changed, saying so apart if that write fails.
+- **The property document never carries it.** `UpdatePropertySchema` refuses a body with `cleanerName` (422), and nothing writes such a field.
+- **Cleaners see only that name:** `readCleanerStart` reads the collection once (one read per named property) and returns the cleaner-facing name in place of the real one for every property that has one; the property screen, its search and "My receipts" show what that route returns. A property without one shows its real name.
+- **The public site never sees it:** no public page or route reads the collection, and the property document has nothing to strip.
+
+### 13.6 The queue and the ledgers
+
+- **`/admin/costs` opens as the review queue:** the status filter's new default, **Needs attention**, is everything not approved (pending, rejected, removed and any unknown status), over all time. "All statuses" is `?status=all` in the URL. A line above the filters says which it is showing.
+- **Approving** an entry takes it out of the queue and into its property's **ledger**: the same page with the property chosen and the status set to approved (`/admin/costs?property=<id>&status=approved`), headed "Ledger", with the date range the admin picks, the totals ("of which tax" beside "Counted") and the Excel and PDF exports of dispatch 19. **Rejected and removed entries never reach a ledger**: they stay in the queue, marked, with their history readable.
+- **Each property's page:** in the admin property list the property's name, and a receipt icon beside Edit, link to its ledger. (Kian could not find either; §14.2 replaces the icon with a labelled **Costs** control and makes the whole row open the ledger.)
+- **Nothing is duplicated, copied or moved.** Queue and ledger are two filters over the one read of `cost_entries`. Dispatch 19 already had the property and status filters, the date range, the totals and the exports; dispatch 21 adds the default, the ledger heading and mode line, the links, and the tax columns.
+
+### 13.7 Verification (2026-09-30)
+
+Against the repo's build reading production data (`next start` on 4620, and on 4621 through a stub Gemini answering slowly or with 500), throwaway admin and cleaner secrets, one `__TEST__` cleaner. Opening export `backups/2026-09-30T14-35-41Z` (55 documents in 8 collections, Kian's own entry among them and left untouched).
+
+- **Both tax shapes, everywhere.** A new-shape entry read by Gemini from the r08 photo stored `schemaVersion 2, taxCents 278` and four item lines with no HST line; the reading document marked the model's tax line `outcome: tax` and `tax: { readCents: 278, sentCents: 278, edited: false }`. An old-shape entry was written directly in the dispatch 17–20 shape (`schemaVersion 1`, no `taxCents`, "HST 13.0000 %" as line 3, $1.36). The cleaner's "My receipts" showed $24.16 (21.38 + 2.78) and $11.80; the admin pane showed Items $21.38 / Tax $2.78 / Total $24.16 and Items $11.80 / Tax "in items" / Total $11.80, each with its receipt rendered; the queue and ledger tables showed the same in their Items, Tax and Total columns, Kian's own entry reading "in items". Excel (opened in Microsoft Excel) row 7: `Lm1PTE … 3 | 11.8 | in items | 11.8`; row 8: `FJ7tts … 4 | 21.38 | 2.78 | 24.16`; period total `33.18 | 2.78 | 35.96`; the Items sheet listed the seven lines and one `Tax | 2.78` row for the new-shape entry. The PDF (pdftotext): the same two rows, `Period total $33.18 $2.78 $35.96`, and the "in items" note.
+- **Locked while reading:** with the stub answering after 8 s, at 10:39:47.9 the items list and the tax card were `inert`, the first input could not take focus, and Send and Add item were disabled, under the panel "Reading the receipt… The items will appear here in a moment."; at 10:39:56.5 the lines were there, the tax field read 2.78, and everything was enabled. With the stub answering 500, the form was unlocked at once with "The receipt couldn't be read. Type the items.", the photo still shown; a typed line and a typed tax ($5.00 + $0.65) sent as a version 2 entry with `taxCents 65`, its reading document `failed / http_500`.
+- **The camera frame** on a 390×844 viewport, with `getUserMedia` replaced by a canvas stream that drew a receipt in the bottom-left corner, outside the frame: the video played at 1080×1920, the frame and "Fit the receipt in the frame" showed, the shutter produced a 1080×1920 photo that was accepted with Next enabled, and the entry made from it sent.
+- **Cleaner-facing name (first round, on the property document, since replaced):** the cleaner's list, search and "My receipts" showed the set name and never the real one, and the admin and the exports kept the real one. That design put the name on the world-readable property document; Kian ruled it into its own collection, verified below (§13.8).
+- **Queue and ledger:** `/admin/costs` opened as "Review queue" with the status filter on "Needs attention (5)". Approving the two entries above took the count to 3 and the two out of the list; the property's name in `/admin` linked to `/admin/costs?property=…&status=approved`, headed "Ledger", listing exactly those two, totals $35.96 counted and $2.78 "of which tax"; a range of 29 Sep showed no rows and "Nothing to add up", 30 Sep showed both; the exports above came from that range. The tax on a third entry was corrected $2.78 → $3.00 (history: "Tax corrected by an admin: $2.78 → $3.00"), then the entry removed, and a fourth rejected with a reason; both stayed in the queue marked Removed and Rejected and never appeared in the ledger.
+- **Cleanup** by exact ID and path: 13 documents and 4 receipt objects, each confirmed gone (one object, from the camera-taken photo, carried no `__TEST__` file name and was deleted after its metadata was checked against the deleted test entry and cleaner). Two documents the tests had changed were put back: the property (`cleanerName` removed) and the day's `receipt_reading_quota` (the test readings had raised it from 2 to 6; restored to the opening export's content). Closing export `backups/2026-09-30T14-48-56Z`: all eight files byte-identical to the opening one. Storage 4,641 objects before and after (4,640 plus Kian's receipt).
+
+**Not exercised:** a real phone camera; iPhone and Android themselves (the camera path relies on `getUserMedia`, which both give on a secure page); the day limit of 300.
+
+### 13.8 Verification of the cleaner-facing names in their own collection (2026-09-30, second round)
+
+Opening export `backups/2026-09-30T14-59-05Z`, local build with throwaway secrets, one `__TEST__` cleaner.
+
+- **The route:** no cookie 401 on GET and PUT; cross-site PUT 403; an unknown property 404 `PROPERTY_NOT_FOUND`; 121 characters 422 "At most 120 characters"; an extra key 400. `PUT { name: "  __TEST__ 53  Woodward main " }` answered `{ name: "__TEST__ 53 Woodward main", changed: true }`, the same again `changed: false`, and `property_cleaner_names/3dIaEHZuFzzgvy6Mbaq0` held `{ schemaVersion 1, propertyId, name, setAt }`.
+- **The property document never takes it:** `PUT /api/properties/[id]` with `{ cleanerName }` answered 422 "Not a property field…", and the property document contained neither `cleanerName` nor the name.
+- **Denied to browsers:** with the site's public web key and no sign-in, Firestore's REST API answered 403 `PERMISSION_DENIED` for the document and for listing the collection, while the same caller read `properties/3dIa…` with 200, and that document held no such name. (Production's deployed rules deny it through their catch-all; the explicit block in `firestore.rules` takes effect when the rules are next deployed.)
+- **Cleaners:** `GET /api/cleaner/start` returned `{ id, name: "__TEST__ 53 Woodward main", city: "Toronto" }` for that property, the other 45 under their real names, and the renamed property's real name nowhere in the payload. On a 390×844 screen the property list, its search for "53 wood" and "My receipts" showed the cleaner-facing name and the real one 0 times.
+- **Admins:** the property list showed the real name. The property form loaded the name from its own route into "Name for cleaners"; changing it and saving sent `PUT …/cleaner-name` after the property save and the stored name changed; emptying it and saving deleted the document, the route answered `{ name: null }`, and the cleaner's route fell back to "3 Bedroom 2 Bath Main Floor House". (In that browser the property PUT and the image mirroring were stubbed, so the real property document was never written.)
+- **Only three places read the collection:** the admin route, `server-cleaner-start.ts`, and `server-property-names.ts` itself.
+- **Cleanup:** the test cleaner, its code, one entry, its submission and its receipt deleted by exact ID and path; the name document was already gone. Closing export `backups/2026-09-30T15-02-26Z`: all eight files byte-identical to the opening one, no `property_cleaner_names` collection left behind, Storage 4,641 before and after.
+
+A cleaner's own entries still carry `propertyNameAtEntry`, the real name recorded when the entry was written; "My receipts" shows it only for a property that no longer exists.
+
+---
+
+## 14. The ledger after approval: reached from the row, corrected and removed, and set beside the PDFs that went out (2026-09-30, third round)
+
+**Rulings (Kian, 2026-09-30):** a property's ledger is reached the obvious way, from the property's name or a clearly labelled control on its row, not an icon, and lands on that property's costs with its date range and both exports, without further clicks; the edit form stays reachable. **Approved entries stay editable and removable:** a line corrected, the tax corrected, the entry removed, each recorded in the history as now. A removal takes the entry out of the ledger, its totals and its exports, and it stays in the queue, marked. Nothing is erased. If an entry is corrected after it appeared in an exported PDF, the ledger makes that visible: an admin can tell that what a co-owner already received no longer matches.
+
+### 14.1 What the investigation found first
+
+Kian reported that clicking a property gave its edit form, and that the receipt icon could not be found. Three builds existed at that moment, and only one of them held the dispatch 21 row:
+
+| Build | Where | What a property row does |
+|---|---|---|
+| Production, commit `231e484` (dispatch 20) | www.nubnb.ca | The name is plain text. Edit and Delete are icons. Its `/admin` bundle contains neither "Costs ledger" nor "status=approved". |
+| `RBFK6PGt4yZBnNSdbK9JJ`, built 29 Sep 01:49 from the dispatch 18 tree | `localhost:4500`, the server Kian tests on | The same row. No Costs link in the header; `/admin/costs` answers 404. |
+| The working tree (dispatch 21, uncommitted) | served nowhere | The name is a link to the ledger, styled exactly as the plain text it replaced. A 31×31 receipt icon with no label sits beside the Edit and Delete icons. |
+
+Exercised on copies of the second and third with a throwaway PIN: on the port 4500 build a click on the name, the picture or the row does nothing, and the pencil opens the edit form; on the dispatch 21 build the name and the icon both land on the ledger. The entry Kian approved at 14:54:07Z can only have been approved on production, the one build with an Approve button that his PIN opens. **So the dispatch 21 row had never been in front of him:** nothing served it. Dispatch 21's own investigation (§13.1) did not check which build port 4500 was serving.
+
+Two real faults on the dispatch 21 build, besides: nothing showed that the name was a link; and the ledger of a property with no entry yet read "This property", showed "All properties" in its filter, and with no entry anywhere showed no filters and no exports at all.
+
+An approved entry was already correctable and removable, in the pane and on the server: no review route looks at the status. What did not exist was any record of a PDF once it had been exported, so nothing could say that a PDF no longer matched.
+
+### 14.2 The property row
+
+- **Clicking a property opens its costs.** The picture and the name are one link to `/admin/costs?property=<id>&status=approved`; a click anywhere else on the row, outside the actions, goes to the same place (the pointer shows it, the name underlines, and a click that ends a text selection is ignored).
+- **Actions say what they do:** **Costs** (the same link) and **Edit** (the edit form), each an icon with its word. Delete keeps its icon, with its name for screen readers. A click in the actions cell that misses a button does nothing: it is beside Delete.
+- The list scrolls sideways on a window narrower than the table. Before, its container cut the table off, so at 768 px the Edit and Delete icons could not be reached at all.
+- **The row's links are not prefetched** (`prefetch={false}`). Each row in view otherwise asked the server for the costs page before anyone clicked: 13 requests on opening the list at 1440 px, measured on the local build; none now. On Vercel those are requests this page has no need to make.
+
+### 14.3 The ledger of any property
+
+- `GET /api/admin/cost-entries` now answers `{ entries, exports, properties }`: every entry, every recorded PDF, and every property's ID and current name (one read per property, its name alone; null if the names could not be read, which fails nothing). Still one call on opening.
+- So a ledger opens for a property **whether or not it has an entry**: the page is headed with the property's name, the property filter shows it (properties with entries first, then "No cost entries yet"), and the date range and both exports are there at once. With no approved entry it says "No approved costs in these dates" and how many are waiting in the queue. "No cost entries yet" remains for the queue when there is no entry anywhere.
+- With one property chosen, the counts beside each status are that property's, and the Property column is dropped from the entries table.
+- The ledger and the property's queue link to each other, keeping the property.
+
+### 14.4 After approval
+
+Nothing in the review depends on the status, and the page now says so: the ledger's heading line and the pane of an approved entry state that it can still be corrected or removed, every change recorded in the history. A removal, or a rejection, of an approved entry takes it out of the ledger, its totals and its exports at once; it stays in the queue, marked, with its history. Approving it again counts it again. `lines` and `taxCents` are never rewritten (§11.1, §13.2): every change is a history event carrying the value before and after.
+
+### 14.5 PDFs on record: `cost_report_exports/{exportId}`
+
+An approved entry may already be in a PDF a co-owner holds. To say that such a PDF no longer matches, the PDF has to be on record.
+
+- **One document per PDF**, written once with `create()` and never changed or deleted: `{ schemaVersion: 1, kind: 'pdf', propertyId, propertyNameAtExport, from, to, createdAt, actor: admin, entries: [{ entryId, historyLength, itemsCents, taxCents, totalCents }], itemsCents, taxCents, totalCents }`. `from` and `to` are the period the PDF prints; `historyLength` is how many events the entry's history held; the amounts are the ones the PDF prints. They are a record of a document handed out: nothing reads them back into an entry, a total or a report. Server-only: `firestore.rules` denies it, as the deployed catch-all already does.
+- **Recorded before it is downloaded.** The page sends `POST /api/admin/cost-reports` with `{ propertyId, from, to, entries: [{ id, seen }] }` and downloads the PDF only on a 201; the PDF carries the record's `createdAt` as its "Generated" time. No amount and no name is taken from the browser: the body is strict.
+- **The server works the report out again**, in one transaction: the property's entries, those approved and sent in the period, each as it now adds up. It records the PDF only if that is exactly what the page built it from — the same entries, each with the history length the page saw. Otherwise nothing is written and the page downloads nothing: 409 `REPORT_CHANGED` ("An entry in this report changed since the page loaded"). So a PDF is never made from a page that has fallen behind.
+- **An open-ended period ends today, but never before its last entry** (`buildReport`). On a computer whose clock is behind, "today" would otherwise end the period before its own entries, and the period is what the server checks the entries against.
+- **The Excel file is not recorded.** It is the admins' own working copy and names the cleaners; the PDF is what goes to co-owners.
+
+**What the page compares** (`comparePdf`, `entryPdfState` in `costs/report.ts`; reading only):
+
+- An entry beside a PDF that lists it: **same**; **corrected** (a line or the tax corrected since, the amounts as printed); **amount changed**; **left** (rejected or removed since); or cannot be added up.
+- A PDF beside the ledger over the PDF's own period: **Matches**, **Amounts match** (only corrections that changed no amount), or **No longer matches**, with each reason: an entry's amount then and now, an entry removed or rejected since, an entry approved since that the PDF does not list. It also says what the period now adds up to.
+- **The newest PDF covering an entry's day is the one to go by.** The mark under an entry's total in the table, and the alert in its pane, compare the entry with that PDF. So exporting the PDF again for the same dates settles it: the older PDF is still listed as no longer matching, with "the PDF exported … covers them and replaces this one".
+
+**Where it shows:**
+
+- **The ledger, "PDFs exported for this property":** each PDF with when it was exported (to the second), its period, entries and total, and how it stands now. An alert heads the list while a PDF no longer matches and no newer PDF replaces it. The newest PDF and every PDF needing attention are always listed; the rest fold away behind "Show all".
+- **Each entry's row**, under its total: "in PDF", "corrected since PDF", **"changed since PDF"**, and in the queue **"still in a PDF"** on a removed or rejected entry the newest PDF still lists, or "in an earlier PDF".
+- **The entry pane, "PDFs it went out in":** what each PDF printed for the entry and how it stands now, an alert when the PDF to go by no longer says what the entry says, and each PDF set in the history at the point it was made, so what came after it is plain. Removing or rejecting an approved entry that a PDF lists says first that the PDF will no longer match.
+
+**Limits, as reported to Kian:**
+
+- A PDF exported before this was built is not on record; nothing can be said about it.
+- The record says a PDF was made, not that it was sent. Every PDF exported is treated as one a co-owner may hold.
+- If the answer to the recording is lost after the write landed, a record exists for a PDF nobody downloaded. The page says the record may or may not have been made; the record is harmless and stays.
+- A PDF now needs the server: with an expired session it is refused, where before it was made wholly in the browser.
+
+### 14.6 Routes
+
+| Route | Door | Request | Success | Refusals |
+|---|---|---|---|---|
+| `GET /api/admin/cost-entries` | admin | none | 200 `{ entries: CostEntryView[], exports: ReportExportView[], properties: { id, name }[] \| null }` | 401; 500 `COST_ENTRIES_READ_FAILED` if the entries or the PDF records cannot be read (never "no PDF was exported") |
+| `POST /api/admin/cost-reports` | admin | `{ propertyId, from, to, entries: [{ id, seen }] }` | 201 `{ export: ReportExportView }` | 401; 403 `CROSS_SITE_REFUSED`; 415; 422 (a key the schema does not name, a day that is not one, a period that ends before it starts, an entry twice, `seen` below 1, more than 5,000 entries); 404 `PROPERTY_NOT_FOUND`; 409 `REPORT_CHANGED`; 409 `REPORT_ENTRY_UNREADABLE`; 502 `REPORT_RECORD_FAILED` ("may or may not have been recorded") |
+
+Reads: opening the costs page is one read per entry, one per recorded PDF, one per property (name only) and one per distinct cleaner. Recording a PDF is the property's name and one read per entry of that property, and one write.
+
+### 14.7 Verification (2026-09-30)
+
+Against local production builds of this tree reading production data (`next start` on 4632, throwaway admin and cleaner secrets, no `.env.local` in the build copy), in a real browser. Opening export `backups/2026-09-30T15-44-35Z` (55 documents in 8 collections, byte-identical to the second round's closing export). The pass recorded below ran on build `H4nSkL4ywNhuZAfRs6a8z`: one `__TEST__` cleaner; four entries for "3 Bedroom 2 Bath Main Floor House", three sent through the cleaner route (tax as its field) and one written in the dispatch 17–20 shape (tax typed as line 3), the shape Kian's own approved entry has. Two small changes followed it (the row's links not prefetched; an open end never before the last entry), and a last round ran on the final build, `VJF_7BH45k1Yb9yBd-JeK`.
+
+- **The row, before and after.** Before, on the dispatch 21 build: the name `<a>` with no underline (white, weight 600, as the plain text was), a receipt icon with no text, then Edit and Delete icons; the name and the icon landed on the ledger, the picture and the rest of the row did nothing. After: the name and picture one link, the row's pointer a hand, "Costs" and "Edit" with their words. Name, picture, row and Costs each landed on `/admin/costs?property=1VpX0wMpaUkbFwkULD8P&status=approved`, headed "Corner Penthouse l Tall Ceiling", the filter on that property, From and To and the four presets, Excel and PDF present, "No approved costs in these dates" (that property has no entry). The actions cell beside the buttons did nothing; Edit opened "Edit Property" with that name. At 390 px the list scrolled sideways to Costs, Edit and Delete.
+- **The ledger from the row.** Three entries approved from the queue; the property's name in `/admin` landed on its ledger: three rows, $50.71 counted. Excel and PDF exported (after the confirm that one pending entry is left out): PDF `$18.62 / $20.29 / $11.80 in items`, period total `$46.24 $4.47 $50.71`; the record held the same three entries with `historyLength 2` and those cents; the rows then read "in PDF" and the list "Matches".
+- **Correct a line, on an approved entry already in that PDF:** line 2 $12.99 → $11.99. History: "Line 2 corrected by an admin: … $12.99 → … $11.99", after the PDF's own line in the history. The pane: "Changed since it went out in a PDF. The PDF exported … shows this entry at $18.62; it now adds up to $17.62." **Correct the tax:** $2.14 → $2.01, "Tax corrected by an admin: $2.14 → $2.01", total $17.49. The ledger row read `$15.48 | $2.01 | $17.49 · changed since PDF`, the totals $49.58, and the PDF list: "No longer matches — YhQs7u $18.62 in the PDF, now $17.49. These dates now add up to $49.58 over 3 entries", under the alert. On the older-shape entry the tax was corrected as its line (line 3, $1.36 → $1.30); the tax route, unchanged here, refused such an entry with 409 `ENTRY_TAX_IN_LINES` on the preceding build of this tree.
+- **Exports follow.** Excel #2: `YhQs7u … 15.48 | 2.01 | 17.49 | Yes`, the Items sheet `Trash bags 40 ct | 11.99 | Corrected` and `Tax | 2.01`; PDF #2: `$15.48 $2.01 $17.49 *`, period total `$45.18 $4.34 $49.52`. The list then showed the new PDF "Matches" and folded the first away as replaced.
+- **Remove it.** The confirm said: "It is in the PDF exported Sep 30, 2026, 12:04:23 p.m.: that PDF will no longer match the ledger." History: "Removed by an admin · was approved". The ledger showed two rows and $32.03; Excel #3 and PDF #3 held two entries and `Period total $29.70 $2.33 $32.03`, the removed entry in neither. In the queue for the property it stayed, "Removed", with "in an earlier PDF" once PDF #3 had been made, its pane listing both PDFs it went out in and its whole history.
+- **The prior state, as stored.** The removed entry's document still held `lines` as sent (349 and 1299) and `taxCents 214`; its history held `submitted`, `approved`, `line_corrected` (before 1299, after 1199), `tax_corrected` (before 214, after 201) and `removed` (from approved). The three PDF records each had `createTime` equal to `updateTime`.
+- **A page that has fallen behind.** With the ledger open, another entry was corrected through the API; PDF pressed on the stale page: "The PDF was not downloaded. An entry in this report changed since the page loaded." Nothing downloaded, the records still three. After Refresh the row read "changed since PDF". A pending entry approved afterwards showed on the newest PDF as "approved since, so not in the PDF ($5.11)".
+- **The route:** no cookie 401; from another site 403; not JSON 415; an amount in the body 422 "Unrecognized key"; the period backwards 422; no such property 404; behind what is stored 409; nothing written by any of them.
+- **Denied to browsers:** with the site's public web key and no sign-in, Firestore's REST API answered 403 `PERMISSION_DENIED` for `cost_report_exports` and for a document in it, as for `cost_entries`, while the same caller read a property's name with 200. (Production's deployed rules deny it through their catch-all; the explicit block in `firestore.rules` takes effect when the rules are next deployed.)
+- **With no entry anywhere** (the list answer stubbed empty in the browser): a property's name still landed on its ledger with its name, dates and both exports; the queue said "No cost entries yet".
+- **The last round, on the final build:** two entries approved; opening `/admin` made 0 requests for the costs page (13 before the links stopped prefetching); the property's name landed on its ledger; Excel and PDF exported and the PDF recorded; a line corrected ($12.99 → $11.99), the row "changed since PDF"; then, with the page's clock set two days behind (28 Sep), the PDF still printed "30 September 2026" and was recorded (without the change its period would have run from 30 Sep to 28 Sep, and the route refuses a period that ends before it starts); the entry removed, the queue showing it "Removed … still in a PDF".
+- **The comparison, as pure functions** on made-up entries (the final `report.ts` and `model.ts` transpiled and run in node): 27 checks, among them a line renamed since a PDF with the amounts unchanged ("corrected"), a removal undone by approving again ("same"), a record with a field out of shape (counted apart, never compared), an older-shape entry beside a PDF that printed no tax of its own, and a newer PDF that does not cover an entry's day (it settles nothing).
+- **Cleanup** by exact ID and path, in three rounds (a first pass on an earlier build of the same tree, the recorded one, and the last): 40 documents (three cleaners, their codes, ten entries, their submissions, fourteen PDF records) and ten receipt objects, each confirmed gone. Closing export `backups/2026-09-30T16-14-33Z`: all eight files byte-identical to the opening one, no `cost_report_exports` collection left behind, Storage 4,641 objects before and after. No existing document was written at any point.
+
+**Not exercised:** the production admin panel (no production credentials are used there); a record-then-lost-answer (502); a PDF of more than a handful of entries.

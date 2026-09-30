@@ -37,6 +37,15 @@ service cloud.firestore {
     // model, kept apart from the entry), and the per-day reading counts.
     match /cost_entry_readings/{entryId} { allow read, write: if false; }
     match /receipt_reading_quota/{day} { allow read, write: if false; }
+    // Dispatch 21: the name cleaners see for a property, keyed by property
+    // ID. Kept off the world-readable property document because these may be
+    // street addresses. Admins set it and cleaners read it through their own
+    // authenticated routes only.
+    match /property_cleaner_names/{propertyId} { allow read, write: if false; }
+    // 2026-09-30: one record per PDF cost report exported, holding what the
+    // PDF printed for each entry, so the ledger can say when a PDF a
+    // co-owner holds no longer matches. Written and read by admin routes only.
+    match /cost_report_exports/{exportId} { allow read, write: if false; }
 
     // Everything else: denied.
     match /{document=**} {

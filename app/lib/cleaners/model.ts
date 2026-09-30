@@ -41,6 +41,15 @@
  * with those events applied in order (readLinesNow). So the cleaner's own
  * claim is never overwritten, every earlier version stays readable, and an
  * entry nobody corrected reads exactly as it was written.
+ *
+ * ── After approval (Kian's ruling of 2026-09-30) ──
+ * An approved entry stays correctable and removable: the same events, on the
+ * same history, whatever its status. An approved entry may already be in a
+ * PDF a co-owner holds, so each PDF exported is recorded in
+ * `cost_report_exports` with, for every entry in it, the length of that
+ * entry's history and the amounts the PDF printed. The ledger compares those
+ * with the entry as it now stands (costs/report.ts) and says when a PDF that
+ * went out no longer matches.
  */
 
 // ─── Collections ───────────────────────────────────────────────
@@ -59,6 +68,17 @@ export const COST_ENTRIES_COLLECTION = 'cost_entries';
  */
 export const COST_ENTRY_SUBMISSIONS_COLLECTION = 'cost_entry_submissions';
 
+/**
+ * One document per PDF report an admin exported: the property, the period,
+ * and for each entry in it how long that entry's history was and what the
+ * PDF printed for it. A PDF goes to a property's co-owners, and by Kian's
+ * ruling of 2026-09-30 an approved entry can still be corrected or removed
+ * afterwards, and the ledger must then show that the PDF no longer matches;
+ * this record is what lets it. Written once, with `create()`, and never
+ * changed or deleted.
+ */
+export const COST_REPORT_EXPORTS_COLLECTION = 'cost_report_exports';
+
 /** Storage prefix of receipt images. Readers use the stored path and never rebuild it. */
 export const RECEIPTS_PREFIX = 'receipts';
 
@@ -69,8 +89,15 @@ export const RECEIPTS_PREFIX = 'receipts';
  */
 export const CLEANER_SCHEMA_VERSION = 2;
 export const CLEANER_CODE_SCHEMA_VERSION = 2;
-export const COST_ENTRY_SCHEMA_VERSION = 1;
+/**
+ * Version 1 entries (dispatches 17–20) held the tax, when the cleaner typed
+ * it, as a line among the items. Version 2 (dispatch 21) carries `taxCents`,
+ * its own field, and no tax line. Readers tell the two apart by the field,
+ * never by the version number or a line's name: `taxShape` below.
+ */
+export const COST_ENTRY_SCHEMA_VERSION = 2;
 export const COST_ENTRY_SUBMISSION_SCHEMA_VERSION = 1;
+export const COST_REPORT_EXPORT_SCHEMA_VERSION = 1;
 
 /** The currency of every amount, set by the server, never by the client. */
 export const CURRENCY = 'CAD';
@@ -96,6 +123,8 @@ export const LIMITS = {
   NOTE_MAX: 500,
   /** One line's amount, either sign: $999,999.99. */
   LINE_TOTAL_MAX_CENTS: 99_999_999,
+  /** An entry's tax, never negative: $999,999.99. */
+  TAX_MAX_CENTS: 99_999_999,
   /** One line's quantity: more than 0, at most three decimals. Informational only. */
   QUANTITY_MAX: 99_999.999,
   /**
@@ -105,6 +134,11 @@ export const LIMITS = {
   LINES_MAX_AFTER_REVIEW: 120,
   /** A rejection's reason, after trimming. The cleaner sees it. */
   REASON_MAX: 500,
+  /**
+   * Entries in one recorded PDF. Each takes about 110 bytes of the record,
+   * which keeps the document far under Firestore's 1 MiB limit.
+   */
+  REPORT_ENTRIES_MAX: 5_000,
   /**
    * A purchase date must be within this many months before today, and never
    * after today, both on the Toronto calendar (ENTRY_TIME_ZONE). Kian's
@@ -218,6 +252,7 @@ export const HISTORY_ACTIONS = [
   'removed',
   'line_corrected',
   'line_added',
+  'tax_corrected',
 ] as const;
 export type HistoryAction = (typeof HISTORY_ACTIONS)[number];
 
@@ -232,6 +267,7 @@ export const HISTORY_ACTION_LABELS: Record<HistoryAction, string> = {
   removed: 'Removed',
   line_corrected: 'Line corrected',
   line_added: 'Line added',
+  tax_corrected: 'Tax corrected',
 };
 
 // ─── Stored shapes ─────────────────────────────────────────────
@@ -267,6 +303,8 @@ export interface HistoryEvent {
   reason: string | null;
   /** On `line_corrected` and `line_added` only: which line, and what it said before and after. */
   line?: LineChange;
+  /** On `tax_corrected` only (dispatch 21): the tax before and after, in cents; null is no tax given. */
+  tax?: { before: number | null; after: number | null };
 }
 
 /** One receipt line, as stored. */
@@ -313,6 +351,43 @@ export interface ReceiptRef {
   uploadedAt: string;
 }
 
+/** One entry as an exported PDF printed it. */
+export interface ReportExportEntry {
+  entryId: string;
+  /** How long the entry's history was when the PDF was made: every later event came after it. */
+  historyLength: number;
+  /** What the PDF printed for the entry, in cents. The tax is null where it printed "none" or "in items". */
+  itemsCents: number;
+  taxCents: number | null;
+  totalCents: number;
+}
+
+/**
+ * A `cost_report_exports` document: one PDF, as it was made. The amounts are
+ * the ones the PDF printed, added up by the server from the stored entries
+ * at that moment; they are a record of a document handed out, and nothing
+ * reads them back into an entry, a total or a report.
+ */
+export interface ReportExport {
+  schemaVersion: number;
+  kind: 'pdf';
+  propertyId: string;
+  /** The property's name when the PDF was made, which the PDF prints. */
+  propertyNameAtExport: string | null;
+  /** The period the PDF prints, yyyy-mm-dd, both days included. */
+  from: string;
+  to: string;
+  /** ISO-8601 UTC, by the server's clock: the PDF's "Generated" time. */
+  createdAt: string;
+  actor: Actor;
+  /** The entries in the PDF, oldest first. */
+  entries: ReportExportEntry[];
+  /** The period total as printed. */
+  itemsCents: number;
+  taxCents: number;
+  totalCents: number;
+}
+
 // ─── Views ─────────────────────────────────────────────────────
 // What the API returns. Strings are as stored; null means the field is not
 // on the document. A value of an unexpected type is written out as text.
@@ -334,7 +409,25 @@ export interface HistoryEventView {
   reason: string | null;
   /** The line a line event changed; null on every other event. */
   line: LineChangeView | null;
+  /** The tax a tax event changed; null on every other event. */
+  tax: TaxChangeView | null;
 }
+
+/** A tax event's change, as stored: cents as numbers, anything else as text. */
+export interface TaxChangeView {
+  before: number | string | null;
+  after: number | string | null;
+}
+
+/**
+ * Where an entry's tax is (dispatch 21). An entry written with the field
+ * `taxCents` — a number, or null when the cleaner gave none — keeps its tax
+ * apart from its items: `field`. An entry written before the field existed
+ * has no such field, and whatever tax the cleaner typed is a line among the
+ * items, as sent: `in-lines`. Nothing is backfilled and no line's name is
+ * read to guess; the field's presence on the document is the whole test.
+ */
+export type TaxShape = 'field' | 'in-lines';
 
 /** A line event's change, as stored. */
 export interface LineChangeView {
@@ -405,6 +498,9 @@ export interface CostEntryFields {
   lines: LineView[] | null;
   /** null when the document has no receipts array. */
   receipts: ReceiptView[] | null;
+  /** The stored tax in cents; null when none was given or the entry predates the field (see `taxShape`). */
+  taxCents: number | string | null;
+  taxShape: TaxShape;
 }
 
 /**
@@ -439,9 +535,10 @@ export interface CostEntryView {
   currency: string | null;
   /** The lines as the cleaner sent them. */
   lines: LineView[] | null;
-  /** The lines that count: the sent lines with every correction applied. */
+  /** The lines that count: the sent lines with every correction applied, and the tax as it now stands. */
   linesNow: LinesNow;
   receipts: ReceiptView[] | null;
+  taxShape: TaxShape;
 }
 
 /** One line as it now counts. */
@@ -476,14 +573,63 @@ export type LinesNow =
   | {
       kind: 'ok';
       lines: LineNow[];
-      /** The lines' amounts added up, in cents. Worked out to show; never stored. */
+      /** The lines' amounts added up, in cents: the items. Worked out to show; never stored. */
+      itemsCents: number;
+      /** The tax as it now stands (dispatch 21): null when the entry gave none, or keeps its tax among its lines. */
+      taxCents: number | null;
+      taxShape: TaxShape;
+      /** Items plus tax, in cents. On an `in-lines` entry the tax, if any, is already inside the items. */
       totalCents: number;
-      /** The lines as the cleaner sent them, added up. */
+      /** The lines as the cleaner sent them, added up, plus the tax they sent. */
       sentTotalCents: number;
-      /** True once an admin has corrected a line or added one. */
+      /** The tax the cleaner sent; null when none, or when the entry keeps it among its lines. */
+      sentTaxCents: number | null;
+      /** True once an admin has corrected a line, added one, or corrected the tax. */
       corrected: boolean;
     }
   | { kind: 'unreadable'; reason: string };
+
+/** One entry of a recorded PDF, as stored: numbers as numbers, anything else as text. */
+export interface ReportExportEntryView {
+  entryId: string | null;
+  historyLength: number | string | null;
+  itemsCents: number | string | null;
+  taxCents: number | string | null;
+  totalCents: number | string | null;
+}
+
+/** One recorded PDF as the costs page reads it. */
+export interface ReportExportView {
+  id: string;
+  createdAt: string | null;
+  /** As stored: 'pdf' on every record written so far. */
+  kind: string | null;
+  propertyId: string | null;
+  propertyNameAtExport: string | null;
+  from: string | null;
+  to: string | null;
+  /** null when the document has no entries array. */
+  entries: ReportExportEntryView[] | null;
+  itemsCents: number | string | null;
+  taxCents: number | string | null;
+  totalCents: number | string | null;
+}
+
+/** A property's current name, so a ledger can name a property that has no entries yet. */
+export interface PropertyNameView {
+  id: string;
+  name: string | null;
+}
+
+/** What GET /api/admin/cost-entries answers: everything the costs page works from. */
+export interface CostsView {
+  /** Every cost entry, newest first. */
+  entries: CostEntryView[];
+  /** Every recorded PDF, newest first. */
+  exports: ReportExportView[];
+  /** Every property's current name, A to Z; null when they could not be read. */
+  properties: PropertyNameView[] | null;
+}
 
 /**
  * One of a cleaner's own entries, as the cleaner app lists it. Nothing of
@@ -497,11 +643,14 @@ export interface CleanerEntry {
   propertyNameAtEntry: string | null;
   /** How many lines the cleaner sent; null when the entry has no lines array. */
   lineCount: number | null;
-  /** What the entry now adds up to; null when its lines cannot be read. */
+  /** What the entry now adds up to, tax included; null when its lines cannot be read. */
   totalCents: number | null;
-  /** What the cleaner sent, added up; null when the lines cannot be read. */
+  /** What the cleaner sent, added up, tax included; null when the lines cannot be read. */
   sentTotalCents: number | null;
-  /** True once an admin has corrected a line or added one. */
+  /** The tax as it now stands; null when none was given or the entry keeps it among its lines. */
+  taxCents: number | null;
+  taxShape: TaxShape;
+  /** True once an admin has corrected a line, added one, or corrected the tax. */
   corrected: boolean;
   status: string | null;
   /** Why it was rejected, when it is; null otherwise. */
@@ -511,7 +660,11 @@ export interface CleanerEntry {
 /** A property as the cleaner app lists it. */
 export interface CleanerProperty {
   id: string;
-  /** null when the document has no name. */
+  /**
+   * The name cleaners see (dispatch 21): the cleaner-facing name from
+   * `property_cleaner_names` when an admin has set one, else the property's
+   * real name; null when there is neither.
+   */
   name: string | null;
   city: string | null;
 }
@@ -575,7 +728,7 @@ function readActor(value: unknown): ActorView | null {
 function readEvent(value: unknown): HistoryEventView {
   const event = asMap(value);
   if (!event) {
-    return { at: null, action: shown(value), from: null, to: null, actor: null, reason: null, line: null };
+    return { at: null, action: shown(value), from: null, to: null, actor: null, reason: null, line: null, tax: null };
   }
   return {
     at: fieldText(event.at),
@@ -585,7 +738,16 @@ function readEvent(value: unknown): HistoryEventView {
     actor: readActor(event.actor),
     reason: fieldText(event.reason),
     line: readLineChange(event.line),
+    tax: readTaxChange(event.tax),
   };
+}
+
+/** A tax event's `tax`. null when the event has none. */
+function readTaxChange(value: unknown): TaxChangeView | null {
+  if (value === undefined || value === null) return null;
+  const change = asMap(value);
+  if (!change) return { before: null, after: fieldNumber(value) };
+  return { before: fieldNumber(change.before), after: fieldNumber(change.after) };
 }
 
 function readHistory(value: unknown): HistoryEventView[] | null {
@@ -628,8 +790,17 @@ const isWholeCents = (value: unknown): value is number => typeof value === 'numb
  * The one arithmetic is adding the amounts up, for display. Nothing is
  * multiplied, and nothing is stored.
  */
-export function readLinesNow(lines: LineView[] | null, history: HistoryEventView[] | null): LinesNow {
+export function readLinesNow(
+  lines: LineView[] | null,
+  history: HistoryEventView[] | null,
+  tax: { shape: TaxShape; cents: number | string | null } = { shape: 'in-lines', cents: null },
+): LinesNow {
   if (lines === null) return { kind: 'unreadable', reason: 'The entry has no list of lines.' };
+  if (tax.shape === 'field' && tax.cents !== null && !isWholeCents(tax.cents)) {
+    return { kind: 'unreadable', reason: 'The tax is not stored in whole cents.' };
+  }
+  const sentTaxCents = tax.shape === 'field' && isWholeCents(tax.cents) ? tax.cents : null;
+  let taxCents = sentTaxCents;
 
   const now: LineNow[] = [];
   for (const [index, line] of lines.entries()) {
@@ -649,6 +820,16 @@ export function readLinesNow(lines: LineView[] | null, history: HistoryEventView
 
   let corrected = false;
   for (const event of history ?? []) {
+    if (event.action === 'tax_corrected') {
+      // Only an entry with the tax field takes a tax correction; on any other it cannot be applied.
+      const after = event.tax?.after;
+      if (tax.shape !== 'field' || (after !== null && !isWholeCents(after))) {
+        return { kind: 'unreadable', reason: `A tax change recorded ${event.at ?? 'at an unknown time'} cannot be applied.` };
+      }
+      taxCents = after ?? null;
+      corrected = true;
+      continue;
+    }
     if (event.action !== 'line_corrected' && event.action !== 'line_added') continue;
     const index = event.line?.index;
     const after = event.line?.after ?? null;
@@ -687,11 +868,16 @@ export function readLinesNow(lines: LineView[] | null, history: HistoryEventView
     corrected = true;
   }
 
+  const itemsCents = now.reduce((sum, line) => sum + line.lineTotalCents, 0);
   return {
     kind: 'ok',
     lines: now,
-    totalCents: now.reduce((sum, line) => sum + line.lineTotalCents, 0),
-    sentTotalCents,
+    itemsCents,
+    taxCents,
+    taxShape: tax.shape,
+    totalCents: itemsCents + (taxCents ?? 0),
+    sentTotalCents: sentTotalCents + (sentTaxCents ?? 0),
+    sentTaxCents,
     corrected,
   };
 }
@@ -743,6 +929,39 @@ export function readCostEntryFields(id: string, fields: Record<string, unknown>)
     currency: fieldText(fields.currency),
     lines: Array.isArray(fields.lines) ? fields.lines.map(readLine) : null,
     receipts: Array.isArray(fields.receipts) ? fields.receipts.map(readReceipt) : null,
+    // The field's presence is the whole test: a document that has `taxCents`,
+    // even as null, keeps its tax apart; one without it keeps it among its lines.
+    taxCents: 'taxCents' in fields ? fieldNumber(fields.taxCents) : null,
+    taxShape: 'taxCents' in fields ? 'field' : 'in-lines',
+  };
+}
+
+function readReportExportEntry(value: unknown): ReportExportEntryView {
+  const entry = asMap(value);
+  if (!entry) return { entryId: shown(value), historyLength: null, itemsCents: null, taxCents: null, totalCents: null };
+  return {
+    entryId: fieldText(entry.entryId),
+    historyLength: fieldNumber(entry.historyLength),
+    itemsCents: fieldNumber(entry.itemsCents),
+    taxCents: fieldNumber(entry.taxCents),
+    totalCents: fieldNumber(entry.totalCents),
+  };
+}
+
+/** A recorded PDF's own fields, as stored. */
+export function readReportExport(id: string, fields: Record<string, unknown>): ReportExportView {
+  return {
+    id,
+    createdAt: fieldText(fields.createdAt),
+    kind: fieldText(fields.kind),
+    propertyId: fieldText(fields.propertyId),
+    propertyNameAtExport: fieldText(fields.propertyNameAtExport),
+    from: fieldText(fields.from),
+    to: fieldText(fields.to),
+    entries: Array.isArray(fields.entries) ? fields.entries.map(readReportExportEntry) : null,
+    itemsCents: fieldNumber(fields.itemsCents),
+    taxCents: fieldNumber(fields.taxCents),
+    totalCents: fieldNumber(fields.totalCents),
   };
 }
 
@@ -809,6 +1028,18 @@ export const RECEIPT_READING_QUOTA_COLLECTION = 'receipt_reading_quota';
 
 export const COST_ENTRY_READING_SCHEMA_VERSION = 1;
 export const RECEIPT_READING_QUOTA_SCHEMA_VERSION = 1;
+
+/**
+ * The name cleaners see for a property (dispatch 21, Kian's ruling of
+ * 2026-09-30): one document per property that has one, keyed by the
+ * property's ID, in its own server-only collection. It is never on the
+ * property document, because `properties` is world-readable and these names
+ * may be street addresses. Absent: the cleaner app shows the real name.
+ */
+export const PROPERTY_CLEANER_NAMES_COLLECTION = 'property_cleaner_names';
+export const PROPERTY_CLEANER_NAME_SCHEMA_VERSION = 1;
+/** A cleaner-facing name: NFC, trimmed, 1–120 characters, no control characters. */
+export const CLEANER_FACING_NAME_MAX = 120;
 
 /** Kian's ruling of 2026-09-30, from the measurement: this model, thinking pinned low. */
 export const RECEIPT_READER_MODEL = 'gemini-3.8-flash';
@@ -891,7 +1122,7 @@ export interface ReadingRecord {
  *   left_out    never sent: the cleaner removed it, or the form could not
  *               take it (no amount, or one the phone cannot enter)
  */
-export type ReadingLineOutcome = 'unchanged' | 'edited' | 'left_out';
+export type ReadingLineOutcome = 'unchanged' | 'edited' | 'left_out' | 'tax';
 
 const isRecordValue = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === 'object' && !Array.isArray(value);
@@ -968,6 +1199,7 @@ export function readReadingRecord(value: unknown): ReadingRecord | null {
  * same function to tell an unchanged line from an edited one.
  */
 export function prefillFromReading(line: ReadingLine): { name: string; quantity: string; price: string } | null {
+  if (line.kind === 'tax') return null; // tax is its own field (dispatch 21), never an item line
   const amount = /^(\d{1,6})\.(\d{2})$/.exec((line.amount ?? '').trim());
   if (!amount) return null;
   const cents = Number(amount[1]) * 100 + Number(amount[2]);
@@ -986,7 +1218,7 @@ export function leftOutOfReading(output: ReadingOutput | null): { count: number;
   let count = 0;
   let cents = 0;
   for (const line of output?.lines ?? []) {
-    if (prefillFromReading(line)) continue;
+    if (line.kind === 'tax' || prefillFromReading(line)) continue;
     count++;
     const amount = /^(-?)(\d{1,6})\.(\d{2})$/.exec((line.amount ?? '').trim());
     if (amount) cents += (amount[1] ? -1 : 1) * (Number(amount[2]) * 100 + Number(amount[3]));
@@ -997,4 +1229,23 @@ export function leftOutOfReading(output: ReadingOutput | null): { count: number;
 /** A calendar day, `YYYY-MM-DD`, in a time zone. */
 export function dayIn(timeZone: string, at: Date = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(at);
+}
+
+/**
+ * The tax the model read, as the form's tax field shows it: the tax lines'
+ * amounts added up, "12.71"; null when the receipt printed no readable tax
+ * line. Never a negative, never more than the form's maximum.
+ */
+export function taxFromReading(output: ReadingOutput | null): string | null {
+  let cents = 0;
+  let found = false;
+  for (const line of output?.lines ?? []) {
+    if (line.kind !== 'tax') continue;
+    const amount = /^(\d{1,6})\.(\d{2})$/.exec((line.amount ?? '').trim());
+    if (!amount) continue;
+    cents += Number(amount[1]) * 100 + Number(amount[2]);
+    found = true;
+  }
+  if (!found || cents > LIMITS.TAX_MAX_CENTS) return null;
+  return `${(cents - (cents % 100)) / 100}.${String(cents % 100).padStart(2, '0')}`;
 }

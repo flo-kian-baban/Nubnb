@@ -162,7 +162,15 @@ export const UpdatePropertySchema = z.object({
   addressDetails: AddressDetailsSchema.partial().optional(),
   details: DetailsSchema.partial().optional(),
   terms: TermsSchema.partial().optional(),
-}).passthrough();
+})
+  .passthrough()
+  // The name cleaners see lives in its own server-only collection (dispatch
+  // 21, Kian's ruling): it is never written onto the world-readable property
+  // document, so a body that carries it is refused rather than passed through.
+  .refine((body) => !('cleanerName' in body), {
+    path: ['cleanerName'],
+    message: 'Not a property field: the name cleaners see is set through /api/admin/properties/[id]/cleaner-name',
+  });
 
 // ─── Types derived from schemas ────────────────────────────────
 

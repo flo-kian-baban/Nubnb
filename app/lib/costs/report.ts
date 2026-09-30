@@ -21,10 +21,25 @@
  * it goes to the property's co-owners, and a pending entry has not been
  * checked. The page asks first when pending entries fall in the period.
  *
- * Client-safe: nothing but model.ts.
+ * ── A PDF that went out, against the ledger now ──
+ * An approved entry can be corrected or removed after a PDF holding it has
+ * gone to a co-owner. Each PDF is recorded when it is made, with every
+ * entry's history length and printed amounts; comparePdf and entryPdfState
+ * set those beside the entries as they now stand, so the page can say which
+ * PDFs no longer match and why. The comparison reads; it changes nothing.
+ *
+ * Client-safe: nothing but model.ts. The server uses the same day and range
+ * functions when it records a PDF, so both sides agree on what a period holds.
  */
 
-import { countsInTotals, formatCents, type CostEntryView, type LineNow } from '@/app/lib/cleaners/model';
+import {
+  countsInTotals,
+  formatCents,
+  type CostEntryView,
+  type LineNow,
+  type ReportExportView,
+  type TaxShape,
+} from '@/app/lib/cleaners/model';
 
 export const REPORT_TIME_ZONE = 'America/Toronto';
 
@@ -168,10 +183,18 @@ export function entryRef(id: string): string {
 
 // ─── Filters and totals ────────────────────────────────────────
 
+/**
+ * The queue's default (dispatch 21): everything that is not approved —
+ * pending, rejected, removed, and any status this code does not know —
+ * because each of those still needs, or had, a decision. Approved entries
+ * have left the queue for their property's ledger.
+ */
+export const NEEDS_ATTENTION = 'attention';
+
 export interface CostFilters {
   /** A property ID, or '' for every property. */
   propertyId: string;
-  /** A stored status, or '' for every status. */
+  /** A stored status, NEEDS_ATTENTION for everything not approved, or '' for every status. */
   status: string;
   /** yyyy-mm-dd, or '' for no start. */
   from: string;
@@ -179,10 +202,16 @@ export interface CostFilters {
   to: string;
 }
 
+export function matchesStatus(entry: CostEntryView, status: string): boolean {
+  if (status === '') return true;
+  if (status === NEEDS_ATTENTION) return entry.status !== 'approved';
+  return entry.status === status;
+}
+
 export function matchesFilters(entry: CostEntryView, filters: CostFilters): boolean {
   return (
     (filters.propertyId === '' || entry.property.id === filters.propertyId) &&
-    (filters.status === '' || entry.status === filters.status) &&
+    matchesStatus(entry, filters.status) &&
     inRange(sentDay(entry.createdAt), filters.from, filters.to)
   );
 }
@@ -192,8 +221,11 @@ export interface Totals {
   entries: number;
   approved: number;
   approvedCents: number;
+  /** The tax fields of the approved entries added up (dispatch 21); tax kept among an older entry's lines is inside approvedCents. */
+  approvedTaxCents: number;
   pending: number;
   pendingCents: number;
+  pendingTaxCents: number;
   rejected: number;
   removed: number;
   /** Entries whose status is none of the four: shown as stored, never counted. */
@@ -212,8 +244,10 @@ function noTotals(): Totals {
     entries: 0,
     approved: 0,
     approvedCents: 0,
+    approvedTaxCents: 0,
     pending: 0,
     pendingCents: 0,
+    pendingTaxCents: 0,
     rejected: 0,
     removed: 0,
     unknownStatus: 0,
@@ -230,9 +264,11 @@ function addTo(totals: Totals, entry: CostEntryView): void {
   else if (entry.status === 'approved') {
     totals.approved += 1;
     totals.approvedCents += entry.linesNow.totalCents;
+    totals.approvedTaxCents += entry.linesNow.taxCents ?? 0;
   } else {
     totals.pending += 1;
     totals.pendingCents += entry.linesNow.totalCents;
+    totals.pendingTaxCents += entry.linesNow.taxCents ?? 0;
   }
 }
 
@@ -322,6 +358,12 @@ export interface ReportEntry {
   day: string;
   cleaner: string;
   lines: LineNow[];
+  /** The lines added up: the items (dispatch 21). On an `in-lines` entry any tax the cleaner typed is among them. */
+  itemsCents: number;
+  /** The tax apart from the items; null when none was given, or the entry keeps it among its lines. */
+  taxCents: number | null;
+  taxShape: TaxShape;
+  /** Items plus tax. */
   totalCents: number;
   corrected: boolean;
 }
@@ -334,6 +376,12 @@ export interface CostReport {
   to: string;
   /** Approved entries in the period, oldest first. */
   entries: ReportEntry[];
+  /** The entries' items added up. */
+  itemsCents: number;
+  /** The entries' tax fields added up; tax kept among an older entry's lines is inside `itemsCents` instead. */
+  taxCents: number;
+  /** True when an entry in the report keeps its tax among its lines, so the reader is told. */
+  taxInLines: boolean;
   totalCents: number;
   generatedAt: Date;
 }
@@ -351,7 +399,8 @@ export type ReportBuild =
 /**
  * One property's report for one period: its approved entries, oldest first,
  * and their total. An open start is the property's first entry; an open end
- * is today.
+ * is today. `knownName` is the property's name for a property that has no
+ * entry to take it from.
  */
 export function buildReport(
   all: CostEntryView[],
@@ -359,6 +408,7 @@ export function buildReport(
   from: string,
   to: string,
   now: Date,
+  knownName: string | null = null,
 ): ReportBuild {
   const forProperty = all.filter((entry) => entry.property.id === propertyId);
   const inPeriod = forProperty.filter((entry) => inRange(sentDay(entry.createdAt), from, to));
@@ -381,6 +431,9 @@ export function buildReport(
       day,
       cleaner: cleanerLabel(entry),
       lines: entry.linesNow.lines,
+      itemsCents: entry.linesNow.itemsCents,
+      taxCents: entry.linesNow.taxCents,
+      taxShape: entry.linesNow.taxShape,
       totalCents: entry.linesNow.totalCents,
       corrected: entry.linesNow.corrected,
     });
@@ -391,15 +444,23 @@ export function buildReport(
     .map((entry) => sentDay(entry.createdAt))
     .filter((day): day is string => day !== null)
     .sort()[0];
+  // An open end is today, but never a day before the last entry in the
+  // report: on a computer whose clock is behind, "today" would otherwise end
+  // the period before its own entries, and a PDF's period is what the server
+  // checks its entries against when it records it.
+  const lastDay = entries[entries.length - 1]?.day;
 
   return {
     kind: 'ok',
     report: {
       propertyId,
-      propertyName: forProperty[0] ? propertyLabel(forProperty[0]) : 'Unknown property',
+      propertyName: forProperty[0] ? propertyLabel(forProperty[0]) : (knownName ?? 'Unknown property'),
       from: from || entries[0]?.day || firstDay || today,
-      to: to || today,
+      to: to || (lastDay !== undefined && lastDay > today ? lastDay : today),
       entries,
+      itemsCents: entries.reduce((sum, entry) => sum + entry.itemsCents, 0),
+      taxCents: entries.reduce((sum, entry) => sum + (entry.taxCents ?? 0), 0),
+      taxInLines: entries.some((entry) => entry.taxShape === 'in-lines'),
       totalCents: entries.reduce((sum, entry) => sum + entry.totalCents, 0),
       generatedAt: now,
     },
@@ -418,4 +479,234 @@ export function reportFileName(report: CostReport, extension: 'pdf' | 'xlsx'): s
       .replace(/^-+|-+$/g, '')
       .slice(0, 60) || 'property';
   return `nubnb-costs-${slug}-${report.from}-to-${report.to}.${extension}`;
+}
+
+// ─── A PDF that went out, against the ledger now ───────────────
+
+/** One entry as a recorded PDF printed it, every field in the written shape. */
+export interface PrintedEntry {
+  entryId: string;
+  /** How long the entry's history was when the PDF was made. */
+  historyLength: number;
+  itemsCents: number;
+  taxCents: number | null;
+  totalCents: number;
+}
+
+/** A recorded PDF that can be compared: every field in the written shape. */
+export interface PdfRecord {
+  id: string;
+  /** When it was made: the PDF's "Generated" time. */
+  createdAt: string;
+  propertyId: string;
+  propertyName: string | null;
+  from: string;
+  to: string;
+  /** The entries in the PDF, oldest first. */
+  entries: PrintedEntry[];
+  /** The period total the PDF printed. */
+  totalCents: number;
+}
+
+const isCents = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value);
+
+/**
+ * The recorded PDFs that can be compared, newest first, and how many cannot
+ * be. A record with a field missing or not in the written shape is counted
+ * apart, so the page can say so, and is never guessed at.
+ */
+export function readPdfRecords(exports: ReportExportView[]): { records: PdfRecord[]; unreadable: number } {
+  const records: PdfRecord[] = [];
+  let unreadable = 0;
+  for (const stored of exports) {
+    if (stored.kind !== 'pdf') continue; // only PDFs are recorded; anything else is not one
+    const entries: PrintedEntry[] = [];
+    let readable =
+      stored.createdAt !== null &&
+      Number.isFinite(Date.parse(stored.createdAt)) &&
+      stored.propertyId !== null &&
+      stored.from !== null &&
+      isDay(stored.from) &&
+      stored.to !== null &&
+      isDay(stored.to) &&
+      stored.entries !== null &&
+      isCents(stored.totalCents);
+    for (const entry of stored.entries ?? []) {
+      if (
+        entry.entryId === null ||
+        !isCents(entry.historyLength) ||
+        entry.historyLength < 0 ||
+        !isCents(entry.itemsCents) ||
+        !(entry.taxCents === null || isCents(entry.taxCents)) ||
+        !isCents(entry.totalCents)
+      ) {
+        readable = false;
+        break;
+      }
+      entries.push({
+        entryId: entry.entryId,
+        historyLength: entry.historyLength,
+        itemsCents: entry.itemsCents,
+        taxCents: entry.taxCents,
+        totalCents: entry.totalCents,
+      });
+    }
+    if (!readable) {
+      unreadable += 1;
+      continue;
+    }
+    records.push({
+      id: stored.id,
+      createdAt: stored.createdAt as string,
+      propertyId: stored.propertyId as string,
+      propertyName: stored.propertyNameAtExport,
+      from: stored.from as string,
+      to: stored.to as string,
+      entries,
+      totalCents: stored.totalCents as number,
+    });
+  }
+  records.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
+  return { records, unreadable };
+}
+
+/** How an entry now stands beside what a PDF printed for it. */
+export type SincePdf =
+  /** Still approved, the same amounts, and nothing corrected since. */
+  | { kind: 'same' }
+  /** Still approved with the same amounts, but a line or the tax was corrected since: what was bought may read differently. */
+  | { kind: 'corrected' }
+  /** Still approved, and it now adds up differently. */
+  | { kind: 'amount-changed'; nowTotalCents: number }
+  /** No longer approved — rejected or removed since — so it has left the ledger. */
+  | { kind: 'left'; status: string | null }
+  /** Still approved, but its lines can no longer be added up. */
+  | { kind: 'unreadable' }
+  /** No entry has this ID now. Nothing is ever erased, so this is not expected. */
+  | { kind: 'missing' };
+
+const CORRECTIONS = new Set(['line_corrected', 'line_added', 'tax_corrected']);
+
+/** One entry now, beside what a PDF printed for it. */
+export function sincePdf(entry: CostEntryView | undefined, printed: PrintedEntry): SincePdf {
+  if (!entry) return { kind: 'missing' };
+  if (entry.status !== 'approved') return { kind: 'left', status: entry.status };
+  const now = entry.linesNow;
+  if (now.kind !== 'ok') return { kind: 'unreadable' };
+  if (
+    now.itemsCents !== printed.itemsCents ||
+    now.taxCents !== printed.taxCents ||
+    now.totalCents !== printed.totalCents
+  ) {
+    return { kind: 'amount-changed', nowTotalCents: now.totalCents };
+  }
+  const later = (entry.history ?? []).slice(printed.historyLength);
+  return later.some((event) => event.action !== null && CORRECTIONS.has(event.action)) ? { kind: 'corrected' } : { kind: 'same' };
+}
+
+/** An entry a PDF lists that is no longer as the PDF printed it. */
+export interface PdfChange {
+  printed: PrintedEntry;
+  /** The entry now; null when no entry has that ID. */
+  entry: CostEntryView | null;
+  since: Exclude<SincePdf, { kind: 'same' }>;
+}
+
+export interface PdfComparison {
+  record: PdfRecord;
+  /** The entries the PDF lists that are no longer as it printed them. */
+  changes: PdfChange[];
+  /** Approved entries now in the PDF's period that it does not list: approved, or approved again, since it was made. */
+  added: CostEntryView[];
+  /** How many approved entries the PDF's period holds now. */
+  nowEntries: number;
+  /** What the PDF's period adds up to now; null when an approved entry in it cannot be added up. */
+  nowTotalCents: number | null;
+  /**
+   *   matches  the PDF still says what the ledger says
+   *   wording  every amount matches, but an entry in it was corrected since
+   *   differs  an amount has changed, or which entries count has
+   */
+  verdict: 'matches' | 'wording' | 'differs';
+}
+
+/** One recorded PDF beside its property's ledger as it now stands, over the PDF's own period. */
+export function comparePdf(record: PdfRecord, all: CostEntryView[]): PdfComparison {
+  const byId = new Map(all.map((entry) => [entry.id, entry]));
+  const changes: PdfChange[] = [];
+  for (const printed of record.entries) {
+    const entry = byId.get(printed.entryId);
+    const since = sincePdf(entry, printed);
+    if (since.kind !== 'same') changes.push({ printed, entry: entry ?? null, since });
+  }
+
+  const listed = new Set(record.entries.map((printed) => printed.entryId));
+  const now = all.filter(
+    (entry) =>
+      entry.property.id === record.propertyId &&
+      entry.status === 'approved' &&
+      inRange(sentDay(entry.createdAt), record.from, record.to),
+  );
+  const added = now
+    .filter((entry) => !listed.has(entry.id))
+    .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '') || a.id.localeCompare(b.id));
+
+  const amountsMatch = added.length === 0 && changes.every((change) => change.since.kind === 'corrected');
+  return {
+    record,
+    changes,
+    added,
+    nowEntries: now.length,
+    nowTotalCents: now.every((entry) => entry.linesNow.kind === 'ok')
+      ? now.reduce((sum, entry) => sum + (entry.linesNow.kind === 'ok' ? entry.linesNow.totalCents : 0), 0)
+      : null,
+    verdict: !amountsMatch ? 'differs' : changes.length > 0 ? 'wording' : 'matches',
+  };
+}
+
+/** One PDF an entry went out in. */
+export interface PdfAppearance {
+  record: PdfRecord;
+  printed: PrintedEntry;
+  since: SincePdf;
+}
+
+export interface EntryPdfState {
+  /** Every PDF the entry went out in, newest first. */
+  appearances: PdfAppearance[];
+  /**
+   * What the newest PDF covering the entry's day says about it. When that
+   * PDF lists the entry, how the entry stands beside it; `not-listed` when a
+   * newer PDF for that day was made without it — after it was removed, say —
+   * so the PDF to go by no longer carries it.
+   */
+  latest: SincePdf['kind'] | 'not-listed';
+  /** The newest PDF that lists the entry. */
+  lastListed: PdfAppearance;
+}
+
+/**
+ * The PDFs one entry went out in, and whether the newest PDF for its day
+ * still says what the entry says. null when it was never in a PDF.
+ * `records` are newest first, as readPdfRecords returns them.
+ */
+export function entryPdfState(entry: CostEntryView, records: PdfRecord[]): EntryPdfState | null {
+  const appearances: PdfAppearance[] = [];
+  for (const record of records) {
+    const printed = record.entries.find((line) => line.entryId === entry.id);
+    if (printed) appearances.push({ record, printed, since: sincePdf(entry, printed) });
+  }
+  if (appearances.length === 0) return null;
+
+  const day = sentDay(entry.createdAt);
+  const covering =
+    day === null
+      ? appearances[0].record
+      : records.find((record) => record.propertyId === entry.property.id && inRange(day, record.from, record.to));
+  const inCovering = appearances.find((appearance) => appearance.record.id === covering?.id);
+  return {
+    appearances,
+    latest: inCovering ? inCovering.since.kind : 'not-listed',
+    lastListed: appearances[0],
+  };
 }

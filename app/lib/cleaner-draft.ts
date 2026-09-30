@@ -23,15 +23,16 @@
  * two decimals for a price, no leading zeros for a quantity. The price is the
  * amount printed on that receipt line (D1); quantity is never multiplied.
  *
- * ── The reading (dispatch 20) ──
+ * ── The reading (dispatches 20 and 21) ──
  * Once the photo is taken the server reads it (POST /api/cleaner/read-receipt)
- * while the cleaner moves on to the items. The answer is a signed record the
- * draft keeps, verbatim, until Send, and its lines go onto the form marked
- * `ai`: which model line, and the values as filled, so a line the cleaner
- * changed can be told from one they left as read. Lines the cleaner typed
- * before the answer came stay exactly as typed, and the reading's lines go
- * underneath them. A retaken photo drops the reading and the lines it filled
- * that were never touched; anything the cleaner typed or changed stays.
+ * and the items screen stays locked until the answer comes. The answer is a
+ * signed record the draft keeps, verbatim, until Send. Its item lines become
+ * the form's lines, marked `ai`: which model line, and the values as filled,
+ * so a line the cleaner changed can be told from one they left as read. Its
+ * tax lines fill the tax field, never a line (dispatch 21). A reading with
+ * nothing the form can take leaves the form as it was. A retaken photo drops
+ * the reading and the lines it filled that were never touched; anything the
+ * cleaner typed or changed stays.
  *
  * Client-safe. Every storage call is guarded: a phone that refuses storage
  * (a private window, a full disk) still works, it just keeps nothing.
@@ -42,6 +43,7 @@ import {
   SUBMISSION_KEY_PATTERN,
   prefillFromReading,
   readReadingRecord,
+  taxFromReading,
   type ReadingRecord,
 } from '@/app/lib/cleaners/model';
 import type { EntryPayload, ReadingPart } from '@/app/lib/cleaner-client';
@@ -88,6 +90,10 @@ export interface Draft {
   unconfirmedSend: boolean;
   /** The reading of the current photo, once asked for; null before the photo, or while it is being read. */
   reading: DraftReading | null;
+  /** The receipt's tax as typed, apart from the items (dispatch 21); '' when none. */
+  tax: string;
+  /** The tax the reading filled in, as filled, so an edit can be told; null when it filled none. */
+  taxFromReading: string | null;
 }
 
 /** A prepared receipt photo, as kept in IndexedDB. */
@@ -137,6 +143,8 @@ export function newDraft(): Draft {
     step: 'property',
     unconfirmedSend: false,
     reading: null,
+    tax: '',
+    taxFromReading: null,
   };
 }
 
@@ -145,6 +153,7 @@ export function isEmptyDraft(draft: Draft): boolean {
   return (
     draft.propertyId === null &&
     draft.photoKey === null &&
+    draft.tax.trim() === '' &&
     draft.lines.every((line) => line.name.trim() === '' && line.price.trim() === '')
   );
 }
@@ -190,7 +199,7 @@ function readDraftReading(value: unknown): DraftReading | null {
 /** A stored draft, or null if there is none or it is not one this code wrote. */
 function readDraft(value: unknown): Draft | null {
   if (!isRecord(value) || value.v !== 1) return null;
-  const { submissionKey, propertyId, propertyName, lines, photoKey, step, unconfirmedSend, reading } = value;
+  const { submissionKey, propertyId, propertyName, lines, photoKey, step, unconfirmedSend, reading, tax, taxFromReading } = value;
   if (typeof submissionKey !== 'string' || !SUBMISSION_KEY_PATTERN.test(submissionKey)) return null;
   if (!Array.isArray(lines)) return null;
   const read = lines.map(readLine).filter((line): line is DraftLine => line !== null);
@@ -204,6 +213,8 @@ function readDraft(value: unknown): Draft | null {
     step: STEPS.includes(step as Step) ? (step as Step) : 'property',
     unconfirmedSend: unconfirmedSend === true,
     reading: readDraftReading(reading),
+    tax: isText(tax) ? tax : '',
+    taxFromReading: isText(taxFromReading) ? taxFromReading : null,
   };
 }
 
@@ -339,6 +350,30 @@ export function readPrice(typed: string): { text: string; cents: number } | null
 }
 
 /**
+ * The tax as typed, in the form the server takes ("12.71"), with its cents;
+ * or null if it is not an amount. Zero is allowed; a minus is not. At most
+ * $999,999.99. An empty field is no tax, and is handled by the caller.
+ */
+export function readTax(typed: string): { text: string; cents: number } | null {
+  let value = typed.replace(/[\s$]/g, '');
+  if (value.includes('.')) value = value.replace(/,/g, '');
+  else value = /^\d*,\d{1,2}$/.test(value) ? value.replace(',', '.') : value.replace(/,/g, '');
+  const match = /^(\d{0,6})(?:\.(\d{0,2}))?$/.exec(value);
+  if (!match || (match[1] === '' && !match[2])) return null;
+  const whole = Number(match[1] || '0');
+  const fraction = (match[2] ?? '').padEnd(2, '0');
+  const cents = whole * 100 + Number(fraction);
+  if (cents > LIMITS.TAX_MAX_CENTS) return null;
+  return { text: `${whole}.${fraction}`, cents };
+}
+
+/** What is wrong with the tax as typed, in a few words; undefined when nothing is, or it is empty. */
+export function taxProblem(tax: string): string | undefined {
+  if (tax.trim() === '') return undefined;
+  return readTax(tax) === null ? 'Check the tax' : undefined;
+}
+
+/**
  * A quantity as typed, in the form the server takes ("2", "1.5"), or null.
  * More than 0, at most 99999.999, three decimals at most.
  */
@@ -378,12 +413,17 @@ export function hasProblems(problems: LineProblems): boolean {
   return Object.keys(problems).length > 0;
 }
 
-/** The sum of the prices that can be read, in cents. For display only; never stored. */
-export function totalCents(lines: DraftLine[]): number {
+/** The sum of the prices that can be read, in cents: the items. For display only; never stored. */
+export function itemsCents(lines: DraftLine[]): number {
   return lines.reduce((sum, line) => sum + (readPrice(line.price)?.cents ?? 0), 0);
 }
 
-/** The draft as the server takes it, or null while any line has a problem. */
+/** Items plus the tax that can be read, in cents. For display only; never stored. */
+export function totalCents(lines: DraftLine[], tax: string): number {
+  return itemsCents(lines) + (readTax(tax)?.cents ?? 0);
+}
+
+/** The draft as the server takes it, or null while any line, or the tax, has a problem. */
 export function toEntryPayload(draft: Draft): EntryPayload | null {
   if (draft.propertyId === null) return null;
   const lines: EntryPayload['lines'] = [];
@@ -394,7 +434,13 @@ export function toEntryPayload(draft: Draft): EntryPayload | null {
     if (!name || quantity === null || price === null) return null;
     lines.push({ name, quantity, lineTotal: price.text });
   }
-  return { submissionKey: draft.submissionKey, propertyId: draft.propertyId, lines };
+  let tax: string | null = null;
+  if (draft.tax.trim() !== '') {
+    const read = readTax(draft.tax);
+    if (read === null) return null;
+    tax = read.text;
+  }
+  return { submissionKey: draft.submissionKey, propertyId: draft.propertyId, lines, tax };
 }
 
 // ─── The reading ───────────────────────────────────────────────
@@ -425,24 +471,27 @@ export function linesFromReading(record: ReadingRecord): DraftLine[] {
 }
 
 /**
- * The reading, taken into the draft. Lines the cleaner typed stay exactly as
- * they are, and the reading's lines go underneath them; blank lines nobody
- * touched make way. The record is kept whatever it says, so that it is sent
- * as evidence with the entry. `readingText` null records that no answer came.
+ * The reading, taken into the draft: its item lines become the form's lines
+ * and its tax lines its tax field. The form was locked while it was read, so
+ * nothing typed is overwritten; a reading with nothing the form can take
+ * leaves the lines as they were. The record is kept whatever it says, so
+ * that it is sent as evidence with the entry. `readingText` null records
+ * that no answer came.
  */
 export function takeReading(draft: Draft, photoKey: string, readingText: string | null, signature: string | null): Draft {
   const record = readingText !== null && signature !== null ? recordOf({ photoKey, readingText, signature, applied: 0 }) : null;
   const fromReading = record && record.status === 'ok' ? linesFromReading(record) : [];
-  const typed = draft.lines.filter((line) => line.name.trim() !== '' || line.price.trim() !== '');
-  const lines = [...typed, ...fromReading];
+  const tax = record && record.status === 'ok' ? taxFromReading(record.output) : null;
   return {
     ...draft,
-    lines: lines.length > 0 ? lines : [newLine()],
+    lines: fromReading.length > 0 ? fromReading : draft.lines,
+    tax: tax ?? draft.tax,
+    taxFromReading: tax,
     reading: {
       photoKey,
       readingText: record ? readingText : null,
       signature: record ? signature : null,
-      applied: fromReading.length,
+      applied: fromReading.length + (tax === null ? 0 : 1),
     },
   };
 }
@@ -459,7 +508,9 @@ export function forgetReading(draft: Draft): Draft {
       const kept: DraftLine = { key: line.key, name: line.name, quantity: line.quantity, price: line.price };
       return kept;
     });
-  return { ...draft, lines: lines.length > 0 ? lines : [newLine()], reading: null };
+  // The tax as the reading filled it goes too; a tax the cleaner changed stays.
+  const taxWasRead = draft.taxFromReading !== null && draft.tax === draft.taxFromReading;
+  return { ...draft, lines: lines.length > 0 ? lines : [newLine()], reading: null, tax: taxWasRead ? '' : draft.tax, taxFromReading: null };
 }
 
 /**

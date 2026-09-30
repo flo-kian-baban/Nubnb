@@ -175,7 +175,8 @@ const MARGIN = 54;
 const RIGHT = PAGE_WIDTH - MARGIN;
 /** Where amounts end. A corrected entry's "*" sits just after. */
 const AMOUNT_RIGHT = RIGHT - 8;
-const COLUMN = { number: MARGIN + 16, date: MARGIN + 28, bought: MARGIN + 96, ref: RIGHT - 120 };
+/** Items, tax and total each right-align at their edge (dispatch 21); the ref sits before them. */
+const COLUMN = { number: MARGIN + 16, date: MARGIN + 28, bought: MARGIN + 96, ref: RIGHT - 232, items: RIGHT - 120, tax: RIGHT - 62 };
 const ROW = 20;
 /** The lowest a row's baseline may sit. */
 const LOWEST_ROW = MARGIN + 8;
@@ -187,9 +188,17 @@ function tableHeader(page: Page, y: number): number {
   page.text('Date', COLUMN.date, y, 'bold', 8.5, MUTED);
   page.text('What was bought', COLUMN.bought, y, 'bold', 8.5, MUTED);
   page.text('Ref', COLUMN.ref, y, 'bold', 8.5, MUTED);
+  page.text('Items', COLUMN.items, y, 'bold', 8.5, MUTED, 'right');
+  page.text('Tax', COLUMN.tax, y, 'bold', 8.5, MUTED, 'right');
   page.text('Total', AMOUNT_RIGHT, y, 'bold', 8.5, MUTED, 'right');
   page.rule(MARGIN, RIGHT, y - 7, 0.75, 0.6);
   return y - 7 - 16;
+}
+
+/** An entry's tax column: the amount, "none" when the cleaner gave none, "in items" on an older entry. */
+function taxText(entry: CostReport['entries'][number]): string {
+  if (entry.taxShape === 'in-lines') return 'in items';
+  return entry.taxCents === null ? 'none' : formatCents(entry.taxCents);
 }
 
 const entriesLabel = (count: number) => (count === 0 ? 'No entries' : count === 1 ? '1 entry' : `${count} entries`);
@@ -275,6 +284,8 @@ export function pdfFor(report: CostReport): Uint8Array<ArrayBuffer> {
     page.text(shortDay(entry.day), COLUMN.date, y, 'regular', 10);
     page.text(boughtCell(entry.lines, COLUMN.ref - 12 - COLUMN.bought), COLUMN.bought, y, 'regular', 10);
     page.text(entry.ref, COLUMN.ref, y, 'regular', 10, MUTED);
+    page.text(formatCents(entry.itemsCents), COLUMN.items, y, 'regular', 10, 0, 'right');
+    page.text(taxText(entry), COLUMN.tax, y, 'regular', 10, entry.taxShape === 'field' && entry.taxCents !== null ? 0 : MUTED, 'right');
     page.text(formatCents(entry.totalCents), AMOUNT_RIGHT, y, 'regular', 10, 0, 'right');
     if (entry.corrected) page.text('*', AMOUNT_RIGHT + 1.5, y, 'regular', 10);
     page.rule(MARGIN, RIGHT, y - 7, 0.9, 0.4);
@@ -287,7 +298,10 @@ export function pdfFor(report: CostReport): Uint8Array<ArrayBuffer> {
     ...(report.entries.some((entry) => entry.lines.some((line) => line.lineTotalCents < 0))
       ? ['Amounts in brackets were taken off: discounts and returns, already counted in the total.']
       : []),
-    'Each entry is one receipt. Its total is the sum of the amounts the receipt prints for each line; quantities are never multiplied.',
+    ...(report.taxInLines
+      ? ['Entries whose tax reads "in items" were sent before tax was recorded apart: any tax the cleaner typed is a line among their items, and inside their Items amount.']
+      : []),
+    'Each entry is one receipt. Items is the sum of the amounts the receipt prints for each line, Tax is the receipt\'s tax, and Total is the two together; quantities are never multiplied.',
   ].flatMap((note) => wrapped(note, 'regular', 8.5, RIGHT - MARGIN));
 
   let top = y + ROW - 9;
@@ -299,8 +313,10 @@ export function pdfFor(report: CostReport): Uint8Array<ArrayBuffer> {
   const base = top - 18;
   const amount = formatCents(report.totalCents);
   page.text(entriesLabel(report.entries.length), COLUMN.date, base, 'regular', 9.5, MUTED);
+  page.text(formatCents(report.itemsCents), COLUMN.items, base, 'regular', 9.5, MUTED, 'right');
+  page.text(formatCents(report.taxCents), COLUMN.tax, base, 'regular', 9.5, MUTED, 'right');
   page.text(amount, AMOUNT_RIGHT, base, 'bold', 11, 0, 'right');
-  page.text('Period total', AMOUNT_RIGHT - widthOf(winAnsi(amount), 'bold', 11) - 14, base, 'bold', 11, 0, 'right');
+  page.text('Period total', COLUMN.ref, base, 'bold', 11, 0);
   let noteY = base - 26;
   for (const line of notes) {
     page.text(line, MARGIN, noteY, 'regular', 8.5, 0.4);

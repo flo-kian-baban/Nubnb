@@ -915,3 +915,136 @@
     flex-basis: 100%;
   }
 }
+
+/* The queue or ledger line above the filters (dispatch 21). */
+.modeLine {
+  margin: 0 0 12px;
+  color: #a9b4c2;
+  font-size: 0.9rem;
+}
+.modeLine strong {
+  color: #e8edf3;
+}
+.taxRow td {
+  color: #a9b4c2;
+}
+.totalRow td {
+  font-weight: 700;
+}
+
+/* ── A ledger's heading: whose costs these are ── */
+.ledgerHead {
+  margin: 0 0 14px;
+}
+.ledgerTitle {
+  margin: 0 0 6px;
+  font-size: 22px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.ledgerHead .modeLine {
+  margin-bottom: 6px;
+}
+
+/* ── PDFs that went out, beside the ledger now ── */
+.pdfTable td {
+  vertical-align: top;
+}
+/* Under an entry's total: how it stands beside the newest PDF for its day. */
+.pdfMark {
+  display: block;
+  margin-top: 3px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.42);
+  white-space: nowrap;
+}
+.pdfMarkWarn {
+  font-weight: 700;
+  color: #f0a63a;
+}
+.pdfOk {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #6ee7a0;
+}
+.badgePdfWarn {
+  background: rgba(245, 158, 11, 0.12);
+  color: #f0a63a;
+  border-color: rgba(245, 158, 11, 0.35);
+}
+.badgePdfNote {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.65);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+.badgePdfTag {
+  margin-right: 4px;
+  padding: 1px 6px;
+  font-size: 10px;
+  background: rgba(101, 153, 205, 0.14);
+  color: #8dbbe8;
+  border-color: rgba(101, 153, 205, 0.3);
+}
+.pdfAlert {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  color: #f0a63a;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.pdfAlert svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.pdfChanges {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.8);
+}
+.pdfNow {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+.pdfList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pdfList li {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.pdfWhen {
+  color: rgba(255, 255, 255, 0.5);
+}
+.pdfSaid {
+  color: rgba(255, 255, 255, 0.85);
+}
+/* A PDF set in an entry's history: not one of the entry's own events. */
+.historyPdf .historyWhat {
+  color: #a9c8e8;
+}

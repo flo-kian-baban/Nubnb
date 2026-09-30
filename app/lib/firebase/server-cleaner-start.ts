@@ -26,6 +26,7 @@
  */
 
 import { getAdminDb } from './admin';
+import { listCleanerFacingNames } from './server-property-names';
 import { isDocumentId } from './server-leads';
 import { COST_ENTRIES_COLLECTION, type CleanerProperty, type CleanerStart } from '@/app/lib/cleaners/model';
 import { fold } from '@/app/lib/cleaners/text';
@@ -40,11 +41,12 @@ function text(value: unknown): string | null {
   return typeof value === 'string' && value.trim() !== '' ? value : null;
 }
 
-function toProperty(id: string, fields: Record<string, unknown>): CleanerProperty {
+/** The cleaner-facing name when an admin has set one (dispatch 21), else the real name. */
+function toProperty(id: string, fields: Record<string, unknown>, cleanerFacing: Map<string, string>): CleanerProperty {
   const address = fields.addressDetails;
   const city =
     address && typeof address === 'object' ? text((address as Record<string, unknown>).city) : null;
-  return { id, name: text(fields.name), city };
+  return { id, name: cleanerFacing.get(id) ?? text(fields.name), city };
 }
 
 /** Distinct property IDs from this cleaner's entries, the one logged against last first. */
@@ -111,8 +113,9 @@ export async function readCleanerStart(cleanerId: string): Promise<Omit<CleanerS
   const db = getAdminDb();
   const entries = db.collection(COST_ENTRIES_COLLECTION);
 
-  const [properties, own, newest] = await Promise.all([
+  const [properties, cleanerFacing, own, newest] = await Promise.all([
     db.collection('properties').select('name', 'addressDetails').get(),
+    listCleanerFacingNames(),
     entries.where('cleanerId', '==', cleanerId).select('propertyId', 'createdAt').get(),
     // `createdAt` is on every entry, so ordering by it drops none of them.
     entries.orderBy('createdAt', 'desc').limit(ITEM_SOURCE_ENTRIES).select('lines').get(),
@@ -120,7 +123,7 @@ export async function readCleanerStart(cleanerId: string): Promise<Omit<CleanerS
 
   return {
     properties: properties.docs
-      .map((doc) => toProperty(doc.id, doc.data()))
+      .map((doc) => toProperty(doc.id, doc.data(), cleanerFacing))
       .sort((a, b) => fold(a.name ?? '').localeCompare(fold(b.name ?? ''), 'en-CA') || a.id.localeCompare(b.id)),
     recentPropertyIds: recentFirst(own.docs.map((doc) => doc.data())),
     itemNames: itemNames(newest.docs.map((doc) => doc.data())),
