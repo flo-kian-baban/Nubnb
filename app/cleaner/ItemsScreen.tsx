@@ -13,11 +13,20 @@
  *
  * The receipt photo stays at the top, and opens full size, so the items can
  * be read off it.
+ *
+ * ── Read from the photo (dispatch 20) ──
+ * Under the photo, a quiet line says what the reading is doing: reading,
+ * how many items it filled in (and what it had to leave off, so the total
+ * here is not taken for the receipt's), or that it could not read the photo.
+ * A line it filled in carries "From the photo"; once the cleaner changes it,
+ * "Edited". Every line is the cleaner's to change, remove or add to, and
+ * what they send is what is stored.
  */
 
 import { useMemo, useState, type ReactNode } from "react";
 import { ChevronLeft, Minus, Plus, X } from "lucide-react";
 import {
+  isEdited,
   lineProblems,
   readPrice,
   readQuantity,
@@ -32,11 +41,19 @@ import styles from "./cleaner.module.css";
 /** How many suggestions show under an item at once. */
 const SUGGESTIONS_SHOWN = 5;
 
+/** What the reading of the current photo is doing, for the note under the photo. */
+export type ReadingStatus =
+  | { kind: "none" }
+  | { kind: "reading" }
+  | { kind: "read"; applied: number; leftOut: { count: number; cents: number } }
+  | { kind: "failed" };
+
 interface ItemsScreenProps {
   propertyName: string;
   photoUrl: string | null;
   lines: DraftLine[];
   itemNames: string[];
+  reading: ReadingStatus;
   /** After a Send with something missing: show what, under each field. */
   showProblems: boolean;
   /** Upload progress from 0 to 1 while sending; null otherwise. */
@@ -71,6 +88,34 @@ function suggest(itemNames: string[], typed: string): string[] {
 function amountHint(quantity: string | null): string {
   if (quantity === null || quantity === "1") return "As printed on the receipt";
   return /^[0-9]+$/.test(quantity) ? `For all ${quantity} together, as printed` : "For all of it together, as printed";
+}
+
+/** The quiet line under the photo. Nothing while there is nothing to say. */
+function ReadingNote({ reading }: { reading: ReadingStatus }) {
+  if (reading.kind === "none") return null;
+  if (reading.kind === "reading") {
+    return (
+      <p className={styles.readingNote} role="status">
+        <span className={`${styles.spinner} ${styles.spinnerSmall}`} aria-hidden />
+        <span>Reading the receipt…</span>
+      </p>
+    );
+  }
+  if (reading.kind === "failed") {
+    return (
+      <p className={styles.readingNote} role="status">
+        The receipt couldn’t be read. Type the items.
+      </p>
+    );
+  }
+  const { applied, leftOut } = reading;
+  return (
+    <p className={styles.readingNote} role="status">
+      {applied === 1 ? "1 item" : `${applied} items`} read from the photo. Check each one.
+      {leftOut.count > 0 &&
+        ` ${leftOut.count === 1 ? "One line" : `${leftOut.count} lines`} on the receipt (${formatCents(leftOut.cents)}) couldn’t be added here, so the total below will differ from the receipt.`}
+    </p>
+  );
 }
 
 function Problem({ id, text }: { id: string; text?: string }) {
@@ -177,7 +222,15 @@ function ItemCard({
   return (
     <li className={styles.itemCard} data-problem={hasProblem || undefined}>
       <div className={styles.itemHead}>
-        <span className={styles.itemNumber}>Item {number}</span>
+        <span className={styles.itemNumberWrap}>
+          <span className={styles.itemNumber}>Item {number}</span>
+          {line.ai &&
+            (isEdited(line) ? (
+              <span className={`${styles.aiTag} ${styles.aiTagEdited}`}>Edited</span>
+            ) : (
+              <span className={styles.aiTag}>From the photo</span>
+            ))}
+        </span>
         {removable && (
           <button type="button" className={styles.removeButton} aria-label={`Remove item ${number}`} onClick={onRemove}>
             <X aria-hidden />
@@ -289,7 +342,7 @@ function PhotoViewer({ url, onClose }: { url: string; onClose: () => void }) {
 }
 
 export function ItemsScreen(props: ItemsScreenProps) {
-  const { propertyName, photoUrl, lines, itemNames, showProblems, sending, sendMessage, totalCents } = props;
+  const { propertyName, photoUrl, lines, itemNames, reading, showProblems, sending, sendMessage, totalCents } = props;
   const [viewing, setViewing] = useState(false);
 
   let sendLabel: ReactNode = "Send";
@@ -316,6 +369,7 @@ export function ItemsScreen(props: ItemsScreenProps) {
           <span>See the receipt</span>
         </button>
       )}
+      <ReadingNote reading={reading} />
 
       {/* Nothing changes under a send in flight. */}
       <ol className={styles.itemList} inert={sending !== null}>

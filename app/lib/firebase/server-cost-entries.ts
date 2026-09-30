@@ -56,6 +56,7 @@ import { z } from 'zod';
 import type { DocumentReference } from 'firebase-admin/firestore';
 import { getAdminDb } from './admin';
 import { isDocumentId } from './server-leads';
+import type { ReadingAttachment } from '@/app/lib/cleaners/readings';
 import {
   ADMIN_ACTOR,
   CLEANERS_COLLECTION,
@@ -63,12 +64,17 @@ import {
   COST_ENTRY_SCHEMA_VERSION,
   COST_ENTRY_SUBMISSIONS_COLLECTION,
   COST_ENTRY_SUBMISSION_SCHEMA_VERSION,
+  COST_ENTRY_READINGS_COLLECTION,
+  COST_ENTRY_READING_SCHEMA_VERSION,
   CURRENCY,
+  ENTRY_TIME_ZONE,
   LIMITS,
   RECEIPTS_PREFIX,
   SUBMISSION_KEY_PATTERN,
+  dayIn,
   fieldText,
   newestFirst,
+  prefillFromReading,
   readCostEntryFields,
   readLinesNow,
   type CleanerEntry,
@@ -77,6 +83,7 @@ import {
   type HistoryEvent,
   type Line,
   type LookupState,
+  type ReadingLineOutcome,
   type ReceiptRef,
   type Refusal,
   type ReviewStatus,
@@ -122,8 +129,6 @@ const LINE_TOTAL = /^-?(0|[1-9][0-9]{0,5})\.[0-9]{2}$/;
 
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-const DAY_MS = 86_400_000;
-
 /**
  * A line total as integer cents, taken from the string's digits and never
  * through a float: "7.98" → 798, "-1.00" → -100. At most eight digits, so
@@ -136,8 +141,27 @@ function toCents(text: string): number {
   return negative && cents !== 0 ? -cents : cents;
 }
 
-/** Why a purchase date is refused, or null. It must be a real day from 2020-01-01 to tomorrow (UTC). */
-function purchasedOnProblem(value: string): string | null {
+/**
+ * The same calendar day `months` months earlier, clamped to that month's
+ * last day: 2026-09-30 → 2025-09-30, 2028-02-29 → 2027-02-28. Pure date
+ * arithmetic on the `YYYY-MM-DD` text, in no time zone.
+ */
+export function monthsBefore(day: string, months: number): string {
+  const [year, month, date] = day.split('-').map(Number);
+  const target = new Date(Date.UTC(year, month - 1 - months, 1));
+  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+  target.setUTCDate(Math.min(date, lastDay));
+  return target.toISOString().slice(0, 10);
+}
+
+/**
+ * Why a purchase date is refused, or null. It must be a real day, no later
+ * than today and no earlier than 12 months before today, on the Toronto
+ * calendar (Kian's ruling of 2026-09-30; before it, anything from 2020 to
+ * tomorrow UTC was taken). Wherever a purchase date is entered, it comes
+ * through this schema, so the rule holds everywhere.
+ */
+export function purchasedOnProblem(value: string, now: Date = new Date()): string | null {
   const match = ISO_DATE.exec(value);
   if (!match) return 'Write the date as yyyy-mm-dd';
 
@@ -146,9 +170,10 @@ function purchasedOnProblem(value: string): string | null {
   const time = Date.UTC(Number(year), Number(month) - 1, Number(day));
   if (new Date(time).toISOString().slice(0, 10) !== value) return 'Not a real calendar date';
 
-  if (value < LIMITS.PURCHASED_ON_MIN) return `The date must be ${LIMITS.PURCHASED_ON_MIN} or later`;
-  const latest = new Date(Date.now() + DAY_MS).toISOString().slice(0, 10);
-  if (value > latest) return 'The date cannot be in the future';
+  const today = dayIn(ENTRY_TIME_ZONE, now);
+  if (value > today) return 'The date cannot be in the future';
+  const earliest = monthsBefore(today, LIMITS.PURCHASED_ON_MONTHS_BACK);
+  if (value < earliest) return `The date must be within the last ${LIMITS.PURCHASED_ON_MONTHS_BACK} months`;
   return null;
 }
 
@@ -329,6 +354,64 @@ export function newEntryRef(): DocumentReference {
   return getAdminDb().collection(COST_ENTRIES_COLLECTION).doc();
 }
 
+/**
+ * A reading the phone carried back with the entry (dispatch 20), already
+ * verified by the route: the signed record, and for each entry line, in
+ * order, the index of the model line it was filled from, or null for a
+ * line the cleaner added. It is written beside the entry, in its own
+ * document, and never changes what the entry says.
+ */
+export type { ReadingAttachment };
+
+/** The `cost_entry_readings/{entryId}` document: the model's reading and what became of each of its lines. */
+function readingDocument(entryId: string, cleanerId: string, now: string, entry: CostEntryInput, reading: ReadingAttachment) {
+  const { record, fromReading } = reading;
+  const modelLines = record.output?.lines ?? [];
+  const lines = modelLines.map((line, index) => {
+    const entryLine = fromReading.indexOf(index);
+    const shown = prefillFromReading(line);
+    const base = { index, name: line.name, quantity: line.quantity, amount: line.amount, kind: line.kind };
+    if (entryLine === -1 || !shown) return { ...base, outcome: 'left_out' as ReadingLineOutcome, entryLine: null, edited: [] as string[] };
+    const sent = entry.lines[entryLine];
+    const edited: string[] = [];
+    if (sent.name !== shown.name) edited.push('name');
+    if (sent.quantity !== Number(shown.quantity)) edited.push('quantity');
+    if (sent.lineTotalCents !== toCents(shown.price)) edited.push('amount');
+    return { ...base, outcome: (edited.length ? 'edited' : 'unchanged') as ReadingLineOutcome, entryLine, edited };
+  });
+  const added = fromReading.map((from, i) => (from === null ? i : -1)).filter((i) => i !== -1);
+  const tally = (outcome: ReadingLineOutcome) => lines.filter((line) => line.outcome === outcome).length;
+  return {
+    schemaVersion: COST_ENTRY_READING_SCHEMA_VERSION,
+    entryId,
+    cleanerId,
+    createdAt: now,
+    reading: {
+      id: record.id,
+      requestedAt: record.requestedAt,
+      model: record.model,
+      modelVersion: record.modelVersion,
+      thinkingLevel: record.thinkingLevel,
+      ms: record.ms,
+      status: record.status,
+      reason: record.reason,
+      usage: record.usage,
+      output: record.output,
+      rawText: record.rawText,
+    },
+    lines,
+    added,
+    summary: {
+      modelLines: modelLines.length,
+      unchanged: tally('unchanged'),
+      edited: tally('edited'),
+      leftOut: tally('left_out'),
+      added: added.length,
+      sentLines: entry.lines.length,
+    },
+  };
+}
+
 export interface NewCostEntry {
   /** From newEntryRef(): the ID the receipt's path already carries. */
   entryRef: DocumentReference;
@@ -342,6 +425,8 @@ export interface NewCostEntry {
   propertyNameAtEntry: string | null;
   /** From saveReceipt. */
   receipt: ReceiptRef;
+  /** The verified reading, or null when the phone sent none or it did not verify. */
+  reading: ReadingAttachment | null;
 }
 
 export interface CostEntryCreated {
@@ -349,6 +434,8 @@ export interface CostEntryCreated {
   status: 'pending';
   createdAt: string;
   lineCount: number;
+  /** True when the model's reading was written beside the entry. */
+  readingStored: boolean;
 }
 
 /**
@@ -368,7 +455,7 @@ export interface CostEntryCreated {
  * have been written.
  */
 export async function createCostEntry(input: NewCostEntry): Promise<CostEntryCreated> {
-  const { entryRef, cleanerId, sessionEpoch, entry, propertyNameAtEntry, receipt } = input;
+  const { entryRef, cleanerId, sessionEpoch, entry, propertyNameAtEntry, receipt, reading } = input;
   let createdAt = '';
 
   try {
@@ -437,6 +524,13 @@ export async function createCostEntry(input: NewCostEntry): Promise<CostEntryCre
         entryId: entryRef.id,
         createdAt: now,
       });
+      // The model's reading, beside the entry and never inside it (dispatch 20).
+      if (reading) {
+        tx.create(
+          db.collection(COST_ENTRY_READINGS_COLLECTION).doc(entryRef.id),
+          readingDocument(entryRef.id, cleanerId, now, entry, reading),
+        );
+      }
       createdAt = now;
     });
   } catch (err) {
@@ -450,7 +544,7 @@ export async function createCostEntry(input: NewCostEntry): Promise<CostEntryCre
     throw err;
   }
 
-  return { id: entryRef.id, status: 'pending', createdAt, lineCount: entry.lines.length };
+  return { id: entryRef.id, status: 'pending', createdAt, lineCount: entry.lines.length, readingStored: reading !== null };
 }
 
 // ─── List ──────────────────────────────────────────────────────

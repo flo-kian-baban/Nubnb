@@ -21,6 +21,25 @@ export interface EntryPayload {
   lines: { name: string; quantity: string; lineTotal: string }[];
 }
 
+/**
+ * The `reading` part of a send (dispatch 20): the signed record the read
+ * route gave this photo, verbatim, and for each entry line the model line
+ * it was filled from, or null for a line the cleaner added.
+ */
+export interface ReadingPart {
+  readingText: string;
+  signature: string;
+  fromReading: (number | null)[];
+}
+
+export type ReadReceiptResult =
+  /** An answer, signed: the record inside may say `ok` or `failed`. */
+  | { kind: 'ok'; readingText: string; signature: string }
+  /** The session ended. The receipt is untouched. */
+  | { kind: 'signed-out' }
+  /** No answer: no signal, a timeout, or a server that could not read. The receipt is untouched. */
+  | { kind: 'failed' };
+
 export type StartResult =
   | { kind: 'ok'; start: CleanerStart }
   /** No session, or one that no longer holds: show the code screen. */
@@ -58,6 +77,8 @@ export type MyEntriesResult =
 
 /** Long enough for a 4 MiB photo on a weak signal. */
 const SEND_TIMEOUT_MS = 120_000;
+/** The photo up, the model's 20 seconds, and the answer back. After this the form is the cleaner's alone. */
+const READ_TIMEOUT_MS = 45_000;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   !!value && typeof value === 'object' && !Array.isArray(value);
@@ -193,19 +214,50 @@ function sortSend(status: number, body: Record<string, unknown>): SendResult {
 }
 
 /**
- * Send one receipt: the entry as JSON text and the photo. `onProgress` gets
- * the share of the upload done, from 0 to 1, when the browser can tell.
+ * Ask the server to read the receipt photo (dispatch 20). Resolves always.
+ * The photo is sent once and never stored by this call; the entry's send
+ * stores it, as before.
+ */
+export async function readReceipt(photo: Blob, fileName: string): Promise<ReadReceiptResult> {
+  const form = new FormData();
+  form.append('receipt', photo, fileName);
+  let res: Response;
+  try {
+    res = await fetch('/api/cleaner/read-receipt', {
+      method: 'POST',
+      body: form,
+      cache: 'no-store',
+      signal: AbortSignal.timeout(READ_TIMEOUT_MS),
+    });
+  } catch {
+    return { kind: 'failed' };
+  }
+  if (res.status === 401) return { kind: 'signed-out' };
+  const body = await readJson(res);
+  const data = isRecord(body.data) ? body.data : null;
+  if (res.ok && data && typeof data.readingText === 'string' && typeof data.signature === 'string') {
+    return { kind: 'ok', readingText: data.readingText, signature: data.signature };
+  }
+  return { kind: 'failed' };
+}
+
+/**
+ * Send one receipt: the entry as JSON text, the photo, and the reading when
+ * the photo had one. `onProgress` gets the share of the upload done, from 0
+ * to 1, when the browser can tell.
  */
 export function sendEntry(
   entry: EntryPayload,
   photo: Blob,
   fileName: string,
+  reading: ReadingPart | null,
   onProgress: (done: number) => void,
 ): Promise<SendResult> {
   return new Promise((resolve) => {
     const form = new FormData();
     form.append('entry', JSON.stringify(entry));
     form.append('receipt', photo, fileName);
+    if (reading) form.append('reading', JSON.stringify(reading));
 
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/cleaner/entries');

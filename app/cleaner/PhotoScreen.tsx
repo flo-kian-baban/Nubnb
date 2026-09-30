@@ -8,6 +8,12 @@
  *
  * The file inputs sit inside their labels, so a tap opens the camera or the
  * photo picker the way the phone itself does it, with no script in between.
+ *
+ * Three lines above the button say how to take the photo. They are what the
+ * measurement of 2026-09-30 found the reading needs (CLEANER-COSTS-DESIGN.md
+ * §12): flat, straight above, close enough to fill the screen. Crumpling,
+ * glare and a busy background did not matter; a receipt small in the frame
+ * did.
  */
 
 import { useState, type ChangeEvent } from "react";
@@ -106,10 +112,17 @@ export function PhotoScreen({ propertyName, photoUrl, onBack, onPhoto, onNext }:
           </div>
         </>
       ) : (
-        <div className={styles.buttonStack}>
-          {picker("camera", styles.primary, "Take photo")}
-          {picker("library", styles.secondary, "Choose from phone")}
-        </div>
+        <>
+          <ul className={styles.photoTips}>
+            <li>Lay the receipt flat.</li>
+            <li>Hold the phone straight above it.</li>
+            <li>Get close, so the receipt fills the screen.</li>
+          </ul>
+          <div className={styles.buttonStack}>
+            {picker("camera", styles.primary, "Take photo")}
+            {picker("library", styles.secondary, "Choose from phone")}
+          </div>
+        </>
       )}
     </main>
   );

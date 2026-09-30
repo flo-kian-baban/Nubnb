@@ -30,6 +30,15 @@
  * that already arrived is reported as sent and nothing is written twice. A
  * receipt changed after a send whose outcome is unknown gets a new key.
  *
+ * ── Reading the receipt (dispatch 20) ──
+ * As soon as the photo is kept, it goes to the server to be read, and the
+ * cleaner moves on to the items without waiting. When the answer comes, the
+ * lines it read appear on the form marked "From the photo", underneath
+ * anything already typed and never over it. No answer, or a failed one,
+ * leaves the form as it is with a quiet note; the photo is kept either way.
+ * The signed answer stays in the draft and goes with the entry as evidence.
+ * The purchase date is never filled from it (Kian's ruling of 2026-09-30).
+ *
  * A cleaner never reaches /admin from here, and never sees another cleaner's
  * work: the API gives this page their own name and recent properties, the
  * property list, and item names as words only.
@@ -39,6 +48,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { CloudOff } from "lucide-react";
 import {
   loadStart,
+  readReceipt,
   sendEntry,
   signIn,
   signOut,
@@ -49,15 +59,19 @@ import {
   STEPS,
   clearDraft,
   clearPhoto,
+  forgetReading,
   isEmptyDraft,
   loadDraft,
   loadPhoto,
   newDraft,
   newLine,
   newSubmissionKey,
+  recordOf,
   saveDraft,
   savePhoto,
+  takeReading,
   toEntryPayload,
+  toReadingPart,
   totalCents,
   type Draft,
   type DraftLine,
@@ -65,12 +79,12 @@ import {
   type StoredPhoto,
 } from "@/app/lib/cleaner-draft";
 import type { PreparedPhoto } from "@/app/lib/receipt-photo";
-import type { CleanerProperty, CleanerStart } from "@/app/lib/cleaners/model";
+import { leftOutOfReading, type CleanerProperty, type CleanerStart } from "@/app/lib/cleaners/model";
 import { fold } from "@/app/lib/cleaners/text";
 import { CodeScreen } from "./CodeScreen";
 import { PropertyScreen } from "./PropertyScreen";
 import { PhotoScreen } from "./PhotoScreen";
-import { ItemsScreen } from "./ItemsScreen";
+import { ItemsScreen, type ReadingStatus } from "./ItemsScreen";
 import { DoneScreen, type SentReceipt } from "./DoneScreen";
 import { ReceiptsScreen } from "./ReceiptsScreen";
 import styles from "./cleaner.module.css";
@@ -114,6 +128,19 @@ function reachable(step: Step, draft: Draft): Step {
   return step === "property" ? "property" : "photo";
 }
 
+/** What the items screen says about the reading of the current photo. */
+function readingStatus(draft: Draft, readingPhotoKey: string | null): ReadingStatus {
+  if (draft.photoKey === null) return { kind: "none" };
+  if (readingPhotoKey === draft.photoKey) return { kind: "reading" };
+  const { reading } = draft;
+  if (!reading || reading.photoKey !== draft.photoKey) return { kind: "none" };
+  const record = recordOf(reading);
+  if (record?.status === "ok" && reading.applied > 0) {
+    return { kind: "read", applied: reading.applied, leftOut: leftOutOfReading(record.output) };
+  }
+  return { kind: "failed" };
+}
+
 function subscribeToConnection(onChange: () => void): () => void {
   window.addEventListener("online", onChange);
   window.addEventListener("offline", onChange);
@@ -143,6 +170,8 @@ export function CleanerApp() {
   const [showProblems, setShowProblems] = useState(false);
   /** True while "My receipts" is open over the current step. */
   const [viewing, setViewing] = useState(false);
+  /** The photo whose reading is in flight, for the screen; null when none is. */
+  const [readingPhotoKey, setReadingPhotoKey] = useState<string | null>(null);
   const online = useSyncExternalStore(subscribeToConnection, () => navigator.onLine, () => true);
 
   // The latest draft and cleaner for handlers that run between renders:
@@ -152,6 +181,8 @@ export function CleanerApp() {
   const photoUrlRef = useRef<string | null>(null);
   /** History entries this page has added and not yet gone back over. */
   const stepsPushedRef = useRef(0);
+  /** The photo whose reading is in flight, for the handlers. An answer for any other photo is dropped. */
+  const readingRef = useRef<string | null>(null);
 
   /** The draft as it now is: shown, and written to the phone. */
   const commit = useCallback((next: Draft) => {
@@ -174,6 +205,35 @@ export function CleanerApp() {
     photoUrlRef.current = url;
     setPhoto(next && url ? { ...next, url } : null);
   }, []);
+
+  /**
+   * Send the photo to be read, once per photo, and take the answer into the
+   * draft when it comes — unless the photo has changed meanwhile, in which
+   * case the answer is dropped. Nothing here waits: the cleaner moves on.
+   */
+  const startReading = useCallback(
+    async (photoKey: string, blob: Blob, name: string) => {
+      if (readingRef.current === photoKey) return;
+      readingRef.current = photoKey;
+      setReadingPhotoKey(photoKey);
+      const result = await readReceipt(blob, name);
+      if (readingRef.current !== photoKey) return;
+      readingRef.current = null;
+      setReadingPhotoKey(null);
+
+      const current = draftRef.current;
+      if (!current || current.photoKey !== photoKey || !cleanerIdRef.current) return;
+      // The session ended: nothing is recorded, and the reading is asked for again after the code.
+      if (result.kind === "signed-out") return;
+      const next =
+        result.kind === "ok"
+          ? takeReading(current, photoKey, result.readingText, result.signature)
+          : takeReading(current, photoKey, null, null);
+      // Lines arriving is a change to the receipt: after an unanswered send, a new key.
+      commit(current.unconfirmedSend ? { ...next, submissionKey: newSubmissionKey(), unconfirmedSend: false } : next);
+    },
+    [commit],
+  );
 
   /** Act on what GET /api/cleaner/start said: the code screen, a failure, or in, with the draft restored. */
   const enter = useCallback(
@@ -202,8 +262,12 @@ export function CleanerApp() {
       setViewing(false);
       window.history.replaceState({ cleanerStep: step }, "");
       setPhase({ kind: "in", start });
+      // A photo kept with no reading yet — the page closed while it was being read — is read now.
+      if (storedPhoto && restored.photoKey && restored.reading?.photoKey !== restored.photoKey) {
+        void startReading(restored.photoKey, storedPhoto.blob, storedPhoto.name);
+      }
     },
-    [commit, replacePhoto],
+    [commit, replacePhoto, startReading],
   );
 
   // Open: who is signed in, and what they were doing.
@@ -356,7 +420,11 @@ export function CleanerApp() {
       height: prepared.height,
     };
     replacePhoto(stored);
-    changeReceipt((d) => ({ ...d, photoKey: stored.photoKey }));
+    // A new photo: the last reading and the untouched lines it filled go; typed and changed lines stay.
+    changeReceipt((d) => ({ ...forgetReading(d), photoKey: stored.photoKey }));
+    readingRef.current = null;
+    setReadingPhotoKey(null);
+    void startReading(stored.photoKey, stored.blob, stored.name);
     const saved = await savePhoto(id, stored);
     setKept((was) => (saved ? was : false));
   };
@@ -387,6 +455,8 @@ export function CleanerApp() {
     const id = cleanerIdRef.current;
     replacePhoto(null);
     if (id) void clearPhoto(id);
+    readingRef.current = null;
+    setReadingPhotoKey(null);
     setShowProblems(false);
     setSendMessage(null);
     setNotice(null);
@@ -423,13 +493,16 @@ export function CleanerApp() {
     const attempt: Draft = { ...current, unconfirmedSend: true };
     commit(attempt);
 
-    const result = await sendEntry(payload, photo.blob, photo.name, (done) => setSending(done));
+    const result = await sendEntry(payload, photo.blob, photo.name, toReadingPart(current), (done) => setSending(done));
     setSending(null);
 
     switch (result.kind) {
       case "sent": {
         clearDraft(id);
         void clearPhoto(id);
+        // An answer still on its way is for a receipt that is gone.
+        readingRef.current = null;
+        setReadingPhotoKey(null);
         setSent({
           propertyName,
           lineCount: payload.lines.length,
@@ -568,6 +641,7 @@ export function CleanerApp() {
         photoUrl={photo?.url ?? null}
         lines={current.lines}
         itemNames={start.itemNames}
+        reading={readingStatus(current, readingPhotoKey)}
         showProblems={showProblems}
         sending={sending}
         sendMessage={sendMessage}

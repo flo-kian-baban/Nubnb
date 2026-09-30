@@ -33,6 +33,10 @@ service cloud.firestore {
     match /cleaner_codes/{code} { allow read, write: if false; }
     match /cost_entries/{entryId} { allow read, write: if false; }
     match /cost_entry_submissions/{submissionId} { allow read, write: if false; }
+    // Dispatch 20: what the model read from each receipt (evidence about the
+    // model, kept apart from the entry), and the per-day reading counts.
+    match /cost_entry_readings/{entryId} { allow read, write: if false; }
+    match /receipt_reading_quota/{day} { allow read, write: if false; }
 
     // Everything else: denied.
     match /{document=**} {

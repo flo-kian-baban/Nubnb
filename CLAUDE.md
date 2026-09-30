@@ -88,3 +88,32 @@ no checkout. Do not build toward one unless asked.
   document ID and sits on the cleaner's document, so a copy of the database
   — every `./backups/` export included — exposes every cleaner code, current
   and replaced.
+
+## Receipt reading — Kian's decision (2026-09-30)
+
+- **Receipt photos leave Nubnb's systems and go to Google's Gemini API**
+  (`POST /api/cleaner/read-receipt`, model `gemini-3.8-flash`, thinking
+  low). A receipt shows what was bought, where, when, sometimes a card's
+  last four digits, and sometimes a property address a cleaner wrote on it.
+- Google's Gemini API terms (https://ai.google.dev/gemini-api/terms,
+  effective 2026-03-23), "How Google Uses Your Data": for **Paid Services**
+  Google "doesn't use your prompts (including … files such as images …) or
+  responses to improve our products", logs them "for a limited period of
+  time, solely for detecting and preventing violations of the Prohibited
+  Use Policy", and may store them "in any country in which Google or its
+  agents maintain facilities". For **Unpaid Services** the content is used
+  to "improve, and develop Google products" and "human reviewers may read"
+  it. Access "is a 'Paid Service' only when accessing the API through a
+  Cloud Project associated with an active billing account" — so
+  **`GEMINI_API_KEY` must come from a billing-enabled project.** Only Kian
+  can confirm that; the code cannot.
+- **The reading fills the form; the cleaner confirms.** What is stored as the
+  entry is what the cleaner sent. The raw reading is stored apart, in
+  `cost_entry_readings/{entryId}`, as evidence about the model. It is never
+  a claim about the purchase.
+- **The purchase date is never filled from the reading.** A purchase date
+  more than 12 months in the past, or in the future, is refused wherever
+  one is entered (Toronto calendar).
+- **Spend is capped in code:** 40 readings per cleaner per day, 300 per day
+  in all (`receipt_reading_quota/YYYY-MM-DD`), about $0.60 a day at most at
+  the measured $0.002 a reading. Google's project quota is the backstop.

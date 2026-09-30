@@ -105,8 +105,13 @@ export const LIMITS = {
   LINES_MAX_AFTER_REVIEW: 120,
   /** A rejection's reason, after trimming. The cleaner sees it. */
   REASON_MAX: 500,
-  /** The earliest purchase date accepted. The latest is tomorrow, in UTC. */
-  PURCHASED_ON_MIN: '2020-01-01',
+  /**
+   * A purchase date must be within this many months before today, and never
+   * after today, both on the Toronto calendar (ENTRY_TIME_ZONE). Kian's
+   * ruling of 2026-09-30: the reading measurement saw two-digit years
+   * misread by six years at a time, and the form took anything from 2020.
+   */
+  PURCHASED_ON_MONTHS_BACK: 12,
   /** The `entry` part of an entry submission: a JSON string. */
   ENTRY_JSON_MAX_CHARS: 32_768,
   /**
@@ -780,4 +785,216 @@ export interface Refusal {
   code: string;
   message: string;
   hint?: string;
+}
+
+// ─── Receipt reading (dispatch 20) ─────────────────────────────
+// Gemini reads the receipt photo and fills the items screen in; the cleaner
+// confirms, corrects, adds and sends. What the cleaner sends is the entry,
+// exactly as before. What the model said is kept beside the entry, in its
+// own collection, as evidence about the model and never as a claim about
+// the purchase.
+
+/**
+ * One document per entry that had a reading, keyed by the entry's ID. It is
+ * created in the entry's own transaction. An entry sent with no reading (the
+ * phone never asked, or the answer never came) has no document here.
+ */
+export const COST_ENTRY_READINGS_COLLECTION = 'cost_entry_readings';
+
+/**
+ * One document per Toronto calendar day, `YYYY-MM-DD`: how many readings
+ * were taken that day, in all and per cleaner. The runaway-bill guard.
+ */
+export const RECEIPT_READING_QUOTA_COLLECTION = 'receipt_reading_quota';
+
+export const COST_ENTRY_READING_SCHEMA_VERSION = 1;
+export const RECEIPT_READING_QUOTA_SCHEMA_VERSION = 1;
+
+/** Kian's ruling of 2026-09-30, from the measurement: this model, thinking pinned low. */
+export const RECEIPT_READER_MODEL = 'gemini-3.8-flash';
+export const RECEIPT_READER_THINKING = 'LOW';
+
+/**
+ * The calendar that "today" and "this day" mean for a purchase date and for
+ * the reading quota. The cleaners and the properties are in Ontario. It is
+ * the same zone the reports use (REPORT_TIME_ZONE in costs/report.ts).
+ */
+export const ENTRY_TIME_ZONE = 'America/Toronto';
+
+export const READING_LIMITS = {
+  /** Readings one cleaner can take in one Toronto day. */
+  PER_CLEANER_PER_DAY: 40,
+  /** Readings everyone together can take in one Toronto day. */
+  PER_DAY: 300,
+  /** How long the server waits for the model before giving the phone a failure. */
+  TIMEOUT_MS: 20_000,
+  /** The `reading` part of an entry submission: a JSON string. */
+  JSON_MAX_CHARS: 65_536,
+  /** Lines kept from one reading; a receipt has at most LINES_MAX lines anyway. */
+  OUTPUT_LINES_MAX: 150,
+  /** A name as the model wrote it, before the form cuts it to LINE_NAME_MAX. */
+  OUTPUT_NAME_MAX: 300,
+  /** The model's answer is capped here; a 100-line receipt needs about 5,000 tokens. */
+  MAX_OUTPUT_TOKENS: 8192,
+} as const;
+
+/** One line as the model read it. `amount` is the string printed at the end of the line, e.g. "7.98" or "-5.00". */
+export interface ReadingLine {
+  name: string;
+  quantity: number | null;
+  amount: string | null;
+  kind: 'item' | 'discount' | 'tax' | 'fee';
+}
+
+/** What the model returns for one photo, in the shape it was asked for. */
+export interface ReadingOutput {
+  store: string | null;
+  /** Read but never used to fill the form (Kian's ruling of 2026-09-30: the date is the cleaner's). */
+  purchasedOn: string | null;
+  lines: ReadingLine[];
+  subtotal: string | null;
+  total: string | null;
+  unreadable: boolean;
+  notes: string | null;
+}
+
+/**
+ * One reading, as the server records it and signs it for the phone to carry
+ * until the entry is sent. The phone cannot alter it: the signature is
+ * checked on the way back, and the cleaner ID inside must be the session's.
+ */
+export interface ReadingRecord {
+  v: 1;
+  /** A UUID for this reading. */
+  id: string;
+  cleanerId: string;
+  requestedAt: string;
+  model: string;
+  modelVersion: string | null;
+  thinkingLevel: string;
+  /** Wall-clock milliseconds from request to answer, on the server. */
+  ms: number;
+  status: 'ok' | 'failed';
+  /** On failure: `timeout`, `network`, `http_<status>`, `unparsable`, `no_output`, `blocked`, `over_limit_cleaner`, `over_limit_day`. */
+  reason: string | null;
+  usage: { promptTokens: number; outputTokens: number; thoughtsTokens: number } | null;
+  output: ReadingOutput | null;
+  /** The model's text when it could not be parsed as the shape above; else null. */
+  rawText: string | null;
+}
+
+/**
+ * What one reading did for the form, computed by the server when the entry
+ * is written, from the model's lines and the cleaner's:
+ *   unchanged   put on the form and sent exactly as read
+ *   edited      put on the form; the cleaner changed the fields named
+ *   left_out    never sent: the cleaner removed it, or the form could not
+ *               take it (no amount, or one the phone cannot enter)
+ */
+export type ReadingLineOutcome = 'unchanged' | 'edited' | 'left_out';
+
+const isRecordValue = (value: unknown): value is Record<string, unknown> =>
+  !!value && typeof value === 'object' && !Array.isArray(value);
+
+const READING_KINDS = new Set(['item', 'discount', 'tax', 'fee']);
+
+/** A model line in the shape asked for, with its strings capped; null for anything else. */
+export function readReadingLine(value: unknown): ReadingLine | null {
+  if (!isRecordValue(value) || typeof value.name !== 'string') return null;
+  const quantity = typeof value.quantity === 'number' && Number.isFinite(value.quantity) ? value.quantity : null;
+  const amount = typeof value.amount === 'string' ? value.amount.slice(0, 32) : null;
+  const kind = typeof value.kind === 'string' && READING_KINDS.has(value.kind) ? (value.kind as ReadingLine['kind']) : 'item';
+  return { name: value.name.slice(0, READING_LIMITS.OUTPUT_NAME_MAX), quantity, amount, kind };
+}
+
+const textOrNull = (value: unknown, max: number): string | null =>
+  typeof value === 'string' ? value.slice(0, max) : null;
+
+/** The model's answer in the shape asked for, or null when it is not one. Lines it cannot read are dropped. */
+export function readReadingOutput(value: unknown): ReadingOutput | null {
+  if (!isRecordValue(value) || !Array.isArray(value.lines)) return null;
+  const lines = value.lines
+    .slice(0, READING_LIMITS.OUTPUT_LINES_MAX)
+    .map(readReadingLine)
+    .filter((line): line is ReadingLine => line !== null);
+  return {
+    store: textOrNull(value.store, 200),
+    purchasedOn: textOrNull(value.purchasedOn, 32),
+    lines,
+    subtotal: textOrNull(value.subtotal, 32),
+    total: textOrNull(value.total, 32),
+    unreadable: value.unreadable === true,
+    notes: textOrNull(value.notes, 500),
+  };
+}
+
+/** A record this server wrote, checked field by field; null for anything else. */
+export function readReadingRecord(value: unknown): ReadingRecord | null {
+  if (!isRecordValue(value) || value.v !== 1) return null;
+  const { id, cleanerId, requestedAt, model, modelVersion, thinkingLevel, ms, status, reason, usage, output, rawText } = value;
+  if (typeof id !== 'string' || typeof cleanerId !== 'string' || typeof requestedAt !== 'string') return null;
+  if (typeof model !== 'string' || typeof thinkingLevel !== 'string' || typeof ms !== 'number') return null;
+  if (status !== 'ok' && status !== 'failed') return null;
+  const usageRead =
+    isRecordValue(usage) &&
+    typeof usage.promptTokens === 'number' &&
+    typeof usage.outputTokens === 'number' &&
+    typeof usage.thoughtsTokens === 'number'
+      ? { promptTokens: usage.promptTokens, outputTokens: usage.outputTokens, thoughtsTokens: usage.thoughtsTokens }
+      : null;
+  return {
+    v: 1,
+    id,
+    cleanerId,
+    requestedAt,
+    model,
+    modelVersion: typeof modelVersion === 'string' ? modelVersion : null,
+    thinkingLevel,
+    ms,
+    status,
+    reason: typeof reason === 'string' ? reason : null,
+    usage: usageRead,
+    output: output === null ? null : readReadingOutput(output),
+    rawText: typeof rawText === 'string' ? rawText : null,
+  };
+}
+
+/**
+ * A model line as the form would show it: the name tidied, the quantity as
+ * typed ("1" when the receipt printed none), the amount as the phone's
+ * number pad writes it. Null when the phone could not hold it — no amount,
+ * a discount or return (negative), zero, or more than the form's maximum —
+ * so the line is left for the admin, who has the photo. The server uses the
+ * same function to tell an unchanged line from an edited one.
+ */
+export function prefillFromReading(line: ReadingLine): { name: string; quantity: string; price: string } | null {
+  const amount = /^(\d{1,6})\.(\d{2})$/.exec((line.amount ?? '').trim());
+  if (!amount) return null;
+  const cents = Number(amount[1]) * 100 + Number(amount[2]);
+  if (cents <= 0 || cents > LIMITS.LINE_TOTAL_MAX_CENTS) return null;
+  const name = line.name === '?' ? '' : line.name.normalize('NFC').replace(/\p{Cc}/gu, '').replace(/\s+/g, ' ').trim().slice(0, LIMITS.LINE_NAME_MAX);
+  let quantity = '1';
+  if (line.quantity !== null && line.quantity > 0 && line.quantity <= LIMITS.QUANTITY_MAX) {
+    const text = String(Math.round(line.quantity * 1000) / 1000);
+    if (/^(0|[1-9][0-9]{0,4})(\.[0-9]{1,3})?$/.test(text) && Number(text) > 0) quantity = text;
+  }
+  return { name, quantity, price: `${Number(amount[1])}.${amount[2]}` };
+}
+
+/** Lines the phone cannot take from a reading (prefillFromReading is null), with their cents where readable: shown so the cleaner knows the total here is not the receipt's. */
+export function leftOutOfReading(output: ReadingOutput | null): { count: number; cents: number } {
+  let count = 0;
+  let cents = 0;
+  for (const line of output?.lines ?? []) {
+    if (prefillFromReading(line)) continue;
+    count++;
+    const amount = /^(-?)(\d{1,6})\.(\d{2})$/.exec((line.amount ?? '').trim());
+    if (amount) cents += (amount[1] ? -1 : 1) * (Number(amount[2]) * 100 + Number(amount[3]));
+  }
+  return { count, cents };
+}
+
+/** A calendar day, `YYYY-MM-DD`, in a time zone. */
+export function dayIn(timeZone: string, at: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(at);
 }

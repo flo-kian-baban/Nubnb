@@ -9,12 +9,17 @@
  * the query names them and each document is checked again — and nothing
  * else: no receipt, no history, no other cleaner. One read per entry.
  *
- * Request:  multipart/form-data with exactly two parts —
+ * Request:  multipart/form-data with two parts, and an optional third —
  *             receipt  the photo: JPEG, PNG or WebP, at most 4 MiB
  *             entry    JSON text of at most 32,768 characters:
  *                      { submissionKey, propertyId, purchasedOn?, note?,
  *                        lines: [{ name, quantity, lineTotal }] }
- * Response: 201 `{ success: true, data: { id, status: 'pending', createdAt, lineCount } }`
+ *             reading  (dispatch 20) JSON text of at most 65,536 characters:
+ *                      { readingText, signature, fromReading: (number|null)[] }
+ *                      — the signed record POST /api/cleaner/read-receipt
+ *                      gave this photo, verbatim, and for each entry line the
+ *                      model line it was filled from, or null
+ * Response: 201 `{ success: true, data: { id, status: 'pending', createdAt, lineCount, readingStored } }`
  *           200 `{ success: true, data: { id, createdAt, alreadyReceived: true } }`
  *               when this receipt's one-time key was sent before: the first
  *               send's entry, and nothing new is stored or written
@@ -48,10 +53,19 @@
  * sit under that: 4,300,000 bytes per request, taken from Content-Length
  * before the body is read, and 4 MiB per receipt, counted on the real bytes.
  *
+ * ── The reading (dispatch 20) ──
+ * What the model read is evidence about the model, not a claim about the
+ * purchase. It is accepted only as the exact signed text the read route
+ * returned, for this cleaner (parseReadingPart), and written in the entry's
+ * transaction to its own document, cost_entry_readings/{entryId}. It never
+ * changes what the entry says. A reading that does not verify, or a part
+ * that is not in the shape above, is dropped and the entry is written all
+ * the same, with `readingStored: false`: the reading never blocks the entry.
+ *
  * Amounts, dates and the note are validated by parseEntryPart
  * (server-cost-entries.ts); the receipt is stored by saveReceipt
- * (app/lib/cleaners/receipts.ts). Nothing here logs the body, the entry or
- * the photo. Every response, refusals included, is no-store.
+ * (app/lib/cleaners/receipts.ts). Nothing here logs the body, the entry, the
+ * reading or the photo. Every response, refusals included, is no-store.
  *
  * Firestore and Storage per entry: the session read, the one-time key read,
  * the property read, the upload, and a transaction of two reads and two
@@ -64,9 +78,11 @@ import {
   apiValidationError,
   noStore,
 } from '@/app/lib/api/safe-response';
-import { LIMITS, isReceiptType, type ReceiptRef } from '@/app/lib/cleaners/model';
+import { LIMITS, READING_LIMITS, isReceiptType, type ReceiptRef } from '@/app/lib/cleaners/model';
+import { parseReadingPart } from '@/app/lib/cleaners/readings';
 import { saveReceipt, sniffReceiptType } from '@/app/lib/cleaners/receipts';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
+import { getCleanerSecrets } from '@/app/lib/cleaners/secrets';
 import { CLEANER_SESSION_INVALID, verifyCleanerSession } from '@/app/lib/cleaners/session';
 import {
   DuplicateSubmissionError,
@@ -78,13 +94,14 @@ import {
   newEntryRef,
   parseEntryPart,
   type PropertyLookup,
+  type ReadingAttachment,
   type SubmissionFound,
 } from '@/app/lib/firebase/server-cost-entries';
 
 export const maxDuration = 30;
 
 /** The parts an entry request carries, and the only ones it may. */
-const PARTS = new Set(['entry', 'receipt']);
+const PARTS = new Set(['entry', 'receipt', 'reading']);
 
 /** HEIC and HEIF: what an iPhone camera saves by default. Not accepted. */
 const HEIF_TYPE = /^image\/hei[cf](-sequence)?$/;
@@ -116,7 +133,7 @@ function entryBadRequest(hint: string) {
 }
 
 const PARTS_HINT =
-  'Send multipart/form-data with exactly two parts: `entry` (JSON text) and `receipt` (the photo).';
+  'Send multipart/form-data with the parts `entry` (JSON text) and `receipt` (the photo), and at most one `reading` (JSON text).';
 
 /** 200: this receipt arrived before, as `first`. Nothing new was stored or written. */
 function alreadyReceived(first: SubmissionFound) {
@@ -165,6 +182,17 @@ export async function POST(request: Request) {
   const entryText = entryParts.length === 1 ? entryParts[0] : null;
   if (typeof entryText !== 'string') return entryBadRequest(PARTS_HINT);
 
+  const readingParts = form.getAll('reading');
+  if (readingParts.length > 1 || (readingParts.length === 1 && typeof readingParts[0] !== 'string')) {
+    return entryBadRequest(PARTS_HINT);
+  }
+  const readingText = readingParts.length === 1 ? (readingParts[0] as string) : null;
+  if (readingText !== null && readingText.length > READING_LIMITS.JSON_MAX_CHARS) {
+    return entryBadRequest(
+      `The \`reading\` part must be JSON text of at most ${READING_LIMITS.JSON_MAX_CHARS.toLocaleString('en-CA')} characters.`,
+    );
+  }
+
   const receiptParts = form.getAll('receipt');
   if (receiptParts.length > 1) return entryBadRequest('One receipt per entry. Send each receipt as its own entry.');
   const receipt = receiptParts[0];
@@ -200,6 +228,14 @@ export async function POST(request: Request) {
     );
   }
   const { entry } = parsed;
+
+  // ── 8a. The reading, if the phone carried one: verified, or dropped and said so ──
+  let reading: ReadingAttachment | null = null;
+  if (readingText !== null) {
+    const secrets = getCleanerSecrets();
+    reading = secrets.kind === 'ok' ? parseReadingPart(readingText, secrets.sessionKey, cleaner.id, entry.lines.length) : null;
+    if (!reading) console.error('[cost-entries] reading part dropped: not a record this server signed for this cleaner, or not in shape');
+  }
 
   // ── 8b. Sent before? Then say so, and store nothing ──
   let first: SubmissionFound | null;
@@ -333,6 +369,7 @@ export async function POST(request: Request) {
       entry,
       propertyNameAtEntry: property.name,
       receipt: stored,
+      reading,
     });
     return noStore(apiSuccess(created, 201));
   } catch (err) {

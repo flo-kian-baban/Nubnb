@@ -881,3 +881,108 @@ Against a local production build reading production data (no `.env.local` in the
 - In a browser running on Asia/Tokyo time (both instants on 1 September there), the page put the first in August and the second in September: Last month, This month, and single-day ranges either side of midnight. The August and September Excel files and PDFs, opened in Excel, poppler and Quick Look, held one entry each, dated 31 Aug and 1 Sep.
 - The September PDF listed `__TEST__ Paper towel…, __TEST__ Instant savings (-$5.00)`: the item names cut, the discount whole. A $0.00 line stayed out of the summary.
 - Deleted by ID; the closing export byte-identical to the opening one, and Storage unchanged.
+
+---
+
+## 12. Reading the receipt with Gemini (dispatch 20)
+
+**Rulings (Kian, 2026-09-30):** the model is `gemini-3.8-flash` with thinking pinned low. The purchase date is never filled from the reading: the cleaner enters it, or it stays empty as today. A purchase date more than 12 months in the past, or any date in the future, is refused wherever one is entered. Manual entry is always the fallback; the reading fills the form and never blocks it, and what the cleaner confirms is what is stored. The raw reading is stored beside the entry so its accuracy can be measured. The receipt image is stored exactly as before.
+
+### 12.1 What was measured first (2026-09-30)
+
+Nine of Kian's receipt photos (Dollarama, Walmart ×5, Canadian Tire, Home Depot ×2), as WhatsApp-compressed copies at 1200×1600 or 739×1600, graded by eye before any result: six met the standard a cleaner can be asked for, three did not (a receipt small in a wide shot; one on a shiny wrinkled pack; one shot from far away). Each was hand-transcribed, the transcriptions checked by arithmetic (items = subtotal, 13% = tax, subtotal + tax = total) and two of them confirmed by Kian.
+
+- **Amounts and totals:** right on every reading — 54 readings of the nine photos over three models (`gemini-3.8-flash`, `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`) and two passes. No line was ever dropped, invented or duplicated, including a 12-line receipt.
+- **Names:** on the standard photos, verbatim on every model. On the poor photos, single-character garbles in product-code names (a 5 read as S, O as C): 3.8-flash 2 of 92 line-readings, 3.5-flash-lite 12, 3.1-flash-lite 18.
+- **Dates:** unreliable with two-digit years. "20/09/26" came back as 2020-09-26, "26/09/14" as 2014-09-26, "09/14/26" once as 2024-09-14. Hence the two rulings above on the date.
+- **What did not matter:** crumpling, wrinkles, glare, a busy background, and source pixels (a standard photo shrunk to 400×533 still read perfectly). **What did:** the receipt being small in the frame. Cropping the same pixels did not help. Gemini bills about 1,070 image tokens whatever the input size, so it works from a fixed-size rendition; framing decides how much of it is receipt.
+- **Time and cost, thinking low:** 3.8-flash median about 2 s, slowest 3.1 s in the passes (one 6.3 s outlier when it chose to think); $0.0019 a receipt, $0.40 per 200 a month, $0.79 after the price change of 2026-12-31. With the default thinking level it spent 650–1,100 thinking tokens and 4–5 s.
+- **Run to run:** 27 of 27 readings had identical amounts across the two passes; 23 were identical line for line.
+- `gemini-2.5-flash-lite` is retired for new users (404 on every call).
+
+The harness, raw output and photo grades are in the session scratchpad (`measure-receipts.mjs`, `compare-receipts.mjs`, `REPORT-step1-raw.md`), not in the repo.
+
+### 12.2 The flow
+
+1. **Photo.** Above "Take photo", three lines from the measurement: *Lay the receipt flat. Hold the phone straight above it. Get close, so the receipt fills the screen.*
+2. **As soon as the photo is kept**, the app sends it to `POST /api/cleaner/read-receipt` and moves on. The cleaner never waits on a blank screen.
+3. **Items.** Under the photo a quiet line: "Reading the receipt…"; then "*n* items read from the photo. Check each one." (and, when the receipt had lines the phone cannot take: "One line on the receipt (-$5.00) couldn't be added here, so the total below will differ from the receipt."); or "The receipt couldn't be read. Type the items."
+   - Each line the reading filled carries **From the photo**; once changed, **Edited**. Every line can be changed, removed, or added to.
+   - Lines the cleaner typed before the answer came stay exactly as typed; the reading's lines go **underneath** them, never over them. Blank lines nobody touched make way.
+   - A line with no amount, a negative amount (discount, return), zero, or more than the form's maximum is not put on the form (the phone cannot enter it; the admin adds it with the photo in hand, §10). It is counted in the note and stays in the raw reading.
+   - A retaken photo drops the reading and the lines it filled that were never touched; typed and changed lines stay.
+4. **Send** carries the entry as before, plus the `reading` part when the photo had an answered reading. A reading still on its way when Send is pressed is simply not sent; nothing waits for it.
+5. **The purchase date** is never filled: the form has no date field (§10), and the reading's `purchasedOn` is kept only in the raw record.
+
+### 12.3 What is stored
+
+- **The entry** (`cost_entries`) is unchanged in shape: the lines the cleaner confirmed, exactly as before. No field of it comes from the model.
+- **The reading** goes to its own collection, **`cost_entry_readings/{entryId}`**, created in the entry's transaction, so an entry has its reading or has none, never half. It is evidence about the model, not a claim about the purchase; nothing in the review page, the reports or the cleaner's list reads it.
+
+```json
+{ "schemaVersion": 1, "entryId": "…", "cleanerId": "…", "createdAt": "2026-09-30T…Z",
+  "reading": { "id": "<uuid>", "requestedAt": "…", "model": "gemini-3.8-flash", "modelVersion": "gemini-3.8-flash",
+               "thinkingLevel": "LOW", "ms": 2086, "status": "ok", "reason": null,
+               "usage": { "promptTokens": 1459, "outputTokens": 170, "thoughtsTokens": 0 },
+               "output": { "store": "Walmart", "purchasedOn": "2026-09-20", "lines": [ { "name": "S/CURT LINER", "quantity": null, "amount": "3.97", "kind": "item" }, … ],
+                           "subtotal": "21.38", "total": "24.16", "unreadable": false, "notes": null },
+               "rawText": null },
+  "lines": [ { "index": 0, "name": "S/CURT LINER", "quantity": null, "amount": "3.97", "kind": "item", "outcome": "unchanged", "entryLine": 0, "edited": [] },
+             { "index": 2, "name": "LYS APC 950", "quantity": null, "amount": "6.47", "kind": "item", "outcome": "edited", "entryLine": 2, "edited": ["name"] },
+             { "index": 4, "name": "HST", "quantity": null, "amount": "2.78", "kind": "tax", "outcome": "left_out", "entryLine": null, "edited": [] } ],
+  "added": [4],
+  "summary": { "modelLines": 5, "unchanged": 3, "edited": 1, "leftOut": 1, "added": 1, "sentLines": 5 } }
+```
+
+- `reading` is the model's answer as returned (`output`), with the model, version, thinking level, wall-clock milliseconds, token usage, and on failure a `reason` (`timeout`, `network`, `http_<status>`, `unparsable`, `no_output`, `blocked`, `over_limit_cleaner`, `over_limit_day`). A failed reading is recorded too, so the failure rate is measurable.
+- `lines` is computed by the server when the entry is written, from the model's lines and the cleaner's: **`unchanged`** (sent exactly as read), **`edited`** (with the fields changed: `name`, `quantity`, `amount`), **`left_out`** (removed by the cleaner, or never put on the form). `added` lists the entry lines the cleaner typed themselves. A line the cleaner did not touch counts as confirmed by them: they pressed Send.
+- **How the record travels.** The reading happens before the entry exists, so the read route returns the record as text and a signature (HMAC-SHA256 under a key derived from `CLEANER_SESSION_SECRET` with its own label), and the phone keeps both, verbatim, in its draft. The entry route accepts a reading only as the exact signed text, for the session's cleaner, with a `fromReading` map of the right length whose indexes are distinct and in range (`parseReadingPart`). Anything else is dropped, logged in one line, and the entry is written all the same with `readingStored: false`. The reading never blocks the entry.
+- **Rules.** `firestore.rules` denies browser access to `cost_entry_readings` and `receipt_reading_quota` explicitly, as for the other cleaner collections. The export script exports every root collection, so both are in every backup, flagged "beyond the expected set" like the others.
+
+### 12.4 Routes
+
+| Route | Auth | Body | Answer |
+|---|---|---|---|
+| `POST /api/cleaner/read-receipt` | cleaner | multipart, exactly one part `receipt` (JPEG/PNG/WebP, ≤ 4 MiB, sniffed) | 200 `{ readingText, signature }`; 503 `RECEIPT_READER_NOT_CONFIGURED` (no key), 503 `RECEIPT_READER_UNAVAILABLE` (no slot); the usual 401/403/413/415 |
+| `POST /api/cleaner/entries` | cleaner | as before, plus an optional `reading` part (JSON ≤ 65,536 chars) | 201 as before, plus `readingStored` |
+
+Order on the read route: cross-site, session (before the body), Content-Length, media type, the one part, declared type, real bytes, keys, the reading slot, then the model. It stores nothing of the photo; the entry's send stores the receipt as before. Nothing of the key, the photo or the reading is logged; only outcomes, milliseconds and status codes.
+
+### 12.5 Cost and the runaway-bill guard
+
+- **Per receipt:** about $0.0019 on the measured photos (1,459–1,473 input tokens, of which about 1,070 the image; 100–620 output tokens; thinking usually 0 at level low). **Per month at 200 receipts: about $0.40**, and about $0.79 once Google's price for 3.8-flash doubles on 2026-12-31. Worst case per reading with the output cap of 8,192 tokens: about $0.03.
+- **Limits, in `READING_LIMITS`:** 40 readings per cleaner per Toronto day, 300 per day for everyone. Taken as a slot in a transaction on `receipt_reading_quota/YYYY-MM-DD` (`total`, `byCleaner`) before the model is called; over the limit the phone gets a signed `failed` record with `over_limit_cleaner` or `over_limit_day` and the form to type into. **At the limits, a day costs at most about $0.60 and a month about $18 even if every slot were taken;** with the output cap, at most about $9 a day. A slot that cannot be taken is no reading (fail closed on cost). One read and one write per reading.
+- **Behind it,** Google's per-project quota for the Generative Language API, set in the Cloud console for the key's project by Kian, is the backstop this code cannot provide.
+- **Time:** the server waits at most 20 s for the model (`READING_LIMITS.TIMEOUT_MS`), the phone 45 s for the whole call; `maxDuration` is 30 s.
+- **Vercel:** one function call per reading, in addition to the send. The photo (about 0.1–1.5 MB) goes up once more than before. Nothing new at build time or on any public page.
+
+### 12.6 The key and the environment
+
+- **`GEMINI_API_KEY`** in Vercel Production and `.env.local`. Read inside the request (`getGeminiSecrets`), never at module scope, never logged, never in a `NEXT_PUBLIC_` variable; the module that reads it is imported only by the read route. Without it the read route answers 503 and the app types. It must belong to a Google Cloud project **with an active billing account**, for the reason in §12.7.
+- **`GEMINI_API_BASE`** (optional) replaces the Google host; verification points it at a stub that answers slowly or not at all. Unset in production.
+
+### 12.7 Privacy (recorded in CLAUDE.md as Kian's decision)
+
+Receipt images leave Nubnb's systems and go to Google's Gemini API. A receipt shows what was bought, where, when, and sometimes a card's last four digits, and cleaners write the property's address on some. Google's Gemini API Additional Terms of Service (https://ai.google.dev/gemini-api/terms, effective 2026-03-23, read 2026-09-29) say, under "How Google Uses Your Data" for Paid Services: *"Google doesn't use your prompts (including associated system instructions, cached content, and files such as images, videos, or documents) or responses to improve our products"*, that Google *"logs prompts and responses for a limited period of time, solely for detecting and preventing violations of the Prohibited Use Policy"*, and that this data *"may be stored transiently or cached in any country in which Google or its agents maintain facilities"*. For Unpaid Services the same section says Google *uses* the content *"to provide, improve, and develop Google products and services and machine learning technologies"* and that *"human reviewers may read, annotate, and process your API input and output"*. The terms define the distinction: *"Your access to Gemini API is a 'Paid Service' only when accessing the API through a Cloud Project associated with an active billing account."* The key must therefore come from a billing-enabled project, and that is Kian's to confirm; nothing in the code can tell.
+
+### 12.8 The date rule
+
+`purchasedOnProblem` in `server-cost-entries.ts`: a real calendar day, no later than today and no earlier than the same day 12 months ago (`monthsBefore`, clamped to the month's end), both on the Toronto calendar (`ENTRY_TIME_ZONE`, the reports' zone). Every purchase date enters through `EntryInputSchema`, so the rule holds wherever one is entered; today the cleaner app has no date field and sends none. Entries already written keep their dates: validation runs only on a write, and there are no backfills.
+
+### 12.9 Verification (2026-09-30)
+
+Against the repo's production build (`next start` on 4620 and 4621) reading production data, with a throwaway `ADMIN_PIN` and `CLEANER_SESSION_SECRET` in the environment, the real `GEMINI_API_KEY`, and two `__TEST__` cleaners created through the admin route. Opening export `backups/2026-09-30T13-33-18Z` (49 documents, `contact_submissions` and `properties` only: production held no cleaner data).
+
+- **The full flow on a 390×844 screen** (headless Chromium): code, property, the photo screen with its three lines, a photo chosen from the phone, "Reading the receipt…" the moment the items screen opened, then "5 items read from the photo. Check each one." with five lines tagged *From the photo* and the total $24.16 as on the paper. One name corrected (tag became *Edited*), one line added, Send. The stored entry `cost_entries/CHoaMHAYANmUuU7rRsw8` held the six lines exactly as on screen (397, 397, 647 "Lysol all-purpose cleaner", 697, 278, 10 "__TEST__ Bag fee"). `cost_entry_readings/CHoaMHAYANmUuU7rRsw8`, written in the same transaction (same `updateTime`), held the model's five lines and total, `ms` 4709, usage 1459/170/0, and outcomes `unchanged, unchanged, edited [name], unchanged, unchanged`, `added [5]`, summary `{modelLines 5, unchanged 4, edited 1, leftOut 0, added 1, sentLines 6}`.
+- **A slow read** (a stub answering after 8 s through `GEMINI_API_BASE`): the cleaner typed "__TEST__ Typed first $1.00" one second after the items screen opened; eight seconds later the five read lines appeared underneath it, the typed line untouched and first, and the stub's discount line (−$1.00) reported as left out in the note.
+- **A failed read** (the stub answering 500): "The receipt couldn't be read. Type the items." with the photo still shown; a typed line sent as entry `UJU30q97hvaLly5yzm5N`, whose reading document recorded `status failed, reason http_500, ms 4`, no lines, `added [0]`.
+- **A hanging model:** the route answered in 20.3 s with a signed record `failed / timeout / 20009 ms`.
+- **The limit:** through the real route, the 41st reading of the day for one cleaner came back `failed / over_limit_cleaner` and `receipt_reading_quota/2026-09-30` read `total 40, byCleaner {…: 40}`.
+- **The date rule:** `purchasedOn` tomorrow → 422 "The date cannot be in the future"; 13 months ago and 2020-05-05 → 422 "The date must be within the last 12 months"; 11 months ago → 201 and stored.
+- **A tampered reading part** (one amount changed in the signed text): 201 with `readingStored: false`, no reading document, one log line; the entry itself written.
+- **Refusals on the read route:** no cookie 401, JSON body 415, cross-site 403, a JSON file declared as JPEG 415 `RECEIPT_NOT_AN_IMAGE`.
+- **The key:** the browser's network log showed requests to `localhost:4620` only (start ×2, session, read-receipt, entries); the key's first 12 characters, the string `GEMINI` and the host `generativelanguage` occur in no file under `.next/static` (they occur in 2 server bundles); the read route's response body did not contain the key.
+- **Cleanup** by exact ID and path: 13 documents (2 cleaners, 2 codes, 3 entries, 3 submissions, 2 readings, the day's quota) and 3 receipt objects, each confirmed gone. Closing export `backups/2026-09-30T13-42-28Z`: `contact_submissions.json` and `properties.json` byte-identical to the opening export; Storage 4,640 objects before and after (4,643 in between). Deleted receipts stay soft-deleted for 7 days.
+- Cost of the verification's real readings: 2 calls to Gemini (about $0.004).
+
+**Not exercised:** a real phone camera (the photo came from a file), a receipt photographed sideways, and the day limit of 300.
