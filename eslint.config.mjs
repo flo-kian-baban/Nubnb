@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // The Cloud Functions package has its own TypeScript setup (functions/tsconfig.json).
+    "functions/**",
   ]),
 ]);
 

@@ -1,0 +1,379 @@
+/* Availability (dispatch 22, 2026-09-30): the search for a caller's dates
+   and the attention list. Everything shared — the header, the toolbar, the
+   selects, the date field, the table, the tiles — comes from ../page.module.css;
+   this file holds only what is this page's own. */
+
+/* ── The two views ── the same switch the costs page draws */
+.tabs {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  margin-bottom: 14px;
+  border-radius: 11px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+.tab {
+  padding: 7px 16px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tab:hover {
+  color: #fff;
+}
+.tabActive,
+.tabActive:hover {
+  background: #ffffff;
+  color: #0a0a0c;
+}
+
+/* ── How old the copy is ── one line under the switch, alert when it matters */
+.status {
+  margin: 0 0 16px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.5);
+}
+.status strong {
+  color: rgba(255, 255, 255, 0.8);
+  font-weight: 600;
+}
+.statusAlert {
+  color: #f0a63a;
+}
+.statusAlert strong {
+  color: #f6c069;
+}
+.statusLink {
+  padding: 0;
+  border: none;
+  background: none;
+  color: #8dbbe8;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.statusLink:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ── Kian's caveat at the top of the attention view ── */
+.caveat {
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* ── Controls this page adds to the shared toolbar ── */
+.money {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.moneySign {
+  position: absolute;
+  left: 14px;
+  font-size: 13px;
+  color: var(--ctl-placeholder);
+  pointer-events: none;
+}
+.moneyInput {
+  width: 150px;
+  height: var(--ctl-h);
+  padding: 0 12px 0 26px;
+  background: var(--ctl-bg);
+  border: 1px solid var(--ctl-border);
+  border-radius: var(--ctl-radius);
+  color: var(--ctl-fg);
+  font-size: 13px;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.moneyInput::-webkit-outer-spin-button,
+.moneyInput::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.moneyInput::placeholder {
+  color: var(--ctl-placeholder);
+}
+.moneyInput:hover {
+  border-color: var(--ctl-border-hover);
+  background: var(--ctl-bg-hover);
+}
+.moneyInput:focus {
+  border-color: var(--ctl-focus);
+  box-shadow: var(--ctl-ring);
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--ctl-h);
+  padding: 0 14px;
+  border: 1px solid var(--ctl-border);
+  border-radius: var(--ctl-radius);
+  background: var(--ctl-bg);
+  color: var(--ctl-fg);
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+.toggle:hover {
+  border-color: var(--ctl-border-hover);
+  background: var(--ctl-bg-hover);
+}
+.toggle input {
+  accent-color: #6599cd;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+}
+
+/* ── What the toolbar found ── */
+.note {
+  margin: -6px 0 14px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.5);
+}
+.noteWarn {
+  color: #f0a63a;
+}
+
+/* ── Groups of results ── */
+.group {
+  margin-bottom: 24px;
+}
+.groupHead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 10px 4px;
+}
+.groupTitle {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.85);
+}
+.groupTitleFit {
+  color: #6ee7a0;
+}
+.groupCount {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.4);
+}
+.groupHint {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+}
+.groupEmpty {
+  margin: 0 0 0 4px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* A collapsed group: the count stays visible, the rows arrive on a click. */
+.folded {
+  margin-bottom: 24px;
+}
+.folded > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+.folded > summary::-webkit-details-marker {
+  display: none;
+}
+.folded > summary:hover {
+  border-color: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+.folded[open] > summary {
+  margin-bottom: 10px;
+}
+
+/* ── Cells ── */
+/* Twelve columns have to fit: tighter cells than the property list's. */
+.compact th,
+.compact td {
+  padding: 12px 14px;
+}
+.compact th:first-child,
+.compact td:first-child {
+  padding-left: 18px;
+}
+.compact th:last-child,
+.compact td:last-child {
+  padding-right: 18px;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.strong {
+  font-weight: 600;
+  color: #fff;
+}
+.muted {
+  color: rgba(255, 255, 255, 0.45);
+}
+.rank {
+  width: 32px;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.4);
+}
+.nameBlock {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.nameLink {
+  color: inherit;
+  text-decoration: none;
+  border-radius: 4px;
+}
+.nameLink:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.4);
+  white-space: nowrap;
+}
+
+/* The nights asked for, one cell each: open, booked or blocked. */
+.strip {
+  display: inline-flex;
+  gap: 2px;
+  vertical-align: middle;
+}
+.night {
+  display: inline-block;
+  width: 9px;
+  height: 18px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.nightOpen {
+  background: rgba(74, 222, 128, 0.55);
+}
+.nightReserved {
+  background: rgba(101, 153, 205, 0.7);
+}
+.nightBlocked {
+  background: rgba(255, 255, 255, 0.16);
+}
+.stripText {
+  margin-left: 8px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  white-space: nowrap;
+}
+.legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  margin-left: auto;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.45);
+}
+.legend .night {
+  width: 12px;
+  height: 12px;
+  margin-right: 5px;
+  vertical-align: -1px;
+}
+
+/* Why a row is where it is, in the caller's terms. */
+.reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 260px;
+}
+.reason {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.reasonsUnder {
+  margin-top: 6px;
+  max-width: 320px;
+}
+.reasonsUnder .reason {
+  height: 22px;
+  font-size: 11px;
+}
+.reasonFit {
+  border-color: rgba(74, 222, 128, 0.3);
+  background: rgba(74, 222, 128, 0.1);
+  color: #6ee7a0;
+}
+.reasonMiss {
+  border-color: rgba(240, 166, 58, 0.35);
+  background: rgba(240, 166, 58, 0.1);
+  color: #f6c069;
+}
+.reasonGone {
+  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.08);
+  color: #f87171;
+}
+
+/* The totals line above the attention table. */
+.totals {
+  margin: 0 0 14px 4px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+}
+.totals strong {
+  color: #fff;
+  font-weight: 700;
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}

@@ -206,12 +206,13 @@
   margin: 0 auto;
 }
 
-/* ── The four figures (components/DashboardStats.tsx) ──
+/* ── The six figures (components/DashboardStats.tsx) ──
    Each tile is a link to where the work is. A tile with something to act on
-   turns brand blue; a read that failed turns red and says so, never 0. */
+   turns brand blue; a read that failed turns red and says so, never 0.
+   Three columns since dispatch 22 added two tiles: two rows of three. */
 .statsGrid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 28px;
 }

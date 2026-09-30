@@ -45,7 +45,7 @@ const ENV_FILE = join(PROJECT_ROOT, '.env.local');
 const BACKUP_ROOT = join(PROJECT_ROOT, 'backups');
 
 /** Collections the project is known to use. Absence is reported, not fatal. */
-const EXPECTED_COLLECTIONS = ['properties', 'contact_submissions'];
+const EXPECTED_COLLECTIONS = ['properties', 'contact_submissions', 'availability_snapshots', 'availability_days'];
 
 /** Cap on the per-document subcollection probe, so a huge collection can't blow up the run. */
 const SUBCOLLECTION_PROBE_LIMIT = 500;

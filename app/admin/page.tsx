@@ -329,8 +329,8 @@ export default function AdminPage() {
         {/* ── Notices (deletes, seeding) ── */}
         <NoticeBanner notice={notice} onDismiss={clearNotice} className={styles.pageNotice} />
 
-        {/* ── The four figures: each a link to where the work is (components/DashboardStats.tsx) ── */}
-        <DashboardStats />
+        {/* ── The six figures: each a link to where the work is (components/DashboardStats.tsx) ── */}
+        <DashboardStats properties={isLoading || loadError ? null : properties} />
 
         {/* ── Search, filters and sort (2026-09-30) ──
             Search matches every word typed against the name, location, city,

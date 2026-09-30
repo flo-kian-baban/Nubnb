@@ -158,3 +158,27 @@ no checkout. Do not build toward one unless asked.
 - **If an entry is corrected after it appeared in an exported PDF, the
   ledger makes that visible:** an admin can tell that what a co-owner
   already received no longer matches.
+
+## Availability — Kian's rulings of 2026-09-30 (dispatch 22)
+
+- **Admin-only, inside the existing admin panel, its own page, plus stats
+  on the admin home page — the same shape as costs.** The section is called
+  **Availability**. The current design language and styling throughout.
+- **Availability is refreshed on a schedule and searched from the stored
+  copy, not fetched live per property.** Slightly stale availability is
+  acceptable; a slow search on a phone call is not. **Hourly.**
+- **Schedule it on Firebase, not Vercel** — the Vercel allowance is shared
+  with other projects.
+- **Mobile responsiveness is a later version.** Not scoped.
+- **Keep daily snapshots from day one.**
+- **Show Airbnb-gone properties ranked and marked.**
+- **Build the listing-page check, subject to the datacenter test.**
+- **Show the stay total on a search row.**
+- **Rank the attention list by empty nights in runs of at least the
+  property's minimum stay — the nights it could actually sell. Keep the raw
+  empty-night count as a column beside it.**
+- **One plain line at the top of the attention view saying the list shows
+  where nights are open, not why, and not whether anyone wanted them. The
+  same caveat, shorter, under the home-page tile.**
+- "Empty and available" is the real signal; a property blocked by its owner
+  is not a problem to solve.

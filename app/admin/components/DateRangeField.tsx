@@ -6,7 +6,8 @@
  * it — the react-day-picker the public site's "When" filter uses, drawn the
  * same way — with the quick ranges down its left and a note at its foot.
  * Two months side by side; one on a narrow screen. Days after `max` cannot
- * be chosen. A quick range applies and closes; days picked on the calendar
+ * be chosen, nor days before `min` when one is given (the Availability
+ * page looks forward from today). A quick range applies and closes; days picked on the calendar
  * apply as they are picked, and the field stays open until a click outside
  * or Escape.
  *
@@ -48,6 +49,10 @@ interface DateRangeFieldProps {
   presets?: DatePreset[];
   /** The last day that can be chosen (yyyy-mm-dd). */
   max?: string;
+  /** The first day that can be chosen (yyyy-mm-dd); the field then looks forward. */
+  min?: string;
+  /** What the field reads with no dates chosen: "All time" unless told otherwise ("Any dates"). */
+  emptyText?: string;
   /** A line at the foot of the calendar: what the days mean. */
   note?: string;
   className?: string;
@@ -58,15 +63,15 @@ const dayText = (day: string, withYear: boolean) =>
     new Date(`${day}T12:00:00`),
   );
 
-/** "Sep 1 – Sep 30, 2026"; "From Sep 1, 2026"; "Up to Sep 30, 2026"; "All time". */
-export function rangeText(from: string, to: string): string {
-  if (!from && !to) return "All time";
+/** "Sep 1 – Sep 30, 2026"; "From Sep 1, 2026"; "Up to Sep 30, 2026"; "All time" (or the empty text given). */
+export function rangeText(from: string, to: string, emptyText = "All time"): string {
+  if (!from && !to) return emptyText;
   if (from && !to) return `From ${dayText(from, true)}`;
   if (!from && to) return `Up to ${dayText(to, true)}`;
   return `${dayText(from, from.slice(0, 4) !== to.slice(0, 4))} – ${dayText(to, true)}`;
 }
 
-export function DateRangeField({ label, from, to, onChange, presets = [], max, note, className }: DateRangeFieldProps) {
+export function DateRangeField({ label, from, to, onChange, presets = [], max, min, emptyText, note, className }: DateRangeFieldProps) {
   const id = useId();
   const [open, setOpen] = useState(false);
   const [months, setMonths] = useState(2);
@@ -107,7 +112,7 @@ export function DateRangeField({ label, from, to, onChange, presets = [], max, n
 
   const active = presets.find((preset) => preset.from === from && preset.to === to)?.key;
   const set = (range: DayRange) => onChange(range);
-  const text = rangeText(from, to);
+  const text = rangeText(from, to, emptyText);
 
   return (
     <div ref={rootRef} className={`${styles.root} ${className ?? ""}`}>
@@ -150,7 +155,7 @@ export function DateRangeField({ label, from, to, onChange, presets = [], max, n
           )}
           <div className={styles.calendar} aria-busy={calendar.status === "pending" || undefined}>
             {calendar.status === "loaded" ? (
-              <calendar.value.AdminRangeCalendar from={from} to={to} max={max} months={months} className={styles.dayPicker} onChange={set} />
+              <calendar.value.AdminRangeCalendar from={from} to={to} max={max} min={min} months={months} className={styles.dayPicker} onChange={set} />
             ) : calendar.status === "failed" ? (
               // A failed chunk cannot be fetched again in the same page (app/lib/on-demand.ts).
               <button type="button" className={styles.preset} onClick={() => window.location.reload()}>

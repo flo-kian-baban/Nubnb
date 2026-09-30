@@ -46,6 +46,12 @@ service cloud.firestore {
     // PDF printed for each entry, so the ledger can say when a PDF a
     // co-owner holds no longer matches. Written and read by admin routes only.
     match /cost_report_exports/{exportId} { allow read, write: if false; }
+    // Dispatch 22 (2026-09-30): the stored copy of every property's calendar,
+    // the current one and the first of each day. Written by the scheduled
+    // function and the admin refresh route, read by the admin availability
+    // route. Never from a browser.
+    match /availability_snapshots/{docId} { allow read, write: if false; }
+    match /availability_days/{day} { allow read, write: if false; }
 
     // Everything else: denied.
     match /{document=**} {

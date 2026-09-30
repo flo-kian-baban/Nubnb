@@ -1,0 +1,5 @@
+node_modules/
+lib/
+# Copied in from app/lib by scripts/functions-sync.mjs before every build and deploy.
+src/lib/
+*.log
