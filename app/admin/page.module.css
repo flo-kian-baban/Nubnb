@@ -10,11 +10,37 @@
     radial-gradient(ellipse 80% 50% at 50% -20%, rgba(60, 60, 80, 0.15), transparent),
     radial-gradient(ellipse 60% 40% at 100% 100%, rgba(40, 40, 60, 0.10), transparent);
   color: #f0f0f0;
-  font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
+  /* The brand face. next/font sets --font-manrope on <body>; --font-sans on
+     :root cannot see it (the site-wide bug found in dispatch 18), so it is
+     read directly, as the cleaner app does. */
+  font-family: var(--font-manrope, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
   -webkit-font-smoothing: antialiased;
+
+  /* Every control on every admin page (search fields, AdminSelect,
+     DateRangeField, the cleaners' inputs) draws from these: one height, one
+     radius, one focus ring in the brand blue, one popover surface. */
+  --ctl-h: 40px;
+  --ctl-radius: 12px;
+  --ctl-bg: rgba(255, 255, 255, 0.04);
+  --ctl-bg-hover: rgba(255, 255, 255, 0.06);
+  --ctl-border: rgba(255, 255, 255, 0.09);
+  --ctl-border-hover: rgba(255, 255, 255, 0.16);
+  --ctl-fg: rgba(255, 255, 255, 0.85);
+  --ctl-placeholder: rgba(255, 255, 255, 0.35);
+  --ctl-focus: rgba(101, 153, 205, 0.6);
+  --ctl-ring: 0 0 0 3px rgba(101, 153, 205, 0.18);
+  --popover-bg: rgba(14, 15, 18, 0.97);
+  --popover-border: rgba(255, 255, 255, 0.1);
+  --popover-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
 }
 
-/* ── Header ── */
+/* ── Header ──
+   One header for every admin page (components/AdminHeader.tsx): the brand,
+   the four sections, and the page's actions. It follows the public site's
+   nav on /about — the NUBNB wordmark, quiet 13 px links, and a white pill
+   for the one call to action — so the admin reads as the same product. Every control in it is 36 px tall and pill-shaped, and each
+   group keeps its own gap: 4 px between sections, 8 px between actions,
+   28 px between groups. */
 .header {
   background: rgba(10, 10, 14, 0.85);
   backdrop-filter: blur(24px);
@@ -27,79 +53,151 @@
 
 .headerInner {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 28px;
+  min-height: 64px;
   max-width: 1440px;
   margin: 0 auto;
-  padding: 16px 40px;
+  padding: 0 32px;
 }
 
-.headerLeft {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.backBtn {
+.brand {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  color: rgba(255, 255, 255, 0.45);
+  gap: 10px;
+  flex-shrink: 0;
+  color: #ffffff;
   text-decoration: none;
+  border-radius: 999px;
+}
+.brandWordmark {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+.brandTag {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+  padding: 3px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+}
+
+.sectionNav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* Every control in the header: the same height, the same pill. */
+.navItem,
+.viewSite,
+.btnPrimary,
+.btnGhost {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-family: inherit;
   font-size: 13px;
   font-weight: 500;
-  letter-spacing: 0.02em;
-  padding: 6px 12px;
-  border-radius: 8px;
-  transition: all 0.2s ease;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
 }
-.backBtn:hover {
-  color: #fff;
+.brand:focus-visible,
+.navItem:focus-visible,
+.viewSite:focus-visible,
+.btnPrimary:focus-visible,
+.btnGhost:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 2px;
+}
+
+.navItem {
+  color: rgba(255, 255, 255, 0.55);
+}
+.navItem:hover {
+  color: #ffffff;
   background: rgba(255, 255, 255, 0.06);
 }
-
-.headerDivider {
-  width: 1px;
-  height: 20px;
-  background: rgba(255, 255, 255, 0.12);
-}
-
-.header h1 {
-  font-size: 16px;
-  font-weight: 600;
-  margin: 0;
+.navItemCurrent,
+.navItemCurrent:hover {
   color: #ffffff;
-  letter-spacing: -0.01em;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.1);
 }
 
-.headerRight {
+.headerActions {
   display: flex;
-  gap: 10px;
   align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.viewSite {
+  padding: 0 12px;
+  color: rgba(255, 255, 255, 0.55);
+}
+.viewSite:hover {
+  color: #ffffff;
 }
 
 /* ── Buttons ── */
+/* The call to action: the public nav's white pill (/about), dark text on white. */
 .btnPrimary {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 18px;
-  border-radius: 10px;
-  font-size: 13px;
+  padding: 0 20px;
   font-weight: 600;
-  cursor: pointer;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   border: none;
   background: #ffffff;
-  color: #0a0a0c;
-  box-shadow: 0 2px 8px rgba(255, 255, 255, 0.08);
+  color: #1a1a1d;
 }
-.btnPrimary:hover {
-  background: #f0f0f0;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 16px rgba(255, 255, 255, 0.12);
+.btnPrimary:hover:not(:disabled) {
+  opacity: 0.88;
+}
+.btnPrimary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
+/* A quiet action beside it: the public site's bordered pill on dark. */
+.btnGhost {
+  color: rgba(255, 255, 255, 0.8);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+.btnGhost:hover:not(:disabled) {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+.btnGhost:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* The page's heading, for a screen reader: the nav shows it. */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 
 /* ── Main ── */
 .main {
@@ -108,74 +206,79 @@
   margin: 0 auto;
 }
 
-/* ── Stats Grid ── */
+/* ── The four figures (components/DashboardStats.tsx) ──
+   Each tile is a link to where the work is. A tile with something to act on
+   turns brand blue; a read that failed turns red and says so, never 0. */
 .statsGrid {
   display: grid;
-  /* New leads + the four property stats. */
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 28px;
 }
 
 .statCard {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 20px;
+  min-height: 92px;
+  padding: 18px 20px;
   background: rgba(255, 255, 255, 0.025);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 14px;
-  transition: border-color 0.2s ease;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 16px;
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
 }
 .statCard:hover {
-  border-color: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.035);
+}
+.statCard:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 2px;
 }
 
 .statIcon {
-  width: 42px;
-  height: 42px;
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 11px;
-  background: rgba(255, 255, 255, 0.05);
-  color: rgba(255, 255, 255, 0.5);
   flex-shrink: 0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.55);
 }
 
 .statContent {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
+  min-width: 0;
 }
 
 .statValue {
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 700;
   color: #ffffff;
   letter-spacing: -0.02em;
   line-height: 1.1;
+  font-variant-numeric: tabular-nums;
 }
 
 .statLabel {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.4);
   font-weight: 500;
   letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.55);
 }
 
-/* ── New-leads card: a stat that links to the inbox ── */
-.statCardLink {
-  position: relative;
-  color: inherit;
-  text-decoration: none;
-}
-.statCardLink .statContent {
-  min-width: 0;
-}
-.statCardLink:focus-visible {
-  outline: 2px solid #7fb0e0;
-  outline-offset: 2px;
+.statDetail {
+  font-size: 12px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.4);
+  overflow-wrap: anywhere;
 }
 
 .statArrow {
@@ -184,23 +287,26 @@
   color: rgba(255, 255, 255, 0.25);
   transition: transform 0.2s ease, color 0.2s ease;
 }
-.statCardLink:hover .statArrow {
+.statCard:hover .statArrow {
   color: rgba(255, 255, 255, 0.7);
   transform: translateX(2px);
 }
 
+/* Something to act on: the brand blue. */
 .statCardAccent {
   border-color: rgba(101, 153, 205, 0.35);
   background: rgba(101, 153, 205, 0.06);
 }
 .statCardAccent:hover {
   border-color: rgba(101, 153, 205, 0.55);
+  background: rgba(101, 153, 205, 0.08);
 }
 .statCardAccent .statIcon {
   color: #8dbbe8;
   background: rgba(101, 153, 205, 0.14);
 }
 
+/* The read failed. */
 .statCardAlert {
   border-color: rgba(239, 68, 68, 0.3);
   background: rgba(239, 68, 68, 0.05);
@@ -216,29 +322,129 @@
   color: #ef5350;
   font-size: 18px;
 }
-
-.statDetail {
-  font-size: 11.5px;
+.statCardAlert .statDetail {
   color: rgba(239, 83, 80, 0.8);
-  line-height: 1.4;
-  overflow-wrap: anywhere;
 }
 
-/* ── Toolbar: Search & Filters ── */
+/* ── Toolbar: search, filters and sort ──
+   One row: the search (with "/" as its hint, × once something is typed),
+   the three filters, and sort on its own at the right. Under it, the count
+   and the chips for whatever is narrowing the list. */
 .toolbar {
   display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.toolbarRow {
+  display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 24px;
   flex-wrap: wrap;
+  gap: 10px;
 }
 
 .searchWrapper {
   position: relative;
-  flex: 1;
-  max-width: 400px;
+  flex: 1 1 280px;
+  max-width: 480px;
   min-width: 220px;
+}
+
+.searchClear {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.searchClear:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+.searchClear:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 1px;
+}
+
+.searchKbd {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 1px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.35);
+  pointer-events: none;
+}
+
+.sortSelect {
+  margin-left: auto;
+}
+
+.toolbarStatus {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 28px;
+}
+
+/* A filter that is on: one chip, removed by a press. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px 0 12px;
+  border: 1px solid rgba(101, 153, 205, 0.35);
+  border-radius: 999px;
+  background: rgba(101, 153, 205, 0.1);
+  color: #cfe0f5;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.chip:hover {
+  border-color: rgba(101, 153, 205, 0.6);
+  background: rgba(101, 153, 205, 0.16);
+}
+.chip:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 2px;
+}
+
+.clearAll {
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: rgba(255, 255, 255, 0.55);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.clearAll:hover {
+  color: #ffffff;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .searchIcon {
@@ -246,94 +452,59 @@
   left: 14px;
   top: 50%;
   transform: translateY(-50%);
-  color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.35);
   pointer-events: none;
 }
 
+/* The text field: the same recipe as the selects and the date field. */
 .searchInput {
   width: 100%;
-  padding: 10px 14px 10px 40px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
-  color: #f0f0f0;
+  height: var(--ctl-h);
+  padding: 0 44px 0 40px;
+  background: var(--ctl-bg);
+  border: 1px solid var(--ctl-border);
+  border-radius: var(--ctl-radius);
+  color: var(--ctl-fg);
   font-size: 13px;
   font-family: inherit;
   outline: none;
-  transition: all 0.2s ease;
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
 }
 .searchInput::placeholder {
-  color: rgba(255, 255, 255, 0.3);
+  color: var(--ctl-placeholder);
+}
+.searchInput:hover {
+  border-color: var(--ctl-border-hover);
 }
 .searchInput:focus {
-  border-color: rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.06);
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.04);
+  border-color: var(--ctl-focus);
+  background: var(--ctl-bg-hover);
+  box-shadow: var(--ctl-ring);
+}
+/* The field has its own × (and a "/" hint); the browser's is not wanted too. */
+.searchInput::-webkit-search-cancel-button {
+  display: none;
 }
 
 .filterGroup {
   display: flex;
   align-items: center;
-  gap: 10px;
-}
-
-.filterItem {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.filterIcon {
-  position: absolute;
-  left: 12px;
-  color: rgba(255, 255, 255, 0.35);
-  pointer-events: none;
-  z-index: 1;
-}
-
-.filterSelect {
-  appearance: none;
-  padding: 10px 32px 10px 14px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
-  color: rgba(255, 255, 255, 0.75);
-  font-size: 13px;
-  font-family: inherit;
-  cursor: pointer;
-  outline: none;
-  transition: all 0.2s ease;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.35)' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 12px center;
-}
-
-.filterItem:first-child .filterSelect {
-  padding-left: 34px;
-}
-
-.filterSelect:hover {
-  border-color: rgba(255, 255, 255, 0.15);
-  background-color: rgba(255, 255, 255, 0.06);
-}
-.filterSelect:focus {
-  border-color: rgba(255, 255, 255, 0.2);
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.04);
-}
-
-.filterSelect option {
-  background: #1a1a1e;
-  color: #e0e0e0;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .resultCount {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 12px;
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.35);
   font-weight: 500;
-  padding: 6px 12px;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.4);
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 8px;
+  border-radius: 999px;
   white-space: nowrap;
 }
 
@@ -617,13 +788,33 @@
 /* ── Responsive ── */
 @media (max-width: 1024px) {
   .statsGrid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .header {
-    padding: 16px 24px;
+  .headerInner {
+    gap: 20px;
+    padding: 0 24px;
   }
   .main {
     padding: 24px;
+  }
+}
+
+/* The sections take their own row under the brand and the actions. */
+@media (max-width: 860px) {
+  .headerInner {
+    flex-wrap: wrap;
+    row-gap: 6px;
+    padding: 10px 20px;
+  }
+  .sectionNav {
+    order: 3;
+    flex-basis: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin-left: -6px;
+  }
+  .sectionNav::-webkit-scrollbar {
+    display: none;
   }
 }
 
@@ -631,20 +822,25 @@
   .statsGrid {
     grid-template-columns: 1fr;
   }
-  .toolbar {
-    flex-direction: column;
-    align-items: stretch;
-  }
   .searchWrapper {
+    flex-basis: 100%;
     max-width: none;
   }
-  .filterGroup {
-    flex-wrap: wrap;
+  .searchKbd {
+    display: none;
   }
-  .header {
-    flex-direction: column;
-    gap: 12px;
-    align-items: flex-start;
+  .sortSelect {
+    margin-left: 0;
+  }
+  .brandTag,
+  .viewSite span {
+    display: none;
+  }
+  .viewSite {
+    padding: 0 10px;
+  }
+  .btnPrimary {
+    padding: 0 16px;
   }
 }
 

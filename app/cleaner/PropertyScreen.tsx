@@ -11,6 +11,7 @@ import { Check, ChevronRight, Clock, Search, X } from "lucide-react";
 import type { CleanerProperty } from "@/app/lib/cleaners/model";
 import { matchRank } from "@/app/lib/cleaners/text";
 import styles from "./cleaner.module.css";
+import { CleanerBar } from "./CleanerBar";
 
 interface PropertyScreenProps {
   cleanerName: string | null;
@@ -19,7 +20,6 @@ interface PropertyScreenProps {
   selectedId: string | null;
   onChoose: (property: CleanerProperty) => void;
   onMyReceipts: () => void;
-  onSignOut: () => void;
 }
 
 /** How well a property matches the search: its name first, then its city. */
@@ -37,7 +37,6 @@ export function PropertyScreen({
   selectedId,
   onChoose,
   onMyReceipts,
-  onSignOut,
 }: PropertyScreenProps) {
   const [query, setQuery] = useState("");
 
@@ -85,79 +84,77 @@ export function PropertyScreen({
   );
 
   return (
-    <main className={styles.screen}>
-      <header className={styles.topBar}>
-        <p className={styles.greeting}>{firstName ? `Hi ${firstName}` : "Hi"}</p>
-        <div className={styles.topBarActions}>
-          <button type="button" className={styles.textButton} onClick={onMyReceipts}>
+    <>
+      <CleanerBar
+        actions={
+          <button type="button" className={styles.barButton} onClick={onMyReceipts}>
             My receipts
           </button>
-          <button type="button" className={styles.textButton} onClick={onSignOut}>
-            Sign out
-          </button>
-        </div>
-      </header>
+        }
+      />
+      <main className={styles.screen}>
+        <p className={styles.greeting}>{firstName ? `Hi ${firstName}` : "Hi"}</p>
+        <h1 className={styles.title}>Which property?</h1>
 
-      <h1 className={styles.title}>Which property?</h1>
-
-      <div className={styles.searchField}>
-        <Search className={styles.searchIcon} aria-hidden />
-        <input
-          type="search"
-          className={styles.searchInput}
-          placeholder="Search"
-          aria-label="Search properties"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          autoComplete="off"
-          autoCorrect="off"
-          autoCapitalize="off"
-          spellCheck={false}
-          enterKeyHint="search"
-        />
-        {query && (
-          <button
-            type="button"
-            className={styles.searchClear}
-            aria-label="Clear search"
-            onClick={() => setQuery("")}
-          >
-            <X aria-hidden />
-          </button>
-        )}
-      </div>
-
-      {recent.length === 0 && others.length === 0 ? (
-        <div className={styles.emptyState}>
-          <p>{properties.length === 0 ? "No properties yet." : "No property found."}</p>
+        <div className={styles.searchField}>
+          <Search className={styles.searchIcon} aria-hidden />
+          <input
+            type="search"
+            className={styles.searchInput}
+            placeholder="Search"
+            aria-label="Search properties"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            enterKeyHint="search"
+          />
           {query && (
-            <button type="button" className={styles.secondary} onClick={() => setQuery("")}>
-              Clear search
+            <button
+              type="button"
+              className={styles.searchClear}
+              aria-label="Clear search"
+              onClick={() => setQuery("")}
+            >
+              <X aria-hidden />
             </button>
           )}
         </div>
-      ) : (
-        <>
-          {recent.length > 0 && (
-            <section aria-labelledby="recent-heading">
-              <h2 id="recent-heading" className={styles.sectionLabel}>
-                Recent
-              </h2>
-              <ul className={styles.propertyList}>{recent.map((property) => row(property, true))}</ul>
-            </section>
-          )}
-          {others.length > 0 && (
-            <section aria-labelledby={recent.length > 0 ? "all-heading" : undefined}>
-              {recent.length > 0 && (
-                <h2 id="all-heading" className={styles.sectionLabel}>
-                  All properties
+
+        {recent.length === 0 && others.length === 0 ? (
+          <div className={styles.emptyState}>
+            <p>{properties.length === 0 ? "No properties yet." : "No property found."}</p>
+            {query && (
+              <button type="button" className={styles.secondary} onClick={() => setQuery("")}>
+                Clear search
+              </button>
+            )}
+          </div>
+        ) : (
+          <>
+            {recent.length > 0 && (
+              <section aria-labelledby="recent-heading">
+                <h2 id="recent-heading" className={styles.sectionLabel}>
+                  Recent
                 </h2>
-              )}
-              <ul className={styles.propertyList}>{others.map((property) => row(property, false))}</ul>
-            </section>
-          )}
-        </>
-      )}
-    </main>
+                <ul className={styles.propertyList}>{recent.map((property) => row(property, true))}</ul>
+              </section>
+            )}
+            {others.length > 0 && (
+              <section aria-labelledby={recent.length > 0 ? "all-heading" : undefined}>
+                {recent.length > 0 && (
+                  <h2 id="all-heading" className={styles.sectionLabel}>
+                    All properties
+                  </h2>
+                )}
+                <ul className={styles.propertyList}>{others.map((property) => row(property, false))}</ul>
+              </section>
+            )}
+          </>
+        )}
+      </main>
+    </>
   );
 }

@@ -20,10 +20,11 @@
  */
 
 import { useState, type ChangeEvent } from "react";
-import { Camera, ChevronLeft, Images } from "lucide-react";
+import { Camera, Images } from "lucide-react";
 import { PhotoError, preparePhoto, type PhotoProblem, type PreparedPhoto } from "@/app/lib/receipt-photo";
 import { CameraScreen, canOpenCamera } from "./CameraScreen";
 import styles from "./cleaner.module.css";
+import { CleanerBar } from "./CleanerBar";
 
 interface PhotoScreenProps {
   propertyName: string;
@@ -99,56 +100,51 @@ export function PhotoScreen({ propertyName, photoUrl, onBack, onPhoto, onNext }:
   };
 
   return (
-    <main className={styles.screen}>
-      <header className={styles.topBar}>
-        <button type="button" className={styles.backButton} onClick={onBack}>
-          <ChevronLeft aria-hidden />
-          <span>Back</span>
-        </button>
-        <p className={styles.topBarProperty}>{propertyName}</p>
-      </header>
+    <>
+      <CleanerBar onBack={onBack} title={propertyName} />
+      <main className={styles.screen}>
+        <h1 className={styles.title}>Photo of the receipt</h1>
 
-      <h1 className={styles.title}>Photo of the receipt</h1>
+        {preparing && (
+          <p className={styles.working} role="status">
+            <span className={styles.spinner} aria-hidden />
+            Getting the photo ready…
+          </p>
+        )}
+        {state.kind === "error" && (
+          <p className={styles.problem} role="alert">
+            {PROBLEMS[state.problem]}
+          </p>
+        )}
 
-      {preparing && (
-        <p className={styles.working} role="status">
-          <span className={styles.spinner} aria-hidden />
-          Getting the photo ready…
-        </p>
-      )}
-      {state.kind === "error" && (
-        <p className={styles.problem} role="alert">
-          {PROBLEMS[state.problem]}
-        </p>
-      )}
-
-      {photoUrl ? (
-        <>
-          <div className={styles.photoPreview}>
-            {/* An object URL for a photo taken just now: nothing for next/image to optimise. */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={photoUrl} alt="The receipt photo" />
-          </div>
-          <div className={styles.buttonStack}>
-            <button type="button" className={styles.primary} onClick={onNext} disabled={preparing}>
-              Next
-            </button>
-            {picker("camera", styles.secondary, "Take again")}
-          </div>
-        </>
-      ) : (
-        <>
-          <ul className={styles.photoTips}>
-            <li>Lay the receipt flat.</li>
-            <li>Hold the phone straight above it.</li>
-            <li>Get close, so the receipt fills the screen.</li>
-          </ul>
-          <div className={styles.buttonStack}>
-            {picker("camera", styles.primary, "Take photo")}
-            {picker("library", styles.secondary, "Choose from phone")}
-          </div>
-        </>
-      )}
-    </main>
+        {photoUrl ? (
+          <>
+            <div className={styles.photoPreview}>
+              {/* An object URL for a photo taken just now: nothing for next/image to optimise. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={photoUrl} alt="The receipt photo" />
+            </div>
+            <div className={styles.buttonStack}>
+              <button type="button" className={styles.primary} onClick={onNext} disabled={preparing}>
+                Next
+              </button>
+              {picker("camera", styles.secondary, "Take again")}
+            </div>
+          </>
+        ) : (
+          <>
+            <ul className={styles.photoTips}>
+              <li>Lay the receipt flat.</li>
+              <li>Hold the phone straight above it.</li>
+              <li>Get close, so the receipt fills the screen.</li>
+            </ul>
+            <div className={styles.buttonStack}>
+              {picker("camera", styles.primary, "Take photo")}
+              {picker("library", styles.secondary, "Choose from phone")}
+            </div>
+          </>
+        )}
+      </main>
+    </>
   );
 }

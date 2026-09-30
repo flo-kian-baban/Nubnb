@@ -12,7 +12,6 @@
  */
 
 import { useEffect, useState } from "react";
-import { ChevronLeft } from "lucide-react";
 import { loadMyEntries } from "@/app/lib/cleaner-client";
 import {
   ENTRY_STATUS_CLEANER_LABELS,
@@ -23,6 +22,7 @@ import {
   type EntryStatus,
 } from "@/app/lib/cleaners/model";
 import styles from "./cleaner.module.css";
+import { CleanerBar } from "./CleanerBar";
 
 interface ReceiptsScreenProps {
   properties: CleanerProperty[];
@@ -84,64 +84,60 @@ export function ReceiptsScreen({ properties, onBack, onSignedOut }: ReceiptsScre
     properties.find((property) => property.id === entry.propertyId)?.name ?? entry.propertyNameAtEntry ?? "Property";
 
   return (
-    <main className={styles.screen}>
-      <header className={styles.topBar}>
-        <button type="button" className={styles.backButton} onClick={onBack}>
-          <ChevronLeft aria-hidden />
-          <span>Back</span>
-        </button>
-      </header>
+    <>
+      <CleanerBar onBack={onBack} />
+      <main className={styles.screen}>
+        <h1 className={styles.title}>My receipts</h1>
 
-      <h1 className={styles.title}>My receipts</h1>
-
-      {list.kind === "loading" ? (
-        <div className={styles.listLoading} aria-busy="true">
-          <span className={styles.spinner} aria-label="Loading" />
-        </div>
-      ) : list.kind === "offline" || list.kind === "failed" ? (
-        <div className={styles.emptyState} role="alert">
-          <p>{list.kind === "offline" ? "No connection." : "Couldn’t load your receipts."}</p>
-          <button type="button" className={styles.secondary} onClick={retry}>
-            Try again
-          </button>
-        </div>
-      ) : list.entries.length === 0 ? (
-        <div className={styles.emptyState}>
-          <p>No receipts yet.</p>
-        </div>
-      ) : (
-        <ul className={styles.receiptList}>
-          {list.entries.map((entry) => {
-            const known = isEntryStatus(entry.status) ? entry.status : null;
-            const out = entry.status === "rejected" || entry.status === "removed";
-            return (
-              <li key={entry.id} className={styles.receiptRow}>
-                <div className={styles.receiptTop}>
-                  <span className={styles.receiptProperty}>{nameOf(entry)}</span>
-                  <span className={`${styles.receiptTotal} ${out ? styles.receiptTotalOut : ""}`}>
-                    {entry.totalCents === null ? "—" : formatCents(entry.totalCents)}
-                  </span>
-                </div>
-                <div className={styles.receiptMeta}>
-                  <span>
-                    {sentOn(entry.createdAt)}
-                    {entry.lineCount !== null && ` · ${entry.lineCount === 1 ? "1 item" : `${entry.lineCount} items`}`}
-                  </span>
-                  <span className={`${styles.receiptStatus} ${known ? STATUS_CLASS[known] : ""}`}>
-                    {known ? ENTRY_STATUS_CLEANER_LABELS[known] : (entry.status ?? "Not known")}
-                  </span>
-                </div>
-                {entry.corrected && entry.sentTotalCents !== null && (
-                  <p className={styles.receiptNote}>Changed by the office. You sent {formatCents(entry.sentTotalCents)}.</p>
-                )}
-                {entry.status === "rejected" && entry.statusReason && (
-                  <p className={styles.receiptNote}>“{entry.statusReason}”</p>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </main>
+        {list.kind === "loading" ? (
+          <div className={styles.listLoading} aria-busy="true">
+            <span className={styles.spinner} aria-label="Loading" />
+          </div>
+        ) : list.kind === "offline" || list.kind === "failed" ? (
+          <div className={styles.emptyState} role="alert">
+            <p>{list.kind === "offline" ? "No connection." : "Couldn’t load your receipts."}</p>
+            <button type="button" className={styles.secondary} onClick={retry}>
+              Try again
+            </button>
+          </div>
+        ) : list.entries.length === 0 ? (
+          <div className={styles.emptyState}>
+            <p>No receipts yet.</p>
+          </div>
+        ) : (
+          <ul className={styles.receiptList}>
+            {list.entries.map((entry) => {
+              const known = isEntryStatus(entry.status) ? entry.status : null;
+              const out = entry.status === "rejected" || entry.status === "removed";
+              return (
+                <li key={entry.id} className={styles.receiptRow}>
+                  <div className={styles.receiptTop}>
+                    <span className={styles.receiptProperty}>{nameOf(entry)}</span>
+                    <span className={`${styles.receiptTotal} ${out ? styles.receiptTotalOut : ""}`}>
+                      {entry.totalCents === null ? "—" : formatCents(entry.totalCents)}
+                    </span>
+                  </div>
+                  <div className={styles.receiptMeta}>
+                    <span>
+                      {sentOn(entry.createdAt)}
+                      {entry.lineCount !== null && ` · ${entry.lineCount === 1 ? "1 item" : `${entry.lineCount} items`}`}
+                    </span>
+                    <span className={`${styles.receiptStatus} ${known ? STATUS_CLASS[known] : ""}`}>
+                      {known ? ENTRY_STATUS_CLEANER_LABELS[known] : (entry.status ?? "Not known")}
+                    </span>
+                  </div>
+                  {entry.corrected && entry.sentTotalCents !== null && (
+                    <p className={styles.receiptNote}>Changed by the office. You sent {formatCents(entry.sentTotalCents)}.</p>
+                  )}
+                  {entry.status === "rejected" && entry.statusReason && (
+                    <p className={styles.receiptNote}>“{entry.statusReason}”</p>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </main>
+    </>
   );
 }

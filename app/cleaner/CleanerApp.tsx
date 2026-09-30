@@ -5,6 +5,9 @@
  *
  *   code → property → photo → items → sent
  *
+ * There is no sign-out (Kian, 2026-09-30): a session ends by itself after
+ * 12 hours, and a new code ends it at once.
+ *
  * "My receipts" (dispatch 19) opens from the property and sent screens: the
  * cleaner's own receipts and what became of each. It is a view over the
  * steps, not a step: the draft is untouched, and Back returns to where the
@@ -52,7 +55,6 @@ import {
   readReceipt,
   sendEntry,
   signIn,
-  signOut,
   type SignInResult,
   type StartResult,
 } from "@/app/lib/cleaner-client";
@@ -88,6 +90,7 @@ import { PhotoScreen } from "./PhotoScreen";
 import { ItemsScreen, type ReadingStatus } from "./ItemsScreen";
 import { DoneScreen, type SentReceipt } from "./DoneScreen";
 import { ReceiptsScreen } from "./ReceiptsScreen";
+import { CleanerBar } from "./CleanerBar";
 import styles from "./cleaner.module.css";
 
 type Phase =
@@ -321,22 +324,6 @@ export function CleanerApp() {
     return "ok";
   };
 
-  const leave = async () => {
-    if (!(await signOut())) {
-      setNotice("Couldn’t sign out. Check the signal and try again.");
-      return;
-    }
-    // The draft stays on the phone for this cleaner's next sign-in.
-    cleanerIdRef.current = null;
-    draftRef.current = null;
-    replacePhoto(null);
-    setDraftState(null);
-    setSent(null);
-    setNotice(null);
-    setViewing(false);
-    setPhase({ kind: "code" });
-  };
-
   /** "My receipts", as a new history entry over the current step, so Back closes it. */
   const openReceipts = () => {
     setNotice(null);
@@ -566,6 +553,7 @@ export function CleanerApp() {
   if (phase.kind === "loading") {
     return (
       <div className={styles.app}>
+        <CleanerBar />
         <main className={styles.centered} aria-busy="true">
           <span className={styles.spinner} aria-label="Loading" />
         </main>
@@ -584,6 +572,7 @@ export function CleanerApp() {
   if (phase.kind === "offline" || phase.kind === "failed") {
     return (
       <div className={styles.app}>
+        <CleanerBar />
         <main className={styles.centered}>
           <p className={styles.centeredMessage} role="alert">
             {phase.kind === "offline" ? "No connection." : "Something went wrong."}
@@ -603,6 +592,7 @@ export function CleanerApp() {
   if (!current) {
     return (
       <div className={styles.app}>
+        <CleanerBar />
         <main className={styles.centered} aria-busy="true">
           <span className={styles.spinner} aria-label="Loading" />
         </main>
@@ -626,7 +616,6 @@ export function CleanerApp() {
         selectedId={current.propertyId}
         onChoose={chooseProperty}
         onMyReceipts={openReceipts}
-        onSignOut={leave}
       />
     );
   } else if (current.step === "photo") {

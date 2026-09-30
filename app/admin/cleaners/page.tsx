@@ -22,8 +22,8 @@
  */
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import Link from "next/link";
-import { AlertTriangle, ArrowLeft, Home, KeyRound, RefreshCw, UserPlus, Users } from "lucide-react";
+import { AlertTriangle, KeyRound, RefreshCw, UserPlus, Users } from "lucide-react";
+import { AdminHeader } from "../components/AdminHeader";
 import { PinGate } from "../components/PinGate";
 import { NoticeBanner, useNotice } from "../components/Notice";
 import {
@@ -254,36 +254,13 @@ function Cleaners() {
 
   return (
     <div className={shared.container}>
-      {/* ── Header ── */}
-      <header className={shared.header}>
-        <div className={shared.headerInner}>
-          <div className={shared.headerLeft}>
-            <Link href="/" className={shared.backBtn}>
-              <Home size={16} />
-              <span>View Site</span>
-            </Link>
-            <div className={shared.headerDivider} />
-            <Link href="/admin" className={shared.backBtn}>
-              <ArrowLeft size={16} />
-              <span>Properties</span>
-            </Link>
-            <div className={shared.headerDivider} />
-            <h1>Cleaners</h1>
-          </div>
-
-          <div className={shared.headerRight}>
-            <button
-              type="button"
-              className={styles.btnGhost}
-              onClick={reload}
-              disabled={list.kind === "loading"}
-            >
-              <RefreshCw size={15} />
-              <span>Refresh</span>
-            </button>
-          </div>
-        </div>
-      </header>
+      {/* ── Header ── the shared one; this page's action is Refresh */}
+      <AdminHeader current="cleaners">
+        <button type="button" className={shared.btnGhost} onClick={reload} disabled={list.kind === "loading"}>
+          <RefreshCw size={15} aria-hidden />
+          <span>Refresh</span>
+        </button>
+      </AdminHeader>
 
       <main className={shared.main}>
         {/* ── Notices (creates, status and code changes) ── */}

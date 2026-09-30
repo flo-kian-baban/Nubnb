@@ -1,37 +1,59 @@
 /* ══════════════════════════════════════════════
    The cleaner app. Built for a phone held in one
    hand in a hallway, by someone who may not read
-   small print: large type (20px body), targets at
+   small print: large type (18px body), targets at
    least 48px and usually 60px, strong contrast,
    one light theme whatever the phone's setting,
    and the main button within reach of a thumb.
+
+   Drawn in Nubnb's own language (2026-09-30, Kian: "keep the light mode
+   and simplicity, but match Nubnb's design language"): white, as he then
+   asked (the site's pearl ground was tried and refused), Manrope for everything
+   you read and Playfair for the titles and the one big button (as the
+   site's own call to action), the dark blue for depth and the brand blue
+   for accents and badges, 16 px cards with a soft shadow, pill badges in
+   small tracked capitals. The sizes came down one step the same evening
+   ("a little bit too big"); every target is still 48px or more.
    ══════════════════════════════════════════════ */
 
 .app {
-  --ink: #111111;
-  --muted: #4a4a4a;
-  --line: #d2d2d2;
-  --field-border: #767676;
-  --soft: #f3f3f1;
-  --primary: #153d6d;
+  /* The brand bar at the top of every screen (CleanerBar.tsx). */
+  --bar-h: 56px;
+  /* The public site's palette (globals.css), by name. */
+  --ground: #ffffff; /* white, on Kian's word; the site's pearl was tried and refused */
+  --surface: #ffffff;
+  --ink: #1a1a1a; /* --text-primary */
+  --muted: #5a5a5a; /* --text-secondary */
+  --tertiary: #8c8c8c; /* --text-tertiary */
+  --line: #e5e5e5; /* --border-light: card edges, hairlines */
+  --line-strong: #d0d0d0; /* --border-medium */
+  --field-border: #767676; /* fields keep a border a hallway can see (4.5:1) */
+  --soft: #f3f3f1; /* a pressed row */
+  --primary: #153d6d; /* --brand-dark-blue: buttons, Back, the wordmark */
   --primary-pressed: #0d2a4c;
   --primary-soft: #eaf0f8;
+  --accent: #6599cd; /* --brand-blue: badges, the chosen row, focus */
+  --accent-soft: #e8f0f9;
   --danger: #b3261e;
   --danger-soft: #fdecea;
   --ok: #1e7b34;
   --warn-ink: #5e4300;
   --warn-soft: #fff3d1;
-  --focus: #1a66d6;
+  --focus: #6599cd;
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.08);
+  /* Playfair from next/font's variable on <body>, as Manrope below. */
+  --serif: var(--font-playfair, Georgia), Georgia, "Times New Roman", serif;
 
   min-height: 100vh;
   min-height: 100dvh;
-  background: #ffffff;
+  background: var(--ground);
   color: var(--ink);
   /* Manrope straight from next/font's variable on <body>. Not var(--font-sans):
      globals.css defines that on :root, above <body>, where --font-manrope does
      not exist yet, so it resolves to nothing and the text falls back to Times. */
   font-family: var(--font-manrope, system-ui), system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  font-size: 20px;
+  font-size: 18px;
   line-height: 1.4;
 }
 
@@ -51,10 +73,10 @@
   flex-direction: column;
   gap: 16px;
   max-width: 560px;
-  min-height: 100vh;
-  min-height: 100dvh;
+  min-height: calc(100vh - var(--bar-h));
+  min-height: calc(100dvh - var(--bar-h));
   margin: 0 auto;
-  padding: 8px 16px calc(20px + env(safe-area-inset-bottom));
+  padding: 12px 16px calc(20px + env(safe-area-inset-bottom));
 }
 
 .centered {
@@ -64,15 +86,15 @@
   justify-content: center;
   gap: 20px;
   max-width: 560px;
-  min-height: 100vh;
-  min-height: 100dvh;
+  min-height: calc(100vh - var(--bar-h));
+  min-height: calc(100dvh - var(--bar-h));
   margin: 0 auto;
   padding: 24px 16px;
   text-align: center;
 }
 
 .centeredMessage {
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 700;
 }
 
@@ -86,7 +108,7 @@
   gap: 10px;
   width: 100%;
   padding: 14px 20px;
-  border-radius: 16px;
+  border-radius: 14px;
   font-family: inherit;
   font-weight: 700;
   line-height: 1.2;
@@ -95,22 +117,26 @@
   -webkit-user-select: none;
   user-select: none;
 }
+/* The one big button: Playfair, as the site's own "Reserve" button. */
 .primary {
-  min-height: 64px;
+  min-height: 60px;
   background: var(--primary);
   color: #ffffff;
   border: 2px solid var(--primary);
-  font-size: 22px;
+  box-shadow: var(--shadow-sm);
+  font-family: var(--serif);
+  font-size: 21px;
+  letter-spacing: 0.01em;
 }
 .primary:active:not(:disabled) {
   background: var(--primary-pressed);
 }
 .secondary {
-  min-height: 60px;
+  min-height: 56px;
   background: #ffffff;
   color: var(--primary);
   border: 2px solid var(--primary);
-  font-size: 20px;
+  font-size: 19px;
 }
 .secondary:active:not(:disabled) {
   background: var(--primary-soft);
@@ -126,8 +152,8 @@
 }
 .primary svg,
 .secondary svg {
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   flex-shrink: 0;
 }
 
@@ -151,69 +177,39 @@
   min-height: 48px;
   padding: 0 8px;
   color: var(--primary);
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 700;
   text-decoration: underline;
   text-underline-offset: 3px;
 }
 
-.backButton {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  min-height: 48px;
-  padding: 0 8px 0 0;
-  color: var(--primary);
-  font-size: 19px;
-  font-weight: 700;
-}
-.backButton svg {
-  width: 30px;
-  height: 30px;
-}
-.backButton:disabled {
-  opacity: 0.4;
-}
-
 /* ── Top of a screen ── */
-.topBar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 56px;
-}
-
+/* "Hi Kian": the page's first line, under the bar. */
 .greeting {
-  font-size: 22px;
-  font-weight: 700;
-  overflow-wrap: anywhere;
-}
-
-.topBarProperty {
-  max-width: 60%;
+  margin: 0 0 -6px;
   color: var(--muted);
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 600;
-  text-align: right;
   overflow-wrap: anywhere;
 }
 
 .title {
   margin: 0;
+  font-family: var(--serif);
   font-size: 28px;
-  font-weight: 800;
-  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
 }
 
 /* ── Messages ── */
 .problem,
 .notice {
   padding: 12px 14px;
-  border-radius: 12px;
+  border-radius: 14px;
   background: var(--danger-soft);
   color: var(--danger);
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 700;
 }
 .notice,
@@ -224,10 +220,10 @@
 }
 .note {
   padding: 10px 14px;
-  border-radius: 12px;
+  border-radius: 14px;
   background: var(--warn-soft);
   color: var(--warn-ink);
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 600;
 }
 
@@ -242,7 +238,7 @@
   padding: 10px 16px;
   background: #2b2b2b;
   color: #ffffff;
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 600;
 }
 .offlineBar svg {
@@ -255,7 +251,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  font-size: 19px;
+  font-size: 18px;
   font-weight: 600;
 }
 
@@ -264,8 +260,8 @@
   width: 32px;
   height: 32px;
   flex-shrink: 0;
-  border: 4px solid #cfd8e3;
-  border-top-color: var(--primary);
+  border: 4px solid var(--accent-soft);
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.9s linear infinite;
 }
@@ -283,8 +279,8 @@
   align-items: center;
   justify-content: center;
   gap: 20px;
-  min-height: 100vh;
-  min-height: 100dvh;
+  min-height: calc(100vh - var(--bar-h));
+  min-height: calc(100dvh - var(--bar-h));
   padding: 24px 16px 22vh;
 }
 
@@ -306,14 +302,15 @@
   height: 80px;
   border: 3px solid var(--field-border);
   border-radius: 14px;
-  background: #ffffff;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
   font-size: 40px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
 .codeBoxActive {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 4px rgba(21, 61, 109, 0.22);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px rgba(101, 153, 205, 0.3);
 }
 .codeBoxChecking {
   opacity: 0.5;
@@ -337,7 +334,7 @@
 .codeMessage {
   min-height: 1.5em;
   color: var(--danger);
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 700;
   text-align: center;
 }
@@ -373,14 +370,15 @@
 }
 .searchInput {
   width: 100%;
-  height: 62px;
+  height: 56px;
   padding: 0 56px;
   border: 2px solid var(--field-border);
   border-radius: 14px;
-  background: #ffffff;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
   color: var(--ink);
   font: inherit;
-  font-size: 20px;
+  font-size: 18px;
   -webkit-appearance: none;
   appearance: none;
 }
@@ -409,12 +407,13 @@
   height: 26px;
 }
 
+/* Small tracked capitals, as the site's badges and labels. */
 .sectionLabel {
   margin: 4px 0 8px;
   color: var(--muted);
-  font-size: 16px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
@@ -433,20 +432,22 @@
   justify-content: space-between;
   gap: 12px;
   width: 100%;
-  min-height: 74px;
+  min-height: 68px;
   padding: 12px 16px;
-  border: 2px solid var(--line);
-  border-radius: 14px;
-  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
   color: var(--ink);
   text-align: left;
 }
 .propertyRow:active {
   background: var(--soft);
+  box-shadow: none;
 }
 .propertyRowSelected {
-  border-color: var(--primary);
-  background: var(--primary-soft);
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .propertyText {
@@ -455,14 +456,14 @@
   min-width: 0;
 }
 .propertyName {
-  font-size: 21px;
+  font-size: 19px;
   font-weight: 700;
   line-height: 1.25;
   overflow-wrap: anywhere;
 }
 .propertyCity {
   color: var(--muted);
-  font-size: 17px;
+  font-size: 16px;
 }
 
 .rowIcon,
@@ -472,10 +473,10 @@
   flex-shrink: 0;
 }
 .rowIcon {
-  color: var(--primary);
+  color: var(--accent);
 }
 .rowIconMuted {
-  color: #7a7a7a;
+  color: var(--tertiary);
 }
 
 .emptyState {
@@ -483,7 +484,7 @@
   flex-direction: column;
   gap: 16px;
   padding: 24px 0;
-  font-size: 20px;
+  font-size: 18px;
   text-align: center;
 }
 
@@ -492,9 +493,10 @@
   display: flex;
   justify-content: center;
   overflow: hidden;
-  border: 2px solid var(--line);
-  border-radius: 14px;
-  background: var(--soft);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
 }
 .photoPreview img {
   display: block;
@@ -510,18 +512,19 @@
   align-items: center;
   gap: 14px;
   padding: 8px;
-  border: 2px solid var(--line);
-  border-radius: 14px;
-  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
   color: var(--primary);
-  font-size: 19px;
+  font-size: 18px;
   font-weight: 700;
   text-align: left;
 }
 .thumbButton img {
   width: 64px;
   height: 64px;
-  border-radius: 8px;
+  border-radius: 10px;
   object-fit: cover;
 }
 
@@ -532,7 +535,7 @@
   gap: 10px;
   margin: 0;
   color: var(--muted);
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 600;
   line-height: 1.35;
 }
@@ -549,11 +552,11 @@
   align-items: center;
   gap: 14px;
   padding: 16px;
-  border: 2px solid var(--primary-soft);
+  border: 1px solid var(--accent-soft);
   border-radius: 16px;
-  background: var(--primary-soft);
+  background: var(--accent-soft);
   color: var(--primary);
-  font-size: 19px;
+  font-size: 18px;
   font-weight: 700;
   line-height: 1.35;
 }
@@ -571,19 +574,21 @@
   flex-direction: column;
   gap: 8px;
   padding: 12px 14px 16px;
-  border: 2px solid var(--line);
+  border: 1px solid var(--line);
   border-radius: 16px;
-  background: #ffffff;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
 }
 .taxCardProblem {
   border-color: var(--danger);
+  box-shadow: 0 0 0 1px var(--danger);
 }
 .totalParts {
   display: flex;
   justify-content: space-between;
   margin: 0 0 4px;
   color: var(--muted);
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
 }
 
@@ -591,7 +596,7 @@
 .photoTips {
   margin: 0 0 8px;
   padding-left: 26px;
-  font-size: 19px;
+  font-size: 18px;
   font-weight: 600;
   line-height: 1.45;
 }
@@ -613,12 +618,14 @@
   flex-direction: column;
   gap: 8px;
   padding: 12px 14px 16px;
-  border: 2px solid var(--line);
+  border: 1px solid var(--line);
   border-radius: 16px;
-  background: #ffffff;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
 }
 .itemCard[data-problem="true"] {
   border-color: var(--danger);
+  box-shadow: 0 0 0 1px var(--danger);
 }
 
 .itemHead {
@@ -635,20 +642,21 @@
 }
 .itemNumber {
   color: var(--muted);
-  font-size: 16px;
-  font-weight: 800;
-  letter-spacing: 0.05em;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 /* A line the reading filled in (dispatch 20), and one the cleaner then changed. */
+/* The site's badge: brand blue, white capitals, a pill. */
 .aiTag {
-  padding: 3px 10px;
+  padding: 4px 10px;
   border-radius: 999px;
-  background: var(--primary-soft);
-  color: var(--primary);
-  font-size: 14px;
-  font-weight: 800;
-  letter-spacing: 0.03em;
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 .aiTagEdited {
@@ -662,7 +670,7 @@
   width: 48px;
   height: 48px;
   margin-right: -8px;
-  border-radius: 12px;
+  border-radius: 999px;
   color: var(--muted);
 }
 .removeButton svg {
@@ -671,20 +679,20 @@
 }
 
 .fieldLabel {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 700;
 }
 
 .field {
   width: 100%;
-  height: 58px;
+  height: 54px;
   padding: 0 14px;
   border: 2px solid var(--field-border);
-  border-radius: 12px;
-  background: #ffffff;
+  border-radius: 14px;
+  background: var(--surface);
   color: var(--ink);
   font: inherit;
-  font-size: 20px;
+  font-size: 18px;
 }
 .field:focus {
   border-color: var(--focus);
@@ -699,7 +707,7 @@
 .fieldProblem {
   margin: 0;
   color: var(--danger);
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 700;
 }
 
@@ -710,9 +718,10 @@
   margin: 6px 0 0;
   padding: 0;
   overflow: hidden;
-  border: 2px solid var(--field-border);
-  border-radius: 12px;
-  background: #ffffff;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
   list-style: none;
 }
 .suggestions li + li {
@@ -720,11 +729,11 @@
 }
 .suggestion {
   width: 100%;
-  min-height: 56px;
+  min-height: 52px;
   padding: 10px 14px;
   background: #ffffff;
   color: var(--ink);
-  font-size: 20px;
+  font-size: 18px;
   text-align: left;
 }
 .suggestion:active {
@@ -754,11 +763,11 @@
   align-items: center;
   justify-content: center;
   width: 50px;
-  height: 58px;
+  height: 54px;
   flex-shrink: 0;
   border: 2px solid var(--primary);
-  border-radius: 12px;
-  background: #ffffff;
+  border-radius: 14px;
+  background: var(--surface);
   color: var(--primary);
 }
 .stepButton:active:not(:disabled) {
@@ -782,12 +791,12 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  height: 58px;
+  height: 54px;
   padding: 0 12px;
   border: 2px solid var(--field-border);
-  border-radius: 12px;
-  background: #ffffff;
-  font-size: 20px;
+  border-radius: 14px;
+  background: var(--surface);
+  font-size: 18px;
   font-weight: 700;
 }
 .priceField:focus-within {
@@ -807,7 +816,7 @@
   background: transparent;
   color: var(--ink);
   font: inherit;
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 400;
 }
 
@@ -816,7 +825,7 @@
   min-height: 48px;
   padding: 0 12px;
   color: var(--muted);
-  font-size: 18px;
+  font-size: 17px;
   text-decoration: underline;
   text-underline-offset: 3px;
 }
@@ -834,14 +843,14 @@
   gap: 10px;
   margin-top: auto;
   padding: 12px 0 calc(8px + env(safe-area-inset-bottom));
-  background: linear-gradient(to top, #ffffff 85%, rgba(255, 255, 255, 0));
+  background: linear-gradient(to top, var(--ground) 85%, rgba(255, 255, 255, 0));
 }
 
 .total {
   display: flex;
   justify-content: space-between;
   padding: 0 4px;
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
@@ -850,11 +859,11 @@
   height: 8px;
   overflow: hidden;
   border-radius: 4px;
-  background: #dde3ea;
+  background: var(--accent-soft);
 }
 .progress div {
   height: 100%;
-  background: var(--primary);
+  background: var(--accent);
   transition: width 0.2s ease;
 }
 
@@ -915,20 +924,22 @@
 }
 .doneTitle {
   margin: 8px 0 0;
+  font-family: var(--serif);
   font-size: 40px;
-  font-weight: 800;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 .doneTitle:focus {
   outline: none;
 }
 .doneProperty {
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 700;
   overflow-wrap: anywhere;
 }
 .doneSummary {
   color: var(--muted);
-  font-size: 20px;
+  font-size: 18px;
   font-variant-numeric: tabular-nums;
 }
 .doneScreen .bottomBar {
@@ -963,17 +974,112 @@
 .fieldHint {
   margin: 0;
   color: var(--muted);
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   line-height: 1.3;
 }
 
-.topBarActions {
+/* ── The brand bar (CleanerBar.tsx): white, a hairline under it, the NUBNB
+   wordmark and the two pills in the brand's navy blue, Back in the same blue
+   on a step. Light on Kian's word: "not dark mode, and black". ── */
+.bar {
+  background: var(--surface);
+  color: var(--ink);
+  border-bottom: 1px solid var(--line);
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.barInner {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
-  gap: 0 4px;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: 560px;
+  min-height: var(--bar-h);
+  margin: 0 auto;
+  padding: 0 16px;
+}
+.barBrand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+.barWordmark {
+  color: var(--primary);
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+.barTag {
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.barActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.barButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1.5px solid var(--primary);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--primary);
+  font-size: 15px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.barButton:active {
+  background: var(--primary-soft);
+}
+.barButton svg {
+  width: 18px;
+  height: 18px;
+}
+.barBack {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 48px;
+  padding: 0 10px 0 0;
+  color: var(--primary);
+  font-size: 17px;
+  font-weight: 700;
+}
+.barBack svg {
+  width: 28px;
+  height: 28px;
+}
+.barBack:disabled {
+  opacity: 0.5;
+}
+.barTitle {
+  max-width: 60%;
+  margin: 0;
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 600;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 399px) {
+  .barTag {
+    display: none;
+  }
+  .barButton {
+    padding: 0 12px;
+    font-size: 14px;
+  }
 }
 
 /* ── My receipts ── */
@@ -997,9 +1103,10 @@
   flex-direction: column;
   gap: 6px;
   padding: 14px 16px;
-  border: 2px solid var(--line);
-  border-radius: 14px;
-  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
 }
 
 .receiptTop {
@@ -1010,14 +1117,14 @@
 }
 
 .receiptProperty {
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 700;
   line-height: 1.25;
   overflow-wrap: anywhere;
 }
 
 .receiptTotal {
-  font-size: 21px;
+  font-size: 19px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -1035,20 +1142,21 @@
   justify-content: space-between;
   gap: 8px;
   color: var(--muted);
-  font-size: 17px;
+  font-size: 16px;
 }
 
 .receiptStatus {
-  padding: 3px 12px;
+  padding: 4px 12px;
   border-radius: 999px;
   background: var(--soft);
   color: var(--ink);
-  font-size: 16px;
-  font-weight: 800;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
 
 .statusPending {
-  background: var(--primary-soft);
+  background: var(--accent-soft);
   color: var(--primary);
 }
 
@@ -1070,7 +1178,7 @@
 .receiptNote {
   margin: 0;
   color: var(--ink);
-  font-size: 17px;
+  font-size: 16px;
   overflow-wrap: anywhere;
 }
 

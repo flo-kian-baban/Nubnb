@@ -1,0 +1,168 @@
+/* AdminSelect: the field, and the list under it. Tokens from the admin container. */
+.root {
+  position: relative;
+  display: inline-flex;
+  max-width: 100%;
+}
+
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--ctl-h, 40px);
+  max-width: 100%;
+  padding: 0 12px 0 14px;
+  background: var(--ctl-bg, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--ctl-border, rgba(255, 255, 255, 0.09));
+  border-radius: var(--ctl-radius, 12px);
+  color: var(--ctl-fg, rgba(255, 255, 255, 0.85));
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+.trigger:hover {
+  border-color: var(--ctl-border-hover, rgba(255, 255, 255, 0.16));
+  background: var(--ctl-bg-hover, rgba(255, 255, 255, 0.06));
+}
+.trigger:focus-visible,
+.triggerOpen,
+.triggerOpen:hover {
+  outline: none;
+  border-color: var(--ctl-focus, rgba(101, 153, 205, 0.6));
+  box-shadow: var(--ctl-ring, 0 0 0 3px rgba(101, 153, 205, 0.18));
+}
+
+.icon {
+  display: inline-flex;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chevron {
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.4);
+  transition: transform 0.2s ease;
+}
+.triggerOpen .chevron {
+  transform: rotate(180deg);
+}
+
+.popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 80;
+  min-width: 100%;
+  width: max-content;
+  max-width: min(360px, calc(100vw - 40px));
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  background: var(--popover-bg, rgba(14, 15, 18, 0.97));
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--popover-border, rgba(255, 255, 255, 0.1));
+  border-radius: 14px;
+  box-shadow: var(--popover-shadow, 0 16px 48px rgba(0, 0, 0, 0.55));
+  animation: drop 0.15s ease-out;
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  padding: 6px 8px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.4);
+}
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  color: #ffffff;
+  font: inherit;
+  font-size: 13px;
+}
+.searchInput::placeholder {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.list {
+  max-height: 320px;
+  overflow-y: auto;
+  outline: none;
+  scrollbar-width: thin;
+}
+
+.group + .group {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.groupLabel {
+  padding: 6px 10px 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+}
+.optionActive {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+.optionSelected {
+  color: #ffffff;
+  font-weight: 600;
+}
+.optionLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty {
+  margin: 0;
+  padding: 10px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+@keyframes drop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .popover {
+    animation: none;
+  }
+}

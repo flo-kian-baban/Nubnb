@@ -62,20 +62,11 @@
  */
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import {
-  AlertTriangle,
-  ArrowLeft,
-  FileSpreadsheet,
-  FileText,
-  Home,
-  ImageIcon,
-  Pencil,
-  Receipt,
-  RefreshCw,
-  Search,
-} from "lucide-react";
+import { AlertTriangle, FileSpreadsheet, FileText, ImageIcon, Pencil, Receipt, RefreshCw, Search } from "lucide-react";
+import { AdminHeader } from "../components/AdminHeader";
+import { AdminSelect } from "../components/AdminSelect";
+import { DateRangeField } from "../components/DateRangeField";
 import { PinGate } from "../components/PinGate";
 import { NoticeBanner, useNotice } from "../components/Notice";
 import { fetchCosts, recordPdfExport } from "@/app/lib/costs-client";
@@ -94,10 +85,8 @@ import {
   RANGE_PRESETS,
   buildReport,
   cleanerLabel,
-  comparePdf,
   countedItems,
   entryPdfState,
-  entryRef,
   isDay,
   matchesFilters,
   periodLabel,
@@ -110,13 +99,12 @@ import {
   totalsByProperty,
   type CostFilters,
   type EntryPdfState,
-  type PdfComparison,
   type Totals,
 } from "@/app/lib/costs/report";
 import { pdfFor } from "@/app/lib/costs/pdf";
 import { workbookFor } from "@/app/lib/costs/xlsx";
 import { Absent, FieldText } from "../leads/lead-display";
-import { EntryStatusBadge, SentAt, quantityText, statusWord, whenText } from "./cost-display";
+import { EntryStatusBadge, SentAt, quantityText, whenText } from "./cost-display";
 import { EntryPane } from "./EntryPane";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
@@ -281,23 +269,11 @@ function Costs() {
   const showing: View = oneProperty ? view : "entries";
   /** The chosen property's name; null when no property on record, and no entry, has that ID. */
   const propertyName = oneProperty ? (properties.names.get(filters.propertyId) ?? null) : null;
-  /** The chosen property's PDFs, newest first, each beside the ledger as it now stands. */
-  const propertyPdfs = useMemo(
-    () =>
-      oneProperty
-        ? pdfs.records.filter((record) => record.propertyId === filters.propertyId).map((record) => comparePdf(record, entries))
-        : [],
-    [oneProperty, filters.propertyId, pdfs, entries],
-  );
   const waiting = oneProperty
     ? entries.filter((entry) => entry.property.id === filters.propertyId && entry.status === "pending").length
     : 0;
   const selected = selectedId === null ? null : (entries.find((entry) => entry.id === selectedId) ?? null);
   const today = torontoDayOf(new Date());
-  const activePreset = RANGE_PRESETS.find((preset) => {
-    const range = presetRange(preset.key, today);
-    return range.from === filters.from && range.to === filters.to;
-  })?.key;
 
   const setFilter = (change: Partial<CostFilters>) => setFilters((was) => ({ ...was, ...change }));
 
@@ -385,31 +361,13 @@ function Costs() {
 
   return (
     <div className={shared.container}>
-      {/* ── Header ── */}
-      <header className={shared.header}>
-        <div className={shared.headerInner}>
-          <div className={shared.headerLeft}>
-            <Link href="/" className={shared.backBtn}>
-              <Home size={16} />
-              <span>View Site</span>
-            </Link>
-            <div className={shared.headerDivider} />
-            <Link href="/admin" className={shared.backBtn}>
-              <ArrowLeft size={16} />
-              <span>Properties</span>
-            </Link>
-            <div className={shared.headerDivider} />
-            <h1>{ledger ? "Ledger" : "Costs"}</h1>
-          </div>
-
-          <div className={shared.headerRight}>
-            <button type="button" className={styles.btnGhost} onClick={reload} disabled={list.kind === "loading"}>
-              <RefreshCw size={15} />
-              <span>Refresh</span>
-            </button>
-          </div>
-        </div>
-      </header>
+      {/* ── Header ── the shared one; this page's action is Refresh */}
+      <AdminHeader current="costs" title={(ledger ? "Ledger" : "Costs")}>
+        <button type="button" className={shared.btnGhost} onClick={reload} disabled={list.kind === "loading"}>
+          <RefreshCw size={15} aria-hidden />
+          <span>Refresh</span>
+        </button>
+      </AdminHeader>
 
       <main className={shared.main}>
         <NoticeBanner notice={notice} onDismiss={clear} className={shared.pageNotice} />
@@ -494,86 +452,54 @@ function Costs() {
             {/* ── Filters ── */}
             <section className={styles.filters} aria-label="Filters">
               <div className={styles.filterRow}>
-                <select
-                  className={shared.filterSelect}
-                  aria-label="Property"
+                <AdminSelect
+                  label="Property"
+                  className={styles.propertySelect}
                   value={filters.propertyId}
-                  onChange={(e) => setFilter({ propertyId: e.target.value })}
-                >
-                  <option value="">All properties</option>
-                  {oneProperty && propertyName === null && <option value={filters.propertyId}>Unknown property</option>}
-                  {properties.withEntries.length > 0 && (
-                    <optgroup label="With cost entries">
-                      {properties.withEntries.map(([id, label]) => (
-                        <option key={id} value={id}>
-                          {label}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                  {properties.withoutEntries.length > 0 && (
-                    <optgroup label="No cost entries yet">
-                      {properties.withoutEntries.map(([id, label]) => (
-                        <option key={id} value={id}>
-                          {label}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                </select>
-                <select
-                  className={shared.filterSelect}
-                  aria-label="Status"
+                  onChange={(propertyId) => setFilter({ propertyId })}
+                  groups={[
+                    {
+                      options: [
+                        { value: "", label: "All properties" },
+                        ...(oneProperty && propertyName === null ? [{ value: filters.propertyId, label: "Unknown property" }] : []),
+                      ],
+                    },
+                    { label: "With cost entries", options: properties.withEntries.map(([id, label]) => ({ value: id, label })) },
+                    { label: "No cost entries yet", options: properties.withoutEntries.map(([id, label]) => ({ value: id, label })) },
+                  ]}
+                />
+                <AdminSelect
+                  label="Status"
                   value={filters.status}
-                  onChange={(e) => setFilter({ status: e.target.value })}
-                >
-                  <option value={NEEDS_ATTENTION}>
-                    Needs attention ({inScope.filter((entry) => entry.status !== "approved").length})
-                  </option>
-                  <option value="">All statuses ({inScope.length})</option>
-                  {ENTRY_STATUSES.map((status) => (
-                    <option key={status} value={status}>
-                      {ENTRY_STATUS_LABELS[status]} ({statusCounts.get(status) ?? 0})
-                    </option>
-                  ))}
-                </select>
-                <label className={styles.dateField}>
-                  <span>From</span>
-                  <input
-                    type="date"
-                    className={styles.dateInput}
-                    value={filters.from}
-                    max={filters.to || undefined}
-                    onChange={(e) => setFilter({ from: e.target.value })}
-                  />
-                </label>
-                <label className={styles.dateField}>
-                  <span>To</span>
-                  <input
-                    type="date"
-                    className={styles.dateInput}
-                    value={filters.to}
-                    min={filters.from || undefined}
-                    onChange={(e) => setFilter({ to: e.target.value })}
-                  />
-                </label>
+                  onChange={(status) => setFilter({ status })}
+                  groups={[
+                    {
+                      options: [
+                        {
+                          value: NEEDS_ATTENTION,
+                          label: `Needs attention (${inScope.filter((entry) => entry.status !== "approved").length})`,
+                        },
+                        { value: "", label: `All statuses (${inScope.length})` },
+                        ...ENTRY_STATUSES.map((status) => ({
+                          value: status,
+                          label: `${ENTRY_STATUS_LABELS[status]} (${statusCounts.get(status) ?? 0})`,
+                        })),
+                      ],
+                    },
+                  ]}
+                />
+                <DateRangeField
+                  label="Dates"
+                  from={filters.from}
+                  to={filters.to}
+                  max={today}
+                  onChange={(range) => setFilter(range)}
+                  presets={RANGE_PRESETS.map((preset) => ({ ...preset, ...presetRange(preset.key, today) }))}
+                  note="Dates are the day a receipt was sent, in Toronto time."
+                />
                 <span className={shared.resultCount}>
                   {visible.length} of {inScope.length}
                 </span>
-              </div>
-              <div className={styles.presetRow} role="group" aria-label="Dates">
-                {RANGE_PRESETS.map((preset) => (
-                  <button
-                    key={preset.key}
-                    type="button"
-                    className={`${styles.preset} ${activePreset === preset.key ? styles.presetActive : ""}`}
-                    aria-pressed={activePreset === preset.key}
-                    onClick={() => setFilter(presetRange(preset.key, today))}
-                  >
-                    {preset.label}
-                  </button>
-                ))}
-                <span className={styles.presetNote}>Dates are the day a receipt was sent, in Toronto time.</span>
               </div>
             </section>
 
@@ -641,8 +567,6 @@ function Costs() {
               </div>
             </section>
 
-            {/* ── The PDFs that went out for this property, against the ledger now ── */}
-            {oneProperty && <PdfExports comparisons={propertyPdfs} unreadable={pdfs.unreadable} onOpen={open} />}
 
             {oneProperty && (
               <div className={styles.tabs} role="tablist" aria-label="Show">
@@ -900,175 +824,7 @@ function PdfMark({ state }: { state: EntryPdfState | null }) {
   }
 }
 
-/** One change between a PDF and the ledger now, in words. */
-function changeText(change: PdfComparison["changes"][number]): string {
-  const was = formatCents(change.printed.totalCents);
-  switch (change.since.kind) {
-    case "amount-changed":
-      return `${was} in the PDF, now ${formatCents(change.since.nowTotalCents)}`;
-    case "left":
-      return `${was} in the PDF; ${statusWord(change.since.status)} since, so it no longer counts`;
-    case "corrected":
-      return `corrected since, the amounts unchanged (${was})`;
-    case "unreadable":
-      return `${was} in the PDF; it cannot be added up now`;
-    case "missing":
-      return `${was} in the PDF; no such entry is on record now`;
-  }
-}
 
-/**
- * The PDFs exported for one property, newest first, each beside the ledger
- * as it now stands over the PDF's own period. A PDF that no longer matches
- * says why, entry by entry; the references are the ones the PDF prints.
- *
- * The newest PDF is always listed, and so is every PDF that no longer
- * matches and has no newer PDF to replace it. The older ones that ask
- * nothing of anyone — still matching, or replaced — are folded away until
- * asked for, so a year of monthly PDFs does not push the entries down.
- */
-function PdfExports({
-  comparisons,
-  unreadable,
-  onOpen,
-}: {
-  comparisons: PdfComparison[];
-  unreadable: number;
-  onOpen: (id: string) => void;
-}) {
-  /** A newer PDF that covers the whole of an older one's period and still matches: the one to go by. */
-  const replacement = (index: number) =>
-    comparisons
-      .slice(0, index)
-      .find(
-        (newer) =>
-          newer.verdict !== "differs" &&
-          newer.record.from <= comparisons[index].record.from &&
-          newer.record.to >= comparisons[index].record.to,
-      );
-  const needsLooking = (index: number) => comparisons[index].verdict === "differs" && !replacement(index);
-  const stale = comparisons.filter((_, index) => needsLooking(index)).length;
-  const [showAll, setShowAll] = useState(false);
-  const foldable = comparisons.filter((_, index) => index > 0 && !needsLooking(index)).length;
-
-  return (
-    <section className={styles.totals} aria-label="PDFs exported">
-      <div className={styles.totalsHead}>
-        <h2 className={styles.totalsTitle}>PDFs exported for this property</h2>
-        <span className={styles.totalsRange}>what a co-owner may hold, beside the ledger now</span>
-      </div>
-      {comparisons.length === 0 ? (
-        <p className={styles.note}>
-          None yet. Each PDF exported from here is recorded, so that a correction or removal made afterwards shows
-          against it.
-        </p>
-      ) : (
-        <>
-          {stale > 0 && (
-            <p className={styles.pdfAlert} role="status">
-              <AlertTriangle size={15} aria-hidden />
-              <span>
-                {stale === 1 ? "A PDF exported for this property no longer matches" : `${stale} PDFs exported for this property no longer match`}{" "}
-                its ledger, and no newer PDF replaces {stale === 1 ? "it" : "them"}. Whoever received{" "}
-                {stale === 1 ? "it" : "one"} holds figures that have since changed: export the PDF again for the same
-                dates.
-              </span>
-            </p>
-          )}
-          <div className={styles.tableScroll}>
-            <table className={`${styles.totalsTable} ${styles.pdfTable}`}>
-              <thead>
-                <tr>
-                  <th>Exported</th>
-                  <th>Period</th>
-                  <th className={styles.num}>Entries</th>
-                  <th className={styles.num}>Total in the PDF</th>
-                  <th>Beside the ledger now</th>
-                </tr>
-              </thead>
-              <tbody>
-                {comparisons.map((comparison, index) => {
-                  if (!showAll && index > 0 && !needsLooking(index)) return null;
-                  const { record, changes, added, verdict } = comparison;
-                  const newer = verdict === "differs" ? replacement(index) : undefined;
-                  return (
-                    <tr key={record.id}>
-                      <td className={styles.whenCell}>
-                        <SentAt iso={record.createdAt} seconds />
-                      </td>
-                      <td className={styles.whenCell}>
-                        {record.from === record.to ? shortDay(record.from) : `${shortDay(record.from)} – ${shortDay(record.to)}`}
-                      </td>
-                      <td className={styles.num}>{record.entries.length}</td>
-                      <td className={styles.num}>{formatCents(record.totalCents)}</td>
-                      <td>
-                        {verdict === "matches" ? (
-                          <span className={styles.pdfOk}>Matches</span>
-                        ) : verdict === "wording" ? (
-                          <span className={`${styles.badge} ${styles.badgePdfNote}`}>Amounts match</span>
-                        ) : (
-                          <span className={`${styles.badge} ${styles.badgePdfWarn}`}>No longer matches</span>
-                        )}
-                        {(changes.length > 0 || added.length > 0) && (
-                          <ul className={styles.pdfChanges}>
-                            {changes.map((change) => (
-                              <li key={change.printed.entryId}>
-                                <button
-                                  type="button"
-                                  className={styles.linkButton}
-                                  onClick={() => onOpen(change.printed.entryId)}
-                                  title="Open this entry"
-                                >
-                                  {entryRef(change.printed.entryId)}
-                                </button>{" "}
-                                {changeText(change)}
-                              </li>
-                            ))}
-                            {added.map((entry) => (
-                              <li key={entry.id}>
-                                <button type="button" className={styles.linkButton} onClick={() => onOpen(entry.id)} title="Open this entry">
-                                  {entryRef(entry.id)}
-                                </button>{" "}
-                                approved since, so not in the PDF
-                                {entry.linesNow.kind === "ok" ? ` (${formatCents(entry.linesNow.totalCents)})` : ""}
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                        {verdict === "differs" && (
-                          <span className={styles.pdfNow}>
-                            These dates now add up to{" "}
-                            {comparison.nowTotalCents === null ? "an amount that cannot be worked out" : formatCents(comparison.nowTotalCents)}{" "}
-                            over {comparison.nowEntries === 1 ? "1 entry" : `${comparison.nowEntries} entries`}.
-                            {newer && <> The PDF exported {whenText(newer.record.createdAt)} covers them and replaces this one.</>}
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          {foldable > 0 && (
-            <button type="button" className={styles.linkButton} onClick={() => setShowAll((all) => !all)}>
-              {showAll
-                ? "Show only the newest PDF and any that need looking at"
-                : `Show all ${comparisons.length} PDFs: ${foldable} older ${foldable === 1 ? "one still matches or has" : "ones still match or have"} been replaced`}
-            </button>
-          )}
-        </>
-      )}
-      {unreadable > 0 && (
-        <p className={styles.noteWarn}>
-          {unreadable === 1
-            ? "1 PDF record on file cannot be read, so it is not compared here. It may be one of this property’s."
-            : `${unreadable} PDF records on file cannot be read, so they are not compared here. Some may be this property’s.`}
-        </p>
-      )}
-    </section>
-  );
-}
 
 /** Every line that counts, for one house: what was bought, and what each line cost as printed. */
 function ItemsTable({

@@ -58,23 +58,27 @@
   flex: 1;
   max-width: 400px;
   min-width: 220px;
-  padding: 10px 14px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
-  color: #f0f0f0;
+  height: var(--ctl-h);
+  padding: 0 14px;
+  background: var(--ctl-bg);
+  border: 1px solid var(--ctl-border);
+  border-radius: var(--ctl-radius);
+  color: var(--ctl-fg);
   font-size: 13px;
   font-family: inherit;
   outline: none;
-  transition: all 0.2s ease;
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
 }
 .createInput::placeholder {
-  color: rgba(255, 255, 255, 0.3);
+  color: var(--ctl-placeholder);
+}
+.createInput:hover {
+  border-color: var(--ctl-border-hover);
 }
 .createInput:focus {
-  border-color: rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.06);
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.04);
+  border-color: var(--ctl-focus);
+  background: var(--ctl-bg-hover);
+  box-shadow: var(--ctl-ring);
 }
 .createInput:disabled {
   opacity: 0.6;
@@ -129,10 +133,11 @@
 
 .codeInput {
   width: 7.5em;
-  padding: 10px 14px;
-  background: rgba(255, 255, 255, 0.04);
+  height: 44px;
+  padding: 0 14px;
+  background: var(--ctl-bg);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 10px;
+  border-radius: var(--ctl-radius);
   color: #ffffff;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 18px;
@@ -143,9 +148,9 @@
   transition: all 0.2s ease;
 }
 .codeInput:focus {
-  border-color: rgba(255, 255, 255, 0.25);
-  background: rgba(255, 255, 255, 0.06);
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.04);
+  border-color: var(--ctl-focus);
+  background: var(--ctl-bg-hover);
+  box-shadow: var(--ctl-ring);
 }
 .codeInput:disabled {
   opacity: 0.6;

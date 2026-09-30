@@ -29,7 +29,7 @@
  */
 
 import { useMemo, useState, type ReactNode } from "react";
-import { ChevronLeft, Minus, Plus, X } from "lucide-react";
+import { Minus, Plus, X } from "lucide-react";
 import {
   isEdited,
   itemsCents,
@@ -45,6 +45,7 @@ import {
 import { LIMITS, formatCents } from "@/app/lib/cleaners/model";
 import { fold, matchRank } from "@/app/lib/cleaners/text";
 import styles from "./cleaner.module.css";
+import { CleanerBar } from "./CleanerBar";
 
 /** How many suggestions show under an item at once. */
 const SUGGESTIONS_SHOWN = 5;
@@ -359,124 +360,119 @@ export function ItemsScreen(props: ItemsScreenProps) {
   if (viewing && photoUrl) return <PhotoViewer url={photoUrl} onClose={() => setViewing(false)} />;
 
   return (
-    <main className={styles.screen}>
-      <header className={styles.topBar}>
-        <button type="button" className={styles.backButton} onClick={props.onBack} disabled={sending !== null}>
-          <ChevronLeft aria-hidden />
-          <span>Back</span>
-        </button>
-        <p className={styles.topBarProperty}>{propertyName}</p>
-      </header>
+    <>
+      <CleanerBar onBack={props.onBack} backDisabled={sending !== null} title={propertyName} />
+      <main className={styles.screen}>
+        <h1 className={styles.title}>What did you buy?</h1>
 
-      <h1 className={styles.title}>What did you buy?</h1>
-
-      {photoUrl && (
-        <button type="button" className={styles.thumbButton} onClick={() => setViewing(true)}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={photoUrl} alt="" />
-          <span>See the receipt</span>
-        </button>
-      )}
-      {reading.kind === "reading" && (
-        <div className={styles.readingLock} role="status" aria-live="polite">
-          <span className={styles.spinner} aria-hidden />
-          <p>Reading the receipt… The items will appear here in a moment.</p>
-        </div>
-      )}
-      <ReadingNote reading={reading} />
-
-      {/* Nothing changes while the receipt is being read, or under a send in flight. */}
-      <ol className={styles.itemList} inert={locked}>
-        {lines.map((line, i) => (
-          <ItemCard
-            key={line.key}
-            line={line}
-            number={i + 1}
-            removable={lines.length > 1}
-            itemNames={itemNames}
-            problems={showProblems ? lineProblems(line) : {}}
-            onChange={(change) => props.onChangeLine(line.key, change)}
-            onRemove={() => props.onRemoveLine(line.key)}
-          />
-        ))}
-      </ol>
-
-      {lines.length < LIMITS.LINES_MAX && (
-        <button type="button" className={styles.secondary} onClick={props.onAddLine} disabled={locked}>
-          <Plus aria-hidden />
-          <span>Add item</span>
-        </button>
-      )}
-
-      {/* The tax, apart from the items (dispatch 21). */}
-      <div className={`${styles.taxCard} ${taxIssue ? styles.taxCardProblem : ""}`} inert={locked} data-problem={taxIssue ? true : undefined}>
-        <div className={styles.itemHead}>
-          <span className={styles.itemNumberWrap}>
-            <span className={styles.itemNumber}>Tax</span>
-            {taxTag && <span className={`${styles.aiTag} ${taxTag === "Edited" ? styles.aiTagEdited : ""}`}>{taxTag}</span>}
-          </span>
-        </div>
-        <label className={styles.fieldLabel} htmlFor="entry-tax">
-          Tax on the receipt
-        </label>
-        <div className={`${styles.priceField} ${taxIssue ? styles.fieldInvalid : ""}`}>
-          <span aria-hidden>$</span>
-          <input
-            id="entry-tax"
-            type="text"
-            inputMode="decimal"
-            placeholder="0.00"
-            value={tax}
-            autoComplete="off"
-            enterKeyHint="done"
-            aria-invalid={!!taxIssue}
-            aria-describedby={taxIssue ? "entry-tax-hint entry-tax-problem" : "entry-tax-hint"}
-            onChange={(e) => props.onChangeTax(e.target.value)}
-            onBlur={() => {
-              const read = readTax(tax);
-              if (read && read.text !== tax) props.onChangeTax(read.text);
-            }}
-          />
-        </div>
-        <p id="entry-tax-hint" className={styles.fieldHint}>
-          The HST, or GST and QST together, as printed. Leave it empty if the receipt shows none.
-        </p>
-        <Problem id="entry-tax-problem" text={taxIssue} />
-      </div>
-
-      <button type="button" className={styles.startOver} onClick={props.onStartOver} disabled={locked}>
-        Start over
-      </button>
-
-      <div className={styles.bottomBar}>
-        {sendMessage && (
-          <p className={styles.problem} role="alert">
-            {sendMessage}
-          </p>
+        {photoUrl && (
+          <button type="button" className={styles.thumbButton} onClick={() => setViewing(true)}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={photoUrl} alt="" />
+            <span>See the receipt</span>
+          </button>
         )}
-        <p className={styles.totalParts}>
-          <span>Items {formatCents(itemsCents(lines))}</span>
-          <span>Tax {readTax(tax) ? formatCents(readTax(tax)!.cents) : "—"}</span>
-        </p>
-        <p className={styles.total}>
-          <span>Total</span>
-          <span>{formatCents(totalCents)}</span>
-        </p>
-        <button
-          type="button"
-          className={styles.primary}
-          onClick={props.onSend}
-          disabled={locked}
-          aria-live="polite"
-        >
-          {sendLabel}
-        </button>
-        {sending !== null && (
-          <div className={styles.progress} aria-hidden>
-            <div style={{ width: `${Math.round(sending * 100)}%` }} />
+        {reading.kind === "reading" && (
+          <div className={styles.readingLock} role="status" aria-live="polite">
+            <span className={styles.spinner} aria-hidden />
+            <p>Reading the receipt… The items will appear here in a moment.</p>
           </div>
         )}
-      </div>
-    </main>
+        <ReadingNote reading={reading} />
+
+        {/* Nothing changes while the receipt is being read, or under a send in flight. */}
+        <ol className={styles.itemList} inert={locked}>
+          {lines.map((line, i) => (
+            <ItemCard
+              key={line.key}
+              line={line}
+              number={i + 1}
+              removable={lines.length > 1}
+              itemNames={itemNames}
+              problems={showProblems ? lineProblems(line) : {}}
+              onChange={(change) => props.onChangeLine(line.key, change)}
+              onRemove={() => props.onRemoveLine(line.key)}
+            />
+          ))}
+        </ol>
+
+        {lines.length < LIMITS.LINES_MAX && (
+          <button type="button" className={styles.secondary} onClick={props.onAddLine} disabled={locked}>
+            <Plus aria-hidden />
+            <span>Add item</span>
+          </button>
+        )}
+
+        {/* The tax, apart from the items (dispatch 21). */}
+        <div className={`${styles.taxCard} ${taxIssue ? styles.taxCardProblem : ""}`} inert={locked} data-problem={taxIssue ? true : undefined}>
+          <div className={styles.itemHead}>
+            <span className={styles.itemNumberWrap}>
+              <span className={styles.itemNumber}>Tax</span>
+              {taxTag && <span className={`${styles.aiTag} ${taxTag === "Edited" ? styles.aiTagEdited : ""}`}>{taxTag}</span>}
+            </span>
+          </div>
+          <label className={styles.fieldLabel} htmlFor="entry-tax">
+            Tax on the receipt
+          </label>
+          <div className={`${styles.priceField} ${taxIssue ? styles.fieldInvalid : ""}`}>
+            <span aria-hidden>$</span>
+            <input
+              id="entry-tax"
+              type="text"
+              inputMode="decimal"
+              placeholder="0.00"
+              value={tax}
+              autoComplete="off"
+              enterKeyHint="done"
+              aria-invalid={!!taxIssue}
+              aria-describedby={taxIssue ? "entry-tax-hint entry-tax-problem" : "entry-tax-hint"}
+              onChange={(e) => props.onChangeTax(e.target.value)}
+              onBlur={() => {
+                const read = readTax(tax);
+                if (read && read.text !== tax) props.onChangeTax(read.text);
+              }}
+            />
+          </div>
+          <p id="entry-tax-hint" className={styles.fieldHint}>
+            The HST, or GST and QST together, as printed. Leave it empty if the receipt shows none.
+          </p>
+          <Problem id="entry-tax-problem" text={taxIssue} />
+        </div>
+
+        <button type="button" className={styles.startOver} onClick={props.onStartOver} disabled={locked}>
+          Start over
+        </button>
+
+        <div className={styles.bottomBar}>
+          {sendMessage && (
+            <p className={styles.problem} role="alert">
+              {sendMessage}
+            </p>
+          )}
+          <p className={styles.totalParts}>
+            <span>Items {formatCents(itemsCents(lines))}</span>
+            <span>Tax {readTax(tax) ? formatCents(readTax(tax)!.cents) : "—"}</span>
+          </p>
+          <p className={styles.total}>
+            <span>Total</span>
+            <span>{formatCents(totalCents)}</span>
+          </p>
+          <button
+            type="button"
+            className={styles.primary}
+            onClick={props.onSend}
+            disabled={locked}
+            aria-live="polite"
+          >
+            {sendLabel}
+          </button>
+          {sending !== null && (
+            <div className={styles.progress} aria-hidden>
+              <div style={{ width: `${Math.round(sending * 100)}%` }} />
+            </div>
+          )}
+        </div>
+      </main>
+    </>
   );
 }

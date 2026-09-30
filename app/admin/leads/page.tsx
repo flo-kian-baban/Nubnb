@@ -17,9 +17,10 @@
  */
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { AlertTriangle, ArrowLeft, Home, Inbox, RefreshCw, Search, SlidersHorizontal } from "lucide-react";
+import { AlertTriangle, Inbox, RefreshCw, Search, SlidersHorizontal } from "lucide-react";
+import { AdminHeader } from "../components/AdminHeader";
+import { AdminSelect } from "../components/AdminSelect";
 import { PinGate } from "../components/PinGate";
 import { fetchLeads, type LeadResult } from "@/app/lib/leads-client";
 import {
@@ -133,36 +134,13 @@ function LeadInbox() {
 
   return (
     <div className={shared.container}>
-      {/* ── Header ── */}
-      <header className={shared.header}>
-        <div className={shared.headerInner}>
-          <div className={shared.headerLeft}>
-            <Link href="/" className={shared.backBtn}>
-              <Home size={16} />
-              <span>View Site</span>
-            </Link>
-            <div className={shared.headerDivider} />
-            <Link href="/admin" className={shared.backBtn}>
-              <ArrowLeft size={16} />
-              <span>Properties</span>
-            </Link>
-            <div className={shared.headerDivider} />
-            <h1>Leads</h1>
-          </div>
-
-          <div className={shared.headerRight}>
-            <button
-              type="button"
-              className={styles.btnGhost}
-              onClick={reload}
-              disabled={list.kind === "loading"}
-            >
-              <RefreshCw size={15} />
-              <span>Refresh</span>
-            </button>
-          </div>
-        </div>
-      </header>
+      {/* ── Header ── the shared one; this page's action is Refresh */}
+      <AdminHeader current="leads">
+        <button type="button" className={shared.btnGhost} onClick={reload} disabled={list.kind === "loading"}>
+          <RefreshCw size={15} aria-hidden />
+          <span>Refresh</span>
+        </button>
+      </AdminHeader>
 
       <main className={shared.main}>
         {list.kind === "loading" ? (
@@ -207,38 +185,33 @@ function LeadInbox() {
               </div>
 
               <div className={shared.filterGroup}>
-                <div className={shared.filterItem}>
-                  <SlidersHorizontal size={14} className={shared.filterIcon} />
-                  <select
-                    className={shared.filterSelect}
-                    aria-label="Filter by status"
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value as LeadStatus | "all")}
-                  >
-                    <option value="all">All statuses</option>
-                    {LEAD_STATUSES.map((s) => (
-                      <option key={s} value={s}>
-                        {LEAD_STATUS_LABELS[s]} ({statusCounts.get(s) ?? 0})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className={shared.filterItem}>
-                  <select
-                    className={shared.filterSelect}
-                    aria-label="Filter by source"
-                    value={sourceFilter}
-                    onChange={(e) => setSourceFilter(e.target.value as LeadSource | "all")}
-                  >
-                    <option value="all">All sources</option>
-                    {LEAD_SOURCES.map((s) => (
-                      <option key={s} value={s}>
-                        {LEAD_SOURCE_LABELS[s]} ({sourceCounts.get(s) ?? 0})
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <AdminSelect
+                  label="Filter by status"
+                  icon={<SlidersHorizontal size={14} />}
+                  value={statusFilter}
+                  onChange={(value) => setStatusFilter(value as LeadStatus | "all")}
+                  groups={[
+                    {
+                      options: [
+                        { value: "all", label: "All statuses" },
+                        ...LEAD_STATUSES.map((s) => ({ value: s, label: `${LEAD_STATUS_LABELS[s]} (${statusCounts.get(s) ?? 0})` })),
+                      ],
+                    },
+                  ]}
+                />
+                <AdminSelect
+                  label="Filter by source"
+                  value={sourceFilter}
+                  onChange={(value) => setSourceFilter(value as LeadSource | "all")}
+                  groups={[
+                    {
+                      options: [
+                        { value: "all", label: "All sources" },
+                        ...LEAD_SOURCES.map((s) => ({ value: s, label: `${LEAD_SOURCE_LABELS[s]} (${sourceCounts.get(s) ?? 0})` })),
+                      ],
+                    },
+                  ]}
+                />
 
                 <span className={shared.resultCount}>
                   {visible.length} of {leads.length}

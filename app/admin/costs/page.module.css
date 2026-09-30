@@ -112,7 +112,7 @@
   text-underline-offset: 3px;
 }
 
-/* ── Filters ── */
+/* ── Filters ── the controls themselves are AdminSelect and DateRangeField (components/) */
 .filters {
   display: flex;
   flex-direction: column;
@@ -125,66 +125,6 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
-}
-
-.dateField {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.45);
-}
-
-.dateInput {
-  padding: 9px 12px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 13px;
-  font-family: inherit;
-  color-scheme: dark;
-  outline: none;
-}
-.dateInput:focus {
-  border-color: rgba(255, 255, 255, 0.22);
-}
-
-.presetRow {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.preset {
-  padding: 5px 11px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: transparent;
-  color: rgba(255, 255, 255, 0.6);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-.preset:hover {
-  color: #fff;
-  border-color: rgba(255, 255, 255, 0.22);
-}
-.presetActive,
-.presetActive:hover {
-  background: #ffffff;
-  border-color: #ffffff;
-  color: #0a0a0c;
-}
-
-.presetNote {
-  margin-left: 6px;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.35);
 }
 
 /* ── Totals ── */
@@ -950,9 +890,6 @@
 }
 
 /* ── PDFs that went out, beside the ledger now ── */
-.pdfTable td {
-  vertical-align: top;
-}
 /* Under an entry's total: how it stands beside the newest PDF for its day. */
 .pdfMark {
   display: block;
@@ -965,21 +902,6 @@
 .pdfMarkWarn {
   font-weight: 700;
   color: #f0a63a;
-}
-.pdfOk {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: #6ee7a0;
-}
-.badgePdfWarn {
-  background: rgba(245, 158, 11, 0.12);
-  color: #f0a63a;
-  border-color: rgba(245, 158, 11, 0.35);
-}
-.badgePdfNote {
-  background: rgba(255, 255, 255, 0.05);
-  color: rgba(255, 255, 255, 0.65);
-  border-color: rgba(255, 255, 255, 0.16);
 }
 .badgePdfTag {
   margin-right: 4px;
@@ -1006,22 +928,6 @@
   flex-shrink: 0;
   margin-top: 2px;
 }
-.pdfChanges {
-  margin: 6px 0 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  font-size: 12.5px;
-  color: rgba(255, 255, 255, 0.8);
-}
-.pdfNow {
-  display: block;
-  margin-top: 6px;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.5);
-}
 .pdfList {
   margin: 0;
   padding: 0;
@@ -1047,4 +953,8 @@
 /* A PDF set in an entry's history: not one of the entry's own events. */
 .historyPdf .historyWhat {
   color: #a9c8e8;
+}
+
+.propertySelect {
+  max-width: 320px;
 }

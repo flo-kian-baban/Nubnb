@@ -1,0 +1,278 @@
+/* DateRangeField: the field, and the calendar under it. Tokens from the admin container. */
+.root {
+  position: relative;
+  display: inline-flex;
+}
+
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--ctl-h, 40px);
+  padding: 0 12px 0 14px;
+  background: var(--ctl-bg, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--ctl-border, rgba(255, 255, 255, 0.09));
+  border-radius: var(--ctl-radius, 12px);
+  color: var(--ctl-fg, rgba(255, 255, 255, 0.85));
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+.trigger:hover {
+  border-color: var(--ctl-border-hover, rgba(255, 255, 255, 0.16));
+  background: var(--ctl-bg-hover, rgba(255, 255, 255, 0.06));
+}
+.trigger:focus-visible,
+.triggerOpen,
+.triggerOpen:hover {
+  outline: none;
+  border-color: var(--ctl-focus, rgba(101, 153, 205, 0.6));
+  box-shadow: var(--ctl-ring, 0 0 0 3px rgba(101, 153, 205, 0.18));
+}
+
+.icon {
+  color: rgba(255, 255, 255, 0.4);
+}
+.chevron {
+  color: rgba(255, 255, 255, 0.4);
+  transition: transform 0.2s ease;
+}
+.triggerOpen .chevron {
+  transform: rotate(180deg);
+}
+
+.popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 80;
+  display: flex;
+  gap: 14px;
+  width: max-content;
+  max-width: calc(100vw - 40px);
+  padding: 12px;
+  background: var(--popover-bg, rgba(14, 15, 18, 0.97));
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--popover-border, rgba(255, 255, 255, 0.1));
+  border-radius: 16px;
+  box-shadow: var(--popover-shadow, 0 16px 48px rgba(0, 0, 0, 0.55));
+  animation: drop 0.15s ease-out;
+}
+
+/* The quick ranges, down the left. */
+.presets {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 128px;
+  padding-right: 14px;
+  border-right: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.preset {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.65);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.preset:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.06);
+}
+.presetActive,
+.presetActive:hover {
+  background: #ffffff;
+  color: #0a0a0c;
+}
+.preset:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 1px;
+}
+
+.calendar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+.note {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+}
+.clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #8dbbe8;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.clear:hover {
+  background: rgba(101, 153, 205, 0.12);
+}
+
+/* ── The calendar, drawn as the public site's "When" filter draws it ── */
+.dayPicker {
+  --rdp-accent-color: #ffffff !important;
+  --rdp-accent-background-color: rgba(255, 255, 255, 0.08) !important;
+  --rdp-background-color: rgba(255, 255, 255, 0.08) !important;
+  --rdp-selected-border: none !important;
+  --rdp-today-color: #ffffff !important;
+  --rdp-selected-color: #0a0a0c !important;
+  --rdp-range_start-color: #0a0a0c !important;
+  --rdp-range_end-color: #0a0a0c !important;
+  --rdp-range_middle-color: rgba(255, 255, 255, 0.85) !important;
+  --rdp-range_start-date-background-color: #ffffff !important;
+  --rdp-range_end-date-background-color: #ffffff !important;
+  --rdp-range_start-background: rgba(255, 255, 255, 0.08) !important;
+  --rdp-range_end-background: rgba(255, 255, 255, 0.08) !important;
+  --rdp-range_middle-background-color: rgba(255, 255, 255, 0.08) !important;
+  --rdp-range_middle-foreground-color: rgba(255, 255, 255, 0.85) !important;
+  --rdp-day_button-border-radius: 50% !important;
+  --rdp-day_button-height: 34px !important;
+  --rdp-day_button-width: 34px !important;
+  --rdp-disabled-opacity: 0.18 !important;
+  --rdp-outside-opacity: 0.25 !important;
+  --rdp-nav_button-height: 28px !important;
+  --rdp-nav_button-width: 28px !important;
+  --rdp-chevron-disabled-opacity: 0.3 !important;
+  margin: 0;
+  color: rgba(255, 255, 255, 0.88);
+  font-family: inherit;
+  font-size: 13px;
+}
+.dayPicker :global(.rdp-months) {
+  gap: 20px;
+}
+.dayPicker :global(.rdp-month_caption) {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #ffffff;
+  padding-bottom: 6px;
+}
+.dayPicker :global(.rdp-weekday) {
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.dayPicker :global(.rdp-button_previous),
+.dayPicker :global(.rdp-button_next) {
+  color: rgba(255, 255, 255, 0.5) !important;
+  border-radius: 8px;
+  transition: all 0.15s ease;
+}
+.dayPicker :global(.rdp-button_previous):hover,
+.dayPicker :global(.rdp-button_next):hover {
+  color: #ffffff !important;
+  background-color: rgba(255, 255, 255, 0.08);
+}
+.dayPicker :global(.rdp-chevron) {
+  fill: currentColor !important;
+}
+.dayPicker :global(.rdp-day_button) {
+  border-radius: 50%;
+  font-weight: 400;
+  transition: all 0.12s ease;
+}
+.dayPicker :global(.rdp-day):hover :global(.rdp-day_button) {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+.dayPicker :global(.rdp-today) :global(.rdp-day_button) {
+  font-weight: 700;
+  color: #ffffff;
+}
+.dayPicker :global(.rdp-range_start) :global(.rdp-day_button),
+.dayPicker :global(.rdp-range_end) :global(.rdp-day_button) {
+  background-color: #ffffff !important;
+  color: #0a0a0c !important;
+  font-weight: 700;
+  border-radius: 50%;
+}
+.dayPicker :global(.rdp-range_middle) :global(.rdp-day_button) {
+  background-color: transparent !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+  border-radius: 0;
+}
+.dayPicker :global(.rdp-day_button):focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 1px;
+  border-radius: 50%;
+}
+.dayPicker :global(.rdp-button_previous):focus-visible,
+.dayPicker :global(.rdp-button_next):focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 1px;
+  border-radius: 8px;
+}
+.dayPicker :global(.rdp-disabled) {
+  opacity: 0.18;
+}
+.dayPicker :global(.rdp-disabled) :global(.rdp-day_button) {
+  cursor: not-allowed;
+}
+
+@media (max-width: 760px) {
+  .popover {
+    flex-direction: column;
+    gap: 10px;
+  }
+  .presets {
+    flex-direction: row;
+    flex-wrap: wrap;
+    min-width: 0;
+    padding-right: 0;
+    padding-bottom: 10px;
+    border-right: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  }
+}
+
+@keyframes drop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .popover {
+    animation: none;
+  }
+}

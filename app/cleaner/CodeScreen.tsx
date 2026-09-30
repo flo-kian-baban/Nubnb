@@ -13,6 +13,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import type { SignInResult } from "@/app/lib/cleaner-client";
 import styles from "./cleaner.module.css";
+import { CleanerBar } from "./CleanerBar";
 
 const CODE_LENGTH = 4;
 
@@ -52,38 +53,41 @@ export function CodeScreen({ onCode }: { onCode: (code: string) => Promise<SignI
   const message = MESSAGES[state];
 
   return (
-    <main className={styles.codeScreen}>
-      <label className={`${styles.codeBoxes} ${state === "not-recognised" ? styles.codeBoxesWrong : ""}`}>
-        {Array.from({ length: CODE_LENGTH }, (_, i) => (
-          <span
-            key={i}
-            aria-hidden
-            className={`${styles.codeBox} ${focused && i === Math.min(value.length, CODE_LENGTH - 1) ? styles.codeBoxActive : ""} ${state === "checking" ? styles.codeBoxChecking : ""}`}
-          >
-            {value[i] ?? ""}
-          </span>
-        ))}
-        <input
-          ref={inputRef}
-          className={styles.codeInput}
-          type="text"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          autoComplete="off"
-          autoCorrect="off"
-          spellCheck={false}
-          maxLength={CODE_LENGTH}
-          aria-label="Your code"
-          aria-invalid={state === "not-recognised"}
-          value={value}
-          onChange={change}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-        />
-      </label>
-      <p className={styles.codeMessage} role="alert">
-        {message ?? ""}
-      </p>
-    </main>
+    <>
+      <CleanerBar />
+      <main className={styles.codeScreen}>
+        <label className={`${styles.codeBoxes} ${state === "not-recognised" ? styles.codeBoxesWrong : ""}`}>
+          {Array.from({ length: CODE_LENGTH }, (_, i) => (
+            <span
+              key={i}
+              aria-hidden
+              className={`${styles.codeBox} ${focused && i === Math.min(value.length, CODE_LENGTH - 1) ? styles.codeBoxActive : ""} ${state === "checking" ? styles.codeBoxChecking : ""}`}
+            >
+              {value[i] ?? ""}
+            </span>
+          ))}
+          <input
+            ref={inputRef}
+            className={styles.codeInput}
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            maxLength={CODE_LENGTH}
+            aria-label="Your code"
+            aria-invalid={state === "not-recognised"}
+            value={value}
+            onChange={change}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+          />
+        </label>
+        <p className={styles.codeMessage} role="alert">
+          {message ?? ""}
+        </p>
+      </main>
+    </>
   );
 }
