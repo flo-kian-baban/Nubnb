@@ -20,7 +20,7 @@ import {
   LayoutGrid,
   AlertTriangle,
   RefreshCw,
-  Receipt,
+  FileText,
   MapPin,
   Building2,
   BedDouble,
@@ -94,8 +94,12 @@ function filtersFromUrl() {
   };
 }
 
-/** A property's costs: its ledger, with its date range and both exports (dispatch 21). */
-const costsHref = (id: string) => `/admin/costs?property=${encodeURIComponent(id)}&status=approved`;
+/**
+ * A property's page (dispatch 23F): everything about it, bound to a month —
+ * its costs, its income, the statement's details, and finishing — with the
+ * statement preview beside. It opens on the current month.
+ */
+const propertyHref = (id: string) => `/admin/property?id=${encodeURIComponent(id)}`;
 
 export default function AdminPage() {
   const router = useRouter();
@@ -260,15 +264,15 @@ export default function AdminPage() {
   };
 
   /**
-   * Clicking a property opens its costs. The name and the Costs control are
+   * Clicking a property opens its page. The name and the Open control are
    * real links, for the keyboard and for opening in a new tab; a click
    * anywhere else on the row goes to the same place. A click on a control is
    * that control's own, and one that ends a text selection is not a click.
    */
-  const openCosts = (event: MouseEvent<HTMLTableRowElement>, id: string) => {
+  const openPage = (event: MouseEvent<HTMLTableRowElement>, id: string) => {
     if ((event.target as HTMLElement).closest("a, button")) return;
     if (window.getSelection()?.toString()) return;
-    router.push(costsHref(id));
+    router.push(propertyHref(id));
   };
 
   const handleAddNew = () => {
@@ -497,13 +501,13 @@ export default function AdminPage() {
                   <tr
                     key={p.id}
                     className={styles.propertyRow}
-                    onClick={(event) => openCosts(event, p.id)}
-                    aria-label={`Open the costs for ${p.name}`}
+                    onClick={(event) => openPage(event, p.id)}
+                    aria-label={`Open ${p.name}`}
                   >
                     <td>
-                      {/* The picture and the name are one link to the property's costs. Not prefetched:
-                          every row in view would ask the server for the costs page before anyone clicked. */}
-                      <Link href={costsHref(p.id)} prefetch={false} className={styles.propertyCell}>
+                      {/* The picture and the name are one link to the property's page. Not prefetched:
+                          every row in view would ask the server for the page before anyone clicked. */}
+                      <Link href={propertyHref(p.id)} prefetch={false} className={styles.propertyCell}>
                         <span className={styles.thumbWrapper}>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img src={p.coverImage} alt="" className={styles.thumb} />
@@ -523,13 +527,13 @@ export default function AdminPage() {
                     <td className={styles.actionsCell} onClick={(event) => event.stopPropagation()} title="">
                       <div className={styles.actionsFlex}>
                         <Link
-                          href={costsHref(p.id)}
+                          href={propertyHref(p.id)}
                           prefetch={false}
                           className={styles.rowAction}
-                          title={`Costs for ${p.name}: its ledger, dates and exports`}
+                          title={`${p.name}: its costs, income and statements`}
                         >
-                          <Receipt size={14} aria-hidden />
-                          <span>Costs</span>
+                          <FileText size={14} aria-hidden />
+                          <span>Open</span>
                         </Link>
                         <button type="button" className={styles.rowAction} onClick={() => handleEdit(p)} title={`Edit ${p.name}`}>
                           <Edit2 size={14} aria-hidden />

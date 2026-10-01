@@ -10,6 +10,16 @@
  *   Cleaning costs, <month>  → the costs page, this month     what cleaning is costing
  *   Empty nights, next 30    → the attention list             what could be sold (dispatch 22)
  *   Free this weekend        → the search, this weekend       what to offer a caller (dispatch 22)
+ *   Statements past due      → opens the statements panel     which statements are owed (23B, 23F)
+ *
+ * The Statements tile is the one that stays on the page (dispatch 23F,
+ * Kian's ruling of 2026-10-01): a click opens the statements panel under
+ * the tiles — the cross-property view that was the Reports section — with
+ * a month control, one row per property and each row the way into that
+ * property's page for that month. The panel reads the same answer the tile
+ * does, GET /api/admin/monthly-reports, so opening it costs nothing more.
+ * Which month it shows is kept in the address bar (?statements=yyyy-mm) so
+ * a reload keeps it open.
  *
  * The two availability figures come from the stored copy of every calendar
  * (one read, GET /api/admin/availability) and the property list the page
@@ -41,14 +51,15 @@
  * `countsInTotals` says.
  */
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { AlertTriangle, ArrowRight, BedDouble, CalendarDays, CalendarSearch, FileText, Inbox, Receipt, Wallet } from "lucide-react";
 import { fetchLeads } from "@/app/lib/leads-client";
 import { fetchCosts } from "@/app/lib/costs-client";
-import { fetchTracker } from "@/app/lib/reports-client";
-import { lastClosedMonth, monthLabel } from "@/app/lib/reports/model";
+import { fetchTracker, type TrackerData } from "@/app/lib/reports-client";
+import { isMonth, lastClosedMonth, monthLabel, type ReportDownloadView } from "@/app/lib/reports/model";
 import { trackerCounts, trackerRows } from "@/app/lib/reports/statement";
+import { StatementsPanel } from "./StatementsPanel";
 import { torontoDayOf } from "@/app/lib/costs/report";
 import { fetchAvailability, type AvailabilityData } from "@/app/lib/availability-client";
 import { homeFigures } from "@/app/lib/availability/attention";
@@ -127,7 +138,11 @@ export function ageText(minutes: number): string {
 }
 
 interface TileProps {
-  href: string;
+  /** Where the tile leads; with `onClick` instead, the tile is a button that opens something on this page. */
+  href?: string;
+  onClick?: () => void;
+  /** For a button tile: whether what it opens is open. */
+  open?: boolean;
   icon: ReactNode;
   value: ReactNode;
   label: string;
@@ -138,10 +153,10 @@ interface TileProps {
   busy?: boolean;
 }
 
-function Tile({ href, icon, value, label, detail, note, tone, busy }: TileProps) {
+function Tile({ href, onClick, open, icon, value, label, detail, note, tone, busy }: TileProps) {
   const toneClass = tone === "accent" ? styles.statCardAccent : tone === "alert" ? styles.statCardAlert : "";
-  return (
-    <Link href={href} prefetch={false} className={`${styles.statCard} ${toneClass}`} aria-busy={busy || undefined}>
+  const body = (
+    <>
       <div className={styles.statIcon}>{icon}</div>
       <div className={styles.statContent}>
         <span className={styles.statValue}>{value}</span>
@@ -150,6 +165,18 @@ function Tile({ href, icon, value, label, detail, note, tone, busy }: TileProps)
         {note && <span className={styles.statDetail}>{note}</span>}
       </div>
       <ArrowRight size={16} className={styles.statArrow} aria-hidden />
+    </>
+  );
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className={`${styles.statCard} ${styles.statCardButton} ${toneClass} ${open ? styles.statCardOpen : ""}`} aria-busy={busy || undefined} aria-expanded={open}>
+        {body}
+      </button>
+    );
+  }
+  return (
+    <Link href={href ?? "/admin"} prefetch={false} className={`${styles.statCard} ${toneClass}`} aria-busy={busy || undefined}>
+      {body}
     </Link>
   );
 }
@@ -168,22 +195,60 @@ export function DashboardStats({ properties }: DashboardStatsProps) {
   const [leads, setLeads] = useState<Read<ReturnType<typeof leadFigures>>>({ kind: "loading" });
   const [costs, setCosts] = useState<Read<ReturnType<typeof costFigures>>>({ kind: "loading" });
   const [availability, setAvailability] = useState<Read<AvailabilityData>>({ kind: "loading" });
-  /** The statements of the last closed month (dispatch 23B): the tracker's own counts. */
-  const [statements, setStatements] = useState<Read<{ month: string; counts: ReturnType<typeof trackerCounts> }>>({ kind: "loading" });
+  /** Everything the statements tile and panel work from (dispatches 23B, 23F): the tracker's one read, kept whole. */
+  const [statements, setStatements] = useState<Read<TrackerData>>({ kind: "loading" });
+  const [statementsAttempt, setStatementsAttempt] = useState(0);
+  /** True while the tracker is read again from the panel's Refresh; the rows stay until the answer comes. */
+  const [refreshing, setRefreshing] = useState(false);
+  const today = torontoDayOf(new Date());
+  /** The panel's month when it is open, from the address bar; null while it is closed. */
+  const [panelMonth, setPanelMonth] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    const wanted = new URLSearchParams(window.location.search).get("statements");
+    return isMonth(wanted) ? wanted : null;
+  });
 
   useEffect(() => {
     let cancelled = false;
     fetchTracker().then((result) => {
       if (cancelled) return;
-      if (!result.ok) {
-        setStatements({ kind: "error", title: result.title });
-        return;
-      }
-      const today = torontoDayOf(new Date());
-      const month = lastClosedMonth(today);
-      const rows = trackerRows({ month, today, properties: result.data.properties, reports: result.data.reports, drafts: result.data.drafts, downloads: result.data.downloads, management: result.data.management });
-      setStatements({ kind: "ready", data: { month, counts: trackerCounts(rows) } });
+      setRefreshing(false);
+      setStatements(result.ok ? { kind: "ready", data: result.data } : { kind: "error", title: result.title });
     });
+    return () => {
+      cancelled = true;
+    };
+  }, [statementsAttempt]);
+  const refreshStatements = () => {
+    setRefreshing(true);
+    setStatements((prev) => (prev.kind === "error" ? { kind: "loading" } : prev));
+    setStatementsAttempt((n) => n + 1);
+  };
+
+  // The panel's month in the address bar, so a reload keeps the panel open where it was.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (panelMonth === null) url.searchParams.delete("statements");
+    else url.searchParams.set("statements", panelMonth);
+    if (url.href !== window.location.href) window.history.replaceState(null, "", url.href);
+  }, [panelMonth]);
+
+  /** The tile's figures: the last closed month, whatever the panel shows. */
+  const statementCounts = useMemo(() => {
+    if (statements.kind !== "ready") return null;
+    const month = lastClosedMonth(today);
+    return { month, counts: trackerCounts(trackerRows({ month, today, ...statements.data })) };
+  }, [statements, today]);
+  const togglePanel = () => {
+    if (statements.kind === "error") refreshStatements();
+    setPanelMonth((was) => (was === null ? lastClosedMonth(today) : null));
+  };
+  const downloaded = useCallback((record: ReportDownloadView) => {
+    setStatements((prev) => (prev.kind === "ready" ? { kind: "ready", data: { ...prev.data, downloads: [...prev.data.downloads, record] } } : prev));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
     fetchAvailability().then((result) => {
       if (cancelled) return;
       setAvailability(result.ok ? { kind: "ready", data: result.data } : { kind: "error", title: result.title });
@@ -213,6 +278,7 @@ export function DashboardStats({ properties }: DashboardStatsProps) {
   const availabilityBusy = availability.kind === "loading" || (availability.kind === "ready" && properties === null);
 
   return (
+    <>
     <section className={styles.statsGrid} aria-label="At a glance">
       {leads.kind === "error" ? (
         <>
@@ -295,21 +361,22 @@ export function DashboardStats({ properties }: DashboardStatsProps) {
       )}
 
       {statements.kind === "error" ? (
-        <FailedTile href="/admin/reports" label="Statements could not be read" title={statements.title} />
+        <Tile onClick={togglePanel} open={false} icon={<AlertTriangle size={20} />} value="Unavailable" label="Statements could not be read" detail={`${statements.title} Click to try again.`} tone="alert" />
       ) : (
         <Tile
-          href={statements.kind === "ready" ? `/admin/reports?month=${statements.data.month}` : "/admin/reports"}
+          onClick={togglePanel}
+          open={panelMonth !== null}
           icon={<FileText size={20} />}
-          value={statements.kind === "ready" ? statements.data.counts.outstanding : "…"}
-          label={`Statements outstanding, ${statements.kind === "ready" ? monthLabel(statements.data.month) : "last month"}`}
+          value={statementCounts ? statementCounts.counts.outstanding : "…"}
+          label={`Statements past due, ${statementCounts ? monthLabel(statementCounts.month) : "last month"}`}
           detail={
-            statements.kind === "ready"
-              ? statements.data.counts.inScope === 0
+            statementCounts
+              ? statementCounts.counts.inScope === 0
                 ? "No property expects a statement for this month yet"
-                : `${statements.data.counts.finished} of ${statements.data.counts.inScope} finished${statements.data.counts.drafts > 0 ? ` · ${plural(statements.data.counts.drafts, "draft", "drafts")} in progress` : ""}`
+                : `${statementCounts.counts.finished} of ${statementCounts.counts.inScope} finished${statementCounts.counts.drafts > 0 ? ` · ${plural(statementCounts.counts.drafts, "draft", "drafts")} in progress` : ""}`
               : null
           }
-          tone={statements.kind === "ready" && statements.data.counts.outstanding > 0 ? "accent" : undefined}
+          tone={statementCounts && statementCounts.counts.outstanding > 0 ? "accent" : undefined}
           busy={statements.kind === "loading"}
         />
       )}
@@ -370,5 +437,20 @@ export function DashboardStats({ properties }: DashboardStatsProps) {
         </>
       )}
     </section>
+
+    {/* ── The statements panel (dispatch 23F): the tracker, under its tile ── */}
+    {panelMonth !== null && statements.kind === "ready" && (
+      <StatementsPanel
+        data={statements.data}
+        month={panelMonth}
+        today={today}
+        onMonth={setPanelMonth}
+        onClose={() => setPanelMonth(null)}
+        onRefresh={refreshStatements}
+        refreshing={refreshing}
+        onDownloaded={downloaded}
+      />
+    )}
+    </>
   );
 }

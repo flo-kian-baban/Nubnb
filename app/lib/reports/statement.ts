@@ -493,8 +493,13 @@ export type StatementState =
   | { kind: 'draft'; savedAt: string; superseding: boolean }
   | { kind: 'finished'; report: MonthlyReportSummaryLike; replaced: number };
 
+/**
+ * The words for each state. A closed month with nothing finished and nothing
+ * started reads "Past due" (dispatch 23F: "past due for closed months"); the
+ * current month with nothing started reads "Open, not yet due" (dispatch 23D).
+ */
 export const STATEMENT_STATE_LABELS: Record<StatementState['kind'], string> = {
-  outstanding: 'Outstanding',
+  outstanding: 'Past due',
   open: 'Open, not yet due',
   draft: 'Draft',
   finished: 'Finished',
@@ -658,6 +663,20 @@ export function propertyMonths(input: PropertyMonthsInputs): { rows: PropertyMon
     });
   }
   return { rows: rows.reverse(), outstanding };
+}
+
+/**
+ * One property-month's state and its reports, for the property page's month
+ * control (dispatch 23F): the same reading `trackerRows` and `propertyMonths`
+ * make, for any month, listed or not.
+ */
+export function propertyMonthState(input: { propertyId: string; month: string; today: string; reports: MonthlyReportSummaryLike[]; drafts: DraftLike[] }): Pick<PropertyMonthRow, 'state' | 'reports'> {
+  const current = new Set(currentReports(input.reports).map((report) => report.id));
+  const found = propertyMonth(input.propertyId, input.month, input.reports, input.drafts, current);
+  return {
+    state: stateOf(input.month, input.today, found),
+    reports: found.reports.map((report) => ({ report, replacedBy: input.reports.find((other) => other.supersedes?.reportId === report.id) ?? null })),
+  };
 }
 
 /** Loose ends for a month, in words: pending entries sent in it; late approved entries; adjustments waiting. */

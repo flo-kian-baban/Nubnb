@@ -1,13 +1,14 @@
 "use client";
 
 /**
- * Add a cost from the office (dispatch 23D, Kian's ruling of 2026-09-30):
+ * Log a cost from the office (dispatch 23D, Kian's ruling of 2026-09-30):
  * on a property's page, a description and an amount, optionally tax, with
  * no receipt. One call, POST /api/admin/cost-entries; the entry comes back
- * approved and marked `office`, and the page puts it in the ledger and
- * opens it. Nothing is optimistic: the list changes only to what the server
- * returns, and an answer that does not say whether the write landed is
- * reported as such, with Refresh rather than a second send.
+ * approved and marked `office`, and the page puts it in the month's costs
+ * and in the statement preview. Nothing is optimistic: the list changes
+ * only to what the server returns, and an answer that does not say whether
+ * the write landed is reported as such, with Refresh rather than a second
+ * send. On the property page since dispatch 23F.
  */
 
 import { useState, type FormEvent } from "react";
@@ -15,8 +16,8 @@ import { Plus } from "lucide-react";
 import type { Notice } from "../components/Notice";
 import { createOfficeEntry } from "@/app/lib/costs-client";
 import { LIMITS, formatCents, type CostEntryView } from "@/app/lib/cleaners/model";
-import { readAmount } from "./cost-display";
-import styles from "./page.module.css";
+import { readAmount } from "../costs/cost-display";
+import styles from "../costs/page.module.css";
 
 interface Props {
   propertyId: string;
@@ -52,7 +53,7 @@ export function AddCostForm({ propertyId, propertyName, onAdded, show }: Props) 
       tax.trim() !== "" && (taxRead === null || taxRead.startsWith("-")) ? "Check the tax: dollars and cents, like 12.50, or leave it empty." : null,
     ].filter((problem): problem is string => problem !== null);
     if (problems.length > 0 || amountRead === null) {
-      show({ tone: "error", title: "The cost was not added.", items: problems });
+      show({ tone: "error", title: "The cost was not logged.", items: problems });
       return;
     }
     setSaving(true);
@@ -63,12 +64,12 @@ export function AddCostForm({ propertyId, propertyName, onAdded, show }: Props) 
       onAdded(entry);
       close();
       const total = entry.linesNow.kind === "ok" ? formatCents(entry.linesNow.totalCents) : amountRead;
-      show({ tone: "success", title: `Added ${total}, approved.`, detail: "Marked as added by the office." });
+      show({ tone: "success", title: `Logged ${total}, approved.`, detail: "Marked as added by the office." });
       return;
     }
     show(
       result.unknown
-        ? { tone: "warning", title: "The cost may or may not have been recorded. Refresh the ledger before adding it again.", detail: result.title }
+        ? { tone: "warning", title: "The cost may or may not have been recorded. Refresh before logging it again.", detail: result.title }
         : { tone: "error", title: result.title, detail: result.detail },
     );
   };
@@ -77,14 +78,14 @@ export function AddCostForm({ propertyId, propertyName, onAdded, show }: Props) 
     return (
       <button type="button" className={styles.btnApprove} onClick={() => setOpen(true)}>
         <Plus size={15} aria-hidden />
-        <span>Add a cost</span>
+        <span>Log a cost</span>
       </button>
     );
   }
 
   return (
-    <form className={`${styles.inlineForm} ${styles.addCost}`} onSubmit={submit} aria-label="Add a cost">
-      <p className={styles.editorTitle}>Add a cost · {propertyName}</p>
+    <form className={`${styles.inlineForm} ${styles.addCost}`} onSubmit={submit} aria-label="Log a cost">
+      <p className={styles.editorTitle}>Log a cost · {propertyName}</p>
       <div className={styles.editorGrid}>
         <label className={styles.editorField}>
           <span className={styles.fieldLabel}>Description</span>
@@ -109,7 +110,7 @@ export function AddCostForm({ propertyId, propertyName, onAdded, show }: Props) 
       </div>
       <div className={styles.formRow}>
         <button type="submit" className={styles.btnApprove} disabled={saving}>
-          {saving ? "Adding…" : "Add and approve"}
+          {saving ? "Logging…" : "Log and approve"}
         </button>
         <button type="button" className={styles.btnGhost} disabled={saving} onClick={close}>
           Cancel

@@ -1,0 +1,613 @@
+/* The property's page (dispatch 23F): everything about one property, bound
+   to a month — four tabs on the left, the statement preview on the right.
+   The header, the buttons and the state badges come from ../page.module.css;
+   the entry pane and the add-cost form draw from ../costs/page.module.css.
+   The field and block styles are the statement editor's (dispatch 23B–23E),
+   moved here with it. */
+
+/* ── The head: the property, the month, its state ── */
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+  margin: 0 0 16px;
+}
+.title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  margin-right: auto;
+}
+.monthRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.monthStep {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+}
+.monthStep:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+.monthStep:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.monthSelect {
+  min-width: 280px;
+}
+.headState {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+/* ── Two columns: the tabs and their body, the preview ── */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(400px, 44%);
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .preview {
+    position: static;
+    height: 70vh;
+  }
+}
+.left {
+  min-width: 0;
+}
+
+/* The tabs: the costs page's shape. */
+.tabs {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  margin-bottom: 14px;
+  border-radius: 11px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 16px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.6);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tab:hover {
+  color: #fff;
+}
+.tabActive,
+.tabActive:hover {
+  background: #ffffff;
+  color: #0a0a0c;
+}
+.tabCount {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: inherit;
+}
+.tabActive .tabCount {
+  background: rgba(0, 0, 0, 0.1);
+}
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ── Blocks and fields (the editor's) ── */
+.block {
+  padding: 16px 18px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.blockHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 10px;
+}
+.blockTitle {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+}
+.blockTotal {
+  font-size: 13px;
+  font-weight: 700;
+  color: #e8edf3;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.blockActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.textInput {
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.25);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+}
+.textInput:focus {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 1px;
+}
+.textInput:disabled {
+  opacity: 0.6;
+}
+textarea.textInput {
+  height: auto;
+  min-height: 72px;
+  padding: 8px 10px;
+  resize: vertical;
+}
+textarea.addressInput {
+  min-height: 56px;
+}
+.inputInvalid {
+  border-color: rgba(239, 68, 68, 0.7);
+}
+.amountInput {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.fieldLabel {
+  display: block;
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.5);
+}
+.num {
+  text-align: right !important;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.muted {
+  color: rgba(255, 255, 255, 0.35);
+}
+.note {
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.45);
+}
+.noteWarn {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #f0a63a;
+}
+.mono {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+.verified {
+  font-size: 12.5px;
+  color: #6ee7a0;
+}
+
+/* ── Buttons ── */
+.btnGhost,
+.btnPrimary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+.btnGhost {
+  color: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.btnGhost:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+.btnPrimary {
+  color: #0a0a0c;
+  background: #ffffff;
+  border: 1px solid #ffffff;
+}
+.btnPrimary:hover:not(:disabled) {
+  background: #e8e8ea;
+}
+.btnGhost:disabled,
+.btnPrimary:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.btnSmall {
+  padding: 4px 9px;
+  font-size: 12px;
+}
+.linkButton {
+  padding: 0;
+  border: none;
+  background: none;
+  color: #8dbbe8;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+}
+.linkButton:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.linkButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+  text-decoration: none;
+}
+.removeBtn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: none;
+  color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+}
+.removeBtn:hover:not(:disabled) {
+  color: #ef5350;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+.removeBtn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* ── Lines: order, description, dates, quantity, rate, the computed amount, remove ── */
+.lineHead,
+.lineRow {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 172px 50px 88px 88px 32px;
+  gap: 8px;
+  align-items: center;
+}
+.lineHead {
+  padding: 0 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.45);
+}
+.lineRow {
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.lineRow:last-of-type {
+  border-bottom: none;
+}
+.lineDates {
+  min-width: 0;
+  font-size: 12.5px;
+  color: #e8edf3;
+}
+.lineAmount {
+  font-size: 13px;
+  color: #e8edf3;
+  font-variant-numeric: tabular-nums;
+}
+/* What a line written before dispatch 23D also carries: shown, kept, not edited. */
+.lineDetails {
+  grid-column: 2 / 7;
+  margin: 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+/* Below 1,300 px the preview takes its share of the width, so a line is two rows: the description, quantity, rate,
+   amount and remove on the first, the dates under the description on the second (and a line's earlier details under those). */
+@media (max-width: 1300px) {
+  .lineHead {
+    display: none;
+  }
+  .lineRow {
+    grid-template-columns: 28px minmax(0, 1fr) 50px 88px 88px 32px;
+    grid-template-areas:
+      "order desc qty rate amount remove"
+      "order dates dates dates dates dates"
+      "order details details details details details";
+  }
+  .lineRow > :nth-child(1) {
+    grid-area: order;
+  }
+  .lineRow > :nth-child(2) {
+    grid-area: desc;
+  }
+  .lineRow > :nth-child(3) {
+    grid-area: dates;
+  }
+  .lineRow > :nth-child(4) {
+    grid-area: qty;
+  }
+  .lineRow > :nth-child(5) {
+    grid-area: rate;
+  }
+  .lineRow > :nth-child(6) {
+    grid-area: amount;
+  }
+  .lineRow > :nth-child(7) {
+    grid-area: remove;
+  }
+  .lineRow .lineDetails {
+    grid-area: details;
+  }
+}
+.orderButtons {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.orderButtons button {
+  width: 24px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  line-height: 1;
+}
+.orderButtons button:hover:not(:disabled) {
+  color: #fff;
+}
+.orderButtons button:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+/* ── Details: Report For, the fee, the carried balance ── */
+.twoCols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px 12px;
+}
+.feeGrid {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px 12px;
+}
+.feeGrid .linkButton,
+.feeGrid .note,
+.feeGrid .noteWarn {
+  display: block;
+  margin-top: 4px;
+}
+.feeLabelCell {
+  grid-column: 1 / -1;
+}
+.carriedGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px;
+  gap: 10px 12px;
+  align-items: start;
+}
+.carriedGrid .note {
+  display: block;
+  margin-top: 4px;
+}
+.referenceGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 170px;
+  gap: 10px 12px;
+}
+
+/* ── Finish ── */
+.finishRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.stateLine {
+  font-size: 13px;
+  color: #a9b4c2;
+}
+.stateLine strong {
+  color: #e8edf3;
+}
+.stateLineWarn {
+  color: #f0a63a;
+}
+.versionList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.versionItem {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 13px;
+  color: #e8edf3;
+}
+.versionItem:last-child {
+  border-bottom: none;
+}
+
+/* ── Costs: the month's approved entries ── */
+.costsHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin: 0 0 10px;
+}
+.costsTotal {
+  font-size: 13px;
+  color: #c9d2dc;
+  font-variant-numeric: tabular-nums;
+}
+.costTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.costTable th {
+  text-align: left;
+  padding: 4px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.45);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.costTable td {
+  padding: 7px 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  vertical-align: top;
+  color: #e8edf3;
+}
+.costTable tbody tr:last-child td {
+  border-bottom: none;
+}
+.costRow {
+  cursor: pointer;
+}
+.costRow:hover td {
+  background: rgba(255, 255, 255, 0.03);
+}
+.costGroup td {
+  padding-top: 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+  border-bottom: none;
+}
+.costWhat {
+  overflow-wrap: anywhere;
+}
+.costMark {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.42);
+}
+.costMarkWarn {
+  color: #f0a63a;
+}
+.rowButton {
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.rowButton:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+/* The open entry, in place of the list: the costs page's pane, on this page. */
+.entryDrill {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+}
+.drillHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px 0;
+}
+
+/* ── The preview: two frames, swapped when the new one has loaded ── */
+.preview {
+  position: sticky;
+  top: 80px;
+  height: calc(100vh - 110px);
+  min-height: 520px;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #525659;
+}
+.previewFrame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #525659;
+}
+.previewHidden {
+  visibility: hidden;
+}
+.previewNote {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.45);
+}
+.previewEmpty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 13px;
+  line-height: 1.5;
+}

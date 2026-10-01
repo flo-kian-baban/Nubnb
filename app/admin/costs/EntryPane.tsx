@@ -43,7 +43,11 @@
  * "Cost" in place of "Items bought", has no receipt, and is corrected and
  * removed exactly as any other entry. Every entry links to its property's
  * page and to the statement it went into (or the one it will go into), so
- * nothing here is a dead end.
+ * nothing here is a dead end. Since dispatch 23F the statement is written
+ * on the property's page, so both links land there, on the right month.
+ *
+ * The pane is shown on the costs page beside the queue or the ledger, and
+ * on the property's page in place of the month's list (dispatch 23F).
  *
  * Changes are not optimistic. Each sends the length of the history this pane
  * shows, and the server refuses it if the entry changed since — another
@@ -56,7 +60,7 @@ import Link from "next/link";
 import { AlertTriangle, Ban, Check, Eye, Plus, Trash2, X } from "lucide-react";
 import { NoticeBanner, useNotice, type Notice } from "../components/Notice";
 import { currentReports, displayRef, monthLabel, monthOfDay } from "@/app/lib/reports/model";
-import type { PropertyStatementsState } from "./PropertyPanel";
+import type { PropertyStatements } from "@/app/lib/reports-client";
 import { changeEntryLine, changeEntryTax, markEntrySeen, setEntryStatus, type CostResult, type EntryChange } from "@/app/lib/costs-client";
 import {
   ENTRY_STATUS_LABELS,
@@ -95,6 +99,9 @@ import {
 } from "./cost-display";
 import { ReceiptImage } from "./ReceiptImage";
 import styles from "./page.module.css";
+
+/** What a page knows about one property's statements (dispatch 23D): read once per property, handed to the pane. */
+export type PropertyStatementsState = { kind: "loading" } | { kind: "ready"; data: PropertyStatements } | { kind: "error"; title: string; detail?: string; status: number };
 
 interface EntryPaneProps {
   entry: CostEntryView;
@@ -733,8 +740,9 @@ export function EntryPane({ entry, pdf, pattern, statements, onChanged, onClose 
  */
 function StatementLinks({ entry, statements }: { entry: CostEntryView; statements: PropertyStatementsState | null }) {
   const propertyId = entry.property.id;
-  const page = propertyId === null ? null : `/admin/costs?property=${encodeURIComponent(propertyId)}&status=approved`;
-  const editor = (month: string) => `/admin/reports/edit?property=${encodeURIComponent(propertyId ?? "")}&month=${month}`;
+  const page = propertyId === null ? null : `/admin/property?id=${encodeURIComponent(propertyId)}`;
+  /** The property's page on a month: where that month's statement is written and previewed (dispatch 23F). */
+  const editor = (month: string) => `/admin/property?id=${encodeURIComponent(propertyId ?? "")}&month=${month}`;
   const day = sentDay(entry.createdAt);
   const month = day === null ? null : monthOfDay(day);
 

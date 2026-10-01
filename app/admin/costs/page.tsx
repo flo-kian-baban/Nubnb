@@ -67,15 +67,16 @@
  * (kind `work`) is marked as such on its row, has no receipt, and needs an
  * admin's approval whatever its amount.
  *
- * ── The property's page (dispatch 23D, Kian's ruling of 2026-09-30) ──
- * A ledger is the property's page, where an admin works: beside its costs,
- * one more read (GET /api/admin/properties/[id]/statements) brings its
- * income rows and its statements (PropertyPanel), and "Add a cost…" writes
- * an office entry (AddCostForm): a description and an amount, optionally
- * tax, no receipt, approved on entry, marked `office` everywhere. The entry
- * pane reads the same per-property statements to say which statement an
- * entry went into, so an entry opened in the queue reaches its property and
- * its statement too.
+ * ── The property's page (dispatches 23D and 23F) ──
+ * Since dispatch 23F the property's page is /admin/property: its costs by
+ * month, its income lines, the statement's details and its finishing, with
+ * the statement preview beside — the one place an admin works on a
+ * property. This page keeps the queue and the ledger for any dates: a
+ * ledger links to the property's page, and the property's page links back
+ * here for the dates and exports the month does not cover. The entry pane
+ * reads one property's statements (GET /api/admin/properties/[id]/statements)
+ * to say which statement an entry went into, so an entry opened in the
+ * queue reaches its property and its statement too.
  *
  * The filters, the view and the open entry are mirrored into the URL
  * (?property=, ?status=, ?kind=, ?cleaner=, ?from=, ?to=, ?view=, ?entry=),
@@ -83,6 +84,7 @@
  */
 
 import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { AlertTriangle, Building2, Eye, FileSpreadsheet, FileText, ImageIcon, Pencil, Receipt, RefreshCw, Search, Wrench } from "lucide-react";
 import { AdminHeader } from "../components/AdminHeader";
@@ -91,9 +93,7 @@ import { DateRangeField } from "../components/DateRangeField";
 import { PinGate } from "../components/PinGate";
 import { NoticeBanner, useNotice } from "../components/Notice";
 import { fetchCosts, markEntrySeen, recordPdfExport } from "@/app/lib/costs-client";
-import { fetchPropertyStatements, type PropertyStatements } from "@/app/lib/reports-client";
-import { AddCostForm } from "./AddCostForm";
-import { PropertyPanel, type PropertyStatementsState } from "./PropertyPanel";
+import { fetchPropertyStatements } from "@/app/lib/reports-client";
 import {
   ENTRY_STATUSES,
   ENTRY_STATUS_LABELS,
@@ -133,7 +133,7 @@ import { pdfFor } from "@/app/lib/costs/pdf";
 import { workbookFor } from "@/app/lib/costs/xlsx";
 import { Absent, FieldText } from "../leads/lead-display";
 import { EntryStatusBadge, KindBadge, SentAt, quantityText, whenText } from "./cost-display";
-import { EntryPane } from "./EntryPane";
+import { EntryPane, type PropertyStatementsState } from "./EntryPane";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
 
@@ -194,7 +194,7 @@ function Costs() {
   const [recording, setRecording] = useState(false);
   /** The entry being marked seen, or "all" while the group is; null otherwise. */
   const [marking, setMarking] = useState<string | null>(null);
-  /** Each property's statements, read once when its page or one of its entries is open (dispatch 23D); absent means loading. */
+  /** Each property's statements, read once when one of its entries is open (dispatch 23D); absent means loading. */
   const [statementsByProperty, setStatementsByProperty] = useState<Record<string, PropertyStatementsState>>({});
   /** The properties whose statements have been asked for, so the read is made once; cleared on Refresh. */
   const requestedStatements = useRef(new Set<string>());
@@ -207,12 +207,6 @@ function Costs() {
       }));
     });
   }, []);
-  /** Read one property's statements again, from a button: back to loading first. */
-  const reloadStatements = (propertyId: string) => {
-    setStatementsByProperty((prev) => ({ ...prev, [propertyId]: { kind: "loading" } }));
-    loadStatements(propertyId);
-  };
-  const setStatementsData = useCallback((propertyId: string, data: PropertyStatements) => setStatementsByProperty((prev) => ({ ...prev, [propertyId]: { kind: "ready", data } })), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -348,20 +342,11 @@ function Costs() {
   const selected = selectedId === null ? null : (entries.find((entry) => entry.id === selectedId) ?? null);
   const today = torontoDayOf(new Date());
 
-  /** The ledger's property and the open entry's property each have their statements read once (dispatch 23D). */
-  const ledgerPropertyId = ledger && propertyName !== null ? filters.propertyId : null;
+  /** The open entry's property has its statements read once (dispatch 23D). */
   const selectedPropertyId = selected?.property.id ?? null;
   useEffect(() => {
-    for (const id of [ledgerPropertyId, selectedPropertyId]) {
-      if (id !== null && id !== "" && !requestedStatements.current.has(id)) loadStatements(id);
-    }
-  }, [ledgerPropertyId, selectedPropertyId, loadStatements, attempt]);
-
-  /** An office entry the server just wrote (dispatch 23D): into the list, and open. */
-  const addedEntry = (entry: CostEntryView) => {
-    setList((prev) => (prev.kind === "ready" ? { ...prev, entries: [entry, ...prev.entries] } : prev));
-    open(entry.id);
-  };
+    if (selectedPropertyId !== null && selectedPropertyId !== "" && !requestedStatements.current.has(selectedPropertyId)) loadStatements(selectedPropertyId);
+  }, [selectedPropertyId, loadStatements, attempt]);
   /** Every cleaner's last 90 days, read from the entries (dispatch 24); the ones worth a look head the queue. */
   const patterns = useMemo(() => watchList(entries, today), [entries, today]);
   const worthALook = useMemo(() => patterns.filter((pattern) => pattern.worthALook), [patterns]);
@@ -529,6 +514,14 @@ function Costs() {
                   <button type="button" className={styles.linkButton} onClick={() => setFilter({ status: NEEDS_ATTENTION })}>
                     Review queue{waiting > 0 ? ` (${waiting} waiting)` : ""}
                   </button>
+                  {propertyName !== null && (
+                    <>
+                      {" · "}
+                      <Link href={`/admin/property?id=${encodeURIComponent(filters.propertyId)}`} prefetch={false} className={styles.linkButton} title="The property's page: its costs by month, income, statement and preview">
+                        Property page
+                      </Link>
+                    </>
+                  )}
                 </p>
                 {propertyName === null && (
                   <p className={styles.noteWarn} role="alert">
@@ -562,17 +555,6 @@ function Costs() {
                   <>Every entry, whatever its status.</>
                 )}
               </p>
-            )}
-
-            {/* ── The property's income and statements (dispatch 23D): on its page only ── */}
-            {ledger && propertyName !== null && (
-              <PropertyPanel
-                propertyId={filters.propertyId}
-                statements={statementsByProperty[filters.propertyId] ?? { kind: "loading" }}
-                onReload={() => reloadStatements(filters.propertyId)}
-                onData={(data) => setStatementsData(filters.propertyId, data)}
-                show={show}
-              />
             )}
 
             {/* ── Worth a look (dispatch 24): only when the rule fires, only in the queue ── */}
@@ -610,14 +592,6 @@ function Costs() {
                   ))}
                 </ul>
               </section>
-            )}
-
-            {/* ── Costs: the block's head and its one action, on the property's page (dispatch 23D) ── */}
-            {ledger && propertyName !== null && (
-              <div className={styles.costsHead}>
-                <h3 className={styles.panelTitle}>Costs</h3>
-                <AddCostForm propertyId={filters.propertyId} propertyName={propertyName} onAdded={addedEntry} show={show} />
-              </div>
             )}
 
             {/* ── Filters ── */}
