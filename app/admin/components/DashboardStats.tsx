@@ -179,8 +179,9 @@ export function DashboardStats({ properties }: DashboardStatsProps) {
         setStatements({ kind: "error", title: result.title });
         return;
       }
-      const month = lastClosedMonth(torontoDayOf(new Date()));
-      const rows = trackerRows({ month, properties: result.data.properties, reports: result.data.reports, drafts: result.data.drafts, downloads: result.data.downloads, management: result.data.management });
+      const today = torontoDayOf(new Date());
+      const month = lastClosedMonth(today);
+      const rows = trackerRows({ month, today, properties: result.data.properties, reports: result.data.reports, drafts: result.data.drafts, downloads: result.data.downloads, management: result.data.management });
       setStatements({ kind: "ready", data: { month, counts: trackerCounts(rows) } });
     });
     fetchAvailability().then((result) => {

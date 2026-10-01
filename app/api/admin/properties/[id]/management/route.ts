@@ -1,8 +1,8 @@
 /**
- * GET /api/admin/properties/[id]/management — A property's co-owners, statement months and default fee (admin-only, dispatch 23B).
+ * GET /api/admin/properties/[id]/management — A property's "Report For", owners, statement months and default fee rate (admin-only, dispatch 23B).
  * PUT /api/admin/properties/[id]/management — Set the record whole, or clear it with `null`.
  *
- * Request (PUT):  `{ owners: [{ name, email? }], statementsFrom, statementsUntil, defaultFee: { label, amount } | null } | null`
+ * Request (PUT):  `{ reportFor: { name, address } | null, owners: [{ name, email? }], statementsFrom, statementsUntil, defaultFeeRate: "20" | null, defaultFee? } | null`
  * Response:       200 `{ success: true, data: { record: PropertyManagementView | null } }`
  *                 404 PROPERTY_NOT_FOUND when no property has that ID
  *
@@ -38,7 +38,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     return noStore(apiSuccess({ record: await getManagement(id) }));
   } catch (err) {
     console.error(`[management] read of ${id} failed: grpc code ${grpcCode(err)}`);
-    return noStore(apiFailure({ message: 'Could not read the co-owners record.', status: 503, code: 'MANAGEMENT_UNAVAILABLE' }));
+    return noStore(apiFailure({ message: 'Could not read the owners record.', status: 503, code: 'MANAGEMENT_UNAVAILABLE' }));
   }
 }
 
@@ -73,6 +73,6 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     return noStore(apiSuccess({ record: outcome.kind === 'set' ? outcome.record : null }));
   } catch (err) {
     console.error(`[management] write for ${id} failed: grpc code ${grpcCode(err)}`);
-    return noStore(apiFailure({ message: 'Could not save the co-owners record.', status: 502, code: 'MANAGEMENT_WRITE_FAILED', hint: 'It may or may not have been saved. Open the property again to see what is stored.' }));
+    return noStore(apiFailure({ message: 'Could not save the owners record.', status: 502, code: 'MANAGEMENT_WRITE_FAILED', hint: 'It may or may not have been saved. Open the property again to see what is stored.' }));
   }
 }

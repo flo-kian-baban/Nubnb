@@ -218,6 +218,32 @@ export function fetchCosts(): Promise<CostResult<CostsView>> {
 }
 
 /**
+ * Add a cost from the office (dispatch 23D): a description and an amount,
+ * optionally tax, as typed ("185.00"), for one property. The answer's entry
+ * is approved on creation and marked `office`. ENTRY_WRITE_FAILED means it
+ * may or may not have been written: the page says so and offers Refresh
+ * rather than sending it again.
+ */
+export function createOfficeEntry(request: {
+  propertyId: string;
+  description: string;
+  amount: string;
+  tax: string | null;
+}): Promise<CostResult<{ entry: CostEntryView }>> {
+  return call(
+    '/api/admin/cost-entries',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    },
+    'Adding the cost failed',
+    (data) => isRecord(data) && isCostEntryView(data.entry) && data.entry.kind === 'office' && data.entry.status === 'approved' && data.entry.property.id === request.propertyId,
+    ['ENTRY_WRITE_FAILED'],
+  );
+}
+
+/**
  * Record a PDF before downloading it: the property, the period the PDF
  * prints, and each entry in it with the history length the page shows. The
  * server records it only if that is what is stored now; REPORT_CHANGED means

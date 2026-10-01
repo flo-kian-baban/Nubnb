@@ -6,7 +6,9 @@
  * done" with its amount, and is never the part cut when the column is too
  * narrow, so each total can be read from what is listed. A work entry's
  * description (dispatch 24) wraps to a second line rather than being cut,
- * so the co-owner reads what was done.
+ * so the co-owner reads what was done; it is marked "Work:", and a cost the
+ * office added (dispatch 23D) "Office:", each explained in a note, so the
+ * three kinds are told apart on the page.
  *
  * Written by hand as PDF 1.4 with Helvetica and Helvetica-Bold, which every
  * PDF reader carries, so no font is embedded and no package is added
@@ -21,7 +23,7 @@
  * Client-safe, and pure: a report in, bytes out.
  */
 
-import { formatCents, type LineNow } from '@/app/lib/cleaners/model';
+import { formatCents, isOneLineKind, type LineNow } from '@/app/lib/cleaners/model';
 import { ELLIPSIS, MARGIN, MUTED, Page, RIGHT, assemble, fitted, widthOf, winAnsi, wrapped } from '@/app/lib/pdf/core';
 import { generatedLabel, periodLabel, shortDay, whatWasBought, type CostReport } from './report';
 
@@ -120,8 +122,8 @@ export function pdfFor(report: CostReport): Uint8Array<ArrayBuffer> {
   }
   const boughtWidth = COLUMN.ref - 12 - COLUMN.bought;
   report.entries.forEach((entry, i) => {
-    // A work entry's description wraps to a second line (dispatch 24); two lines at most, the rest cut with "…".
-    const work = entry.kind === 'work' ? twoLines(whatWasBought(entry.lines).items.join(', '), boughtWidth) : null;
+    // A work or office entry's description, marked by kind, wraps to a second line (dispatch 24); two lines at most, the rest cut with "…".
+    const work = isOneLineKind(entry.kind) ? twoLines(`${entry.kind === 'work' ? 'Work' : 'Office'}: ${whatWasBought(entry.lines).items.join(', ')}`, boughtWidth) : null;
     const secondLine = work !== null && work.length > 1;
     if (y - (secondLine ? 12 : 0) < LOWEST_ROW) nextPage(true);
     page.text(String(i + 1), COLUMN.number, y, 'regular', 10, MUTED, 'right');
@@ -152,9 +154,12 @@ export function pdfFor(report: CostReport): Uint8Array<ArrayBuffer> {
       ? ['Entries whose tax reads "in items" were sent before tax was recorded apart: any tax the cleaner typed is a line among their items, and inside their Items amount.']
       : []),
     ...(report.entries.some((entry) => entry.kind === 'work')
-      ? ['An entry marked as work is a handyman\'s work done for the property, at the price logged: no receipt, and Items is that price.']
+      ? ['An entry marked "Work:" is a handyman\'s work done for the property, at the price logged: no receipt, and Items is that price.']
       : []),
-    'Each entry is one receipt. Items is the sum of the amounts the receipt prints for each line, Tax is the receipt\'s tax, and Total is the two together; quantities are never multiplied.',
+    ...(report.entries.some((entry) => entry.kind === 'office')
+      ? ['An entry marked "Office:" was added by Nubnb\'s office, with no receipt: Items is the amount entered.']
+      : []),
+    'Each entry is one receipt, one piece of work, or one cost the office entered. Items is the sum of the amounts the receipt prints for each line, Tax is the receipt\'s tax, and Total is the two together; quantities are never multiplied.',
   ].flatMap((note) => wrapped(note, 'regular', 8.5, RIGHT - MARGIN));
 
   let top = y + ROW - 9;

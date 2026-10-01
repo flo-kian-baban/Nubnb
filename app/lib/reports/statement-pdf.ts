@@ -1,62 +1,54 @@
 /**
- * The monthly statement as a PDF, for a property's co-owners (dispatch 23B):
- * the head, the income rows, the recorded costs on a grey band (with the
- * late entries and the adjustments under their own captions), the fee, the
- * boxed closing figure, the notes, and on every page the running head and
- * the page number. Laid out over app/lib/pdf/core.ts, the writer the ledger
- * PDF uses, with its one addition, the filled rectangle.
+ * The Payment Summary as a PDF (dispatch 23E): the document NuBNB sends its
+ * owners, laid out as the reports it sends today — the NuBNB Suites mark,
+ * "Payment Summary", the reference, the date, "Your Revenue Share" at the
+ * top, "Report For", one table with Description · Transaction · Rate ·
+ * Amount, Total, the carried balance, Notes — over app/lib/pdf/core.ts, the
+ * writer the ledger PDF uses, with its image added for the mark.
  *
  * The same pure function runs in the editor on every change (the live
  * preview) and on the server at finish, on the frozen inputs; the bytes the
- * server stores are these bytes. A draft prints "Draft" where the reference
- * goes and no finish time; the finished statement prints its ref and the
- * time it was finished.
+ * server stores are these bytes. A draft says "Draft · not yet issued" under
+ * its reference; the finished statement does not.
+ *
+ * A statement finished before this (schema version 1 or 2) is drawn by the
+ * writer of its time, kept verbatim in statement-pdf-legacy.ts, so its
+ * preview is the bytes that were stored.
  *
  * Client-safe, and pure: a statement in, bytes out.
  */
 
 import { formatCents } from '@/app/lib/cleaners/model';
-import { shortDay } from '@/app/lib/costs/report';
-import { MARGIN, MUTED, PAGE_HEIGHT, Page, RIGHT, assemble, fitted, wrapped } from '@/app/lib/pdf/core';
-import { INCOME_SOURCE_LABELS, monthLabel } from './model';
-import { closingWords, nothingToReport, preparedFor, type Statement } from './statement';
+import { PAGE_HEIGHT, PAGE_WIDTH, Page, assemble, fitted, widthOf, winAnsi, wrapped, type PdfImage } from '@/app/lib/pdf/core';
+import { LOGO_HEIGHT, LOGO_WIDTH, logoBytes } from '@/app/lib/pdf/logo';
+import { dateText } from './model';
+import { printedLines, type AnyStatement, type Statement } from './statement';
+import { legacyStatementPdf } from './statement-pdf-legacy';
 
-const torontoTime = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Toronto', hour: 'numeric', minute: '2-digit' });
-const torontoDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Toronto', year: 'numeric', month: '2-digit', day: '2-digit' });
+/** What the head prints under the mark: the company, its site and both numbers, as the reports NuBNB sends print them. */
+export const NUBNB_CONTACT = ['www.nubnb.ca', '416-738-1850', '647-500-8043'] as const;
+export const NUBNB_NAME = 'NuBNB Suites';
 
-/** "3 Oct 2026, 11:42 a.m., Toronto time". */
-function finishedLabel(iso: string): string {
-  const time = Date.parse(iso);
-  if (!Number.isFinite(time)) return iso;
-  const parts = Object.fromEntries(torontoDay.formatToParts(new Date(time)).map((part) => [part.type, part.value]));
-  return `${shortDay(`${parts.year}-${parts.month}-${parts.day}`)}, ${torontoTime.format(time)}, Toronto time`;
-}
-
-/** "3 Oct 2026" for a finish time; the ISO text if it does not parse. */
-function finishedDay(iso: string | null): string {
-  if (iso === null) return 'an earlier date';
-  const time = Date.parse(iso);
-  if (!Number.isFinite(time)) return iso;
-  const parts = Object.fromEntries(torontoDay.formatToParts(new Date(time)).map((part) => [part.type, part.value]));
-  return shortDay(`${parts.year}-${parts.month}-${parts.day}`);
-}
-
-/** The band behind the recorded cost rows, and the text on it. */
-const BAND_GRAY = 0.93;
-const ROW = 18;
-const AMOUNT_RIGHT = RIGHT - 8;
+const M = 46;
+const R = PAGE_WIDTH - M;
+const TOP = PAGE_HEIGHT - 40;
 /** Where the running flow must stop on a page, leaving room for the foot. */
-const LOWEST = MARGIN + 30;
-const TOP = PAGE_HEIGHT - 92;
+const LOWEST = 58;
+const ROW = 17;
+const WRAP = 12;
+/** The table's columns: each number is the right edge it is aligned to; the description runs from DESC to DESC_END. */
+const COL = { desc: M + 4, descEnd: R - 230, qty: R - 170, rate: R - 90, amount: R - 6 };
+const BAR_GRAY = 0.22;
+const BAND_GRAY = 0.94;
+const MUTED = 0.45;
 
-/** An amount in brackets when negative, as the ledger PDF prints money taken off. */
-const money = (cents: number) => (cents < 0 ? `(${formatCents(-cents)})` : formatCents(cents));
+const LOGO_DRAWN_WIDTH = 84;
+const LOGO_DRAWN_HEIGHT = Math.round((LOGO_DRAWN_WIDTH * LOGO_HEIGHT) / LOGO_WIDTH * 100) / 100;
 
-/**
- * The running layout: a page, a baseline, and the way to the next page. Each
- * block asks for the room it needs before drawing, so a block never splits
- * across a page break mid-row.
- */
+/** A label that ends with a colon, as the reports print "Total:" and "Balance From June:". */
+const withColon = (label: string) => (label.trim().endsWith(':') ? label.trim() : `${label.trim()}:`);
+
+/** The running layout: a page, a baseline, and the way to the next page. */
 class Flow {
   readonly pages: Page[] = [];
   page!: Page;
@@ -64,218 +56,153 @@ class Flow {
   constructor(private readonly runningHead: string) {
     this.nextPage();
   }
-  /** A new page. The first page carries the head; every later one the running head. */
   nextPage() {
     const first = this.pages.length === 0;
     this.page = new Page();
     this.pages.push(this.page);
-    if (!first) this.page.text(fitted(this.runningHead, 'regular', 9, RIGHT - MARGIN), MARGIN, PAGE_HEIGHT - 62, 'regular', 9, MUTED);
     this.y = TOP;
+    if (!first) {
+      this.page.text(fitted(this.runningHead, 'regular', 9, R - M), M, this.y - 4, 'regular', 9, MUTED);
+      this.y -= 24;
+    }
   }
-  /** Make sure `height` points are left; else a new page. */
-  need(height: number) {
-    if (this.y - height < LOWEST) this.nextPage();
-  }
-  /** A section caption with a rule under it. */
-  caption(text: string) {
-    this.need(ROW * 2.2);
-    this.y -= 6;
-    this.page.text(text.toUpperCase(), MARGIN, this.y, 'bold', 8.5, MUTED);
-    this.page.rule(MARGIN, RIGHT, this.y - 6, 0.75, 0.6);
-    this.y -= ROW + 2;
-  }
-  /** A quiet line of text, wrapped. */
-  note(text: string, gray = 0.4, size = 8.5) {
-    for (const line of wrapped(text, 'regular', size, RIGHT - MARGIN)) {
-      this.need(12);
-      this.page.text(line, MARGIN, this.y, 'regular', size, gray);
-      this.y -= size + 3;
+  /** Make sure `height` points are left; else a new page, and `onBreak` draws what a continued block repeats. */
+  need(height: number, onBreak?: () => void) {
+    if (this.y - height < LOWEST) {
+      this.nextPage();
+      onBreak?.();
     }
   }
 }
 
-/** The statement's bytes. */
-export function statementPdf(statement: Statement): Uint8Array<ArrayBuffer> {
-  const month = monthLabel(statement.month);
-  const flow = new Flow(`${statement.propertyName} · ${month} · Nubnb monthly statement`);
+/** The Payment Summary's bytes; a legacy statement goes to the writer of its time. */
+export function statementPdf(statement: AnyStatement): Uint8Array<ArrayBuffer> {
+  if (statement.legacy) return legacyStatementPdf(statement);
+  return paymentSummaryPdf(statement);
+}
+
+function paymentSummaryPdf(statement: Statement): Uint8Array<ArrayBuffer> {
+  const reference = statement.reference.trim();
+  const refText = reference ? `# ${reference}` : '# (no reference yet)';
+  const flow = new Flow(`Payment Summary · ${refText} · continued`);
   const { page } = flow;
-  const refText = statement.ref === null ? 'Draft' : `Ref ${statement.ref}`;
 
-  // ── Head ──
-  page.text('NUBNB · MONTHLY STATEMENT', MARGIN, 730, 'bold', 8.5, MUTED);
-  page.text(refText, RIGHT, 730, 'bold', 8.5, statement.ref === null ? 0.6 : MUTED, 'right');
-  page.text(fitted(statement.propertyName, 'bold', 20, RIGHT - MARGIN), MARGIN, 702, 'bold', 20);
-  page.text(month, MARGIN, 682, 'regular', 11.5);
-  page.text(fitted(preparedFor(statement), 'regular', 9.5, RIGHT - MARGIN), MARGIN, 667, 'regular', 9.5, MUTED);
-  flow.y = 648;
-  if (statement.supersedes) {
-    flow.note(`Replaces the statement finished ${finishedDay(statement.supersedes.finishedAt)} (ref ${statement.supersedes.ref}). Reason: ${statement.supersedes.reason}`, 0.25, 9);
-    flow.y -= 4;
-  }
-  if (nothingToReport(statement)) {
-    flow.y -= 4;
-    flow.page.text('Nothing to report this month.', MARGIN, flow.y, 'bold', 11);
-    flow.y -= ROW;
+  // ── The mark, and the company ──
+  page.image('Im1', M, TOP - LOGO_DRAWN_HEIGHT, LOGO_DRAWN_WIDTH, LOGO_DRAWN_HEIGHT);
+  let left = TOP - LOGO_DRAWN_HEIGHT - 20;
+  page.text(NUBNB_NAME, M, left, 'bold', 10);
+  for (const line of NUBNB_CONTACT) {
+    left -= 13;
+    page.text(line, M, left, 'regular', 9.5);
   }
 
-  // ── Income ──
-  flow.caption('Income');
-  const INCOME = { stay: MARGIN, source: MARGIN + 92, label: MARGIN + 140, reference: RIGHT - 150 };
-  if (statement.income.length === 0) {
-    flow.need(ROW);
-    flow.page.text('No income recorded.', MARGIN, flow.y, 'regular', 10, MUTED);
-    flow.y -= ROW;
-  }
-  for (const row of statement.income) {
-    flow.need(ROW);
-    const stay = row.from && row.to ? (row.from === row.to ? shortDay(row.from) : `${shortDay(row.from)} – ${shortDay(row.to)}`) : (row.from ?? row.to ?? '');
-    flow.page.text(fitted(stay, 'regular', 9, INCOME.source - 6 - INCOME.stay), INCOME.stay, flow.y, 'regular', 9, 0.3);
-    flow.page.text(INCOME_SOURCE_LABELS[row.source], INCOME.source, flow.y, 'regular', 10);
-    flow.page.text(fitted(row.label, 'regular', 10, INCOME.reference - 8 - INCOME.label), INCOME.label, flow.y, 'regular', 10);
-    flow.page.text(fitted(row.reference ?? '', 'regular', 9, 70), INCOME.reference, flow.y, 'regular', 9, MUTED);
-    flow.page.text(money(row.amountCents), AMOUNT_RIGHT, flow.y, 'regular', 10, 0, 'right');
-    flow.page.rule(MARGIN, RIGHT, flow.y - 6, 0.9, 0.4);
-    flow.y -= ROW;
-  }
-  flow.need(ROW);
-  flow.page.text('Total income', MARGIN, flow.y, 'bold', 10);
-  flow.page.text(money(statement.incomeCents), AMOUNT_RIGHT, flow.y, 'bold', 10, 0, 'right');
-  flow.y -= ROW + 4;
-
-  // ── Costs, on the band ──
-  flow.caption('Costs');
-  flow.note("Recorded from receipts and work approved in Nubnb's cost ledger. They are shown as recorded and cannot be edited here.", 0.4, 8.5);
-  flow.y -= 2;
-  const COST = { number: MARGIN + 16, date: MARGIN + 28, bought: MARGIN + 96, ref: RIGHT - 232, items: RIGHT - 120, tax: RIGHT - 62 };
-  const costHeader = () => {
-    flow.need(ROW * 1.5);
-    const y = flow.y;
-    flow.page.text('#', COST.number, y, 'bold', 8, MUTED, 'right');
-    flow.page.text('Date', COST.date, y, 'bold', 8, MUTED);
-    flow.page.text('What was bought / work done', COST.bought, y, 'bold', 8, MUTED);
-    flow.page.text('Ref', COST.ref, y, 'bold', 8, MUTED);
-    flow.page.text('Items', COST.items, y, 'bold', 8, MUTED, 'right');
-    flow.page.text('Tax', COST.tax, y, 'bold', 8, MUTED, 'right');
-    flow.page.text('Total', AMOUNT_RIGHT, y, 'bold', 8, MUTED, 'right');
-    flow.y -= ROW - 4;
-  };
-  const costRow = (n: number, row: Statement['costs'][number]) => {
-    flow.need(ROW);
-    const y = flow.y;
-    flow.page.rect(MARGIN - 6, y - 6, RIGHT - MARGIN + 12, ROW, BAND_GRAY);
-    flow.page.text(String(n), COST.number, y, 'regular', 9.5, MUTED, 'right');
-    flow.page.text(shortDay(row.day), COST.date, y, 'regular', 9.5);
-    flow.page.text(fitted(row.kind === 'work' ? `Work: ${row.description}` : row.description, 'regular', 9.5, COST.ref - 12 - COST.bought), COST.bought, y, 'regular', 9.5);
-    flow.page.text(row.ref, COST.ref, y, 'regular', 9.5, MUTED);
-    flow.page.text(formatCents(row.itemsCents), COST.items, y, 'regular', 9.5, 0, 'right');
-    flow.page.text(row.taxCents === null ? '—' : formatCents(row.taxCents), COST.tax, y, 'regular', 9.5, row.taxCents === null ? MUTED : 0, 'right');
-    flow.page.text(formatCents(row.totalCents), AMOUNT_RIGHT, y, 'regular', 9.5, 0, 'right');
-    if (row.corrected) flow.page.text('*', AMOUNT_RIGHT + 1.5, y, 'regular', 9.5);
-    flow.y -= ROW;
-  };
-  const monthRows = statement.costs.filter((row) => row.group === 'month');
-  const earlierRows = statement.costs.filter((row) => row.group === 'earlier');
-  let n = 0;
-  if (monthRows.length === 0 && earlierRows.length === 0 && statement.adjustments.length === 0) {
-    flow.need(ROW);
-    flow.page.text('No costs recorded this month.', MARGIN, flow.y, 'regular', 10, MUTED);
-    flow.y -= ROW;
-  }
-  if (monthRows.length > 0) {
-    costHeader();
-    for (const row of monthRows) costRow(++n, row);
-  }
-  if (earlierRows.length > 0) {
-    flow.need(ROW * 2.5);
-    flow.y -= 4;
-    flow.page.text('From earlier months, not previously reported', MARGIN, flow.y, 'bold', 9);
-    flow.y -= ROW - 4;
-    costHeader();
-    for (const row of earlierRows) costRow(++n, row);
-  }
-  if (statement.adjustments.length > 0) {
-    flow.need(ROW * 2.5);
-    flow.y -= 4;
-    flow.page.text('Adjustments to earlier statements', MARGIN, flow.y, 'bold', 9);
-    flow.y -= ROW - 4;
-    flow.need(ROW * 1.5);
-    flow.page.text('Entry', COST.date, flow.y, 'bold', 8, MUTED);
-    flow.page.text('Statement', COST.bought, flow.y, 'bold', 8, MUTED);
-    flow.page.text('Printed', COST.items, flow.y, 'bold', 8, MUTED, 'right');
-    flow.page.text('Now', COST.tax, flow.y, 'bold', 8, MUTED, 'right');
-    flow.page.text('Difference', AMOUNT_RIGHT, flow.y, 'bold', 8, MUTED, 'right');
-    flow.y -= ROW - 4;
-    for (const row of statement.adjustments) {
-      flow.need(ROW);
-      const y = flow.y;
-      flow.page.rect(MARGIN - 6, y - 6, RIGHT - MARGIN + 12, ROW, BAND_GRAY);
-      flow.page.text(row.entryId.slice(0, 6), COST.date, y, 'regular', 9.5);
-      flow.page.text(`ref ${row.statementId.slice(0, 6)}${row.nowCents === 0 ? ' · no longer in the ledger' : ''}`, COST.bought, y, 'regular', 9.5, 0.3);
-      flow.page.text(formatCents(row.printedCents), COST.items, y, 'regular', 9.5, 0, 'right');
-      flow.page.text(formatCents(row.nowCents), COST.tax, y, 'regular', 9.5, 0, 'right');
-      flow.page.text(money(row.deltaCents), AMOUNT_RIGHT, y, 'regular', 9.5, 0, 'right');
-      flow.y -= ROW;
+  // ── Report For ──
+  if (statement.reportFor && statement.reportFor.name.trim() !== '') {
+    left -= 26;
+    page.text('Report For:', M, left, 'regular', 9.5, MUTED);
+    left -= 15;
+    page.text(fitted(statement.reportFor.name, 'bold', 10, 250), M, left, 'bold', 10);
+    for (const line of statement.reportFor.address.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)) {
+      left -= 13;
+      page.text(fitted(line, 'regular', 9.5, 250), M, left, 'regular', 9.5);
     }
   }
-  flow.need(ROW);
-  flow.page.text('Total costs', MARGIN, flow.y, 'bold', 10);
-  flow.page.text(money(statement.costsCents), AMOUNT_RIGHT, flow.y, 'bold', 10, 0, 'right');
-  flow.y -= ROW + 4;
 
-  // ── Fee ──
-  flow.caption('Management fee');
-  flow.need(ROW);
-  if (statement.fee === null) {
-    flow.page.text('No fee this month', MARGIN, flow.y, 'regular', 10, MUTED);
-  } else {
-    flow.page.text(fitted(statement.fee.label, 'regular', 10, RIGHT - MARGIN - 90), MARGIN, flow.y, 'regular', 10);
-    flow.page.text(money(statement.fee.amountCents), AMOUNT_RIGHT, flow.y, 'regular', 10, 0, 'right');
+  // ── Title, reference, date, the headline figure ──
+  page.text('Payment Summary', R, TOP - 22, 'regular', 26, 0.25, 'right');
+  page.text(fitted(refText, 'regular', 11, 300), R, TOP - 40, 'regular', 11, MUTED, 'right');
+  let right = TOP - 40;
+  if (statement.draft) {
+    right -= 13;
+    page.text('Draft · not yet issued', R, right, 'regular', 8.5, 0.55, 'right');
   }
-  flow.y -= ROW + 6;
+  if (statement.supersedes) {
+    right -= 13;
+    const dated = statement.supersedes.reportDate ? ` dated ${dateText(statement.supersedes.reportDate)}` : '';
+    page.text(fitted(`Replaces # ${statement.supersedes.ref}${dated} · ${statement.supersedes.reason}`, 'regular', 8.5, 330), R, right, 'regular', 8.5, MUTED, 'right');
+  }
+  right -= 30;
+  const BLOCK_LEFT = R - 290;
+  page.text('Date:', BLOCK_LEFT + 10, right, 'regular', 10, MUTED);
+  page.text(statement.reportDate ? dateText(statement.reportDate) : '—', COL.amount, right, 'regular', 10, 0, 'right');
+  right -= 12;
+  page.rect(BLOCK_LEFT, right - 20, R - BLOCK_LEFT, 26, BAND_GRAY);
+  page.text('Your Revenue Share:', BLOCK_LEFT + 10, right - 12, 'bold', 11);
+  page.text(formatCents(statement.payableCents), COL.amount, right - 12, 'bold', 11, 0, 'right');
+  right -= 20;
 
-  // ── Closing figure, boxed ──
-  const closing = closingWords(statement.payableCents);
-  flow.need(ROW * 5 + 20);
-  const boxTop = flow.y + 10;
-  const boxHeight = ROW * 4 + 22;
-  flow.page.rect(MARGIN - 6, boxTop - boxHeight, RIGHT - MARGIN + 12, boxHeight, 0.96);
-  flow.page.rule(MARGIN - 6, RIGHT + 6, boxTop, 0.6, 0.8);
-  flow.page.rule(MARGIN - 6, RIGHT + 6, boxTop - boxHeight, 0.6, 0.8);
-  let y = boxTop - 16;
-  for (const [label, cents] of [['Income', statement.incomeCents], ['Costs', -statement.costsCents], ['Management fee', -statement.feeCents]] as const) {
-    flow.page.text(label, MARGIN, y, 'regular', 9.5, 0.3);
-    flow.page.text(money(cents), AMOUNT_RIGHT, y, 'regular', 9.5, 0.3, 'right');
-    y -= ROW - 2;
+  // ── The table ──
+  flow.y = Math.min(left, right) - 34;
+  const header = () => {
+    const y = flow.y;
+    flow.page.rect(M - 6, y - 6, R - M + 12, 20, BAR_GRAY);
+    flow.page.text('Description', COL.desc, y, 'regular', 9.5, 1);
+    flow.page.text('Transaction', COL.qty, y, 'regular', 9.5, 1, 'right');
+    flow.page.text('Rate', COL.rate, y, 'regular', 9.5, 1, 'right');
+    flow.page.text('Amount', COL.amount, y, 'regular', 9.5, 1, 'right');
+    flow.y -= ROW + 6;
+  };
+  header();
+  const rows = printedLines(statement);
+  if (rows.length === 0) {
+    flow.need(ROW, header);
+    flow.page.text('Nothing to report this month.', COL.desc, flow.y, 'regular', 10, MUTED);
+    flow.y -= ROW;
   }
-  flow.page.rule(MARGIN, RIGHT, y + 8, 0.6, 0.6);
-  y -= 4;
-  flow.page.text(closing.label, MARGIN, y, 'bold', 12);
-  flow.page.text(closing.amount, AMOUNT_RIGHT, y, 'bold', 12, 0, 'right');
-  flow.y = boxTop - boxHeight - ROW;
+  for (const row of rows) {
+    const lines = wrapped(row.description, 'regular', 10, COL.descEnd - COL.desc);
+    const height = ROW + Math.max(0, lines.length - 1) * WRAP;
+    flow.need(height, header);
+    const y = flow.y;
+    lines.forEach((line, i) => flow.page.text(line, COL.desc, y - i * WRAP, 'regular', 10));
+    flow.page.text(String(row.quantity), COL.qty, y, 'regular', 10, 0.1, 'right');
+    flow.page.text(formatCents(row.rateCents), COL.rate, y, 'regular', 10, 0.1, 'right');
+    flow.page.text(formatCents(row.amountCents), COL.amount, y, 'regular', 10, 0, 'right');
+    flow.page.rule(M - 6, R + 6, y - height + ROW - 7, 0.88, 0.4);
+    flow.y -= height;
+  }
+
+  // ── Total, the carried balance ──
+  flow.need(ROW * 2.5 + (statement.carried ? ROW : 0));
+  flow.y -= 10;
+  flow.page.text('Total:', COL.rate, flow.y, 'regular', 10, MUTED, 'right');
+  flow.page.text(formatCents(statement.totalCents), COL.amount, flow.y, 'bold', 10.5, 0, 'right');
+  flow.y -= ROW;
+  if (statement.carried) {
+    const label = withColon(statement.carried.label);
+    const width = widthOf(winAnsi(label), 'regular', 10);
+    flow.page.text(width > 250 ? fitted(label, 'regular', 10, 250) : label, COL.rate, flow.y, 'regular', 10, MUTED, 'right');
+    flow.page.text(formatCents(statement.carried.amountCents), COL.amount, flow.y, 'regular', 10, 0, 'right');
+    flow.y -= ROW;
+  }
 
   // ── Notes ──
   if (statement.notes && statement.notes.trim() !== '') {
-    flow.caption('Notes to the owners');
-    for (const paragraph of statement.notes.split(/\n+/)) flow.note(paragraph, 0.1, 9.5);
-    flow.y -= 6;
+    flow.need(ROW * 2.5);
+    flow.y -= 14;
+    flow.page.text('Notes:', M, flow.y, 'regular', 9.5, MUTED);
+    flow.y -= 15;
+    for (const paragraph of statement.notes.split(/\r?\n/)) {
+      if (paragraph.trim() === '') {
+        flow.y -= 6;
+        continue;
+      }
+      for (const line of wrapped(paragraph, 'regular', 9.5, R - M)) {
+        flow.need(13);
+        flow.page.text(line, M, flow.y, 'regular', 9.5, 0.1);
+        flow.y -= 13;
+      }
+    }
   }
-  const standard = [
-    ...(statement.costs.some((row) => row.corrected) ? ['* Corrected by Nubnb against the receipt.'] : []),
-    ...(statement.costs.some((row) => row.kind === 'work') ? ['An entry marked "Work" is a handyman\'s work done for the property, at the price logged: no receipt, and Items is that price.'] : []),
-    ...(statement.pendingLeftOut > 0 ? [`${statement.pendingLeftOut === 1 ? '1 entry' : `${statement.pendingLeftOut} entries`} sent in ${month} ${statement.pendingLeftOut === 1 ? 'was' : 'were'} still under review when this statement was finished and ${statement.pendingLeftOut === 1 ? 'is' : 'are'} not in it; once approved ${statement.pendingLeftOut === 1 ? 'it' : 'they'} will appear in a later statement.`] : []),
-    'Each cost is one receipt or one piece of work. Items is the sum of the amounts the receipt prints for each line, Tax is the receipt\'s tax, and Total is the two together; quantities are never multiplied. Nubnb keeps every receipt; an entry\'s reference finds it.',
-    statement.finishedAt === null ? 'Draft: not yet finished. The reference and the finish time appear when it is.' : `Statement finished ${finishedLabel(statement.finishedAt)} · ref ${statement.ref}`,
-  ];
-  flow.y -= 2;
-  for (const line of standard) flow.note(line, 0.4, 8.5);
 
   // ── Every page ──
   flow.pages.forEach((p, i) => {
-    p.text(`${statement.propertyName} · ${month}`.length > 70 ? fitted(`${statement.propertyName} · ${month}`, 'regular', 8, 380) : `${statement.propertyName} · ${month}`, MARGIN, 34, 'regular', 8, 0.5);
-    p.text(`Page ${i + 1} of ${flow.pages.length}`, RIGHT, 34, 'regular', 8, 0.5, 'right');
+    p.text(`${NUBNB_NAME} · ${NUBNB_CONTACT[0]}`, M, 30, 'regular', 8, 0.5);
+    p.text(`${refText} · Page ${i + 1} of ${flow.pages.length}`, R, 30, 'regular', 8, 0.5, 'right');
   });
 
-  const title = `Nubnb statement – ${statement.propertyName} – ${month}${statement.ref ? ` – ${statement.ref}` : ' – draft'}`;
-  const created = statement.finishedAt !== null && Number.isFinite(Date.parse(statement.finishedAt)) ? new Date(statement.finishedAt) : new Date(0);
-  return assemble(flow.pages, title, created);
+  const images: PdfImage[] = [{ name: 'Im1', width: LOGO_WIDTH, height: LOGO_HEIGHT, data: logoBytes() }];
+  const title = `Payment Summary ${reference || 'draft'}`;
+  const created = statement.reportDate && Number.isFinite(Date.parse(statement.reportDate)) ? new Date(`${statement.reportDate}T12:00:00Z`) : new Date(0);
+  return assemble(flow.pages, title, created, images);
 }

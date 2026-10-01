@@ -135,6 +135,8 @@ export const LIMITS = {
   AUTO_APPROVE_UNDER_CENTS: 20_000,
   /** A handyman's description of the work done: NFC, trimmed, no control characters. */
   WORK_DESCRIPTION_MAX: 200,
+  /** An office-entered cost's description (dispatch 23D), likewise. */
+  OFFICE_DESCRIPTION_MAX: 200,
   /** One receipt line's name, likewise. */
   LINE_NAME_MAX: 120,
   /** Lines on one entry. At least one. */
@@ -231,21 +233,38 @@ export function roleOf(fields: { role?: unknown }): string {
 }
 
 /**
- * The two kinds of entry (dispatch 24): a receipt a cleaner sent, or work a
- * handyman did. Absent on every entry written before this, and absent means
- * `receipt`, for ever.
+ * The kinds of entry: a receipt a cleaner sent, work a handyman did
+ * (dispatch 24), or a cost an admin added from the office (dispatch 23D,
+ * Kian's ruling of 2026-09-30). Absent on every entry written before
+ * dispatch 24, and absent means `receipt`, for ever. An office entry is a
+ * description and an amount, optionally tax, with no receipt and no
+ * account: `cleanerId` null, `receipts` empty, approved on creation by the
+ * admin actor, since the admin is the approver.
  */
-export const ENTRY_KINDS = ['receipt', 'work'] as const;
+export const ENTRY_KINDS = ['receipt', 'work', 'office'] as const;
 export type EntryKind = (typeof ENTRY_KINDS)[number];
 
 export const ENTRY_KIND_LABELS: Record<EntryKind, string> = {
   receipt: 'Receipt',
   work: 'Work',
+  office: 'Added by the office',
 };
 
 export function isEntryKind(value: unknown): value is EntryKind {
   return typeof value === 'string' && (ENTRY_KINDS as readonly string[]).includes(value);
 }
+
+/**
+ * Whether an entry of this kind is one description and one amount: a work
+ * entry and an office entry are. Its one line's name may run to the
+ * description limit, and no line is ever added to it.
+ */
+export function isOneLineKind(kind: string): boolean {
+  return kind === 'work' || kind === 'office';
+}
+
+/** How an office entry's approval is written on its history: the admin added it, so it is approved on entry. */
+export const OFFICE_APPROVAL_REASON = 'Added by the office: approved on entry';
 
 /**
  * An entry's review states. Every entry is written "pending". An admin moves

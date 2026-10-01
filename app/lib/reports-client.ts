@@ -42,15 +42,59 @@ export interface StatementBundle {
   management: PropertyManagementView | null;
 }
 
-/** The draft as the page saves it: amounts as typed strings, "1234.50". */
+/**
+ * A line as the page sends it (dispatch 23E): a description, its dates, a
+ * quantity and a rate as typed, "60.00" or "-60.00"; the server computes
+ * the amount. The two optional fields are sent back only on a line loaded
+ * with them, exactly as loaded.
+ */
+export interface LinePayload {
+  id: string;
+  description: string;
+  from: string | null;
+  to: string | null;
+  quantity: number;
+  rate: string;
+  source?: string;
+  reference?: string | null;
+}
+
+/** The fee as the page sends it: the rate in percent ("20") or null, the base, the amount or null for the computed one. */
+export interface FeePayload {
+  label: string;
+  rate: string | null;
+  base: string;
+  amount: string | null;
+}
+
+export interface CarriedPayload {
+  label: string;
+  amount: string;
+  fromReportId: string | null;
+}
+
+/** The draft as the page saves it, whole (version 3). */
 export interface DraftPayload {
   propertyId: string;
   month: string;
   revision: number;
-  income: { id: string; source: string; label: string; reference: string | null; from: string | null; to: string | null; amount: string }[];
-  fee: { label: string; amount: string } | null;
+  reference: string;
+  reportDate: string;
+  lines: LinePayload[];
+  fee: FeePayload | null;
+  carried: CarriedPayload | null;
   notes: string | null;
   supersedes: { reportId: string; reason: string } | null;
+}
+
+/** Everything a property's page shows about its statements (dispatch 23D). */
+export interface PropertyStatements {
+  propertyName: string;
+  reports: MonthlyReportView[];
+  drafts: StatementDraftView[];
+  downloads: ReportDownloadView[];
+  management: PropertyManagementView | null;
+  unreadable: { reports: number; drafts: number; downloads: number };
 }
 
 const isRecord = (data: unknown): data is Record<string, unknown> => !!data && typeof data === 'object' && !Array.isArray(data);
@@ -85,7 +129,7 @@ async function call<T>(url: string, init: RequestInit, action: string, isExpecte
   return { ok: true, data: body.data as T };
 }
 
-const isDraft = (data: unknown): boolean => isRecord(data) && typeof data.id === 'string' && typeof data.revision === 'number' && Array.isArray(data.income) && typeof data.month === 'string';
+const isDraft = (data: unknown): boolean => isRecord(data) && typeof data.id === 'string' && typeof data.revision === 'number' && Array.isArray(data.lines) && typeof data.month === 'string';
 const isReport = (data: unknown): boolean => isRecord(data) && typeof data.id === 'string' && typeof data.month === 'string' && typeof data.payableCents === 'number' && isRecord(data.pdf) && typeof data.pdf.sha256 === 'string';
 
 export function fetchTracker(): Promise<ReportResult<TrackerData>> {
@@ -100,6 +144,13 @@ export function fetchStatementBundle(propertyId: string, month: string): Promise
   );
 }
 
+/** One property's statements, drafts, downloads and management record, for its page. */
+export function fetchPropertyStatements(propertyId: string): Promise<ReportResult<PropertyStatements>> {
+  return call(`/api/admin/properties/${encodeURIComponent(propertyId)}/statements`, {}, 'Loading the statements failed', (data) =>
+    isRecord(data) && typeof data.propertyName === 'string' && Array.isArray(data.reports) && data.reports.every(isReport) && Array.isArray(data.drafts) && data.drafts.every(isDraft) && Array.isArray(data.downloads) && (data.management === null || isRecord(data.management)) && isRecord(data.unreadable),
+  );
+}
+
 /** Save the draft whole. DRAFT_CHANGED means the page has fallen behind; the page reloads the draft. */
 export function saveDraft(payload: DraftPayload): Promise<ReportResult<{ draft: StatementDraftView }>> {
   return call('/api/admin/monthly-reports/draft', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }, 'Saving the draft failed', (data) => isRecord(data) && isDraft(data.draft), ['DRAFT_SAVE_FAILED']);
@@ -108,6 +159,11 @@ export function saveDraft(payload: DraftPayload): Promise<ReportResult<{ draft: 
 /** Finish the statement. The answer's report is the frozen object the PDF was made from. */
 export function finishStatement(claim: FinishClaim & { propertyId: string; month: string; draftRevision: number }): Promise<ReportResult<{ report: MonthlyReportView }>> {
   return call('/api/admin/monthly-reports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(claim) }, 'Finishing the statement failed', (data) => isRecord(data) && isReport(data.report), ['STATEMENT_RECORD_FAILED']);
+}
+
+/** Set "Report For" on the property's record from the editor (dispatch 23E); null clears it. */
+export function setReportFor(propertyId: string, reportFor: { name: string; address: string } | null): Promise<ReportResult<{ record: PropertyManagementView }>> {
+  return call(`/api/admin/properties/${encodeURIComponent(propertyId)}/report-for`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(reportFor) }, 'Saving who the report is for failed', (data) => isRecord(data) && isRecord(data.record), ['REPORT_FOR_WRITE_FAILED']);
 }
 
 /** A fresh 60-second link to a finished statement's PDF; one download record is made. */

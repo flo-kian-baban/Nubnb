@@ -6,8 +6,11 @@
  * creation date in the Info dictionary. Three drawing operations: text, a
  * horizontal rule, and a filled rectangle (`re f`), the last one added for
  * the monthly statement's shaded band and boxed closing figure
- * (reports/statement-pdf.ts). Each layout — the ledger report, the
- * statement — is its own module over this one.
+ * (reports/statement-pdf.ts) — and, since dispatch 23E, an image: a
+ * Flate-compressed RGB XObject `assemble` is handed and `Page.image` draws,
+ * for the NuBNB Suites mark on the Payment Summary. With no image handed,
+ * the file is byte for byte what it was. Each layout — the ledger report,
+ * the statement — is its own module over this one.
  *
  * Client-safe, and pure.
  */
@@ -73,6 +76,7 @@ export function winAnsi(text: string): number[] {
     if (code === 0x09 || code === 0x0a || code === 0x0d) bytes.push(0x20);
     else if ((code >= 0x20 && code <= 0x7e) || (code >= 0xa0 && code <= 0xff)) bytes.push(code);
     else if (code === 0x2212) bytes.push(0x2d); // minus sign
+    else if (code === 0x30fb) bytes.push(0xb7); // katakana middle dot, as the reports NuBNB sends use it: "Resolution Payout・Jul 28–29"
     else bytes.push(WIN_ANSI_EXTRA[code] ?? QUESTION_MARK);
   }
   return bytes;
@@ -145,6 +149,28 @@ export class Page {
   rect(x: number, y: number, width: number, height: number, gray: number) {
     this.ops.push(`${gray} g ${pt(x)} ${pt(y)} ${pt(width)} ${pt(height)} re f`);
   }
+
+  /** An image handed to `assemble` under `name`, drawn `width` × `height` points from its bottom-left corner. */
+  image(name: string, x: number, y: number, width: number, height: number) {
+    this.ops.push(`q ${pt(width)} 0 0 ${pt(height)} ${pt(x)} ${pt(y)} cm /${name} Do Q`);
+  }
+}
+
+/** An image for `assemble`: 8-bit RGB rows, Flate-compressed, drawn by `Page.image(name, …)`. */
+export interface PdfImage {
+  /** The resource name the pages draw it by: "Im1". */
+  name: string;
+  width: number;
+  height: number;
+  /** The deflated RGB samples, row by row, three bytes a pixel. */
+  data: Uint8Array;
+}
+
+/** Bytes as a one-character-per-byte string, so a binary stream sits in the file like everything else. */
+function latin1(bytes: Uint8Array): string {
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 8192) out += String.fromCharCode(...bytes.subarray(i, i + 8192));
+  return out;
 }
 
 /** UTF-16BE, as a PDF text string for the document's title. */
@@ -169,10 +195,16 @@ export function pdfDate(when: Date): string {
   return `D:${iso.slice(0, 4)}${iso.slice(5, 7)}${iso.slice(8, 10)}${iso.slice(11, 13)}${iso.slice(14, 16)}${iso.slice(17, 19)}Z`;
 }
 
-/** The file: numbered objects, their cross-reference table and the trailer. */
-export function assemble(pages: Page[], title: string, created: Date): Uint8Array<ArrayBuffer> {
+/**
+ * The file: numbered objects, their cross-reference table and the trailer.
+ * Images, when any, are objects after the pages and are named in every
+ * page's resources; with none, nothing in the file changes.
+ */
+export function assemble(pages: Page[], title: string, created: Date, images: PdfImage[] = []): Uint8Array<ArrayBuffer> {
   const objects: string[] = [];
   const pageObject = (i: number) => 6 + i * 2;
+  const imageObject = (j: number) => 6 + pages.length * 2 + j;
+  const xobjects = images.length === 0 ? '' : ` /XObject << ${images.map((image, j) => `/${image.name} ${imageObject(j)} 0 R`).join(' ')} >>`;
 
   objects[0] = '<< /Type /Catalog /Pages 2 0 R >>';
   objects[1] = `<< /Type /Pages /Kids [${pages.map((_, i) => `${pageObject(i)} 0 R`).join(' ')}] /Count ${pages.length} >>`;
@@ -184,8 +216,14 @@ export function assemble(pages: Page[], title: string, created: Date): Uint8Arra
     const stream = page.ops.join('\n');
     objects[pageObject(i) - 1] =
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_WIDTH} ${PAGE_HEIGHT}] ` +
-      `/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${pageObject(i) + 1} 0 R >>`;
+      `/Resources << /Font << /F1 3 0 R /F2 4 0 R >>${xobjects} >> /Contents ${pageObject(i) + 1} 0 R >>`;
     objects[pageObject(i)] = `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`;
+  });
+  images.forEach((image, j) => {
+    // The samples are binary; one character per byte keeps the offsets right.
+    objects[imageObject(j) - 1] =
+      `<< /Type /XObject /Subtype /Image /Width ${image.width} /Height ${image.height} /ColorSpace /DeviceRGB ` +
+      `/BitsPerComponent 8 /Filter /FlateDecode /Length ${image.data.length} >>\nstream\n${latin1(image.data)}\nendstream`;
   });
 
   // One character per byte throughout; the second line marks the file as binary.

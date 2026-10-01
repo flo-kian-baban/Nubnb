@@ -204,7 +204,7 @@ export async function getCleanerFacingName(id: string): Promise<ReadResult<strin
 }
 
 /** Set the property's cleaner-facing name; an empty string or null clears it. */
-/** The property's co-owners record (dispatch 23B), from its own route; null when it has none. */
+/** The property's statements record (dispatch 23B; "Report For" since 23E), from its own route; null when it has none. */
 export async function getManagement(id: string): Promise<ReadResult<PropertyManagementView | null>> {
   let res: Response;
   try {
@@ -215,12 +215,12 @@ export async function getManagement(id: string): Promise<ReadResult<PropertyMana
   const body = await res.json().catch(() => ({}));
   const data = body && typeof body === 'object' ? (body as { data?: { record?: unknown } }).data : undefined;
   if (!res.ok || !data || (data.record !== null && (typeof data.record !== 'object' || !Array.isArray((data.record as { owners?: unknown }).owners)))) {
-    return { ok: false, error: `Could not read the co-owners record (HTTP ${res.status}).` };
+    return { ok: false, error: `Could not read the statements record (HTTP ${res.status}).` };
   }
   return { ok: true, data: data.record as PropertyManagementView | null };
 }
 
-/** Set the co-owners record whole, or clear it with null. */
+/** Set the statements record whole, or clear it with null. */
 export async function setManagement(id: string, record: ManagementPayload | null): Promise<MutationResult<{ record: PropertyManagementView | null }>> {
   let res: Response;
   try {
@@ -230,20 +230,22 @@ export async function setManagement(id: string, record: ManagementPayload | null
       body: JSON.stringify(record),
     });
   } catch (error) {
-    return networkFailure(error, 'Could not reach the server to save the co-owners record');
+    return networkFailure(error, 'Could not reach the server to save the statements record');
   }
-  if (!res.ok) return toFailure(res, 'Failed to save the co-owners record');
+  if (!res.ok) return toFailure(res, 'Failed to save the statements record');
   const body = await res.json().catch(() => ({}));
   const stored = body && typeof body === 'object' ? (body as { data?: { record?: unknown } }).data?.record : undefined;
   return { ok: true, data: { record: stored && typeof stored === 'object' ? (stored as PropertyManagementView) : null } };
 }
 
-/** The record as the form saves it: amounts as typed, "150.00". */
+/** The record as the form saves it: the rate as typed, "20"; the legacy default fee sent back as loaded, "150.00". */
 export interface ManagementPayload {
+  reportFor: { name: string; address: string } | null;
   owners: { name: string; email: string | null }[];
   statementsFrom: string;
   statementsUntil: string | null;
-  defaultFee: { label: string; amount: string } | null;
+  defaultFeeRate: string | null;
+  defaultFee?: { label: string; amount: string } | null;
 }
 
 export async function setCleanerFacingName(id: string, name: string | null): Promise<MutationResult<{ name: string | null }>> {

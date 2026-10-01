@@ -56,6 +56,16 @@
  * written by createWorkEntry through POST /api/cleaner/work, with the same
  * send-once guard and the same in-transaction re-read of the account.
  *
+ * ── Office entries (dispatch 23D, Kian's ruling of 2026-09-30) ──
+ * A cost an admin adds on a property's page is an entry of `kind: 'office'`:
+ * one line whose name is the description, `taxCents` as typed or null, no
+ * receipt, no account (`cleanerId` null), and `approved` on creation, since
+ * the admin is the approver: two history events at one instant, `submitted`
+ * and `approved`, both by the admin actor. Written by createOfficeEntry
+ * through POST /api/admin/cost-entries, with a single `create()`; there is
+ * no one-time key, because the admin page sends once and says when an
+ * outcome is unknown. It is corrected and removed like any other entry.
+ *
  * ── Reports handed out ──
  * A PDF goes to a property's co-owners, and an entry in it can still be
  * corrected or removed afterwards. So each PDF is recorded before the page
@@ -102,10 +112,12 @@ import {
   CURRENCY,
   ENTRY_TIME_ZONE,
   LIMITS,
+  OFFICE_APPROVAL_REASON,
   RECEIPTS_PREFIX,
   SUBMISSION_KEY_PATTERN,
   dayIn,
   fieldText,
+  isOneLineKind,
   newestFirst,
   prefillFromReading,
   readCostEntryFields,
@@ -301,6 +313,33 @@ export const WorkInputSchema = z.strictObject({
 });
 
 export type WorkInput = z.output<typeof WorkInputSchema>;
+
+/**
+ * A cost added from the office (dispatch 23D): the property, a description,
+ * the amount as typed ("185.00", more than $0.00) and the tax as typed or
+ * null. Strict: anything else is refused.
+ */
+export const OfficeInputSchema = z.strictObject({
+  propertyId: z.string().refine((id) => isDocumentId(id), 'Not a property ID'),
+  description: z
+    .string()
+    .transform((s) => s.normalize('NFC').replace(/\s+/g, ' ').trim())
+    .pipe(
+      z
+        .string()
+        .min(1, 'Describe the cost')
+        .max(LIMITS.OFFICE_DESCRIPTION_MAX, `At most ${LIMITS.OFFICE_DESCRIPTION_MAX} characters`)
+        .refine((s) => !CONTROL_CHARACTER.test(s), 'No control characters'),
+    ),
+  amount: z
+    .string()
+    .regex(TAX_AMOUNT, 'An amount with two decimals, like 185.00')
+    .transform(toCents)
+    .pipe(z.number().positive('The amount must be more than $0.00').max(LIMITS.LINE_TOTAL_MAX_CENTS, 'At most $999,999.99')),
+  tax: TaxInputSchema,
+});
+
+export type OfficeInput = z.output<typeof OfficeInputSchema>;
 
 export type WorkParseResult =
   | { kind: 'ok'; work: WorkInput }
@@ -814,6 +853,55 @@ export async function createWorkEntry(input: NewWorkEntry): Promise<WorkEntryCre
   return { id: entryRef.id, status: 'pending', createdAt };
 }
 
+// ─── Create: office (dispatch 23D) ─────────────────────────────
+
+export interface NewOfficeEntry {
+  /** From OfficeInputSchema. */
+  office: OfficeInput;
+  /** From lookupPropertyName. */
+  propertyNameAtEntry: string | null;
+}
+
+/**
+ * Write one office entry with a single `create()`: one line whose name is
+ * the description, the tax as typed or null, no receipt, no account, and
+ * `approved` from the start, with `submitted` and `approved` both by the
+ * admin actor at the same instant (the shape an automatic approval already
+ * has, so every reader of history keeps working). Returns the entry as the
+ * costs page shows it.
+ *
+ * @throws anything the write throws: the caller cannot tell whether it landed.
+ */
+export async function createOfficeEntry(input: NewOfficeEntry): Promise<CostEntryView> {
+  const { office, propertyNameAtEntry } = input;
+  const ref = newEntryRef();
+  const now = new Date().toISOString();
+  const submitted: HistoryEvent = { at: now, action: 'submitted', from: null, to: 'pending', actor: ADMIN_ACTOR, reason: null };
+  const approved: HistoryEvent = { at: now, action: 'approved', from: 'pending', to: 'approved', actor: ADMIN_ACTOR, reason: OFFICE_APPROVAL_REASON };
+  const document = {
+    schemaVersion: COST_ENTRY_SCHEMA_VERSION,
+    kind: 'office',
+    cleanerId: null,
+    cleanerNameAtEntry: null,
+    propertyId: office.propertyId,
+    propertyNameAtEntry,
+    createdAt: now,
+    purchasedOn: null,
+    note: null,
+    currency: CURRENCY,
+    lines: [{ name: office.description, quantity: 1, lineTotalCents: office.amount }],
+    taxCents: office.tax,
+    receipts: [],
+    status: 'approved',
+    statusChangedAt: now,
+    statusReason: null,
+    history: [submitted, approved],
+    autoApproved: null,
+  };
+  await ref.create(document);
+  return viewOne(ref.id, document);
+}
+
 // ─── List ──────────────────────────────────────────────────────
 
 interface CleanerNow {
@@ -1030,9 +1118,9 @@ export type ReviewResult =
   | { kind: 'no-such-line' }
   /** Adding a line would take the entry past LIMITS.LINES_MAX_AFTER_REVIEW. Nothing was written. */
   | { kind: 'too-many-lines' }
-  /** A receipt line's name is longer than LIMITS.LINE_NAME_MAX (dispatch 24: only a work description may be longer). */
+  /** A line's name is longer than its entry's limit: 120 on a receipt line, 200 on a work or office description. */
   | { kind: 'line-name-too-long' }
-  /** A work entry is one description and one amount: no line is added to it (dispatch 24). */
+  /** A work or office entry is one description and one amount: no line is added to it (dispatches 24 and 23D). */
   | { kind: 'work-one-line' }
   /** Seen was asked for an entry that was not approved automatically (dispatch 24). Nothing was written. */
   | { kind: 'not-auto-approved' }
@@ -1079,13 +1167,13 @@ export const REVIEW_REFUSALS: Record<Exclude<ReviewResult['kind'], 'done'>, Refu
   'line-name-too-long': {
     status: 422,
     code: 'ENTRY_LINE_NAME_TOO_LONG',
-    message: `A receipt line's name can be at most ${LIMITS.LINE_NAME_MAX} characters.`,
+    message: `A receipt line's name can be at most ${LIMITS.LINE_NAME_MAX} characters; a work or office description ${LIMITS.WORK_DESCRIPTION_MAX}.`,
     hint: 'Nothing was changed.',
   },
   'work-one-line': {
     status: 422,
     code: 'ENTRY_WORK_ONE_LINE',
-    message: 'A work entry is one description and one amount.',
+    message: 'A work or office entry is one description and one amount.',
     hint: 'Correct the line instead of adding one. Nothing was changed.',
   },
   'not-auto-approved': {
@@ -1191,13 +1279,14 @@ export function changeEntryLine(id: string, index: number | null, line: Line, se
     const current = readLinesNow(entry.lines, entry.history, { shape: entry.taxShape, cents: entry.taxCents });
     if (current.kind !== 'ok') return { kind: 'refuse', result: { kind: 'unreadable' } };
 
-    // A receipt line's name stays within its own limit; only a work description may run to 200 (dispatch 24).
-    if (entry.kind !== 'work' && line.name.length > LIMITS.LINE_NAME_MAX) {
+    // A receipt line's name stays within its own limit; only a work or office description may run to 200 (dispatches 24 and 23D).
+    const nameMax = entry.kind === 'work' ? LIMITS.WORK_DESCRIPTION_MAX : entry.kind === 'office' ? LIMITS.OFFICE_DESCRIPTION_MAX : LIMITS.LINE_NAME_MAX;
+    if (line.name.length > nameMax) {
       return { kind: 'refuse', result: { kind: 'line-name-too-long' } };
     }
 
     if (index === null) {
-      if (entry.kind === 'work') return { kind: 'refuse', result: { kind: 'work-one-line' } };
+      if (isOneLineKind(entry.kind)) return { kind: 'refuse', result: { kind: 'work-one-line' } };
       if (current.lines.length >= LIMITS.LINES_MAX_AFTER_REVIEW) {
         return { kind: 'refuse', result: { kind: 'too-many-lines' } };
       }

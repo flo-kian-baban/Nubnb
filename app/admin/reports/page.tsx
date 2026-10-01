@@ -8,10 +8,16 @@
  * by the same pure functions the home tile uses (reports/statement.ts).
  *
  * One row per property in scope for the month: outstanding first, in the
- * alert tone and in those words, then drafts, then finished. A finished
- * row shows what the statement printed, how many times its PDF link was
- * made and when last, Open and Download PDF. A replaced statement is listed
- * under its row, marked "Replaced", with the reason.
+ * alert tone and in those words, then open, then drafts, then finished. A
+ * finished row shows what the statement printed, how many times its PDF
+ * link was made and when last, Open and Download PDF. A replaced statement
+ * is listed under its row, marked "Replaced", with the reason. Every row
+ * links to the property's own page, where its costs, income and statements
+ * are (dispatch 23D).
+ *
+ * "Outstanding" is a closed month with no finished statement. The current
+ * month reads "Open, not yet due" and is never outstanding; a statement may
+ * still be finished for it (Kian's ruling of 2026-09-30).
  *
  * The backup column and panel are part C and are not here.
  *
@@ -29,8 +35,8 @@ import { NoticeBanner, useNotice } from "../components/Notice";
 import { fetchStatementLink, fetchTracker, type TrackerData } from "@/app/lib/reports-client";
 import { formatCents } from "@/app/lib/cleaners/model";
 import { torontoDayOf } from "@/app/lib/costs/report";
-import { addMonths, isMonth, lastClosedMonth, monthLabel, reportRef } from "@/app/lib/reports/model";
-import { looseEnds, trackerCounts, trackerRows, type TrackerRow } from "@/app/lib/reports/statement";
+import { addMonths, displayRef, isMonth, lastClosedMonth, monthLabel, monthOfDay } from "@/app/lib/reports/model";
+import { STATEMENT_STATE_LABELS, looseEnds, trackerCounts, trackerRows, type TrackerRow } from "@/app/lib/reports/statement";
 import { SentAt, whenText } from "../costs/cost-display";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
@@ -84,13 +90,13 @@ function Reports() {
     setAttempt((n) => n + 1);
   };
 
-  const rows = useMemo<TrackerRow[]>(() => (list.kind === "ready" ? trackerRows({ month, ...list.data }) : []), [list, month]);
+  const rows = useMemo<TrackerRow[]>(() => (list.kind === "ready" ? trackerRows({ month, today, ...list.data }) : []), [list, month, today]);
   const counts = useMemo(() => trackerCounts(rows), [rows]);
   const ends = useMemo(() => {
     if (list.kind !== "ready") return null;
     const names = new Map(list.data.properties.map((p) => [p.id, p.name?.trim() || "Unnamed property"]));
-    // The loose ends need the full reports' entry lists; the summaries carry entryIds, which is what they read.
-    return looseEnds(month, list.data.entries, list.data.reports.map((r) => ({ ...r, income: [], costs: [], adjustments: [], notes: null })), list.data.management, (id) => names.get(id) ?? "Unknown property");
+    // The summaries carry each report's entry list and what it printed per entry, which is all the loose ends read.
+    return looseEnds(month, list.data.entries, list.data.reports, list.data.management, (id) => names.get(id) ?? "Unknown property");
   }, [list, month]);
 
   const download = async (reportId: string) => {
@@ -108,7 +114,8 @@ function Reports() {
     show({ tone: "success", title: `The PDF link opened; it works for ${result.data.seconds} seconds.`, detail: "The download is recorded; the tracker shows it." });
   };
 
-  const current = month === lastClosedMonth(today) ? "the last closed month" : month > lastClosedMonth(today) ? "not closed yet" : "closed";
+  const current =
+    month === lastClosedMonth(today) ? "the last closed month" : month === monthOfDay(today) ? "the current month: open, not yet due" : month > monthOfDay(today) ? "not started yet" : "closed";
 
   return (
     <div className={shared.container}>
@@ -158,7 +165,8 @@ function Reports() {
         ) : (
           <>
             <p className={`${styles.line} ${counts.outstanding > 0 ? styles.lineAlert : ""}`}>
-              <strong>{monthLabel(month)}</strong> · {counts.finished} of {counts.inScope} statements finished · {counts.outstanding} outstanding · {counts.drafts} {counts.drafts === 1 ? "draft" : "drafts"} in progress
+              <strong>{monthLabel(month)}</strong> · {counts.finished} of {counts.inScope} statements finished · {counts.outstanding} outstanding
+              {counts.open > 0 && <> · {counts.open} open, not yet due</>} · {counts.drafts} {counts.drafts === 1 ? "draft" : "drafts"} in progress
               {(list.data.unreadable.reports > 0 || list.data.unreadable.drafts > 0) && (
                 <span className={styles.noteWarn}>
                   {" "}
@@ -171,7 +179,7 @@ function Reports() {
               <div className={shared.empty}>
                 <FileText size={48} strokeWidth={1} />
                 <h2>No property expects a statement for {monthLabel(month)}</h2>
-                <p>Statements run from each property’s first statement month (October 2026 unless its co-owners record says otherwise).</p>
+                <p>Statements run from each property’s first statement month (October 2026 unless its record says otherwise).</p>
               </div>
             ) : (
               <div className={shared.tableContainer}>
@@ -183,7 +191,7 @@ function Reports() {
                       <th className={styles.num}>Income</th>
                       <th className={styles.num}>Costs</th>
                       <th className={styles.num}>Fee</th>
-                      <th className={styles.num}>Payable</th>
+                      <th className={styles.num}>Revenue share</th>
                       <th>Exported</th>
                       <th />
                     </tr>
@@ -231,6 +239,7 @@ function Reports() {
 
 function TrackerLine({ row, month, linking, onDownload }: { row: TrackerRow; month: string; linking: string | null; onDownload: (reportId: string) => void }) {
   const open = `/admin/reports/edit?property=${encodeURIComponent(row.propertyId)}&month=${month}`;
+  const propertyPage = `/admin/costs?property=${encodeURIComponent(row.propertyId)}&status=approved`;
   const { state } = row;
   const live = state.kind === "finished" ? state.report : null;
   const replaced = row.reports.filter((r) => r.replacedBy !== null);
@@ -243,7 +252,8 @@ function TrackerLine({ row, month, linking, onDownload }: { row: TrackerRow; mon
           </Link>
         </td>
         <td>
-          {state.kind === "outstanding" && <span className={`${styles.badge} ${styles.badgeOutstanding}`}>Outstanding</span>}
+          {state.kind === "outstanding" && <span className={`${styles.badge} ${styles.badgeOutstanding}`}>{STATEMENT_STATE_LABELS.outstanding}</span>}
+          {state.kind === "open" && <span className={`${styles.badge} ${styles.badgeOpen}`}>{STATEMENT_STATE_LABELS.open}</span>}
           {state.kind === "draft" && (
             <span>
               <span className={`${styles.badge} ${styles.badgeDraft}`}>{state.superseding ? "Correction in progress" : "Draft"}</span>{" "}
@@ -256,7 +266,7 @@ function TrackerLine({ row, month, linking, onDownload }: { row: TrackerRow; mon
             <span>
               <span className={`${styles.badge} ${styles.badgeFinished}`}>Finished</span>{" "}
               <span className={styles.note}>
-                <SentAt iso={state.report.finishedAt} /> · ref <span className={styles.mono}>{reportRef(state.report.id)}</span>
+                <SentAt iso={state.report.finishedAt} /> · <span className={styles.mono}>{displayRef(state.report)}</span>
                 {state.replaced > 0 && ` · replaced ×${state.replaced}`}
               </span>
             </span>
@@ -265,7 +275,7 @@ function TrackerLine({ row, month, linking, onDownload }: { row: TrackerRow; mon
         <td className={styles.num}>{live ? formatCents(live.incomeCents) : <span className={styles.muted}>—</span>}</td>
         <td className={styles.num}>{live ? formatCents(live.costsCents) : <span className={styles.muted}>—</span>}</td>
         <td className={styles.num}>{live ? formatCents(live.feeCents) : <span className={styles.muted}>—</span>}</td>
-        <td className={styles.num}>{live ? (live.payableCents < 0 ? `(${formatCents(-live.payableCents)}) owed to Nubnb` : formatCents(live.payableCents)) : <span className={styles.muted}>—</span>}</td>
+        <td className={styles.num}>{live ? (live.payableCents < 0 ? `${formatCents(live.payableCents)} owed to NuBNB` : formatCents(live.payableCents)) : <span className={styles.muted}>—</span>}</td>
         <td>
           {live ? (
             row.downloads === 0 ? (
@@ -284,6 +294,9 @@ function TrackerLine({ row, month, linking, onDownload }: { row: TrackerRow; mon
             <Link href={open} prefetch={false} className={`${styles.btnGhost} ${styles.btnSmall}`}>
               {state.kind === "finished" ? "Open" : state.kind === "draft" ? "Continue" : "Start"}
             </Link>
+            <Link href={propertyPage} prefetch={false} className={`${styles.btnGhost} ${styles.btnSmall}`} title="The property's page: its costs, income and statements">
+              Property
+            </Link>
             {live && (
               <button type="button" className={`${styles.btnGhost} ${styles.btnSmall}`} disabled={linking !== null} onClick={() => onDownload(live.id)}>
                 <Download size={13} aria-hidden />
@@ -299,8 +312,8 @@ function TrackerLine({ row, month, linking, onDownload }: { row: TrackerRow; mon
           <td colSpan={6}>
             <span className={`${styles.badge} ${styles.badgeReplaced}`}>Replaced</span>{" "}
             <span className={styles.note}>
-              ref <span className={styles.mono}>{reportRef(report.id)}</span>, finished <SentAt iso={report.finishedAt} />, replaced on {whenText(replacedBy!.finishedAt)} by ref{" "}
-              <span className={styles.mono}>{reportRef(replacedBy!.id)}</span>: “{replacedBy!.supersedes?.reason}”
+              <span className={styles.mono}>{displayRef(report)}</span>, finished <SentAt iso={report.finishedAt} />, replaced on {whenText(replacedBy!.finishedAt)} by{" "}
+              <span className={styles.mono}>{displayRef(replacedBy!)}</span>: “{replacedBy!.supersedes?.reason}”
             </span>
           </td>
           <td>

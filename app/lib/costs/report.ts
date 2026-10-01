@@ -172,8 +172,9 @@ export function propertyLabel(entry: CostEntryView): string {
   return firstNamed(entry.property.name, entry.property.nameAtEntry) ?? 'Unknown property';
 }
 
-/** The cleaner's name now, or the one recorded with the entry. */
+/** Who logged the entry: the cleaner's or handyman's name now, or the one recorded with the entry; "Nubnb office" on an office entry (dispatch 23D). */
 export function cleanerLabel(entry: CostEntryView): string {
+  if (entry.kind === 'office') return firstNamed(entry.cleaner.name, entry.cleaner.nameAtEntry) ?? 'Nubnb office';
   return firstNamed(entry.cleaner.name, entry.cleaner.nameAtEntry) ?? 'Unknown cleaner';
 }
 
@@ -204,7 +205,7 @@ export interface CostFilters {
   from: string;
   /** yyyy-mm-dd, or '' for no end. */
   to: string;
-  /** `receipt`, `work`, or '' for both (dispatch 24). */
+  /** `receipt`, `work`, `office`, or '' for every kind (dispatches 24 and 23D). */
   kind: string;
   /** A cleaner or handyman's ID, or '' for everyone (dispatch 24). */
   cleanerId: string;
@@ -371,9 +372,9 @@ export interface ReportEntry {
   ref: string;
   /** The Toronto day it was sent. */
   day: string;
-  /** Who logged it: the cleaner, or the handyman. */
+  /** Who logged it: the cleaner, the handyman, or "Nubnb office". */
   cleaner: string;
-  /** `receipt` or `work` (dispatch 24). */
+  /** `receipt`, `work` (dispatch 24) or `office` (dispatch 23D). */
   kind: string;
   lines: LineNow[];
   /** The lines added up: the items (dispatch 21). On an `in-lines` entry any tax the cleaner typed is among them. */

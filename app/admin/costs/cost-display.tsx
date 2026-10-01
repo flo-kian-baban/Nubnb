@@ -7,7 +7,7 @@
  * filters use.
  */
 
-import { Wrench } from "lucide-react";
+import { Building2, Wrench } from "lucide-react";
 import {
   ENTRY_STATUS_LABELS,
   formatCents,
@@ -49,7 +49,11 @@ export function EntryStatusBadge({ status, auto = false }: { status: string | nu
   );
 }
 
-/** A work entry's mark (dispatch 24): nothing on a receipt; a stored kind outside the two shown as stored, marked. */
+/**
+ * An entry's kind, when it is not a receipt: a handyman's work (dispatch 24)
+ * or a cost added by the office (dispatch 23D); a stored kind outside the
+ * three shown as stored, marked.
+ */
 export function KindBadge({ kind }: { kind: string }) {
   if (kind === "receipt") return null;
   if (kind === "work") {
@@ -59,8 +63,15 @@ export function KindBadge({ kind }: { kind: string }) {
       </span>
     );
   }
+  if (kind === "office") {
+    return (
+      <span className={`${styles.badge} ${styles.badgeOffice}`} title="Added by the office: a description and an amount, no receipt, approved on entry">
+        <Building2 size={11} aria-hidden /> Added by the office
+      </span>
+    );
+  }
   return (
-    <span className={`${styles.badge} ${styles.badgeOdd}`} title="Not one of receipt or work">
+    <span className={`${styles.badge} ${styles.badgeOdd}`} title="Not one of receipt, work or office">
       {kind.trim() === "" ? "Empty kind" : kind}
     </span>
   );

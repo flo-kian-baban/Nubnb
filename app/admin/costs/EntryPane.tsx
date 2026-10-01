@@ -24,7 +24,7 @@
  * ── After approval (Kian's ruling of 2026-09-30) ──
  * Nothing above depends on the entry's status: an approved entry is
  * corrected, or removed, exactly as a pending one is, and the pane says so.
- * An approved entry may already be in a PDF a co-owner holds, so the pane
+ * An approved entry may already be in a PDF an owner holds, so the pane
  * lists every PDF the entry went out in, with what each printed for it, says
  * plainly when the newest PDF for its day no longer matches it, and sets each
  * PDF in the history at the point it was made, so what came after it is
@@ -38,6 +38,13 @@
  * place of "Items bought": the description in full and the one amount, both
  * correctable as a line; no line is added to it, and it has no receipt.
  *
+ * ── Added by the office (dispatch 23D) ──
+ * A cost an admin added reads "Nubnb office · Added by the office", shows
+ * "Cost" in place of "Items bought", has no receipt, and is corrected and
+ * removed exactly as any other entry. Every entry links to its property's
+ * page and to the statement it went into (or the one it will go into), so
+ * nothing here is a dead end.
+ *
  * Changes are not optimistic. Each sends the length of the history this pane
  * shows, and the server refuses it if the entry changed since — another
  * admin, say. The pane changes only to the entry the server returns. An
@@ -45,8 +52,11 @@
  */
 
 import { useState, type FormEvent, type ReactNode } from "react";
+import Link from "next/link";
 import { AlertTriangle, Ban, Check, Eye, Plus, Trash2, X } from "lucide-react";
 import { NoticeBanner, useNotice, type Notice } from "../components/Notice";
+import { currentReports, displayRef, monthLabel, monthOfDay } from "@/app/lib/reports/model";
+import type { PropertyStatementsState } from "./PropertyPanel";
 import { changeEntryLine, changeEntryTax, markEntrySeen, setEntryStatus, type CostResult, type EntryChange } from "@/app/lib/costs-client";
 import {
   ENTRY_STATUS_LABELS,
@@ -63,6 +73,7 @@ import { distributionText, splitText, type CleanerPattern } from "@/app/lib/cost
 import {
   cleanerLabel,
   propertyLabel,
+  sentDay,
   shortDay,
   type EntryPdfState,
   type PdfAppearance,
@@ -91,6 +102,8 @@ interface EntryPaneProps {
   pdf: EntryPdfState | null;
   /** The cleaner's last 90 days (dispatch 24); null when they sent nothing in the window. */
   pattern: CleanerPattern | null;
+  /** The property's statements (dispatch 23D), to say which one printed this entry; null when the entry names no property. */
+  statements: PropertyStatementsState | null;
   /** The entry as the server now stores it, after a review. */
   onChanged: (entry: CostEntryView) => void;
   onClose: () => void;
@@ -112,7 +125,7 @@ const STATUS_DONE: Record<ReviewStatus, string> = {
   removed: "It has left its property’s ledger, totals and reports, and stays in the review queue, marked.",
 };
 
-export function EntryPane({ entry, pdf, pattern, onChanged, onClose }: EntryPaneProps) {
+export function EntryPane({ entry, pdf, pattern, statements, onChanged, onClose }: EntryPaneProps) {
   /** What is being saved, for its button's label; null when nothing is. */
   const [saving, setSaving] = useState<ReviewStatus | "line" | "tax" | "seen" | null>(null);
   const [rejecting, setRejecting] = useState(false);
@@ -128,6 +141,11 @@ export function EntryPane({ entry, pdf, pattern, onChanged, onClose }: EntryPane
   const busy = saving !== null;
   const now = entry.linesNow;
   const work = entry.kind === "work";
+  const office = entry.kind === "office";
+  /** One description and one amount: a work or office entry. No line is added to it. */
+  const oneLine = work || office;
+  /** Who logged it, in a sentence. */
+  const who = office ? "the office" : work ? "the handyman" : "the cleaner";
   const unseen = awaitingLook(entry);
   /** The amount the auto-approval rule saw, as stored; null when the record is not in the written shape. */
   const autoTotal = typeof entry.autoApproved?.totalCents === "number" ? entry.autoApproved.totalCents : null;
@@ -406,6 +424,9 @@ export function EntryPane({ entry, pdf, pattern, onChanged, onClose }: EntryPane
         )}
       </section>
 
+      {/* ── Its property, and the statement it went into (dispatch 23D) ── */}
+      <StatementLinks entry={entry} statements={statements} />
+
       {/* ── The PDFs it went out in, when there are any ── */}
       {pdf !== null && <PdfSection entry={entry} pdf={pdf} />}
 
@@ -416,14 +437,16 @@ export function EntryPane({ entry, pdf, pattern, onChanged, onClose }: EntryPane
           <ReceiptImage key={entry.id} entryId={entry.id} />
         ) : work ? (
           <p className={styles.note}>No receipt: handyman work. The description and the price are what the handyman logged.</p>
+        ) : office ? (
+          <p className={styles.note}>No receipt: added by the office. The description and the amount are what the admin entered; it was approved on entry.</p>
         ) : (
           <Absent label="No receipt on record" />
         )}
       </section>
 
-      {/* ── Items, then tax, then total — or the work done ── */}
+      {/* ── Items, then tax, then total — or the work done, or the office's cost ── */}
       <section className={styles.section}>
-        <h3 className={styles.sectionTitle}>{work ? "Work done" : "Items bought"}</h3>
+        <h3 className={styles.sectionTitle}>{office ? "Cost" : work ? "Work done" : "Items bought"}</h3>
         {now.kind === "unreadable" ? (
           <div>
             <p className={styles.noteWarn}>
@@ -446,9 +469,9 @@ export function EntryPane({ entry, pdf, pattern, onChanged, onClose }: EntryPane
                 <thead>
                   <tr>
                     <th>#</th>
-                    <th>{work ? "Description" : "Item"}</th>
+                    <th>{oneLine ? "Description" : "Item"}</th>
                     <th>Qty (reference)</th>
-                    <th className={styles.num}>{work ? "Price" : "Line total as printed"}</th>
+                    <th className={styles.num}>{office ? "Amount" : work ? "Price" : "Line total as printed"}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -530,12 +553,16 @@ export function EntryPane({ entry, pdf, pattern, onChanged, onClose }: EntryPane
               </table>
             </div>
             {now.corrected && (
-              <p className={styles.note}>The {work ? "handyman" : "cleaner"} sent {formatCents(now.sentTotalCents)}; corrections are above.</p>
+              <p className={styles.note}>
+                {office ? "Entered" : "Sent"} by {who} as {formatCents(now.sentTotalCents)}; corrections are above.
+              </p>
             )}
             <p className={styles.note}>
-              {work
-                ? "The description and the price are as the handyman logged them, corrections applied. Tax can be recorded if an invoice carries it. The total is the price plus the tax."
-                : "Each amount is what the receipt prints for that line, for all of that item together. Quantities are for reference and are never multiplied. The total is the items plus the tax."}
+              {office
+                ? "The description and the amount are as the office entered them, corrections applied. Tax is recorded apart when there is any. The total is the amount plus the tax."
+                : work
+                  ? "The description and the price are as the handyman logged them, corrections applied. Tax can be recorded if an invoice carries it. The total is the price plus the tax."
+                  : "Each amount is what the receipt prints for that line, for all of that item together. Quantities are for reference and are never multiplied. The total is the items plus the tax."}
             </p>
 
             {taxDraft !== null && (
@@ -571,11 +598,11 @@ export function EntryPane({ entry, pdf, pattern, onChanged, onClose }: EntryPane
                 </p>
                 <div className={styles.editorGrid}>
                   <label className={styles.editorField}>
-                    <span className={styles.fieldLabel}>{work ? "Description" : "Item"}</span>
+                    <span className={styles.fieldLabel}>{oneLine ? "Description" : "Item"}</span>
                     <input
                       className={styles.textInput}
                       value={draft.name}
-                      maxLength={work ? LIMITS.WORK_DESCRIPTION_MAX : LIMITS.LINE_NAME_MAX}
+                      maxLength={work ? LIMITS.WORK_DESCRIPTION_MAX : office ? LIMITS.OFFICE_DESCRIPTION_MAX : LIMITS.LINE_NAME_MAX}
                       onChange={(e) => setDraft({ ...draft, name: e.target.value })}
                       disabled={busy}
                       autoFocus
@@ -592,7 +619,7 @@ export function EntryPane({ entry, pdf, pattern, onChanged, onClose }: EntryPane
                     />
                   </label>
                   <label className={styles.editorField}>
-                    <span className={styles.fieldLabel}>{work ? "Price ($)" : "Line total as printed ($)"}</span>
+                    <span className={styles.fieldLabel}>{office ? "Amount ($)" : work ? "Price ($)" : "Line total as printed ($)"}</span>
                     <input
                       className={styles.textInput}
                       inputMode="decimal"
@@ -617,7 +644,7 @@ export function EntryPane({ entry, pdf, pattern, onChanged, onClose }: EntryPane
               </form>
             ) : (
               reviewable &&
-              !work && (
+              !oneLine && (
                 <button type="button" className={styles.btnGhost} disabled={busy} onClick={add}>
                   <Plus size={15} aria-hidden />
                   <span>Add a line</span>
@@ -629,7 +656,7 @@ export function EntryPane({ entry, pdf, pattern, onChanged, onClose }: EntryPane
       </section>
 
       {/* ── The cleaner's last 90 days (dispatch 24) ── */}
-      {!work && (
+      {!oneLine && (
         <section className={styles.section} aria-label="This cleaner's last 90 days">
           <h3 className={styles.sectionTitle}>{cleanerLabel(entry)}, last 90 days</h3>
           {pattern === null ? (
@@ -695,6 +722,102 @@ export function EntryPane({ entry, pdf, pattern, onChanged, onClose }: EntryPane
         Entry <span className={styles.mono}>{entry.id}</span>
       </p>
     </div>
+  );
+}
+
+/**
+ * The way to the entry's property page, and to the statement it went into
+ * (dispatch 23D): the current statement that printed it, with a replaced one
+ * or an adjustment named; or, when none has, where it will go — its month's
+ * statement, or a later one as a late entry — or why it goes into none.
+ */
+function StatementLinks({ entry, statements }: { entry: CostEntryView; statements: PropertyStatementsState | null }) {
+  const propertyId = entry.property.id;
+  const page = propertyId === null ? null : `/admin/costs?property=${encodeURIComponent(propertyId)}&status=approved`;
+  const editor = (month: string) => `/admin/reports/edit?property=${encodeURIComponent(propertyId ?? "")}&month=${month}`;
+  const day = sentDay(entry.createdAt);
+  const month = day === null ? null : monthOfDay(day);
+
+  let statement: ReactNode;
+  if (propertyId === null) {
+    statement = <span className={styles.muted}>It names no property, so it goes into no statement.</span>;
+  } else if (statements === null || statements.kind === "loading") {
+    statement = <span className={styles.muted}>Looking up its statement…</span>;
+  } else if (statements.kind === "error") {
+    statement = <span className={styles.noteWarn}>Its statement could not be looked up: {statements.title}</span>;
+  } else {
+    const { reports } = statements.data;
+    const current = new Set(currentReports(reports).map((r) => r.id));
+    const printed = reports.filter((r) => r.entryIds.includes(entry.id)).sort((a, b) => b.finishedAt.localeCompare(a.finishedAt));
+    const live = printed.find((r) => current.has(r.id)) ?? null;
+    const adjusted = reports.filter((r) => current.has(r.id) && r.adjustments.some((a) => a.entryId === entry.id)).sort((a, b) => b.finishedAt.localeCompare(a.finishedAt));
+    const replacedCount = printed.filter((r) => !current.has(r.id)).length;
+    if (live) {
+      statement = (
+        <>
+          In the statement for {monthLabel(live.month)} · <span className={styles.mono}>{displayRef(live)}</span>, finished {whenText(live.finishedAt)}.{" "}
+          <Link href={editor(live.month)} prefetch={false} className={styles.linkButton}>
+            Open the statement
+          </Link>
+          {replacedCount > 0 && <span className={styles.muted}> · also in {replacedCount === 1 ? "a statement" : `${replacedCount} statements`} since replaced</span>}
+        </>
+      );
+    } else if (printed.length > 0) {
+      statement = (
+        <>
+          Printed in a statement for {monthLabel(printed[0].month)} since replaced (<span className={styles.mono}>{displayRef(printed[0])}</span>); not in the current one.{" "}
+          <Link href={editor(printed[0].month)} prefetch={false} className={styles.linkButton}>
+            Open {monthLabel(printed[0].month)}’s statement
+          </Link>
+        </>
+      );
+    } else if (entry.status === "approved") {
+      statement = month ? (
+        <>
+          Not yet in a finished statement: it belongs to {monthLabel(month)}’s, or to a later one as a late entry.{" "}
+          <Link href={editor(month)} prefetch={false} className={styles.linkButton}>
+            Open {monthLabel(month)}’s statement
+          </Link>
+        </>
+      ) : (
+        <>Not yet in a finished statement, and its day cannot be read.</>
+      );
+    } else if (entry.status === "pending") {
+      statement = <>In no statement until it is approved.</>;
+    } else {
+      statement = <>Not in any statement: it is {statusWord(entry.status)}.</>;
+    }
+    if (adjusted.length > 0) {
+      statement = (
+        <>
+          {statement}
+          <br />
+          An adjustment for it was printed in the statement for {monthLabel(adjusted[0].month)} (<span className={styles.mono}>{displayRef(adjusted[0])}</span>).{" "}
+          <Link href={editor(adjusted[0].month)} prefetch={false} className={styles.linkButton}>
+            Open it
+          </Link>
+        </>
+      );
+    }
+  }
+
+  return (
+    <section className={styles.section} aria-label="Property and statement">
+      <h3 className={styles.sectionTitle}>Property and statement</h3>
+      <p className={styles.fieldValue}>
+        {page ? (
+          <>
+            <Link href={page} prefetch={false} className={styles.linkButton}>
+              Open {propertyLabel(entry)}’s page
+            </Link>{" "}
+            <span className={styles.note}>— its costs, income and statements</span>
+          </>
+        ) : (
+          <span className={styles.muted}>No property on this entry.</span>
+        )}
+      </p>
+      <p className={styles.fieldValue}>{statement}</p>
+    </section>
   );
 }
 

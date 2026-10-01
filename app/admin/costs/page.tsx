@@ -29,7 +29,7 @@
  * anywhere: the entry pane is the same. Removing it takes it out of the
  * ledger, its totals and its exports, and it stays in the queue, marked.
  *
- * An approved entry may already be in a PDF a co-owner holds. So a PDF is
+ * An approved entry may already be in a PDF an owner holds. So a PDF is
  * recorded before it is downloaded, and the page sets every recorded PDF
  * beside the ledger as it now stands: a list of the property's PDFs saying
  * which still match, a mark on each entry that has changed since the newest
@@ -47,7 +47,7 @@
  *
  * ── Reports ──
  * One property over the dates chosen, approved entries only: the PDF goes to
- * the property's co-owners, and pending entries have not been checked. The
+ * the property's owner, and pending entries have not been checked. The
  * page says so, and asks, when pending entries fall in the period. Both files
  * are made in the browser and never leave it except as the download. The PDF
  * is downloaded only once the server has recorded it, and carries the
@@ -67,6 +67,16 @@
  * (kind `work`) is marked as such on its row, has no receipt, and needs an
  * admin's approval whatever its amount.
  *
+ * ── The property's page (dispatch 23D, Kian's ruling of 2026-09-30) ──
+ * A ledger is the property's page, where an admin works: beside its costs,
+ * one more read (GET /api/admin/properties/[id]/statements) brings its
+ * income rows and its statements (PropertyPanel), and "Add a cost…" writes
+ * an office entry (AddCostForm): a description and an amount, optionally
+ * tax, no receipt, approved on entry, marked `office` everywhere. The entry
+ * pane reads the same per-property statements to say which statement an
+ * entry went into, so an entry opened in the queue reaches its property and
+ * its statement too.
+ *
  * The filters, the view and the open entry are mirrored into the URL
  * (?property=, ?status=, ?kind=, ?cleaner=, ?from=, ?to=, ?view=, ?entry=),
  * so a reload keeps them.
@@ -74,13 +84,16 @@
 
 import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertTriangle, Eye, FileSpreadsheet, FileText, ImageIcon, Pencil, Receipt, RefreshCw, Search, Wrench } from "lucide-react";
+import { AlertTriangle, Building2, Eye, FileSpreadsheet, FileText, ImageIcon, Pencil, Receipt, RefreshCw, Search, Wrench } from "lucide-react";
 import { AdminHeader } from "../components/AdminHeader";
 import { AdminSelect } from "../components/AdminSelect";
 import { DateRangeField } from "../components/DateRangeField";
 import { PinGate } from "../components/PinGate";
 import { NoticeBanner, useNotice } from "../components/Notice";
 import { fetchCosts, markEntrySeen, recordPdfExport } from "@/app/lib/costs-client";
+import { fetchPropertyStatements, type PropertyStatements } from "@/app/lib/reports-client";
+import { AddCostForm } from "./AddCostForm";
+import { PropertyPanel, type PropertyStatementsState } from "./PropertyPanel";
 import {
   ENTRY_STATUSES,
   ENTRY_STATUS_LABELS,
@@ -181,6 +194,25 @@ function Costs() {
   const [recording, setRecording] = useState(false);
   /** The entry being marked seen, or "all" while the group is; null otherwise. */
   const [marking, setMarking] = useState<string | null>(null);
+  /** Each property's statements, read once when its page or one of its entries is open (dispatch 23D); absent means loading. */
+  const [statementsByProperty, setStatementsByProperty] = useState<Record<string, PropertyStatementsState>>({});
+  /** The properties whose statements have been asked for, so the read is made once; cleared on Refresh. */
+  const requestedStatements = useRef(new Set<string>());
+  const loadStatements = useCallback((propertyId: string) => {
+    requestedStatements.current.add(propertyId);
+    fetchPropertyStatements(propertyId).then((result) => {
+      setStatementsByProperty((prev) => ({
+        ...prev,
+        [propertyId]: result.ok ? { kind: "ready", data: result.data } : { kind: "error", title: result.title, detail: result.detail, status: result.status },
+      }));
+    });
+  }, []);
+  /** Read one property's statements again, from a button: back to loading first. */
+  const reloadStatements = (propertyId: string) => {
+    setStatementsByProperty((prev) => ({ ...prev, [propertyId]: { kind: "loading" } }));
+    loadStatements(propertyId);
+  };
+  const setStatementsData = useCallback((propertyId: string, data: PropertyStatements) => setStatementsByProperty((prev) => ({ ...prev, [propertyId]: { kind: "ready", data } })), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -216,6 +248,8 @@ function Costs() {
   const reload = () => {
     clear();
     setList({ kind: "loading" });
+    setStatementsByProperty({});
+    requestedStatements.current.clear();
     setAttempt((n) => n + 1);
   };
 
@@ -247,7 +281,14 @@ function Costs() {
     for (const entry of entries) if (entry.cleaner.id !== null && !byId.has(entry.cleaner.id)) byId.set(entry.cleaner.id, cleanerLabel(entry));
     return [...byId.entries()].sort((a, b) => a[1].localeCompare(b[1], "en-CA"));
   }, [entries]);
-  const kindCounts = useMemo(() => ({ receipt: entries.filter((e) => e.kind !== "work").length, work: entries.filter((e) => e.kind === "work").length }), [entries]);
+  const kindCounts = useMemo(
+    () => ({
+      receipt: entries.filter((e) => e.kind !== "work" && e.kind !== "office").length,
+      work: entries.filter((e) => e.kind === "work").length,
+      office: entries.filter((e) => e.kind === "office").length,
+    }),
+    [entries],
+  );
   const totals = useMemo(() => totalsByProperty(visible), [visible]);
   const items = useMemo(() => countedItems(visible), [visible]);
   /** What the counts beside each status are taken from: the chosen property's entries, or every entry. */
@@ -306,6 +347,21 @@ function Costs() {
     : 0;
   const selected = selectedId === null ? null : (entries.find((entry) => entry.id === selectedId) ?? null);
   const today = torontoDayOf(new Date());
+
+  /** The ledger's property and the open entry's property each have their statements read once (dispatch 23D). */
+  const ledgerPropertyId = ledger && propertyName !== null ? filters.propertyId : null;
+  const selectedPropertyId = selected?.property.id ?? null;
+  useEffect(() => {
+    for (const id of [ledgerPropertyId, selectedPropertyId]) {
+      if (id !== null && id !== "" && !requestedStatements.current.has(id)) loadStatements(id);
+    }
+  }, [ledgerPropertyId, selectedPropertyId, loadStatements, attempt]);
+
+  /** An office entry the server just wrote (dispatch 23D): into the list, and open. */
+  const addedEntry = (entry: CostEntryView) => {
+    setList((prev) => (prev.kind === "ready" ? { ...prev, entries: [entry, ...prev.entries] } : prev));
+    open(entry.id);
+  };
   /** Every cleaner's last 90 days, read from the entries (dispatch 24); the ones worth a look head the queue. */
   const patterns = useMemo(() => watchList(entries, today), [entries, today]);
   const worthALook = useMemo(() => patterns.filter((pattern) => pattern.worthALook), [patterns]);
@@ -359,7 +415,7 @@ function Costs() {
       return;
     }
 
-    // A PDF goes to co-owners, and an entry in it can still be corrected or
+    // A PDF goes to the owner, and an entry in it can still be corrected or
     // removed afterwards. So it is recorded first — which entries, and how long
     // each one's history was — and downloaded only once the record is stored.
     let printed = report;
@@ -469,13 +525,10 @@ function Costs() {
               <div className={styles.ledgerHead}>
                 <h2 className={styles.ledgerTitle}>{propertyName ?? "Unknown property"}</h2>
                 <p className={styles.modeLine}>
-                  <strong>Costs ledger</strong> · approved entries only, the ones that count. An approved entry can
-                  still be corrected or removed: open it. This property’s pending, rejected and removed entries are in
-                  the{" "}
+                  Costs ledger · approved entries ·{" "}
                   <button type="button" className={styles.linkButton} onClick={() => setFilter({ status: NEEDS_ATTENTION })}>
-                    review queue{waiting > 0 ? ` (${waiting} waiting)` : ""}
+                    Review queue{waiting > 0 ? ` (${waiting} waiting)` : ""}
                   </button>
-                  .
                 </p>
                 {propertyName === null && (
                   <p className={styles.noteWarn} role="alert">
@@ -509,6 +562,17 @@ function Costs() {
                   <>Every entry, whatever its status.</>
                 )}
               </p>
+            )}
+
+            {/* ── The property's income and statements (dispatch 23D): on its page only ── */}
+            {ledger && propertyName !== null && (
+              <PropertyPanel
+                propertyId={filters.propertyId}
+                statements={statementsByProperty[filters.propertyId] ?? { kind: "loading" }}
+                onReload={() => reloadStatements(filters.propertyId)}
+                onData={(data) => setStatementsData(filters.propertyId, data)}
+                show={show}
+              />
             )}
 
             {/* ── Worth a look (dispatch 24): only when the rule fires, only in the queue ── */}
@@ -546,6 +610,14 @@ function Costs() {
                   ))}
                 </ul>
               </section>
+            )}
+
+            {/* ── Costs: the block's head and its one action, on the property's page (dispatch 23D) ── */}
+            {ledger && propertyName !== null && (
+              <div className={styles.costsHead}>
+                <h3 className={styles.panelTitle}>Costs</h3>
+                <AddCostForm propertyId={filters.propertyId} propertyName={propertyName} onAdded={addedEntry} show={show} />
+              </div>
             )}
 
             {/* ── Filters ── */}
@@ -594,9 +666,10 @@ function Costs() {
                   groups={[
                     {
                       options: [
-                        { value: "", label: "Receipts and work" },
+                        { value: "", label: "Every kind" },
                         { value: "receipt", label: `Receipts (${kindCounts.receipt})` },
                         { value: "work", label: `Work (${kindCounts.work})` },
+                        { value: "office", label: `Added by the office (${kindCounts.office})` },
                       ],
                     },
                   ]}
@@ -631,6 +704,29 @@ function Costs() {
             </section>
 
             {/* ── Totals for what is shown, and the reports ── */}
+            {ledger ? (
+              /* On the property's page: one line, and the two exports beside it. */
+              <section className={styles.summaryRow} aria-label="Totals">
+                <span className={styles.summaryText}>
+                  {visible.length === 0
+                    ? "No approved costs in these dates."
+                    : `${totals.all.entries === 1 ? "1 approved entry" : `${totals.all.entries} approved entries`} · ${formatCents(totals.all.approvedCents)}${totals.all.approvedTaxCents > 0 ? ` · tax ${formatCents(totals.all.approvedTaxCents)}` : ""}`}
+                  {totals.all.unreadable > 0 && <span className={styles.noteWarn}> · {totals.all.unreadable} cannot be added up</span>}
+                </span>
+                {propertyName !== null && (
+                  <span className={styles.formRow}>
+                    <button type="button" className={styles.btnGhost} disabled={recording} onClick={() => exportReport("xlsx")} title="Approved entries in these dates, as a workbook">
+                      <FileSpreadsheet size={15} aria-hidden />
+                      <span>Excel</span>
+                    </button>
+                    <button type="button" className={styles.btnGhost} disabled={recording} onClick={() => exportReport("pdf")} title="For the owner: approved entries in these dates, no names. Recorded, so a later correction shows against it.">
+                      <FileText size={15} aria-hidden />
+                      <span>{recording ? "Recording…" : "PDF"}</span>
+                    </button>
+                  </span>
+                )}
+              </section>
+            ) : (
             <section className={styles.totals} aria-label="Totals">
               <div className={styles.totalsHead}>
                 <h2 className={styles.totalsTitle}>Totals for what is shown</h2>
@@ -682,7 +778,7 @@ function Costs() {
                       <span>{recording ? "Recording…" : "PDF"}</span>
                     </button>
                     <span className={styles.note}>
-                      Approved entries only. The PDF is for co-owners and names no cleaner; each PDF is recorded, so a
+                      Approved entries only. The PDF is for the owner and names no cleaner; each PDF is recorded, so a
                       later correction shows against it.
                     </span>
                   </>
@@ -693,7 +789,7 @@ function Costs() {
                 )}
               </div>
             </section>
-
+            )}
 
             {oneProperty && (
               <div className={styles.tabs} role="tablist" aria-label="Show">
@@ -725,10 +821,13 @@ function Costs() {
                   <div className={shared.empty}>
                     <Receipt size={48} strokeWidth={1} />
                     <h2>No approved costs in these dates</h2>
-                    <p>
-                      An entry for this property appears here once it is approved in the review queue
-                      {waiting > 0 ? `, where ${waiting === 1 ? "1 is" : `${waiting} are`} waiting` : ""}.
-                    </p>
+                    {waiting > 0 && (
+                      <p>
+                        <button type="button" className={styles.linkButton} onClick={() => setFilter({ status: NEEDS_ATTENTION })}>
+                          {waiting === 1 ? "1 entry is" : `${waiting} entries are`} waiting in the review queue
+                        </button>
+                      </p>
+                    )}
                   </div>
                 ) : visible.length === 0 ? (
                   <div className={shared.empty}>
@@ -839,6 +938,10 @@ function Costs() {
                                     <span className={styles.muted} title="A handyman's work entry has no receipt">
                                       <Wrench size={13} aria-hidden /> No receipt: handyman work
                                     </span>
+                                  ) : entry.kind === "office" ? (
+                                    <span className={styles.muted} title="Added by the office: a description and an amount, no receipt">
+                                      <Building2 size={13} aria-hidden /> No receipt: added by the office
+                                    </span>
                                   ) : (
                                     <Absent label="None" />
                                   )}
@@ -861,6 +964,7 @@ function Costs() {
                     entry={selected}
                     pdf={pdfStates.get(selected.id) ?? null}
                     pattern={selected.cleaner.id === null ? null : (patterns.find((pattern) => pattern.cleanerId === selected.cleaner.id) ?? null)}
+                    statements={selected.property.id === null ? null : (statementsByProperty[selected.property.id] ?? { kind: "loading" })}
                     onChanged={replaceEntry}
                     onClose={closePane}
                   />

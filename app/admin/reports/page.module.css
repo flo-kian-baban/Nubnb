@@ -98,6 +98,12 @@
   color: #8dbbe8;
   border-color: rgba(101, 153, 205, 0.3);
 }
+/* The current month, nothing started: open, not yet due (dispatch 23D). Quiet, not an alert. */
+.badgeOpen {
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.6);
+  border-color: rgba(255, 255, 255, 0.14);
+}
 .badgeFinished {
   background: rgba(74, 222, 128, 0.1);
   color: #6ee7a0;
@@ -282,10 +288,10 @@
   color: rgba(255, 255, 255, 0.5);
 }
 
-/* An income row's fields */
+/* An income row's fields: a description and an amount (dispatch 23D) */
 .incomeRow {
   display: grid;
-  grid-template-columns: 28px 120px minmax(0, 1fr) 110px 120px 32px;
+  grid-template-columns: 28px minmax(0, 1fr) 120px 32px;
   gap: 8px;
   align-items: center;
   padding: 8px 0;
@@ -294,13 +300,22 @@
 .incomeRow:last-of-type {
   border-bottom: none;
 }
-.incomeDates {
-  grid-column: 2 / 5;
-  display: flex;
-  gap: 8px;
-  align-items: center;
+/* What a row written before dispatch 23D also carries: shown, kept, not edited. */
+.incomeDetails {
+  grid-column: 2 / 4;
   font-size: 12px;
   color: rgba(255, 255, 255, 0.5);
+}
+/* The one line about an open month: it can be reported now; later entries go into the next month. */
+.openMonth {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(101, 153, 205, 0.1);
+  border: 1px solid rgba(101, 153, 205, 0.25);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #c5dcf2;
 }
 .orderButtons {
   display: flex;
@@ -451,4 +466,89 @@ textarea.textInput {
 .verified {
   font-size: 12.5px;
   color: #6ee7a0;
+}
+
+/* ── The Payment Summary editor (dispatch 23E) ── */
+.reportGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 170px;
+  gap: 10px 12px;
+}
+.reportGrid > div:nth-child(3),
+.reportGrid > div:nth-child(4) {
+  grid-column: 1 / -1;
+}
+textarea.addressInput {
+  min-height: 56px;
+}
+/* One line: order, description, dates, quantity, rate, the computed amount, remove */
+.lineHead,
+.lineRow {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 172px 50px 88px 88px 32px;
+  gap: 8px;
+  align-items: center;
+}
+.lineHead {
+  padding: 0 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.45);
+}
+.lineRow {
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.lineRow:last-of-type {
+  border-bottom: none;
+}
+.lineRow .incomeDetails {
+  grid-column: 2 / 7;
+  margin: 0;
+}
+.lineDates {
+  min-width: 0;
+  font-size: 12.5px;
+  color: #e8edf3;
+}
+.lineAmount {
+  font-size: 13px;
+  color: #e8edf3;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 1300px) {
+  .lineHead {
+    display: none;
+  }
+  .lineRow {
+    grid-template-columns: 28px minmax(0, 1fr) 50px 88px 88px 32px;
+  }
+  .lineRow .lineDates {
+    grid-column: 2 / 6;
+  }
+  .lineRow .incomeDetails {
+    grid-column: 2 / 6;
+  }
+}
+.feeGrid {
+  grid-template-columns: 90px minmax(0, 1fr) minmax(0, 1fr);
+}
+.feeGrid .linkButton,
+.feeGrid .note,
+.feeGrid .noteWarn {
+  display: block;
+  margin-top: 4px;
+}
+.feeLabelCell {
+  grid-column: 1 / -1;
+}
+.carriedGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px;
+  gap: 10px;
+  align-items: start;
+}
+.carriedGrid .note {
+  display: block;
+  margin-top: 4px;
 }

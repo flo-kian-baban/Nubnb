@@ -2,8 +2,8 @@
 
 import { Property, Offer } from "@/app/types/property";
 import { addProperty, updateProperty, MutationIssue, getCleanerFacingName, setCleanerFacingName, getManagement, setManagement, type ManagementPayload } from '@/app/lib/firebase/properties';
-import { STATEMENTS_FROM_DEFAULT, STATEMENT_LIMITS, isMonth } from "@/app/lib/reports/model";
-import { amountField, readAmount } from "../costs/cost-display";
+import { STATEMENTS_FROM_DEFAULT, STATEMENT_LIMITS, isMonth, rateText } from "@/app/lib/reports/model";
+import { amountField } from "../costs/cost-display";
 import { hasPriceDivergence, nightlyPrice } from "@/app/lib/price";
 import { useMemo, useState, useEffect } from "react";
 import styles from "./PropertyForm.module.css";
@@ -241,8 +241,9 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
   const { notice: formNotice, show: showFormNotice, clear: clearFormNotice } = useNotice();
 
   /**
-   * The co-owners record (dispatch 23B): its own server-only document, loaded
-   * and saved apart from the property, like the name for cleaners.
+   * The statements record (dispatch 23B; "Report For" and the fee rate,
+   * dispatch 23E): its own server-only document, loaded and saved apart
+   * from the property, like the name for cleaners.
    */
   const [management, setManagement_] = useState<ManagementDraft>(emptyManagement);
   const [loadedManagement, setLoadedManagement] = useState<string>(JSON.stringify(emptyManagement()));
@@ -256,11 +257,13 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
       if (result.ok) {
         const draft = result.data
           ? {
+              reportForName: result.data.reportFor?.name ?? "",
+              reportForAddress: result.data.reportFor?.address ?? "",
               owners: result.data.owners.map((o) => ({ name: o.name, email: o.email ?? "" })),
               from: result.data.statementsFrom,
               until: result.data.statementsUntil ?? "",
-              feeLabel: result.data.defaultFee?.label ?? "",
-              feeAmount: result.data.defaultFee ? amountField(result.data.defaultFee.amountCents) : "",
+              feeRate: result.data.defaultFeeRateBasisPoints === null ? "" : rateText(result.data.defaultFeeRateBasisPoints).replace("%", ""),
+              legacyFee: result.data.defaultFee ? { label: result.data.defaultFee.label, amount: amountField(result.data.defaultFee.amountCents) } : null,
             }
           : emptyManagement();
         setManagement_(draft);
@@ -1032,16 +1035,16 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
         }
       }
 
-      // ── The co-owners record, as its own write, when it changed (dispatch 23B) ──
+      // ── The statements record, as its own write, when it changed (dispatch 23B) ──
       if (savedId && managementState !== "unavailable" && JSON.stringify(management) !== loadedManagement) {
         const payload = toManagementPayload(management);
         if ("problem" in payload) {
-          showFormNotice({ tone: "warning", title: "Saved — but the co-owners record was not.", detail: `${payload.problem} The property itself is saved. Fix it and save again.` });
+          showFormNotice({ tone: "warning", title: "Saved — but the statements record was not.", detail: `${payload.problem} The property itself is saved. Fix it and save again.` });
           return;
         }
         const stored = await setManagement(savedId, payload.record);
         if (!stored.ok) {
-          showFormNotice({ tone: "warning", title: "Saved — but the co-owners record was not.", detail: `${stored.error} The property itself is saved. Save again to retry.` });
+          showFormNotice({ tone: "warning", title: "Saved — but the statements record was not.", detail: `${stored.error} The property itself is saved. Save again to retry.` });
           return;
         }
         setLoadedManagement(JSON.stringify(management));
@@ -1374,27 +1377,37 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
                   {cleanerFacingNameState === "unavailable" && " It could not be read just now, so it cannot be changed here until the form is reopened."}
                 </small>
               </div>
-              {/* Co-owners and statements (dispatch 23B): a server-only record beside the property, never on it. */}
+              {/* Statements (dispatch 23B; "Report For" and the fee rate, 23E): a server-only record beside the property, never on it. */}
               <div className={styles.field}>
-                <label>Co-owners and statements</label>
+                <label>Statements</label>
                 <small>
-                  Who the monthly statement is prepared for, the months statements run, and the default management fee it
-                  starts from. Stored apart from the property; nothing here reaches the public site, and nothing sends email.
+                  Who the Payment Summary is for, the months statements run, and the fee rate a statement starts from. Stored
+                  apart from the property; nothing here reaches the public site, and nothing sends email.
                   {managementState === "unavailable" && " It could not be read just now, so it cannot be changed here until the form is reopened."}
                 </small>
                 <fieldset className={styles.managementBlock} disabled={managementState === "loading" || managementState === "unavailable"}>
+                  <div className={styles.managementRow}>
+                    <label className={styles.managementLabel}>
+                      Report For
+                      <input type="text" placeholder="Name" value={management.reportForName} maxLength={STATEMENT_LIMITS.REPORT_FOR_NAME_MAX} onChange={(e) => setManagement_({ ...management, reportForName: e.target.value })} aria-label="Report For name" />
+                    </label>
+                    <label className={styles.managementLabel}>
+                      Address
+                      <textarea placeholder={"321-20 John St.\nToronto, ON, M5V 0G5"} value={management.reportForAddress} maxLength={STATEMENT_LIMITS.REPORT_FOR_ADDRESS_MAX} rows={3} onChange={(e) => setManagement_({ ...management, reportForAddress: e.target.value })} aria-label="Report For address" />
+                    </label>
+                  </div>
                   {management.owners.map((owner, i) => (
                     <div key={i} className={styles.managementRow}>
-                      <input type="text" placeholder="Co-owner's name" value={owner.name} maxLength={STATEMENT_LIMITS.OWNER_NAME_MAX} onChange={(e) => setManagement_({ ...management, owners: management.owners.map((o, j) => (j === i ? { ...o, name: e.target.value } : o)) })} aria-label={`Co-owner ${i + 1} name`} />
-                      <input type="text" placeholder="Email (optional, not used yet)" value={owner.email} maxLength={STATEMENT_LIMITS.OWNER_EMAIL_MAX} onChange={(e) => setManagement_({ ...management, owners: management.owners.map((o, j) => (j === i ? { ...o, email: e.target.value } : o)) })} aria-label={`Co-owner ${i + 1} email`} />
-                      <button type="button" className={styles.managementRemove} aria-label={`Remove co-owner ${i + 1}`} onClick={() => setManagement_({ ...management, owners: management.owners.filter((_, j) => j !== i) })}>
+                      <input type="text" placeholder="Owner's name" value={owner.name} maxLength={STATEMENT_LIMITS.OWNER_NAME_MAX} onChange={(e) => setManagement_({ ...management, owners: management.owners.map((o, j) => (j === i ? { ...o, name: e.target.value } : o)) })} aria-label={`Owner ${i + 1} name`} />
+                      <input type="text" placeholder="Email (optional, not used yet)" value={owner.email} maxLength={STATEMENT_LIMITS.OWNER_EMAIL_MAX} onChange={(e) => setManagement_({ ...management, owners: management.owners.map((o, j) => (j === i ? { ...o, email: e.target.value } : o)) })} aria-label={`Owner ${i + 1} email`} />
+                      <button type="button" className={styles.managementRemove} aria-label={`Remove owner ${i + 1}`} onClick={() => setManagement_({ ...management, owners: management.owners.filter((_, j) => j !== i) })}>
                         <X size={14} />
                       </button>
                     </div>
                   ))}
                   {management.owners.length < STATEMENT_LIMITS.OWNERS_MAX && (
                     <button type="button" className={styles.managementAdd} onClick={() => setManagement_({ ...management, owners: [...management.owners, { name: "", email: "" }] })}>
-                      <Plus size={14} /> Add a co-owner
+                      <Plus size={14} /> Add an owner
                     </button>
                   )}
                   <div className={styles.managementRow}>
@@ -1409,12 +1422,8 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
                   </div>
                   <div className={styles.managementRow}>
                     <label className={styles.managementLabel}>
-                      Default fee label
-                      <input type="text" placeholder="e.g. Management fee" value={management.feeLabel} maxLength={STATEMENT_LIMITS.FEE_LABEL_MAX} onChange={(e) => setManagement_({ ...management, feeLabel: e.target.value })} />
-                    </label>
-                    <label className={styles.managementLabel}>
-                      Default fee ($)
-                      <input type="text" inputMode="decimal" placeholder="0.00" value={management.feeAmount} onChange={(e) => setManagement_({ ...management, feeAmount: e.target.value })} />
+                      Default fee rate (%)
+                      <input type="text" inputMode="decimal" placeholder="20" value={management.feeRate} onChange={(e) => setManagement_({ ...management, feeRate: e.target.value })} />
                     </label>
                   </div>
                 </fieldset>
@@ -1856,16 +1865,20 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
 // ─── Co-owners and statements (dispatch 23B) ─────────────────
 
 interface ManagementDraft {
+  reportForName: string;
+  reportForAddress: string;
   owners: { name: string; email: string }[];
   /** yyyy-mm */
   from: string;
   until: string;
-  feeLabel: string;
-  feeAmount: string;
+  /** "20" or "12.5"; '' for none. */
+  feeRate: string;
+  /** The default fee amount of dispatch 23B, as loaded; sent back unchanged, no longer shown. */
+  legacyFee: { label: string; amount: string } | null;
 }
 
 function emptyManagement(): ManagementDraft {
-  return { owners: [], from: STATEMENTS_FROM_DEFAULT, until: "", feeLabel: "", feeAmount: "" };
+  return { reportForName: "", reportForAddress: "", owners: [], from: STATEMENTS_FROM_DEFAULT, until: "", feeRate: "", legacyFee: null };
 }
 
 /**
@@ -1875,16 +1888,15 @@ function emptyManagement(): ManagementDraft {
  */
 function toManagementPayload(draft: ManagementDraft): { record: ManagementPayload | null } | { problem: string } {
   const owners = draft.owners.map((o) => ({ name: o.name.trim(), email: o.email.trim() || null })).filter((o) => o.name !== "" || o.email !== null);
-  if (owners.some((o) => o.name === "")) return { problem: "Every co-owner needs a name." };
+  if (owners.some((o) => o.name === "")) return { problem: "Every owner needs a name." };
   if (!isMonth(draft.from)) return { problem: "Statements from: a month, like 2026-10." };
   if (draft.until !== "" && !isMonth(draft.until)) return { problem: "Until: a month, like 2027-03, or empty." };
   if (draft.until !== "" && draft.until < draft.from) return { problem: "Until is before the first month." };
-  let defaultFee: ManagementPayload["defaultFee"] = null;
-  if (draft.feeLabel.trim() !== "" || draft.feeAmount.trim() !== "") {
-    const amount = readAmount(draft.feeAmount);
-    if (draft.feeLabel.trim() === "" || amount === null || amount.startsWith("-")) return { problem: "The default fee needs a label and an amount, zero or more." };
-    defaultFee = { label: draft.feeLabel.trim(), amount };
-  }
-  if (owners.length === 0 && draft.from === STATEMENTS_FROM_DEFAULT && draft.until === "" && defaultFee === null) return { record: null };
-  return { record: { owners, statementsFrom: draft.from, statementsUntil: draft.until || null, defaultFee } };
+  const reportForName = draft.reportForName.trim();
+  if (reportForName === "" && draft.reportForAddress.trim() !== "") return { problem: "Report For needs a name above the address." };
+  const reportFor = reportForName === "" ? null : { name: reportForName, address: draft.reportForAddress.trim() };
+  const feeRate = draft.feeRate.trim();
+  if (feeRate !== "" && !/^(100(\.0{1,2})?|[0-9]{1,2}(\.[0-9]{1,2})?)$/.test(feeRate)) return { problem: "The default fee rate is a percent, like 20 or 12.5." };
+  if (reportFor === null && owners.length === 0 && draft.from === STATEMENTS_FROM_DEFAULT && draft.until === "" && feeRate === "" && draft.legacyFee === null) return { record: null };
+  return { record: { reportFor, owners, statementsFrom: draft.from, statementsUntil: draft.until || null, defaultFeeRate: feeRate || null, ...(draft.legacyFee ? { defaultFee: draft.legacyFee } : {}) } };
 }
