@@ -14,6 +14,7 @@
  * caller can tell *why* a write failed and show it against the right field.
  */
 
+import type { PropertyManagementView } from '@/app/lib/reports/model';
 import { collection, doc, getDocs, getDoc, query } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from './config';
 import { Property } from '@/app/types/property';
@@ -203,6 +204,48 @@ export async function getCleanerFacingName(id: string): Promise<ReadResult<strin
 }
 
 /** Set the property's cleaner-facing name; an empty string or null clears it. */
+/** The property's co-owners record (dispatch 23B), from its own route; null when it has none. */
+export async function getManagement(id: string): Promise<ReadResult<PropertyManagementView | null>> {
+  let res: Response;
+  try {
+    res = await fetch(`/api/admin/properties/${encodeURIComponent(id)}/management`, { cache: 'no-store' });
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'Could not reach the server.' };
+  }
+  const body = await res.json().catch(() => ({}));
+  const data = body && typeof body === 'object' ? (body as { data?: { record?: unknown } }).data : undefined;
+  if (!res.ok || !data || (data.record !== null && (typeof data.record !== 'object' || !Array.isArray((data.record as { owners?: unknown }).owners)))) {
+    return { ok: false, error: `Could not read the co-owners record (HTTP ${res.status}).` };
+  }
+  return { ok: true, data: data.record as PropertyManagementView | null };
+}
+
+/** Set the co-owners record whole, or clear it with null. */
+export async function setManagement(id: string, record: ManagementPayload | null): Promise<MutationResult<{ record: PropertyManagementView | null }>> {
+  let res: Response;
+  try {
+    res = await fetch(`/api/admin/properties/${encodeURIComponent(id)}/management`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(record),
+    });
+  } catch (error) {
+    return networkFailure(error, 'Could not reach the server to save the co-owners record');
+  }
+  if (!res.ok) return toFailure(res, 'Failed to save the co-owners record');
+  const body = await res.json().catch(() => ({}));
+  const stored = body && typeof body === 'object' ? (body as { data?: { record?: unknown } }).data?.record : undefined;
+  return { ok: true, data: { record: stored && typeof stored === 'object' ? (stored as PropertyManagementView) : null } };
+}
+
+/** The record as the form saves it: amounts as typed, "150.00". */
+export interface ManagementPayload {
+  owners: { name: string; email: string | null }[];
+  statementsFrom: string;
+  statementsUntil: string | null;
+  defaultFee: { label: string; amount: string } | null;
+}
+
 export async function setCleanerFacingName(id: string, name: string | null): Promise<MutationResult<{ name: string | null }>> {
   let res: Response;
   try {

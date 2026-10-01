@@ -1,7 +1,9 @@
 "use client";
 
 import { Property, Offer } from "@/app/types/property";
-import { addProperty, updateProperty, MutationIssue, getCleanerFacingName, setCleanerFacingName } from '@/app/lib/firebase/properties';
+import { addProperty, updateProperty, MutationIssue, getCleanerFacingName, setCleanerFacingName, getManagement, setManagement, type ManagementPayload } from '@/app/lib/firebase/properties';
+import { STATEMENTS_FROM_DEFAULT, STATEMENT_LIMITS, isMonth } from "@/app/lib/reports/model";
+import { amountField, readAmount } from "../costs/cost-display";
 import { hasPriceDivergence, nightlyPrice } from "@/app/lib/price";
 import { useMemo, useState, useEffect } from "react";
 import styles from "./PropertyForm.module.css";
@@ -237,6 +239,41 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
 
   // Uploads and other in-form failures — one mechanism, no alert().
   const { notice: formNotice, show: showFormNotice, clear: clearFormNotice } = useNotice();
+
+  /**
+   * The co-owners record (dispatch 23B): its own server-only document, loaded
+   * and saved apart from the property, like the name for cleaners.
+   */
+  const [management, setManagement_] = useState<ManagementDraft>(emptyManagement);
+  const [loadedManagement, setLoadedManagement] = useState<string>(JSON.stringify(emptyManagement()));
+  const [managementState, setManagementState] = useState<"none" | "loading" | "ready" | "unavailable">(initialData?.id ? "loading" : "none");
+  useEffect(() => {
+    const id = initialData?.id;
+    if (!id) return;
+    let cancelled = false;
+    getManagement(id).then((result) => {
+      if (cancelled) return;
+      if (result.ok) {
+        const draft = result.data
+          ? {
+              owners: result.data.owners.map((o) => ({ name: o.name, email: o.email ?? "" })),
+              from: result.data.statementsFrom,
+              until: result.data.statementsUntil ?? "",
+              feeLabel: result.data.defaultFee?.label ?? "",
+              feeAmount: result.data.defaultFee ? amountField(result.data.defaultFee.amountCents) : "",
+            }
+          : emptyManagement();
+        setManagement_(draft);
+        setLoadedManagement(JSON.stringify(draft));
+        setManagementState("ready");
+      } else {
+        setManagementState("unavailable");
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [initialData?.id]);
 
   // The cleaner-facing name comes from its own route, not from the property.
   useEffect(() => {
@@ -995,6 +1032,21 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
         }
       }
 
+      // ── The co-owners record, as its own write, when it changed (dispatch 23B) ──
+      if (savedId && managementState !== "unavailable" && JSON.stringify(management) !== loadedManagement) {
+        const payload = toManagementPayload(management);
+        if ("problem" in payload) {
+          showFormNotice({ tone: "warning", title: "Saved — but the co-owners record was not.", detail: `${payload.problem} The property itself is saved. Fix it and save again.` });
+          return;
+        }
+        const stored = await setManagement(savedId, payload.record);
+        if (!stored.ok) {
+          showFormNotice({ tone: "warning", title: "Saved — but the co-owners record was not.", detail: `${stored.error} The property itself is saved. Save again to retry.` });
+          return;
+        }
+        setLoadedManagement(JSON.stringify(management));
+      }
+
       if (savedId) {
         setIsMirroring(true);
         try {
@@ -1321,6 +1373,51 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
                   reaches the public site.
                   {cleanerFacingNameState === "unavailable" && " It could not be read just now, so it cannot be changed here until the form is reopened."}
                 </small>
+              </div>
+              {/* Co-owners and statements (dispatch 23B): a server-only record beside the property, never on it. */}
+              <div className={styles.field}>
+                <label>Co-owners and statements</label>
+                <small>
+                  Who the monthly statement is prepared for, the months statements run, and the default management fee it
+                  starts from. Stored apart from the property; nothing here reaches the public site, and nothing sends email.
+                  {managementState === "unavailable" && " It could not be read just now, so it cannot be changed here until the form is reopened."}
+                </small>
+                <fieldset className={styles.managementBlock} disabled={managementState === "loading" || managementState === "unavailable"}>
+                  {management.owners.map((owner, i) => (
+                    <div key={i} className={styles.managementRow}>
+                      <input type="text" placeholder="Co-owner's name" value={owner.name} maxLength={STATEMENT_LIMITS.OWNER_NAME_MAX} onChange={(e) => setManagement_({ ...management, owners: management.owners.map((o, j) => (j === i ? { ...o, name: e.target.value } : o)) })} aria-label={`Co-owner ${i + 1} name`} />
+                      <input type="text" placeholder="Email (optional, not used yet)" value={owner.email} maxLength={STATEMENT_LIMITS.OWNER_EMAIL_MAX} onChange={(e) => setManagement_({ ...management, owners: management.owners.map((o, j) => (j === i ? { ...o, email: e.target.value } : o)) })} aria-label={`Co-owner ${i + 1} email`} />
+                      <button type="button" className={styles.managementRemove} aria-label={`Remove co-owner ${i + 1}`} onClick={() => setManagement_({ ...management, owners: management.owners.filter((_, j) => j !== i) })}>
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
+                  {management.owners.length < STATEMENT_LIMITS.OWNERS_MAX && (
+                    <button type="button" className={styles.managementAdd} onClick={() => setManagement_({ ...management, owners: [...management.owners, { name: "", email: "" }] })}>
+                      <Plus size={14} /> Add a co-owner
+                    </button>
+                  )}
+                  <div className={styles.managementRow}>
+                    <label className={styles.managementLabel}>
+                      Statements from
+                      <input type="month" value={management.from} onChange={(e) => setManagement_({ ...management, from: e.target.value })} />
+                    </label>
+                    <label className={styles.managementLabel}>
+                      until (optional)
+                      <input type="month" value={management.until} onChange={(e) => setManagement_({ ...management, until: e.target.value })} />
+                    </label>
+                  </div>
+                  <div className={styles.managementRow}>
+                    <label className={styles.managementLabel}>
+                      Default fee label
+                      <input type="text" placeholder="e.g. Management fee" value={management.feeLabel} maxLength={STATEMENT_LIMITS.FEE_LABEL_MAX} onChange={(e) => setManagement_({ ...management, feeLabel: e.target.value })} />
+                    </label>
+                    <label className={styles.managementLabel}>
+                      Default fee ($)
+                      <input type="text" inputMode="decimal" placeholder="0.00" value={management.feeAmount} onChange={(e) => setManagement_({ ...management, feeAmount: e.target.value })} />
+                    </label>
+                  </div>
+                </fieldset>
               </div>
               <div className={styles.field}>
                 <label>Display Location * {scrapeBadge('location')}</label>
@@ -1754,4 +1851,40 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
       </div>
     </div>
   );
+}
+
+// ─── Co-owners and statements (dispatch 23B) ─────────────────
+
+interface ManagementDraft {
+  owners: { name: string; email: string }[];
+  /** yyyy-mm */
+  from: string;
+  until: string;
+  feeLabel: string;
+  feeAmount: string;
+}
+
+function emptyManagement(): ManagementDraft {
+  return { owners: [], from: STATEMENTS_FROM_DEFAULT, until: "", feeLabel: "", feeAmount: "" };
+}
+
+/**
+ * The draft as the route takes it: null when it says nothing beyond the
+ * defaults (the record is then cleared), else the whole record. A problem
+ * in words when it cannot be saved.
+ */
+function toManagementPayload(draft: ManagementDraft): { record: ManagementPayload | null } | { problem: string } {
+  const owners = draft.owners.map((o) => ({ name: o.name.trim(), email: o.email.trim() || null })).filter((o) => o.name !== "" || o.email !== null);
+  if (owners.some((o) => o.name === "")) return { problem: "Every co-owner needs a name." };
+  if (!isMonth(draft.from)) return { problem: "Statements from: a month, like 2026-10." };
+  if (draft.until !== "" && !isMonth(draft.until)) return { problem: "Until: a month, like 2027-03, or empty." };
+  if (draft.until !== "" && draft.until < draft.from) return { problem: "Until is before the first month." };
+  let defaultFee: ManagementPayload["defaultFee"] = null;
+  if (draft.feeLabel.trim() !== "" || draft.feeAmount.trim() !== "") {
+    const amount = readAmount(draft.feeAmount);
+    if (draft.feeLabel.trim() === "" || amount === null || amount.startsWith("-")) return { problem: "The default fee needs a label and an amount, zero or more." };
+    defaultFee = { label: draft.feeLabel.trim(), amount };
+  }
+  if (owners.length === 0 && draft.from === STATEMENTS_FROM_DEFAULT && draft.until === "" && defaultFee === null) return { record: null };
+  return { record: { owners, statementsFrom: draft.from, statementsUntil: draft.until || null, defaultFee } };
 }

@@ -216,6 +216,12 @@
   gap: 16px;
   margin-bottom: 28px;
 }
+/* Seven tiles since dispatch 23B: four columns on a wide window, so the rows are even. */
+@media (min-width: 1200px) {
+  .statsGrid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
 
 .statCard {
   position: relative;

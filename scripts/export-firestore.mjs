@@ -45,7 +45,17 @@ const ENV_FILE = join(PROJECT_ROOT, '.env.local');
 const BACKUP_ROOT = join(PROJECT_ROOT, 'backups');
 
 /** Collections the project is known to use. Absence is reported, not fatal. */
-const EXPECTED_COLLECTIONS = ['properties', 'contact_submissions', 'availability_snapshots', 'availability_days'];
+const EXPECTED_COLLECTIONS = [
+  'properties',
+  'contact_submissions',
+  'availability_snapshots',
+  'availability_days',
+  // Dispatch 23B (2026-09-30): monthly statements, all server-only root collections.
+  'monthly_report_drafts',
+  'monthly_reports',
+  'report_downloads',
+  'property_management',
+];
 
 /** Cap on the per-document subcollection probe, so a huge collection can't blow up the run. */
 const SUBCOLLECTION_PROBE_LIMIT = 500;

@@ -27,15 +27,17 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { CalendarSearch, ExternalLink, Inbox, LayoutGrid, Receipt, Users } from "lucide-react";
+import { CalendarSearch, ExternalLink, FileText, Inbox, LayoutGrid, Receipt, Users } from "lucide-react";
 import styles from "../page.module.css";
 
-export type AdminSection = "properties" | "leads" | "costs" | "cleaners" | "availability";
+export type AdminSection = "properties" | "leads" | "costs" | "reports" | "cleaners" | "availability";
 
 const SECTIONS: { key: AdminSection; label: string; href: string; Icon: typeof Inbox }[] = [
   { key: "properties", label: "Properties", href: "/admin", Icon: LayoutGrid },
   { key: "leads", label: "Leads", href: "/admin/leads", Icon: Inbox },
   { key: "costs", label: "Costs", href: "/admin/costs", Icon: Receipt },
+  // Dispatch 23B (2026-09-30): the monthly statements and their tracker.
+  { key: "reports", label: "Reports", href: "/admin/reports", Icon: FileText },
   { key: "cleaners", label: "Team", href: "/admin/cleaners", Icon: Users },
   // Dispatch 22 (2026-09-30): the search for a caller's dates, and the attention list.
   { key: "availability", label: "Availability", href: "/admin/availability", Icon: CalendarSearch },

@@ -81,7 +81,7 @@
  */
 
 import { z } from 'zod';
-import type { DocumentReference, DocumentSnapshot } from 'firebase-admin/firestore';
+import type { DocumentReference, DocumentSnapshot, Transaction } from 'firebase-admin/firestore';
 import { getAdminDb } from './admin';
 import { isDocumentId } from './server-leads';
 import type { ReadingAttachment } from '@/app/lib/cleaners/readings';
@@ -191,7 +191,7 @@ const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
  * through a float: "7.98" → 798, "-1.00" → -100. At most eight digits, so
  * the result is exact. "-0.00" is 0, not -0.
  */
-function toCents(text: string): number {
+export function toCents(text: string): number {
   const negative = text.startsWith('-');
   const [whole, fraction] = (negative ? text.slice(1) : text).split('.');
   const cents = Number(whole + fraction);
@@ -973,6 +973,34 @@ export async function listCosts(): Promise<CostsView> {
             .map(([id, now]) => ({ id, name: now.name }))
             .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', 'en-CA') || a.id.localeCompare(b.id)),
   };
+}
+
+/**
+ * Every entry of one property, newest first, with its lookups (dispatch
+ * 23B: what a statement is built from). One read per entry, one per
+ * distinct cleaner, one for the property's name.
+ *
+ * @throws if the entries cannot be read.
+ */
+export async function listPropertyEntries(propertyId: string): Promise<CostEntryView[]> {
+  if (!isDocumentId(propertyId)) return [];
+  const db = getAdminDb();
+  const snapshot = await db.collection(COST_ENTRIES_COLLECTION).where('propertyId', '==', propertyId).get();
+  const entries = snapshot.docs.map((doc) => readCostEntryFields(doc.id, doc.data()));
+  const [cleaners, properties] = await Promise.all([
+    lookUpCleaners(distinctIds(entries.map((entry) => entry.cleanerId))),
+    lookUpProperties([propertyId]),
+  ]);
+  return entries.map((entry) => toView(entry, cleaners, properties)).sort(newestFirst);
+}
+
+/** The stored fields of one property's entries, read inside a transaction (dispatch 23B's finish step). */
+export async function propertyEntriesInTransaction(tx: Transaction, propertyId: string): Promise<CostEntryView[]> {
+  const db = getAdminDb();
+  const snapshot = await tx.get(db.collection(COST_ENTRIES_COLLECTION).where('propertyId', '==', propertyId));
+  const entries = snapshot.docs.map((doc) => readCostEntryFields(doc.id, doc.data()));
+  // Names are display only: the claim compares IDs and history lengths, so the lookups can stay outside the transaction.
+  return entries.map((entry) => toView(entry, new Map(), new Map())).sort(newestFirst);
 }
 
 /** One entry with the current names of its cleaner and property: two small lookups. */

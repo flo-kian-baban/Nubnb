@@ -43,9 +43,13 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, BedDouble, CalendarDays, CalendarSearch, Inbox, Receipt, Wallet } from "lucide-react";
+import { AlertTriangle, ArrowRight, BedDouble, CalendarDays, CalendarSearch, FileText, Inbox, Receipt, Wallet } from "lucide-react";
 import { fetchLeads } from "@/app/lib/leads-client";
 import { fetchCosts } from "@/app/lib/costs-client";
+import { fetchTracker } from "@/app/lib/reports-client";
+import { lastClosedMonth, monthLabel } from "@/app/lib/reports/model";
+import { trackerCounts, trackerRows } from "@/app/lib/reports/statement";
+import { torontoDayOf } from "@/app/lib/costs/report";
 import { fetchAvailability, type AvailabilityData } from "@/app/lib/availability-client";
 import { homeFigures } from "@/app/lib/availability/attention";
 import { rangeText, torontoDay } from "@/app/lib/availability/days";
@@ -164,9 +168,21 @@ export function DashboardStats({ properties }: DashboardStatsProps) {
   const [leads, setLeads] = useState<Read<ReturnType<typeof leadFigures>>>({ kind: "loading" });
   const [costs, setCosts] = useState<Read<ReturnType<typeof costFigures>>>({ kind: "loading" });
   const [availability, setAvailability] = useState<Read<AvailabilityData>>({ kind: "loading" });
+  /** The statements of the last closed month (dispatch 23B): the tracker's own counts. */
+  const [statements, setStatements] = useState<Read<{ month: string; counts: ReturnType<typeof trackerCounts> }>>({ kind: "loading" });
 
   useEffect(() => {
     let cancelled = false;
+    fetchTracker().then((result) => {
+      if (cancelled) return;
+      if (!result.ok) {
+        setStatements({ kind: "error", title: result.title });
+        return;
+      }
+      const month = lastClosedMonth(torontoDayOf(new Date()));
+      const rows = trackerRows({ month, properties: result.data.properties, reports: result.data.reports, drafts: result.data.drafts, downloads: result.data.downloads, management: result.data.management });
+      setStatements({ kind: "ready", data: { month, counts: trackerCounts(rows) } });
+    });
     fetchAvailability().then((result) => {
       if (cancelled) return;
       setAvailability(result.ok ? { kind: "ready", data: result.data } : { kind: "error", title: result.title });
@@ -275,6 +291,26 @@ export function DashboardStats({ properties }: DashboardStatsProps) {
             busy={costs.kind === "loading"}
           />
         </>
+      )}
+
+      {statements.kind === "error" ? (
+        <FailedTile href="/admin/reports" label="Statements could not be read" title={statements.title} />
+      ) : (
+        <Tile
+          href={statements.kind === "ready" ? `/admin/reports?month=${statements.data.month}` : "/admin/reports"}
+          icon={<FileText size={20} />}
+          value={statements.kind === "ready" ? statements.data.counts.outstanding : "…"}
+          label={`Statements outstanding, ${statements.kind === "ready" ? monthLabel(statements.data.month) : "last month"}`}
+          detail={
+            statements.kind === "ready"
+              ? statements.data.counts.inScope === 0
+                ? "No property expects a statement for this month yet"
+                : `${statements.data.counts.finished} of ${statements.data.counts.inScope} finished${statements.data.counts.drafts > 0 ? ` · ${plural(statements.data.counts.drafts, "draft", "drafts")} in progress` : ""}`
+              : null
+          }
+          tone={statements.kind === "ready" && statements.data.counts.outstanding > 0 ? "accent" : undefined}
+          busy={statements.kind === "loading"}
+        />
       )}
 
       {availability.kind === "error" ? (

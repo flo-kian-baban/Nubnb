@@ -52,6 +52,15 @@ service cloud.firestore {
     // route. Never from a browser.
     match /availability_snapshots/{docId} { allow read, write: if false; }
     match /availability_days/{day} { allow read, write: if false; }
+    // Dispatch 23B (2026-09-30): monthly statements. The working draft of
+    // each property-month, the finished statements (their PDF bytes are in
+    // Storage), each download link minted, and each property's co-owners,
+    // statement months and default fee. Admin routes only; the co-owners'
+    // names and emails never reach a browser that is not an admin's.
+    match /monthly_report_drafts/{draftId} { allow read, write: if false; }
+    match /monthly_reports/{reportId} { allow read, write: if false; }
+    match /report_downloads/{downloadId} { allow read, write: if false; }
+    match /property_management/{propertyId} { allow read, write: if false; }
 
     // Everything else: denied.
     match /{document=**} {
