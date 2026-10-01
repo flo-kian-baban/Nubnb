@@ -33,6 +33,7 @@
  */
 
 import {
+  awaitingLook,
   countsInTotals,
   formatCents,
   type CostEntryView,
@@ -187,24 +188,36 @@ export function entryRef(id: string): string {
  * The queue's default (dispatch 21): everything that is not approved —
  * pending, rejected, removed, and any status this code does not know —
  * because each of those still needs, or had, a decision. Approved entries
- * have left the queue for their property's ledger.
+ * have left the queue for their property's ledger. Since dispatch 24 the
+ * queue also holds every entry approved automatically that no admin has
+ * looked at yet (awaitingLook): it counts in the ledger already, and the
+ * queue is where it is seen.
  */
 export const NEEDS_ATTENTION = 'attention';
 
 export interface CostFilters {
   /** A property ID, or '' for every property. */
   propertyId: string;
-  /** A stored status, NEEDS_ATTENTION for everything not approved, or '' for every status. */
+  /** A stored status, NEEDS_ATTENTION for the queue, or '' for every status. */
   status: string;
   /** yyyy-mm-dd, or '' for no start. */
   from: string;
   /** yyyy-mm-dd, or '' for no end. */
   to: string;
+  /** `receipt`, `work`, or '' for both (dispatch 24). */
+  kind: string;
+  /** A cleaner or handyman's ID, or '' for everyone (dispatch 24). */
+  cleanerId: string;
+}
+
+/** Whether an entry belongs in the review queue: not approved, or approved automatically and not yet looked at. */
+export function inQueue(entry: CostEntryView): boolean {
+  return entry.status !== 'approved' || awaitingLook(entry);
 }
 
 export function matchesStatus(entry: CostEntryView, status: string): boolean {
   if (status === '') return true;
-  if (status === NEEDS_ATTENTION) return entry.status !== 'approved';
+  if (status === NEEDS_ATTENTION) return inQueue(entry);
   return entry.status === status;
 }
 
@@ -212,7 +225,9 @@ export function matchesFilters(entry: CostEntryView, filters: CostFilters): bool
   return (
     (filters.propertyId === '' || entry.property.id === filters.propertyId) &&
     matchesStatus(entry, filters.status) &&
-    inRange(sentDay(entry.createdAt), filters.from, filters.to)
+    inRange(sentDay(entry.createdAt), filters.from, filters.to) &&
+    (filters.kind === '' || entry.kind === filters.kind) &&
+    (filters.cleanerId === '' || entry.cleaner.id === filters.cleanerId)
   );
 }
 
@@ -356,7 +371,10 @@ export interface ReportEntry {
   ref: string;
   /** The Toronto day it was sent. */
   day: string;
+  /** Who logged it: the cleaner, or the handyman. */
   cleaner: string;
+  /** `receipt` or `work` (dispatch 24). */
+  kind: string;
   lines: LineNow[];
   /** The lines added up: the items (dispatch 21). On an `in-lines` entry any tax the cleaner typed is among them. */
   itemsCents: number;
@@ -430,6 +448,7 @@ export function buildReport(
       ref: entryRef(entry.id),
       day,
       cleaner: cleanerLabel(entry),
+      kind: entry.kind,
       lines: entry.linesNow.lines,
       itemsCents: entry.linesNow.itemsCents,
       taxCents: entry.linesNow.taxCents,

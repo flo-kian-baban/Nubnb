@@ -31,6 +31,13 @@
  * reading the array and writing it back inside the transaction — never with
  * arrayUnion, which drops an event identical to one already there.
  *
+ * ── Roles (dispatch 24) ──
+ * A handyman is a document here with `role: 'handyman'`, issued and managed
+ * exactly as a cleaner is, with a code from the same index: one door, so a
+ * code is unique across both roles. The role is read from the document on
+ * every request, beside `status` and `sessionEpoch`, never carried by the
+ * token. Absent means `cleaner`, on every account written before this.
+ *
  * Failure contract, as in server-leads.ts: listCleaners THROWS when the read
  * fails; it never returns an empty list. The other functions return a
  * result naming what happened, "not confirmed" included, and never throw.
@@ -48,6 +55,8 @@ import {
   CODE_PATTERN,
   newestFirst,
   readCleanerSummary,
+  roleOf,
+  type CleanerRole,
   type CleanerStatus,
   type CleanerSummary,
   type HistoryEvent,
@@ -63,7 +72,7 @@ const MAX_CANDIDATES = 5;
 const MAX_TOKEN_EPOCH = 999_999_999;
 
 /** The only fields that leave Firestore for the list. Never `sessionEpoch` or `codeDigest`. */
-const SUMMARY_FIELDS = ['name', 'code', 'status', 'statusChangedAt', 'createdAt', 'history'] as const;
+const SUMMARY_FIELDS = ['name', 'code', 'status', 'statusChangedAt', 'createdAt', 'history', 'role'] as const;
 
 /** A cleaner ID as issued: a Firestore auto ID, which is what a session token can carry. */
 const AUTO_ID = /^[A-Za-z0-9]{20}$/;
@@ -101,6 +110,12 @@ export interface SignedInCleaner {
   /** As stored; null if the document's name is not a string. */
   name: string | null;
   sessionEpoch: number;
+  /**
+   * `cleaner` or `handyman` (dispatch 24), read from the document on this
+   * request; `cleaner` when the document has no role. A stored value outside
+   * the two is passed through, and opens neither door (requireRole).
+   */
+  role: string;
 }
 
 // ─── List ──────────────────────────────────────────────────────
@@ -152,6 +167,7 @@ export type IssueCleanerResult =
  */
 export async function issueCleaner(
   name: string,
+  role: CleanerRole,
   adminPin: string | undefined,
 ): Promise<IssueCleanerResult> {
   if (!adminPin) return { kind: 'admin-pin-missing' };
@@ -185,6 +201,7 @@ export async function issueCleaner(
     const cleaner = {
       schemaVersion: CLEANER_SCHEMA_VERSION,
       name,
+      role,
       code,
       status: 'active' satisfies CleanerStatus,
       statusChangedAt: now,
@@ -475,7 +492,7 @@ export async function findCleanerByCode(code: string): Promise<FindCleanerResult
     if (typeof cleanerId !== 'string' || !AUTO_ID.test(cleanerId)) return { kind: 'not-recognised' };
 
     const [cleaner] = await db.getAll(db.collection(CLEANERS_COLLECTION).doc(cleanerId), {
-      fieldMask: ['name', 'status', 'code', 'sessionEpoch'],
+      fieldMask: ['name', 'status', 'code', 'sessionEpoch', 'role'],
     });
     const epoch: unknown = cleaner.get('sessionEpoch');
     if (
@@ -491,7 +508,7 @@ export async function findCleanerByCode(code: string): Promise<FindCleanerResult
     const name: unknown = cleaner.get('name');
     return {
       kind: 'found',
-      cleaner: { id: cleanerId, name: typeof name === 'string' ? name : null, sessionEpoch: epoch },
+      cleaner: { id: cleanerId, name: typeof name === 'string' ? name : null, sessionEpoch: epoch, role: roleOf(cleaner.data() ?? {}) },
     };
   } catch (err) {
     console.error(`[cleaner-session] lookup failed: grpc code ${grpcCode(err)}`);
@@ -520,7 +537,7 @@ export async function readSessionCleaner(
   try {
     const db = getAdminDb();
     const [cleaner] = await db.getAll(db.collection(CLEANERS_COLLECTION).doc(cleanerId), {
-      fieldMask: ['name', 'status', 'sessionEpoch'],
+      fieldMask: ['name', 'status', 'sessionEpoch', 'role'],
     });
     if (
       !cleaner.exists ||
@@ -533,7 +550,7 @@ export async function readSessionCleaner(
     const name: unknown = cleaner.get('name');
     return {
       kind: 'valid',
-      cleaner: { id: cleanerId, name: typeof name === 'string' ? name : null, sessionEpoch },
+      cleaner: { id: cleanerId, name: typeof name === 'string' ? name : null, sessionEpoch, role: roleOf(cleaner.data() ?? {}) },
     };
   } catch (err) {
     console.error(`[cleaner-session] session check failed: grpc code ${grpcCode(err)}`);

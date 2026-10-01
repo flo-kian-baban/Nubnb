@@ -1,6 +1,10 @@
 /**
- * GET  /api/admin/cleaners — Every cleaner, newest first, with their codes (admin-only).
- * POST /api/admin/cleaners — Create a cleaner and issue their code (admin-only).
+ * GET  /api/admin/cleaners — Every cleaner and handyman, newest first, with their codes (admin-only).
+ * POST /api/admin/cleaners — Create a cleaner or a handyman and issue their code (admin-only).
+ *
+ * The body is `{ name, role? }` (dispatch 24): `role` is `cleaner` or
+ * `handyman`, and `cleaner` when absent, for the callers that predate it.
+ * Both roles come from the one code index, so a code is unique across both.
  *
  * A cleaner signs in at their own door, /api/cleaner, with a four-digit code;
  * this is where the admin makes one. By Kian's ruling of 2026-09-28 codes are
@@ -31,7 +35,7 @@ import {
   apiValidationError,
   noStore,
 } from '@/app/lib/api/safe-response';
-import { LIMITS, type Refusal } from '@/app/lib/cleaners/model';
+import { CLEANER_ROLES, LIMITS, type Refusal } from '@/app/lib/cleaners/model';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import {
   issueCleaner,
@@ -42,8 +46,8 @@ import {
 const CONTROL_CHARACTER = /\p{Cc}/u;
 
 /**
- * Strict: a body that carries anything besides `name` is refused, not
- * trimmed. The name is stored as validated here — NFC, trimmed, 1–80
+ * Strict: a body that carries anything besides `name` and `role` is refused,
+ * not trimmed. The name is stored as validated here — NFC, trimmed, 1–80
  * characters, no control characters. Duplicates are allowed.
  */
 const NewCleanerSchema = z.strictObject({
@@ -57,6 +61,8 @@ const NewCleanerSchema = z.strictObject({
         .max(LIMITS.NAME_MAX, `At most ${LIMITS.NAME_MAX} characters`)
         .refine((s) => !CONTROL_CHARACTER.test(s), 'No control characters'),
     ),
+  /** `cleaner` when absent (dispatch 24). */
+  role: z.enum(CLEANER_ROLES).optional().transform((value) => value ?? 'cleaner'),
 });
 
 /**
@@ -153,7 +159,7 @@ export async function POST(request: NextRequest) {
 
   // ── Issue ──
   // Read inside the handler, never at module scope, and passed on unlogged.
-  const outcome = await issueCleaner(result.data.name, process.env.ADMIN_PIN);
+  const outcome = await issueCleaner(result.data.name, result.data.role, process.env.ADMIN_PIN);
   if (outcome.kind !== 'created') return noStore(apiFailure(ISSUE_REFUSALS[outcome.kind]));
 
   // The new cleaner, their code included. Nothing logs it.

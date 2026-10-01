@@ -1,10 +1,12 @@
 /**
  * One property's cost report as a PDF, for its co-owners: the property, the
- * period, each approved entry with its date, what was bought and its total,
- * and the period total. No cleaner's name is in it. A discount or a return
- * is listed in "What was bought" with its amount, and is never the part cut
- * when the column is too narrow, so each total can be read from what is
- * listed.
+ * period, each approved entry with its date, what was bought or the work
+ * done and its total, and the period total. No cleaner's or handyman's name
+ * is in it. A discount or a return is listed in "What was bought / work
+ * done" with its amount, and is never the part cut when the column is too
+ * narrow, so each total can be read from what is listed. A work entry's
+ * description (dispatch 24) wraps to a second line rather than being cut,
+ * so the co-owner reads what was done.
  *
  * Written by hand as PDF 1.4 with Helvetica and Helvetica-Bold, which every
  * PDF reader carries, so no font is embedded and no package is added. US
@@ -123,6 +125,25 @@ function wrapped(text: string, face: Face, size: number, max: number): number[][
 }
 
 /**
+ * A work entry's description on at most two lines (dispatch 24): as many
+ * whole words as fit on the first, the rest on the second, cut with "…"
+ * only if even that is too long.
+ */
+function twoLines(text: string, max: number): number[][] {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [winAnsi('—')];
+  const line: string[] = [];
+  let i = 0;
+  for (; i < words.length; i++) {
+    if (line.length > 0 && widthOf(winAnsi([...line, words[i]].join(' ')), 'regular', 10) > max) break;
+    line.push(words[i]);
+  }
+  const first = fitted(line.join(' '), 'regular', 10, max);
+  if (i >= words.length) return [first];
+  return [first, fitted(words.slice(i).join(' '), 'regular', 10, max)];
+}
+
+/**
  * An entry's "What was bought", fitted to its column. The money taken off —
  * discounts and returns, with their amounts — is kept whole; the items'
  * names are what gets cut with "…" when there is not room for both.
@@ -186,7 +207,7 @@ const MUTED = 0.45;
 function tableHeader(page: Page, y: number): number {
   page.text('#', COLUMN.number, y, 'bold', 8.5, MUTED, 'right');
   page.text('Date', COLUMN.date, y, 'bold', 8.5, MUTED);
-  page.text('What was bought', COLUMN.bought, y, 'bold', 8.5, MUTED);
+  page.text('What was bought / work done', COLUMN.bought, y, 'bold', 8.5, MUTED);
   page.text('Ref', COLUMN.ref, y, 'bold', 8.5, MUTED);
   page.text('Items', COLUMN.items, y, 'bold', 8.5, MUTED, 'right');
   page.text('Tax', COLUMN.tax, y, 'bold', 8.5, MUTED, 'right');
@@ -278,18 +299,28 @@ export function pdfFor(report: CostReport): Uint8Array<ArrayBuffer> {
     page.text('No approved costs in this period.', COLUMN.date, y, 'regular', 10, MUTED);
     y -= ROW;
   }
+  const boughtWidth = COLUMN.ref - 12 - COLUMN.bought;
   report.entries.forEach((entry, i) => {
-    if (y < LOWEST_ROW) nextPage(true);
+    // A work entry's description wraps to a second line (dispatch 24); two lines at most, the rest cut with "…".
+    const work = entry.kind === 'work' ? twoLines(whatWasBought(entry.lines).items.join(', '), boughtWidth) : null;
+    const secondLine = work !== null && work.length > 1;
+    if (y - (secondLine ? 12 : 0) < LOWEST_ROW) nextPage(true);
     page.text(String(i + 1), COLUMN.number, y, 'regular', 10, MUTED, 'right');
     page.text(shortDay(entry.day), COLUMN.date, y, 'regular', 10);
-    page.text(boughtCell(entry.lines, COLUMN.ref - 12 - COLUMN.bought), COLUMN.bought, y, 'regular', 10);
+    if (work === null) {
+      page.text(boughtCell(entry.lines, boughtWidth), COLUMN.bought, y, 'regular', 10);
+    } else {
+      page.text(work[0], COLUMN.bought, y, 'regular', 10);
+      if (secondLine) page.text(work[1], COLUMN.bought, y - 12, 'regular', 10);
+    }
     page.text(entry.ref, COLUMN.ref, y, 'regular', 10, MUTED);
     page.text(formatCents(entry.itemsCents), COLUMN.items, y, 'regular', 10, 0, 'right');
     page.text(taxText(entry), COLUMN.tax, y, 'regular', 10, entry.taxShape === 'field' && entry.taxCents !== null ? 0 : MUTED, 'right');
     page.text(formatCents(entry.totalCents), AMOUNT_RIGHT, y, 'regular', 10, 0, 'right');
     if (entry.corrected) page.text('*', AMOUNT_RIGHT + 1.5, y, 'regular', 10);
-    page.rule(MARGIN, RIGHT, y - 7, 0.9, 0.4);
-    y -= ROW;
+    const rowHeight = secondLine ? ROW + 12 : ROW;
+    page.rule(MARGIN, RIGHT, y - rowHeight + ROW - 7, 0.9, 0.4);
+    y -= rowHeight;
   });
 
   // ── The period total, and what the numbers are ──
@@ -300,6 +331,9 @@ export function pdfFor(report: CostReport): Uint8Array<ArrayBuffer> {
       : []),
     ...(report.taxInLines
       ? ['Entries whose tax reads "in items" were sent before tax was recorded apart: any tax the cleaner typed is a line among their items, and inside their Items amount.']
+      : []),
+    ...(report.entries.some((entry) => entry.kind === 'work')
+      ? ['An entry marked as work is a handyman\'s work done for the property, at the price logged: no receipt, and Items is that price.']
       : []),
     'Each entry is one receipt. Items is the sum of the amounts the receipt prints for each line, Tax is the receipt\'s tax, and Total is the two together; quantities are never multiplied.',
   ].flatMap((note) => wrapped(note, 'regular', 8.5, RIGHT - MARGIN));

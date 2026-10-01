@@ -57,24 +57,37 @@
  * "Could not load" is never "nothing here": a failed read shows no table, no
  * totals and no export, so it can never produce an empty report.
  *
+ * ── Approved automatically (dispatch 24, Kian's decision of 2026-09-30) ──
+ * A receipt under $200.00 as sent is approved as it arrives, and counts in
+ * its ledger at once. It stays in the queue, in its own group at the top,
+ * until an admin marks it Seen — one at a time, or all at once — or
+ * corrects, removes or rejects it. Above the queue, a "Worth a look" panel
+ * names any cleaner whose receipts cluster under the line (costs/patterns.ts),
+ * with a link to the queue filtered to them. A handyman's work entry
+ * (kind `work`) is marked as such on its row, has no receipt, and needs an
+ * admin's approval whatever its amount.
+ *
  * The filters, the view and the open entry are mirrored into the URL
- * (?property=, ?status=, ?from=, ?to=, ?view=, ?entry=), so a reload keeps them.
+ * (?property=, ?status=, ?kind=, ?cleaner=, ?from=, ?to=, ?view=, ?entry=),
+ * so a reload keeps them.
  */
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertTriangle, FileSpreadsheet, FileText, ImageIcon, Pencil, Receipt, RefreshCw, Search } from "lucide-react";
+import { AlertTriangle, Eye, FileSpreadsheet, FileText, ImageIcon, Pencil, Receipt, RefreshCw, Search, Wrench } from "lucide-react";
 import { AdminHeader } from "../components/AdminHeader";
 import { AdminSelect } from "../components/AdminSelect";
 import { DateRangeField } from "../components/DateRangeField";
 import { PinGate } from "../components/PinGate";
 import { NoticeBanner, useNotice } from "../components/Notice";
-import { fetchCosts, recordPdfExport } from "@/app/lib/costs-client";
+import { fetchCosts, markEntrySeen, recordPdfExport } from "@/app/lib/costs-client";
 import {
   ENTRY_STATUSES,
   ENTRY_STATUS_LABELS,
+  awaitingLook,
   countsInTotals,
   formatCents,
+  isEntryKind,
   isEntryStatus,
   type CostEntryView,
   type PropertyNameView,
@@ -87,6 +100,7 @@ import {
   cleanerLabel,
   countedItems,
   entryPdfState,
+  inQueue,
   isDay,
   matchesFilters,
   periodLabel,
@@ -101,10 +115,11 @@ import {
   type EntryPdfState,
   type Totals,
 } from "@/app/lib/costs/report";
+import { splitText, watchList, worthALookText } from "@/app/lib/costs/patterns";
 import { pdfFor } from "@/app/lib/costs/pdf";
 import { workbookFor } from "@/app/lib/costs/xlsx";
 import { Absent, FieldText } from "../leads/lead-display";
-import { EntryStatusBadge, SentAt, quantityText, whenText } from "./cost-display";
+import { EntryStatusBadge, KindBadge, SentAt, quantityText, whenText } from "./cost-display";
 import { EntryPane } from "./EntryPane";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
@@ -148,11 +163,14 @@ function Costs() {
     };
     // The queue by default; "all" in the URL means every status.
     const status = params.get("status");
+    const kind = params.get("kind");
     return {
       propertyId: params.get("property") ?? "",
       status: isEntryStatus(status) ? status : status === "all" ? "" : NEEDS_ATTENTION,
       from: day("from"),
       to: day("to"),
+      kind: isEntryKind(kind) ? kind : "",
+      cleanerId: params.get("cleaner") ?? "",
     };
   });
   const [view, setView] = useState<View>(() => (params.get("view") === "items" ? "items" : "entries"));
@@ -161,6 +179,8 @@ function Costs() {
   const { notice, show, clear } = useNotice();
   /** True while a PDF is being recorded, before it is downloaded. */
   const [recording, setRecording] = useState(false);
+  /** The entry being marked seen, or "all" while the group is; null otherwise. */
+  const [marking, setMarking] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -186,6 +206,8 @@ function Costs() {
     set("status", filters.status === "" ? "all" : filters.status === NEEDS_ATTENTION ? null : filters.status);
     set("from", filters.from);
     set("to", filters.to);
+    set("kind", filters.kind);
+    set("cleaner", filters.cleanerId);
     set("view", view === "items" && filters.propertyId !== "" ? "items" : null);
     set("entry", selectedId);
     if (url.href !== window.location.href) window.history.replaceState(null, "", url.href);
@@ -216,6 +238,16 @@ function Costs() {
   const entries = useMemo(() => (list.kind === "ready" ? list.entries : []), [list]);
   const known = list.kind === "ready" ? list.properties : null;
   const visible = useMemo(() => entries.filter((entry) => matchesFilters(entry, filters)), [entries, filters]);
+  /** In the queue: the entries approved automatically that no admin has looked at, shown as their own group (dispatch 24). */
+  const unseen = useMemo(() => (filters.status === NEEDS_ATTENTION ? visible.filter(awaitingLook) : []), [visible, filters.status]);
+  const rest = useMemo(() => (unseen.length > 0 ? visible.filter((entry) => !awaitingLook(entry)) : visible), [visible, unseen]);
+  /** Every cleaner and handyman an entry names, A to Z, for the filter. */
+  const people = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const entry of entries) if (entry.cleaner.id !== null && !byId.has(entry.cleaner.id)) byId.set(entry.cleaner.id, cleanerLabel(entry));
+    return [...byId.entries()].sort((a, b) => a[1].localeCompare(b[1], "en-CA"));
+  }, [entries]);
+  const kindCounts = useMemo(() => ({ receipt: entries.filter((e) => e.kind !== "work").length, work: entries.filter((e) => e.kind === "work").length }), [entries]);
   const totals = useMemo(() => totalsByProperty(visible), [visible]);
   const items = useMemo(() => countedItems(visible), [visible]);
   /** What the counts beside each status are taken from: the chosen property's entries, or every entry. */
@@ -274,8 +306,36 @@ function Costs() {
     : 0;
   const selected = selectedId === null ? null : (entries.find((entry) => entry.id === selectedId) ?? null);
   const today = torontoDayOf(new Date());
+  /** Every cleaner's last 90 days, read from the entries (dispatch 24); the ones worth a look head the queue. */
+  const patterns = useMemo(() => watchList(entries, today), [entries, today]);
+  const worthALook = useMemo(() => patterns.filter((pattern) => pattern.worthALook), [patterns]);
 
   const setFilter = (change: Partial<CostFilters>) => setFilters((was) => ({ ...was, ...change }));
+
+  /** Mark one entry, or every entry in the group, as seen: one call each, the list changing only to what the server returns. */
+  const markSeen = async (targets: CostEntryView[]) => {
+    if (marking !== null || targets.length === 0) return;
+    clear();
+    setMarking(targets.length === 1 ? targets[0].id : "all");
+    let done = 0;
+    let failed: string | null = null;
+    for (const entry of targets) {
+      const result = await markEntrySeen(entry.id, { seen: entry.history?.length ?? 0 });
+      if (result.ok) {
+        replaceEntry(result.data.entry);
+        done += 1;
+      } else {
+        failed = result.unknown ? `${result.title} It may or may not have been saved: Refresh to see.` : `${result.title}${result.detail ? ` ${result.detail}` : ""}`;
+        break;
+      }
+    }
+    setMarking(null);
+    if (failed !== null) {
+      show({ tone: "error", title: `Marked ${done} of ${targets.length} as seen, then stopped.`, detail: failed });
+    } else {
+      show({ tone: "success", title: targets.length === 1 ? "Marked as seen." : `Marked ${done} entries as seen.`, detail: "Each is still approved and counts in its ledger; it has left the queue." });
+    }
+  };
 
   const exportReport = async (kind: "pdf" | "xlsx") => {
     if (list.kind !== "ready" || !oneProperty || propertyName === null || recording) return;
@@ -430,8 +490,10 @@ function Costs() {
                 {filters.status === NEEDS_ATTENTION ? (
                   <>
                     <strong>Review queue</strong>
-                    {oneProperty && <> · {propertyName ?? "Unknown property"}</>} · everything not yet approved. Approve
-                    an entry and it moves to its property’s ledger; reject or remove it and it stays here, marked.
+                    {oneProperty && <> · {propertyName ?? "Unknown property"}</>} · everything not yet approved, and
+                    every receipt approved automatically (under $200.00) that nobody has looked at. Approve an entry and
+                    it moves to its property’s ledger; mark an automatic one seen and it leaves the queue; reject or
+                    remove an entry and it stays here, marked.
                     {oneProperty && (
                       <>
                         {" "}
@@ -447,6 +509,43 @@ function Costs() {
                   <>Every entry, whatever its status.</>
                 )}
               </p>
+            )}
+
+            {/* ── Worth a look (dispatch 24): only when the rule fires, only in the queue ── */}
+            {filters.status === NEEDS_ATTENTION && worthALook.length > 0 && (
+              <section className={styles.watchPanel} aria-label="Worth a look" role="status">
+                <h2 className={styles.watchTitle}>
+                  <AlertTriangle size={15} aria-hidden />
+                  <span>Worth a look</span>
+                </h2>
+                <p className={styles.note}>
+                  Receipts under $200.00 are approved automatically. In the last 90 days these cleaners’ receipts cluster just under
+                  that line, or split one day’s spend into several receipts. A reading of the record, not a finding: open their
+                  entries and decide.
+                </p>
+                <ul className={styles.watchList}>
+                  {worthALook.map((pattern) => (
+                    <li key={pattern.cleanerId}>
+                      <span>{worthALookText(pattern)}</span>
+                      {pattern.splits.length > 0 && (
+                        <ul className={styles.watchSplits}>
+                          {pattern.splits.map((split) => (
+                            <li key={`${split.day}-${split.propertyId ?? ""}`}>{splitText(split)}</li>
+                          ))}
+                        </ul>
+                      )}
+                      <button
+                        type="button"
+                        className={styles.linkButton}
+                        onClick={() => setFilter({ cleanerId: pattern.cleanerId, kind: "receipt" })}
+                        disabled={filters.cleanerId === pattern.cleanerId}
+                      >
+                        {filters.cleanerId === pattern.cleanerId ? "Showing their entries" : "Show their entries in the queue"}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
             )}
 
             {/* ── Filters ── */}
@@ -477,13 +576,41 @@ function Costs() {
                       options: [
                         {
                           value: NEEDS_ATTENTION,
-                          label: `Needs attention (${inScope.filter((entry) => entry.status !== "approved").length})`,
+                          label: `Needs attention (${inScope.filter(inQueue).length})`,
                         },
                         { value: "", label: `All statuses (${inScope.length})` },
                         ...ENTRY_STATUSES.map((status) => ({
                           value: status,
                           label: `${ENTRY_STATUS_LABELS[status]} (${statusCounts.get(status) ?? 0})`,
                         })),
+                      ],
+                    },
+                  ]}
+                />
+                <AdminSelect
+                  label="Kind"
+                  value={filters.kind}
+                  onChange={(kind) => setFilter({ kind })}
+                  groups={[
+                    {
+                      options: [
+                        { value: "", label: "Receipts and work" },
+                        { value: "receipt", label: `Receipts (${kindCounts.receipt})` },
+                        { value: "work", label: `Work (${kindCounts.work})` },
+                      ],
+                    },
+                  ]}
+                />
+                <AdminSelect
+                  label="Logged by"
+                  value={filters.cleanerId}
+                  onChange={(cleanerId) => setFilter({ cleanerId })}
+                  groups={[
+                    {
+                      options: [
+                        { value: "", label: "Everyone" },
+                        ...(filters.cleanerId !== "" && !people.some(([id]) => id === filters.cleanerId) ? [{ value: filters.cleanerId, label: "Unknown account" }] : []),
+                        ...people.map(([id, label]) => ({ value: id, label })),
                       ],
                     },
                   ]}
@@ -495,7 +622,7 @@ function Costs() {
                   max={today}
                   onChange={(range) => setFilter(range)}
                   presets={RANGE_PRESETS.map((preset) => ({ ...preset, ...presetRange(preset.key, today) }))}
-                  note="Dates are the day a receipt was sent, in Toronto time."
+                  note="Dates are the day an entry was sent, in Toronto time."
                 />
                 <span className={shared.resultCount}>
                   {visible.length} of {inScope.length}
@@ -619,7 +746,7 @@ function Costs() {
                           <th>Sent</th>
                           {/* With one property chosen every row is that property's: its name is in the heading or the filter. */}
                           {!oneProperty && <th>Property</th>}
-                          <th>Cleaner</th>
+                          <th>Logged by</th>
                           <th className={styles.num}>Items</th>
                           <th className={styles.num}>Tax</th>
                           <th className={styles.num}>Total</th>
@@ -628,51 +755,96 @@ function Costs() {
                         </tr>
                       </thead>
                       <tbody>
-                        {visible.map((entry) => {
+                        {/* Approved automatically, not yet looked at: its own group at the top of the queue (dispatch 24). */}
+                        {unseen.length > 0 && (
+                          <tr className={styles.groupRow}>
+                            <td colSpan={oneProperty ? 7 : 8}>
+                              <span className={styles.groupTitle}>Approved automatically, not yet looked at ({unseen.length})</span>
+                              <button type="button" className={styles.btnGhost} disabled={marking !== null} onClick={() => markSeen(unseen)}>
+                                <Eye size={14} aria-hidden />
+                                <span>{marking === "all" ? "Marking…" : `Mark all ${unseen.length} as seen`}</span>
+                              </button>
+                              <span className={styles.note}>Each already counts in its ledger. Seen takes it out of the queue; so does correcting, removing or rejecting it.</span>
+                            </td>
+                          </tr>
+                        )}
+                        {[...unseen, ...rest].map((entry, i) => {
                           const isOpen = entry.id === selectedId;
+                          const unseenRow = i < unseen.length;
                           return (
-                            <tr
-                              key={entry.id}
-                              className={`${styles.row} ${isOpen ? styles.rowOpen : ""} ${countsInTotals(entry.status) ? "" : styles.rowOut}`}
-                              onClick={() => open(entry.id)}
-                            >
-                              <td className={styles.whenCell}>
-                                <button
-                                  type="button"
-                                  className={styles.rowButton}
-                                  aria-current={isOpen ? "true" : undefined}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    open(entry.id);
-                                  }}
-                                >
-                                  <SentAt iso={entry.createdAt} />
-                                </button>
-                              </td>
-                              {!oneProperty && <td className={styles.nameCell}>{propertyLabel(entry)}</td>}
-                              <td className={`${styles.nameCell} ${styles.cleanerCell}`}>{cleanerLabel(entry)}</td>
-                              <td className={styles.num}>
-                                {entry.linesNow.kind === "ok" ? formatCents(entry.linesNow.itemsCents) : <Absent />}
-                              </td>
-                              <td className={styles.num}>
-                                {entry.linesNow.kind === "ok" ? <TaxText now={entry.linesNow} /> : <Absent />}
-                              </td>
-                              <td className={styles.num}>
-                                <TotalCell entry={entry} />
-                                {/* Under the total it is about, so it is in view wherever the total is. */}
-                                <PdfMark state={pdfStates.get(entry.id) ?? null} />
-                              </td>
-                              <td>
-                                <EntryStatusBadge status={entry.status} />
-                              </td>
-                              <td>
-                                {entry.receipts !== null && entry.receipts.length > 0 ? (
-                                  <ImageIcon size={16} className={styles.receiptIcon} aria-label="Receipt photo" />
-                                ) : (
-                                  <Absent label="None" />
-                                )}
-                              </td>
-                            </tr>
+                            <Fragment key={entry.id}>
+                              {unseen.length > 0 && i === unseen.length && (
+                                <tr className={styles.groupRow}>
+                                  <td colSpan={oneProperty ? 7 : 8}>
+                                    <span className={styles.groupTitle}>Needs a decision ({rest.length})</span>
+                                  </td>
+                                </tr>
+                              )}
+                              <tr
+                                className={`${styles.row} ${isOpen ? styles.rowOpen : ""} ${countsInTotals(entry.status) ? "" : styles.rowOut}`}
+                                onClick={() => open(entry.id)}
+                              >
+                                <td className={styles.whenCell}>
+                                  <button
+                                    type="button"
+                                    className={styles.rowButton}
+                                    aria-current={isOpen ? "true" : undefined}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      open(entry.id);
+                                    }}
+                                  >
+                                    <SentAt iso={entry.createdAt} />
+                                  </button>
+                                </td>
+                                {!oneProperty && <td className={styles.nameCell}>{propertyLabel(entry)}</td>}
+                                <td className={`${styles.nameCell} ${styles.cleanerCell}`}>
+                                  {cleanerLabel(entry)}
+                                  <KindBadge kind={entry.kind} />
+                                </td>
+                                <td className={styles.num}>
+                                  {entry.linesNow.kind === "ok" ? formatCents(entry.linesNow.itemsCents) : <Absent />}
+                                </td>
+                                <td className={styles.num}>
+                                  {entry.linesNow.kind === "ok" ? <TaxText now={entry.linesNow} /> : <Absent />}
+                                </td>
+                                <td className={styles.num}>
+                                  <TotalCell entry={entry} />
+                                  {/* Under the total it is about, so it is in view wherever the total is. */}
+                                  <PdfMark state={pdfStates.get(entry.id) ?? null} />
+                                </td>
+                                <td>
+                                  <span className={styles.statusCell}>
+                                    <EntryStatusBadge status={entry.status} auto={entry.autoApproved !== null} />
+                                    {unseenRow && (
+                                      <button
+                                        type="button"
+                                        className={styles.lineAction}
+                                        disabled={marking !== null}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          markSeen([entry]);
+                                        }}
+                                        aria-label="Mark as seen"
+                                      >
+                                        {marking === entry.id ? "Marking…" : "Seen"}
+                                      </button>
+                                    )}
+                                  </span>
+                                </td>
+                                <td>
+                                  {entry.receipts !== null && entry.receipts.length > 0 ? (
+                                    <ImageIcon size={16} className={styles.receiptIcon} aria-label="Receipt photo" />
+                                  ) : entry.kind === "work" ? (
+                                    <span className={styles.muted} title="A handyman's work entry has no receipt">
+                                      <Wrench size={13} aria-hidden /> No receipt: handyman work
+                                    </span>
+                                  ) : (
+                                    <Absent label="None" />
+                                  )}
+                                </td>
+                              </tr>
+                            </Fragment>
                           );
                         })}
                       </tbody>
@@ -688,6 +860,7 @@ function Costs() {
                     key={selected.id}
                     entry={selected}
                     pdf={pdfStates.get(selected.id) ?? null}
+                    pattern={selected.cleaner.id === null ? null : (patterns.find((pattern) => pattern.cleanerId === selected.cleaner.id) ?? null)}
                     onChanged={replaceEntry}
                     onClose={closePane}
                   />

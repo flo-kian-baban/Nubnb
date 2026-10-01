@@ -15,16 +15,24 @@ export interface SentReceipt {
   propertyName: string;
   lineCount: number;
   totalCents: number;
+  /** `work` for a handyman's entry (dispatch 24); a receipt otherwise. */
+  kind?: "receipt" | "work";
 }
 
 export function DoneScreen({
   sent,
   onAnother,
   onMyReceipts,
+  anotherLabel = "Log another receipt",
+  listLabel = "See my receipts",
+  tag,
 }: {
   sent: SentReceipt;
   onAnother: () => void;
   onMyReceipts: () => void;
+  anotherLabel?: string;
+  listLabel?: string;
+  tag?: string;
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
 
@@ -35,7 +43,7 @@ export function DoneScreen({
 
   return (
     <>
-      <CleanerBar />
+      <CleanerBar tag={tag} />
       <main className={`${styles.screen} ${styles.doneScreen}`}>
         <div className={styles.doneIcon} aria-hidden>
           <Check />
@@ -45,14 +53,15 @@ export function DoneScreen({
         </h1>
         <p className={styles.doneProperty}>{sent.propertyName}</p>
         <p className={styles.doneSummary}>
-          {sent.lineCount === 1 ? "1 item" : `${sent.lineCount} items`} · {formatCents(sent.totalCents)}
+          {sent.kind === "work" ? "Work" : sent.lineCount === 1 ? "1 item" : `${sent.lineCount} items`} · {formatCents(sent.totalCents)}
         </p>
+        {sent.kind === "work" && <p className={styles.doneNote}>It waits for the office to approve it.</p>}
         <button type="button" className={styles.textButton} onClick={onMyReceipts}>
-          See my receipts
+          {listLabel}
         </button>
         <div className={styles.bottomBar}>
           <button type="button" className={styles.primary} onClick={onAnother}>
-            Log another receipt
+            {anotherLabel}
           </button>
         </div>
       </main>

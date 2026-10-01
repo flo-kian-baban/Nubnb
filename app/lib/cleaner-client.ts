@@ -23,6 +23,15 @@ export interface EntryPayload {
   tax: string | null;
 }
 
+/** The body of a work send (dispatch 24), exactly as POST /api/cleaner/work reads it. */
+export interface WorkPayload {
+  submissionKey: string;
+  propertyId: string;
+  description: string;
+  /** "185.00" */
+  price: string;
+}
+
 /**
  * The `reading` part of a send (dispatch 20): the signed record the read
  * route gave this photo, verbatim, and for each entry line the model line
@@ -93,6 +102,7 @@ function isCleanerStart(data: unknown): data is CleanerStart {
     isRecord(data.cleaner) &&
     typeof data.cleaner.id === 'string' &&
     isTextOrNull(data.cleaner.name) &&
+    typeof data.cleaner.role === 'string' &&
     Array.isArray(data.properties) &&
     data.properties.every(
       (p) => isRecord(p) && typeof p.id === 'string' && isTextOrNull(p.name) && isTextOrNull(p.city),
@@ -118,7 +128,9 @@ function isCleanerEntry(data: unknown): data is CleanerEntry {
     isNumberOrNull(data.sentTotalCents) &&
     typeof data.corrected === 'boolean' &&
     isTextOrNull(data.status) &&
-    isTextOrNull(data.statusReason)
+    isTextOrNull(data.statusReason) &&
+    typeof data.kind === 'string' &&
+    isTextOrNull(data.description)
   );
 }
 
@@ -241,6 +253,26 @@ export async function readReceipt(photo: Blob, fileName: string): Promise<ReadRe
     return { kind: 'ok', readingText: data.readingText, signature: data.signature };
   }
   return { kind: 'failed' };
+}
+
+/**
+ * Send one piece of work (dispatch 24): JSON, no upload. Resolves always,
+ * sorted as a receipt send is; the one-time key makes sending again safe.
+ */
+export async function sendWork(work: WorkPayload): Promise<SendResult> {
+  let res: Response;
+  try {
+    res = await fetch('/api/cleaner/work', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(work),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(READ_TIMEOUT_MS),
+    });
+  } catch {
+    return { kind: 'not-sent', offline: !navigator.onLine };
+  }
+  return sortSend(res.status, await readJson(res));
 }
 
 /**

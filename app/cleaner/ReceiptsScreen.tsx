@@ -29,6 +29,9 @@ interface ReceiptsScreenProps {
   onBack: () => void;
   /** The session ended while the list was open: back to the code. */
   onSignedOut: () => void;
+  /** "My work" for a handyman (dispatch 24). */
+  title?: string;
+  tag?: string;
 }
 
 type ListState =
@@ -56,7 +59,7 @@ function sentOn(iso: string | null): string {
   return year === yearFormat.format(Date.now()) ? dayFormat.format(time) : `${dayFormat.format(time)}, ${year}`;
 }
 
-export function ReceiptsScreen({ properties, onBack, onSignedOut }: ReceiptsScreenProps) {
+export function ReceiptsScreen({ properties, onBack, onSignedOut, title = "My receipts", tag }: ReceiptsScreenProps) {
   const [list, setList] = useState<ListState>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
 
@@ -85,9 +88,9 @@ export function ReceiptsScreen({ properties, onBack, onSignedOut }: ReceiptsScre
 
   return (
     <>
-      <CleanerBar onBack={onBack} />
+      <CleanerBar onBack={onBack} tag={tag} />
       <main className={styles.screen}>
-        <h1 className={styles.title}>My receipts</h1>
+        <h1 className={styles.title}>{title}</h1>
 
         {list.kind === "loading" ? (
           <div className={styles.listLoading} aria-busy="true">
@@ -95,14 +98,14 @@ export function ReceiptsScreen({ properties, onBack, onSignedOut }: ReceiptsScre
           </div>
         ) : list.kind === "offline" || list.kind === "failed" ? (
           <div className={styles.emptyState} role="alert">
-            <p>{list.kind === "offline" ? "No connection." : "Couldn’t load your receipts."}</p>
+            <p>{list.kind === "offline" ? "No connection." : `Couldn’t load ${title === "My work" ? "your work" : "your receipts"}.`}</p>
             <button type="button" className={styles.secondary} onClick={retry}>
               Try again
             </button>
           </div>
         ) : list.entries.length === 0 ? (
           <div className={styles.emptyState}>
-            <p>No receipts yet.</p>
+            <p>{title === "My work" ? "No work logged yet." : "No receipts yet."}</p>
           </div>
         ) : (
           <ul className={styles.receiptList}>
@@ -117,10 +120,15 @@ export function ReceiptsScreen({ properties, onBack, onSignedOut }: ReceiptsScre
                       {entry.totalCents === null ? "—" : formatCents(entry.totalCents)}
                     </span>
                   </div>
+                  {entry.kind === "work" && entry.description !== null && (
+                    <p className={styles.receiptDescription}>{entry.description}</p>
+                  )}
                   <div className={styles.receiptMeta}>
                     <span>
                       {sentOn(entry.createdAt)}
-                      {entry.lineCount !== null && ` · ${entry.lineCount === 1 ? "1 item" : `${entry.lineCount} items`}`}
+                      {entry.kind === "work"
+                        ? " · work"
+                        : entry.lineCount !== null && ` · ${entry.lineCount === 1 ? "1 item" : `${entry.lineCount} items`}`}
                     </span>
                     <span className={`${styles.receiptStatus} ${known ? STATUS_CLASS[known] : ""}`}>
                       {known ? ENTRY_STATUS_CLEANER_LABELS[known] : (entry.status ?? "Not known")}

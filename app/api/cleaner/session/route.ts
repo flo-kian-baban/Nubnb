@@ -105,8 +105,8 @@ export async function GET(request: Request) {
   const session = await verifyCleanerSession(request);
   if (!session.ok) return noStore(apiFailure(session.refusal));
 
-  const { id, name } = session.cleaner;
-  return noStore(apiSuccess({ cleaner: { id, name } }));
+  const { id, name, role } = session.cleaner;
+  return noStore(apiSuccess({ cleaner: { id, name, role } }));
 }
 
 export async function DELETE(request: Request) {

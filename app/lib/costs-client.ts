@@ -101,7 +101,9 @@ function isCostEntryView(data: unknown): data is CostEntryView {
     isRecord(data.property) &&
     (data.lines === null || Array.isArray(data.lines)) &&
     isLinesNow(data.linesNow) &&
-    (data.receipts === null || Array.isArray(data.receipts))
+    (data.receipts === null || Array.isArray(data.receipts)) &&
+    typeof data.kind === 'string' &&
+    (data.autoApproved === null || isRecord(data.autoApproved))
   );
 }
 
@@ -267,6 +269,26 @@ export function setEntryStatus(
       data.entry.id === id &&
       data.entry.status === request.status &&
       typeof data.changed === 'boolean',
+    ['ENTRY_REVIEW_FAILED'],
+  );
+}
+
+/**
+ * Mark an entry approved automatically as seen (dispatch 24). `seen` is the
+ * history length the page shows. The answer's entry carries the `seen`
+ * event; `changed` is false when an admin had already acted on it.
+ */
+export function markEntrySeen(id: string, request: { seen: number }): Promise<CostResult<EntryChange>> {
+  return call(
+    `/api/admin/cost-entries/${encodeURIComponent(id)}/seen`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    },
+    'Marking the entry as seen failed',
+    (data) =>
+      isRecord(data) && isCostEntryView(data.entry) && data.entry.id === id && typeof data.changed === 'boolean',
     ['ENTRY_REVIEW_FAILED'],
   );
 }

@@ -273,3 +273,36 @@
     padding: 18px 16px;
   }
 }
+
+/* ── Roles and the 90-day distribution (dispatch 24) ── */
+.createNote {
+  margin: -8px 0 18px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.45);
+}
+.badgeCleaner {
+  background: rgba(101, 153, 205, 0.14);
+  color: #8dbbe8;
+  border-color: rgba(101, 153, 205, 0.3);
+}
+.badgeHandyman {
+  background: rgba(167, 139, 250, 0.12);
+  color: #c4b5fd;
+  border-color: rgba(167, 139, 250, 0.3);
+}
+.patternCell {
+  min-width: 260px;
+  max-width: 420px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: normal;
+  color: #a9b4c2;
+}
+.patternMuted {
+  color: rgba(255, 255, 255, 0.35);
+}
+.patternWarn {
+  color: #f0a63a;
+  font-weight: 600;
+}

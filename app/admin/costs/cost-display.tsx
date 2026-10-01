@@ -7,6 +7,7 @@
  * filters use.
  */
 
+import { Wrench } from "lucide-react";
 import {
   ENTRY_STATUS_LABELS,
   formatCents,
@@ -25,15 +26,42 @@ const STATUS_CLASS: Record<EntryStatus, string> = {
   removed: styles.badgeRemoved,
 };
 
-/** A stored status. One outside the four is shown as stored, marked as unexpected. */
-export function EntryStatusBadge({ status }: { status: string | null }) {
+/**
+ * A stored status. One outside the four is shown as stored, marked as
+ * unexpected. `auto` marks an entry that was approved automatically
+ * (dispatch 24): "Approved · auto" while it is approved, and a small "auto"
+ * beside any later status, so the record stays visible.
+ */
+export function EntryStatusBadge({ status, auto = false }: { status: string | null; auto?: boolean }) {
   if (status === null) return <Absent />;
   if (isEntryStatus(status)) {
-    return <span className={`${styles.badge} ${STATUS_CLASS[status]}`}>{ENTRY_STATUS_LABELS[status]}</span>;
+    return (
+      <span className={`${styles.badge} ${STATUS_CLASS[status]}`} title={auto ? "Approved automatically: under $200.00 as sent" : undefined}>
+        {ENTRY_STATUS_LABELS[status]}
+        {auto && <span className={styles.badgeAuto}>· auto</span>}
+      </span>
+    );
   }
   return (
     <span className={`${styles.badge} ${styles.badgeOdd}`} title="Not one of pending, approved, rejected or removed">
       {status.trim() === "" ? "Empty" : status}
+    </span>
+  );
+}
+
+/** A work entry's mark (dispatch 24): nothing on a receipt; a stored kind outside the two shown as stored, marked. */
+export function KindBadge({ kind }: { kind: string }) {
+  if (kind === "receipt") return null;
+  if (kind === "work") {
+    return (
+      <span className={`${styles.badge} ${styles.badgeWork}`} title="A handyman's work, at the price logged: no receipt">
+        <Wrench size={11} aria-hidden /> Work
+      </span>
+    );
+  }
+  return (
+    <span className={`${styles.badge} ${styles.badgeOdd}`} title="Not one of receipt or work">
+      {kind.trim() === "" ? "Empty kind" : kind}
     </span>
   );
 }

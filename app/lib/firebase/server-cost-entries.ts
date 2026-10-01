@@ -39,6 +39,23 @@
  * approved entry is corrected or removed exactly as a pending one is (Kian's
  * ruling of 2026-09-30).
  *
+ * ── Approved automatically (dispatch 24, Kian's decision of 2026-09-30) ──
+ * A receipt entry whose lines plus tax, as sent, add up to strictly under
+ * LIMITS.AUTO_APPROVE_UNDER_CENTS is created `approved`: the same
+ * transaction writes two history events at the same instant, `submitted` by
+ * the cleaner and `approved` by the system actor, and an `autoApproved`
+ * record naming the threshold and the total the rule saw. Every new entry
+ * carries `autoApproved` (the record or null) and `kind`. A work entry never
+ * qualifies, whatever its amount; the test is on the kind. Such an entry
+ * stays in the queue until an admin marks it `seen` (markEntrySeen) or acts
+ * on it.
+ *
+ * ── Work entries (dispatch 24) ──
+ * A handyman's work is an entry of `kind: 'work'`: one line whose name is
+ * the description, `taxCents: null`, no receipt, always `pending`. It is
+ * written by createWorkEntry through POST /api/cleaner/work, with the same
+ * send-once guard and the same in-transaction re-read of the account.
+ *
  * ── Reports handed out ──
  * A PDF goes to a property's co-owners, and an entry in it can still be
  * corrected or removed afterwards. So each PDF is recorded before the page
@@ -64,13 +81,15 @@
  */
 
 import { z } from 'zod';
-import type { DocumentReference } from 'firebase-admin/firestore';
+import type { DocumentReference, DocumentSnapshot } from 'firebase-admin/firestore';
 import { getAdminDb } from './admin';
 import { isDocumentId } from './server-leads';
 import type { ReadingAttachment } from '@/app/lib/cleaners/readings';
 import { inRange, sentDay } from '@/app/lib/costs/report';
 import {
   ADMIN_ACTOR,
+  AUTO_APPROVAL_REASON,
+  SYSTEM_ACTOR,
   CLEANERS_COLLECTION,
   COST_ENTRIES_COLLECTION,
   COST_ENTRY_SCHEMA_VERSION,
@@ -93,6 +112,8 @@ import {
   readReportExport,
   taxFromReading,
   readLinesNow,
+  awaitingLook,
+  type AutoApproved,
   type CleanerEntry,
   type CostEntryFields,
   type CostEntryView,
@@ -216,9 +237,11 @@ export function purchasedOnProblem(value: string, now: Date = new Date()): strin
 /**
  * One line as typed: the cleaner's, and an admin's correction or added line.
  * The amount is the line's total as printed on the receipt; the quantity is
- * informational. Stored as a `Line`.
+ * informational. Stored as a `Line`. `nameMax` is 120 for an item; an
+ * admin's correction allows a work entry's 200-character description and
+ * changeEntryLine holds a receipt entry's line to 120 (dispatch 24).
  */
-export const LineInputSchema = z
+const lineSchema = (nameMax: number) => z
   .strictObject({
     name: z
       .string()
@@ -227,7 +250,7 @@ export const LineInputSchema = z
         z
           .string()
           .min(1, 'Name the item')
-          .max(LIMITS.LINE_NAME_MAX, `At most ${LIMITS.LINE_NAME_MAX} characters`)
+          .max(nameMax, `At most ${nameMax} characters`)
           .refine((s) => !CONTROL_CHARACTER.test(s), 'No control characters'),
       ),
     quantity: z
@@ -245,6 +268,55 @@ export const LineInputSchema = z
     quantity: line.quantity,
     lineTotalCents: line.lineTotal,
   }));
+
+export const LineInputSchema = lineSchema(LIMITS.LINE_NAME_MAX);
+
+/** An admin's correction: long enough for a work description; a receipt line is held to 120 in changeEntryLine. */
+export const ReviewLineInputSchema = lineSchema(Math.max(LIMITS.LINE_NAME_MAX, LIMITS.WORK_DESCRIPTION_MAX));
+
+/**
+ * The body of POST /api/cleaner/work (dispatch 24), validated: the
+ * description NFC and trimmed, 1–200 characters, no control characters; the
+ * price as "185.00", more than zero, to cents. Strict: any other key is
+ * refused.
+ */
+export const WorkInputSchema = z.strictObject({
+  submissionKey: z.string().regex(SUBMISSION_KEY_PATTERN, 'Not a submission key'),
+  propertyId: z.string().refine((id) => isDocumentId(id), 'Not a property ID'),
+  description: z
+    .string()
+    .transform((s) => s.normalize('NFC').replace(/\s+/g, ' ').trim())
+    .pipe(
+      z
+        .string()
+        .min(1, 'Say what was done')
+        .max(LIMITS.WORK_DESCRIPTION_MAX, `At most ${LIMITS.WORK_DESCRIPTION_MAX} characters`)
+        .refine((s) => !CONTROL_CHARACTER.test(s), 'No control characters'),
+    ),
+  price: z
+    .string()
+    .regex(TAX_AMOUNT, 'An amount with two decimals, like 185.00')
+    .transform(toCents)
+    .pipe(z.number().positive('The price must be more than $0.00')),
+});
+
+export type WorkInput = z.output<typeof WorkInputSchema>;
+
+export type WorkParseResult =
+  | { kind: 'ok'; work: WorkInput }
+  | { kind: 'invalid'; issues: { path: string; message: string }[] };
+
+/** Read a work body: the schema, and nothing else. Never throws, never logs the body. */
+export function parseWorkBody(json: unknown): WorkParseResult {
+  const result = WorkInputSchema.safeParse(json);
+  if (!result.success) {
+    return {
+      kind: 'invalid',
+      issues: result.error.issues.map((i) => ({ path: i.path.map(String).join('.'), message: i.message })),
+    };
+  }
+  return { kind: 'ok', work: result.data };
+}
 
 /** The `entry` part, validated, in the form it is stored: amounts in cents, absences as null. */
 export const EntryInputSchema = z.strictObject({
@@ -476,11 +548,59 @@ export interface NewCostEntry {
 
 export interface CostEntryCreated {
   id: string;
-  status: 'pending';
+  /** `approved` when the entry was approved automatically (dispatch 24). */
+  status: 'pending' | 'approved';
   createdAt: string;
   lineCount: number;
   /** True when the model's reading was written beside the entry. */
   readingStored: boolean;
+  /** True when the entry was written approved under the automatic rule. */
+  autoApproved: boolean;
+}
+
+/**
+ * The account as the create transaction re-read it: still active, still on
+ * the session's epoch. Its name and role are copied from that same read.
+ */
+interface AccountNow {
+  name: string | null;
+  role: string;
+}
+
+/**
+ * Re-read the account inside a create transaction: it must exist, be
+ * active, and be on the session epoch the token carries; and, when the
+ * route demands a role, have that role.
+ *
+ * @throws SessionRevokedError otherwise. Nothing is written.
+ */
+function accountNow(cleaner: DocumentSnapshot, sessionEpoch: number, mustBe: CleanerRoleName): AccountNow {
+  const stored = cleaner.data() ?? {};
+  if (!cleaner.exists || stored.status !== 'active' || stored.sessionEpoch !== sessionEpoch) {
+    throw new SessionRevokedError();
+  }
+  const role = stored.role === undefined || stored.role === null ? 'cleaner' : stored.role;
+  if (role !== mustBe) throw new SessionRevokedError();
+  const storedName: unknown = stored.name;
+  return { name: typeof storedName === 'string' ? storedName : null, role };
+}
+
+type CleanerRoleName = 'cleaner' | 'handyman';
+
+/**
+ * The submission document this send would write, checked first: an
+ * earlier send of the same key already wrote its entry.
+ *
+ * @throws DuplicateSubmissionError with that entry; or an error when the
+ * record is not in the written shape.
+ */
+function refuseDuplicate(sent: DocumentSnapshot): void {
+  if (!sent.exists) return;
+  const first = readSubmission(sent.data());
+  // A submission document that names no entry is not in the written
+  // shape; nothing is written over it.
+  if (!first) throw new Error('The submission record for this receipt is unreadable');
+  throw new DuplicateSubmissionError(first);
 }
 
 /**
@@ -502,6 +622,7 @@ export interface CostEntryCreated {
 export async function createCostEntry(input: NewCostEntry): Promise<CostEntryCreated> {
   const { entryRef, cleanerId, sessionEpoch, entry, propertyNameAtEntry, receipt, reading } = input;
   let createdAt = '';
+  let autoApprovedOut = false;
 
   try {
     const db = getAdminDb();
@@ -510,23 +631,11 @@ export async function createCostEntry(input: NewCostEntry): Promise<CostEntryCre
 
     await db.runTransaction(async (tx) => {
       const [cleaner, sent] = await tx.getAll(cleanerRef, sentRef);
-      if (
-        !cleaner.exists ||
-        cleaner.get('status') !== 'active' ||
-        cleaner.get('sessionEpoch') !== sessionEpoch
-      ) {
-        throw new SessionRevokedError();
-      }
-      if (sent.exists) {
-        const first = readSubmission(sent.data());
-        // A submission document that names no entry is not in the written
-        // shape; nothing is written over it.
-        if (!first) throw new Error('The submission record for this receipt is unreadable');
-        throw new DuplicateSubmissionError(first);
-      }
+      // Only a cleaner writes a receipt entry (dispatch 24): a handyman's session is refused here too.
+      const account = accountNow(cleaner, sessionEpoch, 'cleaner');
+      refuseDuplicate(sent);
 
-      const storedName: unknown = cleaner.get('name');
-      const cleanerNameAtEntry = typeof storedName === 'string' ? storedName : null;
+      const cleanerNameAtEntry = account.name;
       const now = new Date().toISOString();
       const submitted: HistoryEvent = {
         at: now,
@@ -537,8 +646,25 @@ export async function createCostEntry(input: NewCostEntry): Promise<CostEntryCre
         reason: null,
       };
 
+      // The rule (dispatch 24): the entry as sent, lines plus tax, strictly under the threshold.
+      const sentTotalCents = entry.lines.reduce((sum, line) => sum + line.lineTotalCents, 0) + (entry.tax ?? 0);
+      const autoApprove = sentTotalCents < LIMITS.AUTO_APPROVE_UNDER_CENTS;
+      const approved: HistoryEvent = {
+        at: now,
+        action: 'approved',
+        from: 'pending',
+        to: 'approved',
+        actor: SYSTEM_ACTOR,
+        reason: AUTO_APPROVAL_REASON,
+      };
+      const autoApproved: AutoApproved | null = autoApprove
+        ? { thresholdCents: LIMITS.AUTO_APPROVE_UNDER_CENTS, totalCents: sentTotalCents, at: now }
+        : null;
+      autoApprovedOut = autoApprove;
+
       tx.create(entryRef, {
         schemaVersion: COST_ENTRY_SCHEMA_VERSION,
+        kind: 'receipt',
         cleanerId,
         cleanerNameAtEntry,
         propertyId: entry.propertyId,
@@ -559,10 +685,11 @@ export async function createCostEntry(input: NewCostEntry): Promise<CostEntryCre
             uploadedAt: receipt.uploadedAt,
           },
         ],
-        status: 'pending',
+        status: autoApprove ? 'approved' : 'pending',
         statusChangedAt: now,
         statusReason: null,
-        history: [submitted],
+        history: autoApprove ? [submitted, approved] : [submitted],
+        autoApproved,
       });
       tx.create(sentRef, {
         schemaVersion: COST_ENTRY_SUBMISSION_SCHEMA_VERSION,
@@ -591,7 +718,100 @@ export async function createCostEntry(input: NewCostEntry): Promise<CostEntryCre
     throw err;
   }
 
-  return { id: entryRef.id, status: 'pending', createdAt, lineCount: entry.lines.length, readingStored: reading !== null };
+  return {
+    id: entryRef.id,
+    status: autoApprovedOut ? 'approved' : 'pending',
+    createdAt,
+    lineCount: entry.lines.length,
+    readingStored: reading !== null,
+    autoApproved: autoApprovedOut,
+  };
+}
+
+// ─── Create: work (dispatch 24) ────────────────────────────────
+
+export interface NewWorkEntry {
+  /** From the verified session, never from the body. */
+  cleanerId: string;
+  sessionEpoch: number;
+  /** From parseWorkBody. */
+  work: WorkInput;
+  /** From lookupPropertyName. */
+  propertyNameAtEntry: string | null;
+}
+
+export interface WorkEntryCreated {
+  id: string;
+  status: 'pending';
+  createdAt: string;
+}
+
+/**
+ * Write one work entry, in a transaction that re-reads the account: it must
+ * exist, be active, be on the session epoch the token carries, and be a
+ * handyman. The same transaction checks the one-time key and records it
+ * beside the entry. Stored as one line whose name is the description, with
+ * no tax, no receipt and no reading; always pending, whatever the amount
+ * (Kian's ruling: every work entry needs approval).
+ *
+ * @throws SessionRevokedError if the session no longer holds, or the
+ * account is not a handyman.
+ * @throws DuplicateSubmissionError if this key was sent before.
+ * @throws anything else the transaction throws.
+ */
+export async function createWorkEntry(input: NewWorkEntry): Promise<WorkEntryCreated> {
+  const { cleanerId, sessionEpoch, work, propertyNameAtEntry } = input;
+  const db = getAdminDb();
+  const entryRef = db.collection(COST_ENTRIES_COLLECTION).doc();
+  const cleanerRef = db.collection(CLEANERS_COLLECTION).doc(cleanerId);
+  const sentRef = submissionRef(cleanerId, work.submissionKey);
+  let createdAt = '';
+
+  await db.runTransaction(async (tx) => {
+    const [cleaner, sent] = await tx.getAll(cleanerRef, sentRef);
+    const account = accountNow(cleaner, sessionEpoch, 'handyman');
+    refuseDuplicate(sent);
+
+    const now = new Date().toISOString();
+    const submitted: HistoryEvent = {
+      at: now,
+      action: 'submitted',
+      from: null,
+      to: 'pending',
+      actor: { role: 'handyman', id: cleanerId, name: account.name },
+      reason: null,
+    };
+    tx.create(entryRef, {
+      schemaVersion: COST_ENTRY_SCHEMA_VERSION,
+      kind: 'work',
+      cleanerId,
+      cleanerNameAtEntry: account.name,
+      propertyId: work.propertyId,
+      propertyNameAtEntry,
+      createdAt: now,
+      purchasedOn: null,
+      note: null,
+      currency: CURRENCY,
+      lines: [{ name: work.description, quantity: 1, lineTotalCents: work.price }],
+      taxCents: null,
+      receipts: [],
+      status: 'pending',
+      statusChangedAt: now,
+      statusReason: null,
+      history: [submitted],
+      autoApproved: null,
+    });
+    tx.create(sentRef, {
+      schemaVersion: COST_ENTRY_SUBMISSION_SCHEMA_VERSION,
+      cleanerId,
+      submissionKey: work.submissionKey,
+      entryId: entryRef.id,
+      createdAt: now,
+    });
+    createdAt = now;
+  });
+
+  return { id: entryRef.id, status: 'pending', createdAt };
 }
 
 // ─── List ──────────────────────────────────────────────────────
@@ -693,6 +913,8 @@ function toView(
     linesNow: readLinesNow(entry.lines, entry.history, { shape: entry.taxShape, cents: entry.taxCents }),
     receipts: entry.receipts,
     taxShape: entry.taxShape,
+    kind: entry.kind,
+    autoApproved: entry.autoApproved,
   };
 }
 
@@ -780,6 +1002,12 @@ export type ReviewResult =
   | { kind: 'no-such-line' }
   /** Adding a line would take the entry past LIMITS.LINES_MAX_AFTER_REVIEW. Nothing was written. */
   | { kind: 'too-many-lines' }
+  /** A receipt line's name is longer than LIMITS.LINE_NAME_MAX (dispatch 24: only a work description may be longer). */
+  | { kind: 'line-name-too-long' }
+  /** A work entry is one description and one amount: no line is added to it (dispatch 24). */
+  | { kind: 'work-one-line' }
+  /** Seen was asked for an entry that was not approved automatically (dispatch 24). Nothing was written. */
+  | { kind: 'not-auto-approved' }
   /** The transaction failed: it may or may not have landed. */
   | { kind: 'failed' };
 
@@ -818,6 +1046,24 @@ export const REVIEW_REFUSALS: Record<Exclude<ReviewResult['kind'], 'done'>, Refu
     status: 422,
     code: 'ENTRY_TOO_MANY_LINES',
     message: `An entry can have at most ${LIMITS.LINES_MAX_AFTER_REVIEW} lines.`,
+    hint: 'Nothing was changed.',
+  },
+  'line-name-too-long': {
+    status: 422,
+    code: 'ENTRY_LINE_NAME_TOO_LONG',
+    message: `A receipt line's name can be at most ${LIMITS.LINE_NAME_MAX} characters.`,
+    hint: 'Nothing was changed.',
+  },
+  'work-one-line': {
+    status: 422,
+    code: 'ENTRY_WORK_ONE_LINE',
+    message: 'A work entry is one description and one amount.',
+    hint: 'Correct the line instead of adding one. Nothing was changed.',
+  },
+  'not-auto-approved': {
+    status: 409,
+    code: 'ENTRY_NOT_AUTO_APPROVED',
+    message: 'This entry was not approved automatically, so there is nothing to mark as seen.',
     hint: 'Nothing was changed.',
   },
   // The transaction failed. A failure can come after the commit landed, so
@@ -917,7 +1163,13 @@ export function changeEntryLine(id: string, index: number | null, line: Line, se
     const current = readLinesNow(entry.lines, entry.history, { shape: entry.taxShape, cents: entry.taxCents });
     if (current.kind !== 'ok') return { kind: 'refuse', result: { kind: 'unreadable' } };
 
+    // A receipt line's name stays within its own limit; only a work description may run to 200 (dispatch 24).
+    if (entry.kind !== 'work' && line.name.length > LIMITS.LINE_NAME_MAX) {
+      return { kind: 'refuse', result: { kind: 'line-name-too-long' } };
+    }
+
     if (index === null) {
+      if (entry.kind === 'work') return { kind: 'refuse', result: { kind: 'work-one-line' } };
       if (current.lines.length >= LIMITS.LINES_MAX_AFTER_REVIEW) {
         return { kind: 'refuse', result: { kind: 'too-many-lines' } };
       }
@@ -982,6 +1234,23 @@ export function changeEntryTax(id: string, taxCents: number | null, seen: number
         reason: null,
         tax: { before: current.taxCents, after: taxCents },
       },
+    };
+  });
+}
+
+/**
+ * Mark an entry approved automatically as seen (dispatch 24): a `seen`
+ * history event by the admin, no status change. An entry that was not
+ * approved automatically is refused; one an admin has already looked at
+ * (marked seen, corrected, removed or rejected since) writes nothing.
+ */
+export function markEntrySeen(id: string, seen: number): Promise<ReviewResult> {
+  return review(id, seen, (entry, now) => {
+    if (entry.autoApproved === null) return { kind: 'refuse', result: { kind: 'not-auto-approved' } };
+    if (!awaitingLook(entry)) return { kind: 'nothing' };
+    return {
+      kind: 'write',
+      event: { at: now, action: 'seen', from: null, to: null, actor: ADMIN_ACTOR, reason: null },
     };
   });
 }
@@ -1162,6 +1431,8 @@ export async function findReceipt(entryId: string, index: number): Promise<Recei
 function toCleanerEntry(entry: CostEntryFields): CleanerEntry {
   const now = readLinesNow(entry.lines, entry.history, { shape: entry.taxShape, cents: entry.taxCents });
   return {
+    kind: entry.kind,
+    description: entry.kind === 'work' ? (now.kind === 'ok' ? (now.lines[0]?.name ?? null) : (entry.lines?.[0]?.name ?? null)) : null,
     id: entry.id,
     createdAt: entry.createdAt,
     propertyId: entry.propertyId,
@@ -1188,7 +1459,7 @@ export async function listCleanerEntries(cleanerId: string): Promise<CleanerEntr
   const snapshot = await getAdminDb()
     .collection(COST_ENTRIES_COLLECTION)
     .where('cleanerId', '==', cleanerId)
-    .select('cleanerId', 'createdAt', 'propertyId', 'propertyNameAtEntry', 'lines', 'taxCents', 'history', 'status', 'statusReason')
+    .select('cleanerId', 'createdAt', 'propertyId', 'propertyNameAtEntry', 'lines', 'taxCents', 'history', 'status', 'statusReason', 'kind')
     .get();
 
   return snapshot.docs

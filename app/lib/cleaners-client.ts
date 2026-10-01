@@ -19,7 +19,7 @@
  */
 
 import { describeErrorBody, readErrorBody } from '@/app/lib/api/http-failure';
-import type { CleanerStatus, CleanerSummary } from '@/app/lib/cleaners/model';
+import type { CleanerRole, CleanerStatus, CleanerSummary } from '@/app/lib/cleaners/model';
 
 export type CleanerResult<T> =
   | { ok: true; data: T }
@@ -65,7 +65,8 @@ function isCleanerSummary(data: unknown): data is CleanerSummary {
     isTextOrNull(data.status) &&
     isTextOrNull(data.statusChangedAt) &&
     isTextOrNull(data.createdAt) &&
-    (data.history === null || Array.isArray(data.history))
+    (data.history === null || Array.isArray(data.history)) &&
+    typeof data.role === 'string'
   );
 }
 
@@ -141,14 +142,14 @@ export function fetchCleaners(): Promise<CleanerResult<CleanerSummary[]>> {
   );
 }
 
-/** Create a cleaner. The answer carries the new cleaner, code included. Never retried. */
-export function createCleaner(name: string): Promise<CleanerResult<{ cleaner: CleanerSummary }>> {
+/** Create a cleaner or a handyman (dispatch 24). The answer carries the new account, code included. Never retried. */
+export function createCleaner(name: string, role: CleanerRole): Promise<CleanerResult<{ cleaner: CleanerSummary }>> {
   return call(
     '/api/admin/cleaners',
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, role }),
     },
     'Creating the cleaner failed',
     (data) => isRecord(data) && isCleanerSummary(data.cleaner),

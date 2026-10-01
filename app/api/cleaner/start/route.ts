@@ -1,8 +1,10 @@
 /**
  * GET /api/cleaner/start — What the cleaner app needs when it opens (cleaner-only).
  *
- * Response: 200 `{ success: true, data: { cleaner: { id, name },
+ * Response: 200 `{ success: true, data: { cleaner: { id, name, role },
  *             properties: [{ id, name, city }], recentPropertyIds, itemNames } }`
+ *           `role` (dispatch 24) is `cleaner` or `handyman`, as the account
+ *           reads now: the app shows the receipt flow or the work flow by it.
  *
  * The app's one call on opening: it says who is signed in, and brings the
  * property list, the properties this cleaner logged against most recently,
@@ -31,11 +33,11 @@ export async function GET(request: Request) {
   // ── Auth ──
   const session = await verifyCleanerSession(request);
   if (!session.ok) return noStore(apiFailure(session.refusal));
-  const { id, name } = session.cleaner;
+  const { id, name, role } = session.cleaner;
 
   try {
     const start = await readCleanerStart(id);
-    return noStore(apiSuccess({ cleaner: { id, name }, ...start }));
+    return noStore(apiSuccess({ cleaner: { id, name, role }, ...start }));
   } catch (err) {
     console.error(`[cleaner-start] read failed: grpc code ${grpcCode(err)}`);
     return noStore(

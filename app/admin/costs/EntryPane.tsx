@@ -30,6 +30,14 @@
  * PDF in the history at the point it was made, so what came after it is
  * plain to see.
  *
+ * ── Approved automatically, and work (dispatch 24) ──
+ * An entry approved automatically says so, with the rule it met, and offers
+ * Seen while no admin has looked at it; correcting, removing or rejecting it
+ * counts as seen. Under it, the cleaner's last 90 days in words, the
+ * $150–200 band always named. A handyman's work entry shows "Work done" in
+ * place of "Items bought": the description in full and the one amount, both
+ * correctable as a line; no line is added to it, and it has no receipt.
+ *
  * Changes are not optimistic. Each sends the length of the history this pane
  * shows, and the server refuses it if the entry changed since — another
  * admin, say. The pane changes only to the entry the server returns. An
@@ -37,19 +45,21 @@
  */
 
 import { useState, type FormEvent, type ReactNode } from "react";
-import { AlertTriangle, Ban, Check, Plus, Trash2, X } from "lucide-react";
+import { AlertTriangle, Ban, Check, Eye, Plus, Trash2, X } from "lucide-react";
 import { NoticeBanner, useNotice, type Notice } from "../components/Notice";
-import { changeEntryLine, changeEntryTax, setEntryStatus, type CostResult, type EntryChange } from "@/app/lib/costs-client";
+import { changeEntryLine, changeEntryTax, markEntrySeen, setEntryStatus, type CostResult, type EntryChange } from "@/app/lib/costs-client";
 import {
   ENTRY_STATUS_LABELS,
   HISTORY_ACTION_LABELS,
   LIMITS,
+  awaitingLook,
   formatCents,
   type CostEntryView,
   type HistoryEventView,
   type LineNow,
   type ReviewStatus,
 } from "@/app/lib/cleaners/model";
+import { distributionText, splitText, type CleanerPattern } from "@/app/lib/costs/patterns";
 import {
   cleanerLabel,
   propertyLabel,
@@ -61,6 +71,7 @@ import {
 import { Absent, FieldText } from "../leads/lead-display";
 import {
   EntryStatusBadge,
+  KindBadge,
   SentAt,
   amountField,
   amountText,
@@ -78,6 +89,8 @@ interface EntryPaneProps {
   entry: CostEntryView;
   /** The PDFs this entry went out in, and how it stands beside the newest for its day; null when it was never in one. */
   pdf: EntryPdfState | null;
+  /** The cleaner's last 90 days (dispatch 24); null when they sent nothing in the window. */
+  pattern: CleanerPattern | null;
   /** The entry as the server now stores it, after a review. */
   onChanged: (entry: CostEntryView) => void;
   onClose: () => void;
@@ -99,9 +112,9 @@ const STATUS_DONE: Record<ReviewStatus, string> = {
   removed: "It has left its property’s ledger, totals and reports, and stays in the review queue, marked.",
 };
 
-export function EntryPane({ entry, pdf, onChanged, onClose }: EntryPaneProps) {
+export function EntryPane({ entry, pdf, pattern, onChanged, onClose }: EntryPaneProps) {
   /** What is being saved, for its button's label; null when nothing is. */
-  const [saving, setSaving] = useState<ReviewStatus | "line" | "tax" | null>(null);
+  const [saving, setSaving] = useState<ReviewStatus | "line" | "tax" | "seen" | null>(null);
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
   const [draft, setDraft] = useState<LineDraft | null>(null);
@@ -114,6 +127,10 @@ export function EntryPane({ entry, pdf, onChanged, onClose }: EntryPaneProps) {
   const reviewable = seen !== null;
   const busy = saving !== null;
   const now = entry.linesNow;
+  const work = entry.kind === "work";
+  const unseen = awaitingLook(entry);
+  /** The amount the auto-approval rule saw, as stored; null when the record is not in the written shape. */
+  const autoTotal = typeof entry.autoApproved?.totalCents === "number" ? entry.autoApproved.totalCents : null;
   /**
    * The PDF to go by still lists this approved entry, so taking the entry out
    * of the ledger makes that PDF wrong: said before the admin does it.
@@ -168,6 +185,19 @@ export function EntryPane({ entry, pdf, onChanged, onClose }: EntryPaneProps) {
       setRejecting(false);
       setReason("");
     }
+  };
+
+  const markSeen = async () => {
+    if (busy || seen === null) return;
+    clear();
+    setSaving("seen");
+    const result = await markEntrySeen(entry.id, { seen });
+    setSaving(null);
+    settle(result, (change) =>
+      change.changed
+        ? { tone: "success", title: "Marked as seen.", detail: "It is still approved and counts in its ledger; it has left the review queue." }
+        : { tone: "info", title: "Nothing was changed: an admin had already looked at it." },
+    );
   };
 
   const correct = (line: LineNow) => {
@@ -245,7 +275,7 @@ export function EntryPane({ entry, pdf, onChanged, onClose }: EntryPaneProps) {
         <div className={styles.detailHeadText}>
           <h2 className={styles.detailTitle}>{propertyLabel(entry)}</h2>
           <p className={styles.detailMeta}>
-            {cleanerLabel(entry)} · sent <SentAt iso={entry.createdAt} />
+            {cleanerLabel(entry)} <KindBadge kind={entry.kind} /> · sent <SentAt iso={entry.createdAt} />
           </p>
           <NameNotes entry={entry} />
         </div>
@@ -259,11 +289,19 @@ export function EntryPane({ entry, pdf, onChanged, onClose }: EntryPaneProps) {
       {/* ── Review ── */}
       <section className={styles.statusBlock} aria-label="Review">
         <div className={styles.statusRow}>
-          <EntryStatusBadge status={entry.status} />
+          <EntryStatusBadge status={entry.status} auto={entry.autoApproved !== null} />
           <span className={styles.statusSince}>
             since <SentAt iso={entry.statusChangedAt} />
           </span>
         </div>
+        {entry.autoApproved !== null && (
+          <p className={unseen ? styles.autoNote : styles.statusNote}>
+            {unseen
+              ? "Approved automatically: under $200.00, and no admin has looked at it. It counts in the ledger now. Correct it, remove it, or mark it seen."
+              : "Approved automatically: under $200.00 as sent."}
+            {autoTotal !== null && ` The rule saw ${formatCents(autoTotal)}.`}
+          </p>
+        )}
         {entry.status === "rejected" && (
           <p className={styles.reasonText}>
             Reason, as the cleaner sees it: <FieldText value={entry.statusReason} />
@@ -287,6 +325,12 @@ export function EntryPane({ entry, pdf, onChanged, onClose }: EntryPaneProps) {
 
         {reviewable ? (
           <div className={styles.actions}>
+            {unseen && (
+              <button type="button" className={styles.btnApprove} disabled={busy} onClick={markSeen}>
+                <Eye size={15} aria-hidden />
+                <span>{saving === "seen" ? "Saving…" : "Seen"}</span>
+              </button>
+            )}
             {entry.status !== "approved" && (
               <button type="button" className={styles.btnApprove} disabled={busy} onClick={() => review("approved")}>
                 <Check size={15} aria-hidden />
@@ -368,16 +412,18 @@ export function EntryPane({ entry, pdf, onChanged, onClose }: EntryPaneProps) {
       {/* ── Receipt ── */}
       <section className={styles.section}>
         <h3 className={styles.sectionTitle}>Receipt</h3>
-        {entry.receipts === null || entry.receipts.length === 0 ? (
-          <Absent label="No receipt on record" />
-        ) : (
+        {entry.receipts !== null && entry.receipts.length > 0 ? (
           <ReceiptImage key={entry.id} entryId={entry.id} />
+        ) : work ? (
+          <p className={styles.note}>No receipt: handyman work. The description and the price are what the handyman logged.</p>
+        ) : (
+          <Absent label="No receipt on record" />
         )}
       </section>
 
-      {/* ── Items, then tax, then total ── */}
+      {/* ── Items, then tax, then total — or the work done ── */}
       <section className={styles.section}>
-        <h3 className={styles.sectionTitle}>Items bought</h3>
+        <h3 className={styles.sectionTitle}>{work ? "Work done" : "Items bought"}</h3>
         {now.kind === "unreadable" ? (
           <div>
             <p className={styles.noteWarn}>
@@ -400,9 +446,9 @@ export function EntryPane({ entry, pdf, onChanged, onClose }: EntryPaneProps) {
                 <thead>
                   <tr>
                     <th>#</th>
-                    <th>Item</th>
+                    <th>{work ? "Description" : "Item"}</th>
                     <th>Qty (reference)</th>
-                    <th className={styles.num}>Line total as printed</th>
+                    <th className={styles.num}>{work ? "Price" : "Line total as printed"}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -484,11 +530,12 @@ export function EntryPane({ entry, pdf, onChanged, onClose }: EntryPaneProps) {
               </table>
             </div>
             {now.corrected && (
-              <p className={styles.note}>The cleaner sent {formatCents(now.sentTotalCents)}; corrections are above.</p>
+              <p className={styles.note}>The {work ? "handyman" : "cleaner"} sent {formatCents(now.sentTotalCents)}; corrections are above.</p>
             )}
             <p className={styles.note}>
-              Each amount is what the receipt prints for that line, for all of that item together. Quantities are for
-              reference and are never multiplied. The total is the items plus the tax.
+              {work
+                ? "The description and the price are as the handyman logged them, corrections applied. Tax can be recorded if an invoice carries it. The total is the price plus the tax."
+                : "Each amount is what the receipt prints for that line, for all of that item together. Quantities are for reference and are never multiplied. The total is the items plus the tax."}
             </p>
 
             {taxDraft !== null && (
@@ -524,11 +571,11 @@ export function EntryPane({ entry, pdf, onChanged, onClose }: EntryPaneProps) {
                 </p>
                 <div className={styles.editorGrid}>
                   <label className={styles.editorField}>
-                    <span className={styles.fieldLabel}>Item</span>
+                    <span className={styles.fieldLabel}>{work ? "Description" : "Item"}</span>
                     <input
                       className={styles.textInput}
                       value={draft.name}
-                      maxLength={LIMITS.LINE_NAME_MAX}
+                      maxLength={work ? LIMITS.WORK_DESCRIPTION_MAX : LIMITS.LINE_NAME_MAX}
                       onChange={(e) => setDraft({ ...draft, name: e.target.value })}
                       disabled={busy}
                       autoFocus
@@ -545,7 +592,7 @@ export function EntryPane({ entry, pdf, onChanged, onClose }: EntryPaneProps) {
                     />
                   </label>
                   <label className={styles.editorField}>
-                    <span className={styles.fieldLabel}>Line total as printed ($)</span>
+                    <span className={styles.fieldLabel}>{work ? "Price ($)" : "Line total as printed ($)"}</span>
                     <input
                       className={styles.textInput}
                       inputMode="decimal"
@@ -569,7 +616,8 @@ export function EntryPane({ entry, pdf, onChanged, onClose }: EntryPaneProps) {
                 </div>
               </form>
             ) : (
-              reviewable && (
+              reviewable &&
+              !work && (
                 <button type="button" className={styles.btnGhost} disabled={busy} onClick={add}>
                   <Plus size={15} aria-hidden />
                   <span>Add a line</span>
@@ -579,6 +627,28 @@ export function EntryPane({ entry, pdf, onChanged, onClose }: EntryPaneProps) {
           </>
         )}
       </section>
+
+      {/* ── The cleaner's last 90 days (dispatch 24) ── */}
+      {!work && (
+        <section className={styles.section} aria-label="This cleaner's last 90 days">
+          <h3 className={styles.sectionTitle}>{cleanerLabel(entry)}, last 90 days</h3>
+          {pattern === null ? (
+            <p className={styles.note}>No receipts in the last 90 days.</p>
+          ) : (
+            <>
+              <p className={pattern.worthALook ? styles.noteWarn : styles.note}>{distributionText(pattern)}</p>
+              {pattern.splits.length > 0 && (
+                <ul className={styles.watchSplits}>
+                  {pattern.splits.map((split) => (
+                    <li key={`${split.day}-${split.propertyId ?? ""}`}>Same-day split: {splitText(split)}</li>
+                  ))}
+                </ul>
+              )}
+              {pattern.worthALook && <p className={styles.noteWarn}>Worth a look: {pattern.reasons.join("; ")}.</p>}
+            </>
+          )}
+        </section>
+      )}
 
       {/* ── From the cleaner, when there is anything ── */}
       {(entry.note !== null || entry.purchasedOn !== null) && (
@@ -768,10 +838,12 @@ function PdfSection({ entry, pdf }: { entry: CostEntryView; pdf: EntryPdfState }
   );
 }
 
-/** Who did it: the cleaner by name, or "an admin" — one shared PIN, so never which one. */
+/** Who did it: the cleaner or handyman by name, "an admin" (one shared PIN, so never which one), or the rule. */
 function actorOf(event: HistoryEventView): string {
   if (event.actor?.role === "cleaner") return event.actor.name ?? "the cleaner";
+  if (event.actor?.role === "handyman") return event.actor.name ?? "the handyman";
   if (event.actor?.role === "admin") return "an admin";
+  if (event.actor?.role === "system") return "the rule";
   return "someone not recorded";
 }
 
@@ -796,11 +868,13 @@ function describe(event: HistoryEventView): ReactNode {
     case "removed":
       return (
         <>
-          {HISTORY_ACTION_LABELS[event.action]} by {by}
+          {event.actor?.role === "system" ? "Approved automatically" : `${HISTORY_ACTION_LABELS[event.action]} by ${by}`}
           {event.from !== null && <> · was {statusWord(event.from)}</>}
           {event.reason !== null && <span className={styles.historyReason}>“{event.reason}”</span>}
         </>
       );
+    case "seen":
+      return <>Marked as seen by {by}</>;
     case "line_corrected":
       return (
         <>

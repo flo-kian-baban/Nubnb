@@ -22,7 +22,11 @@
  *                      — the signed record POST /api/cleaner/read-receipt
  *                      gave this photo, verbatim, and for each entry line the
  *                      model line it was filled from, or null
- * Response: 201 `{ success: true, data: { id, status: 'pending', createdAt, lineCount, readingStored } }`
+ * Response: 201 `{ success: true, data: { id, status, createdAt, lineCount, readingStored, autoApproved } }`
+ *               `status` is `approved` and `autoApproved` true when the
+ *               entry, as sent, added up to strictly under $200.00
+ *               (dispatch 24, Kian's decision of 2026-09-30); `pending`
+ *               otherwise
  *           200 `{ success: true, data: { id, createdAt, alreadyReceived: true } }`
  *               when this receipt's one-time key was sent before: the first
  *               send's entry, and nothing new is stored or written
@@ -32,7 +36,8 @@
  * can say otherwise: an `entry` carrying a key the schema does not name —
  * cleanerId, status, receipts — is refused. The session is checked before
  * any of the body is read, and again inside the write, so no entry lands
- * after the cleaner's deactivation commits.
+ * after the cleaner's deactivation commits. A handyman's session is refused
+ * with 403 ROLE_MISMATCH (dispatch 24): their door is POST /api/cleaner/work.
  *
  * ── Order ──
  * Everything that can be refused is refused before anything is stored: the
@@ -86,7 +91,7 @@ import { parseReadingPart } from '@/app/lib/cleaners/readings';
 import { saveReceipt, sniffReceiptType } from '@/app/lib/cleaners/receipts';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { getCleanerSecrets } from '@/app/lib/cleaners/secrets';
-import { CLEANER_SESSION_INVALID, verifyCleanerSession } from '@/app/lib/cleaners/session';
+import { CLEANER_SESSION_INVALID, requireRole, verifyCleanerSession } from '@/app/lib/cleaners/session';
 import {
   DuplicateSubmissionError,
   SessionRevokedError,
@@ -152,6 +157,9 @@ export async function POST(request: Request) {
   const session = await verifyCleanerSession(request);
   if (!session.ok) return noStore(apiFailure(session.refusal));
   const { cleaner } = session;
+  // Only a cleaner logs receipts (dispatch 24).
+  const wrongRole = requireRole(cleaner, 'cleaner');
+  if (wrongRole) return noStore(apiFailure(wrongRole));
 
   // ── 3. Size — from the header, before the body is read ──
   const declaredLength = Number(request.headers.get('content-length') ?? 0);

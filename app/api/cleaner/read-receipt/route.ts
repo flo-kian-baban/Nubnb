@@ -49,7 +49,7 @@ import { readingKey, signReading } from '@/app/lib/cleaners/readings';
 import { sniffReceiptType } from '@/app/lib/cleaners/receipts';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { CLEANER_AUTH_NOT_CONFIGURED, getCleanerSecrets } from '@/app/lib/cleaners/secrets';
-import { verifyCleanerSession } from '@/app/lib/cleaners/session';
+import { requireRole, verifyCleanerSession } from '@/app/lib/cleaners/session';
 
 export const maxDuration = 30;
 
@@ -76,6 +76,9 @@ export async function POST(request: Request) {
   const session = await verifyCleanerSession(request);
   if (!session.ok) return noStore(apiFailure(session.refusal));
   const { cleaner } = session;
+  // Only a cleaner has receipts to read (dispatch 24): a handyman's session is refused, 403 ROLE_MISMATCH.
+  const wrongRole = requireRole(cleaner, 'cleaner');
+  if (wrongRole) return noStore(apiFailure(wrongRole));
 
   // ── 3. Size — from the header, before the body is read ──
   const declaredLength = Number(request.headers.get('content-length') ?? 0);

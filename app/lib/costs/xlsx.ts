@@ -3,8 +3,9 @@
  * a stored ZIP (zip.ts) of the seven XML parts Excel needs, with inline
  * strings, so no package is added.
  *
- *   Entries   one row per approved entry: date sent, ref, entry ID, cleaner,
- *             what was bought (discounts and returns listed with their
+ *   Entries   one row per approved entry: date sent, ref, entry ID, kind
+ *             (receipt or work, dispatch 24), who logged it, what was bought
+ *             or the work done (discounts and returns listed with their
  *             amounts), lines, items, tax, total, corrected; then the period
  *             total. Tax is its own column (dispatch 21); an entry sent
  *             before tax was its own field reads "in items" there.
@@ -21,7 +22,7 @@
 
 import { zipStored } from './zip';
 import { generatedLabel, periodLabel, whatWasBoughtText, type CostReport } from './report';
-import type { LineNow } from '@/app/lib/cleaners/model';
+import { ENTRY_KIND_LABELS, isEntryKind, type LineNow } from '@/app/lib/cleaners/model';
 
 const MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 const RELATIONSHIPS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
@@ -188,7 +189,7 @@ export function workbookFor(report: CostReport): Uint8Array<ArrayBuffer> {
 
   const entries: Cell[][] = [
     ...heading('Approved entries only'),
-    ['Date sent', 'Ref', 'Entry ID', 'Cleaner', 'What was bought', 'Lines', 'Items (CAD)', 'Tax (CAD)', 'Total (CAD)', 'Corrected'].map(
+    ['Date sent', 'Ref', 'Entry ID', 'Kind', 'Logged by', 'What was bought / work done', 'Lines', 'Items (CAD)', 'Tax (CAD)', 'Total (CAD)', 'Corrected'].map(
       (h) => text(h, true),
     ),
     ...(report.entries.length === 0
@@ -197,6 +198,7 @@ export function workbookFor(report: CostReport): Uint8Array<ArrayBuffer> {
           day(entry.day),
           text(entry.ref),
           text(entry.id),
+          text(isEntryKind(entry.kind) ? ENTRY_KIND_LABELS[entry.kind] : entry.kind),
           text(entry.cleaner),
           text(whatWasBoughtText(entry.lines)),
           count(entry.lines.length),
@@ -207,6 +209,7 @@ export function workbookFor(report: CostReport): Uint8Array<ArrayBuffer> {
         ])),
     [
       text('Period total', true),
+      null,
       null,
       null,
       null,
@@ -251,7 +254,7 @@ export function workbookFor(report: CostReport): Uint8Array<ArrayBuffer> {
       { name: 'xl/workbook.xml', data: encoder.encode(WORKBOOK_XML) },
       { name: 'xl/_rels/workbook.xml.rels', data: encoder.encode(WORKBOOK_RELS_XML) },
       { name: 'xl/styles.xml', data: encoder.encode(STYLES_XML) },
-      { name: 'xl/worksheets/sheet1.xml', data: encoder.encode(sheetXml([13, 9, 24, 22, 60, 7, 13, 12, 13, 11], entries)) },
+      { name: 'xl/worksheets/sheet1.xml', data: encoder.encode(sheetXml([13, 9, 24, 9, 22, 60, 7, 13, 12, 13, 11], entries)) },
       { name: 'xl/worksheets/sheet2.xml', data: encoder.encode(sheetXml([13, 9, 40, 20, 26, 16], items)) },
     ],
     report.generatedAt,

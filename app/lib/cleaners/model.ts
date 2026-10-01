@@ -42,6 +42,17 @@
  * claim is never overwritten, every earlier version stays readable, and an
  * entry nobody corrected reads exactly as it was written.
  *
+ * ── Auto-approval and handymen (dispatch 24, Kian's decision of 2026-09-30) ──
+ * A receipt entry that adds up, as sent, to strictly under $200.00 is
+ * written `approved` at once, with a second history event by the `system`
+ * actor and an `autoApproved` record saying which rule it met; it still
+ * appears in the queue until an admin marks it `seen` or acts on it. A
+ * handyman is a `cleaners` document with `role: 'handyman'`, and their work
+ * is a `cost_entries` document with `kind: 'work'`: one line whose name is
+ * the description, no receipt, always `pending`. On every document written
+ * before this, `kind` and `role` are absent, and absent means `receipt` and
+ * `cleaner`: readers keep that reading for ever.
+ *
  * ── After approval (Kian's ruling of 2026-09-30) ──
  * An approved entry stays correctable and removable: the same events, on the
  * same history, whatever its status. An approved entry may already be in a
@@ -115,6 +126,15 @@ export function isReceiptType(value: unknown): value is ReceiptType {
 export const LIMITS = {
   /** A cleaner's name: UTF-16 units, after NFC normalisation and trimming. */
   NAME_MAX: 80,
+  /**
+   * A receipt entry whose lines plus tax, as sent, add up to strictly less
+   * than this is approved automatically (dispatch 24, Kian's decision of
+   * 2026-09-30). A constant, not a setting: each entry records the threshold
+   * it met, so this can change without confusing the record.
+   */
+  AUTO_APPROVE_UNDER_CENTS: 20_000,
+  /** A handyman's description of the work done: NFC, trimmed, no control characters. */
+  WORK_DESCRIPTION_MAX: 200,
   /** One receipt line's name, likewise. */
   LINE_NAME_MAX: 120,
   /** Lines on one entry. At least one. */
@@ -188,6 +208,46 @@ export function isCleanerStatus(value: unknown): value is CleanerStatus {
 }
 
 /**
+ * The two roles an account in `cleaners` can have (dispatch 24). A cleaner
+ * logs receipts; a handyman logs work. The field is absent on every account
+ * written before this, and absent means `cleaner`, for ever. A third role
+ * later is a new word, never a new meaning for an old one.
+ */
+export const CLEANER_ROLES = ['cleaner', 'handyman'] as const;
+export type CleanerRole = (typeof CLEANER_ROLES)[number];
+
+export const CLEANER_ROLE_LABELS: Record<CleanerRole, string> = {
+  cleaner: 'Cleaner',
+  handyman: 'Handyman',
+};
+
+export function isCleanerRole(value: unknown): value is CleanerRole {
+  return typeof value === 'string' && (CLEANER_ROLES as readonly string[]).includes(value);
+}
+
+/** The role a stored account has: the field as stored, or `cleaner` when it has none. */
+export function roleOf(fields: { role?: unknown }): string {
+  return fields.role === undefined || fields.role === null ? 'cleaner' : fieldText(fields.role) ?? 'cleaner';
+}
+
+/**
+ * The two kinds of entry (dispatch 24): a receipt a cleaner sent, or work a
+ * handyman did. Absent on every entry written before this, and absent means
+ * `receipt`, for ever.
+ */
+export const ENTRY_KINDS = ['receipt', 'work'] as const;
+export type EntryKind = (typeof ENTRY_KINDS)[number];
+
+export const ENTRY_KIND_LABELS: Record<EntryKind, string> = {
+  receipt: 'Receipt',
+  work: 'Work',
+};
+
+export function isEntryKind(value: unknown): value is EntryKind {
+  return typeof value === 'string' && (ENTRY_KINDS as readonly string[]).includes(value);
+}
+
+/**
  * An entry's review states. Every entry is written "pending". An admin moves
  * it to approved, rejected or removed, from any other of those, whenever they
  * choose; nothing goes back to pending. Removed means left out of totals and
@@ -230,7 +290,8 @@ export function countsInTotals(status: string | null): boolean {
 
 /**
  * The events a history records. Words once written are permanent. A later
- * dispatch adds `renamed` to cleaners.
+ * dispatch adds `renamed` to cleaners. `seen` (dispatch 24) is an admin's
+ * mark on an entry that was approved automatically: it changes no status.
  *
  * On `code_changed`, `from` and `to` are the old and new codes rather than
  * statuses; `from` is null when the old code was never on record (a
@@ -253,6 +314,7 @@ export const HISTORY_ACTIONS = [
   'line_corrected',
   'line_added',
   'tax_corrected',
+  'seen',
 ] as const;
 export type HistoryAction = (typeof HISTORY_ACTIONS)[number];
 
@@ -268,15 +330,16 @@ export const HISTORY_ACTION_LABELS: Record<HistoryAction, string> = {
   line_corrected: 'Line corrected',
   line_added: 'Line added',
   tax_corrected: 'Tax corrected',
+  seen: 'Seen',
 };
 
 // ─── Stored shapes ─────────────────────────────────────────────
 // What the server writes. Reading goes through the views further down,
 // because a stored document is not guaranteed to match.
 
-/** Who did something. */
+/** Who did something. `handyman` and `system` are dispatch 24's. */
 export interface Actor {
-  role: 'admin' | 'cleaner';
+  role: 'admin' | 'cleaner' | 'handyman' | 'system';
   id: string | null;
   name: string | null;
 }
@@ -286,6 +349,25 @@ export interface Actor {
  * and the record says so rather than inventing one.
  */
 export const ADMIN_ACTOR: Actor = { role: 'admin', id: null, name: null };
+
+/** The actor of an automatic approval (dispatch 24): the rule, not a person. */
+export const SYSTEM_ACTOR: Actor = { role: 'system', id: null, name: 'auto-approval' };
+
+/** The reason written on an automatic approval's history event. */
+export const AUTO_APPROVAL_REASON = 'Under $200.00: approved automatically';
+
+/**
+ * What an entry approved automatically records about the rule it met
+ * (dispatch 24): on every new entry, this map or null. A threshold that
+ * changes later confuses nothing.
+ */
+export interface AutoApproved {
+  thresholdCents: number;
+  /** The entry as sent: its lines plus its tax, in cents. */
+  totalCents: number;
+  /** ISO-8601 UTC: the moment of the approval, the entry's own createdAt. */
+  at: string;
+}
 
 /**
  * One event in a document's `history`, which is append-only. Events are
@@ -393,10 +475,17 @@ export interface ReportExport {
 // on the document. A value of an unexpected type is written out as text.
 
 export interface ActorView {
-  /** As stored: possibly outside 'admin' | 'cleaner'. */
+  /** As stored: possibly outside 'admin' | 'cleaner' | 'handyman' | 'system'. */
   role: string | null;
   id: string | null;
   name: string | null;
+}
+
+/** An auto-approval record as stored: numbers as numbers, anything else as text. */
+export interface AutoApprovedView {
+  thresholdCents: number | string | null;
+  totalCents: number | string | null;
+  at: string | null;
 }
 
 export interface HistoryEventView {
@@ -452,6 +541,8 @@ export interface CleanerSummary {
   createdAt: string | null;
   /** null when the document has no history array. */
   history: HistoryEventView[] | null;
+  /** `cleaner` or `handyman` (dispatch 24); `cleaner` when the document has no role; anything else as stored. */
+  role: string;
 }
 
 export interface LineView {
@@ -501,6 +592,10 @@ export interface CostEntryFields {
   /** The stored tax in cents; null when none was given or the entry predates the field (see `taxShape`). */
   taxCents: number | string | null;
   taxShape: TaxShape;
+  /** `receipt` or `work` (dispatch 24); `receipt` when the document has no kind; anything else as stored. */
+  kind: string;
+  /** The auto-approval record (dispatch 24); null when the entry was not approved automatically, or predates it. */
+  autoApproved: AutoApprovedView | null;
 }
 
 /**
@@ -539,6 +634,22 @@ export interface CostEntryView {
   linesNow: LinesNow;
   receipts: ReceiptView[] | null;
   taxShape: TaxShape;
+  /** `receipt` or `work` (dispatch 24); `receipt` on every entry written before it. */
+  kind: string;
+  /** Set when the entry was approved automatically (dispatch 24). */
+  autoApproved: AutoApprovedView | null;
+}
+
+/**
+ * Whether an entry approved automatically still awaits an admin's look
+ * (dispatch 24): it is approved, carries the auto-approval record, and no
+ * admin has touched it since. Marking it seen, correcting it, removing it or
+ * rejecting it each puts an admin event in the history, and any of those
+ * counts as seen (Kian's decision). Pure, and the same on both sides.
+ */
+export function awaitingLook(entry: { status: string | null; autoApproved: AutoApprovedView | null; history: HistoryEventView[] | null }): boolean {
+  if (entry.status !== 'approved' || entry.autoApproved === null) return false;
+  return !(entry.history ?? []).some((event) => event.actor?.role === 'admin');
 }
 
 /** One line as it now counts. */
@@ -655,6 +766,10 @@ export interface CleanerEntry {
   status: string | null;
   /** Why it was rejected, when it is; null otherwise. */
   statusReason: string | null;
+  /** `receipt` or `work` (dispatch 24). */
+  kind: string;
+  /** On a work entry, the description as it now stands; null on a receipt. */
+  description: string | null;
 }
 
 /** A property as the cleaner app lists it. */
@@ -671,7 +786,8 @@ export interface CleanerProperty {
 
 /** What GET /api/cleaner/start answers: everything the cleaner app shows before the first entry is typed. */
 export interface CleanerStart {
-  cleaner: { id: string; name: string | null };
+  /** `role` (dispatch 24) tells the app which flow to show: receipts for a cleaner, work for a handyman. */
+  cleaner: { id: string; name: string | null; role: string };
   /** Every property, delisted ones included, by name. */
   properties: CleanerProperty[];
   /** The properties this cleaner has logged against, most recent first. */
@@ -723,6 +839,14 @@ function readActor(value: unknown): ActorView | null {
   const actor = asMap(value);
   if (!actor) return null;
   return { role: fieldText(actor.role), id: fieldText(actor.id), name: fieldText(actor.name) };
+}
+
+/** The auto-approval record (dispatch 24). null when absent or stored null; a value that is not a map is kept, written out, as `at`. */
+function readAutoApproved(value: unknown): AutoApprovedView | null {
+  if (value === undefined || value === null) return null;
+  const record = asMap(value);
+  if (!record) return { thresholdCents: null, totalCents: null, at: shown(value) };
+  return { thresholdCents: fieldNumber(record.thresholdCents), totalCents: fieldNumber(record.totalCents), at: fieldText(record.at) };
 }
 
 function readEvent(value: unknown): HistoryEventView {
@@ -908,6 +1032,7 @@ export function readCleanerSummary(id: string, fields: Record<string, unknown>):
     statusChangedAt: fieldText(fields.statusChangedAt),
     createdAt: fieldText(fields.createdAt),
     history: readHistory(fields.history),
+    role: roleOf(fields),
   };
 }
 
@@ -933,6 +1058,9 @@ export function readCostEntryFields(id: string, fields: Record<string, unknown>)
     // even as null, keeps its tax apart; one without it keeps it among its lines.
     taxCents: 'taxCents' in fields ? fieldNumber(fields.taxCents) : null,
     taxShape: 'taxCents' in fields ? 'field' : 'in-lines',
+    // Absent means receipt (dispatch 24), on every entry written before the field existed.
+    kind: fields.kind === undefined || fields.kind === null ? 'receipt' : fieldText(fields.kind) ?? 'receipt',
+    autoApproved: readAutoApproved(fields.autoApproved),
   };
 }
 

@@ -87,6 +87,27 @@ const SESSION_CHECK_UNAVAILABLE: Refusal = {
   message: 'Could not check your sign-in. Try again.',
 };
 
+/**
+ * 403: the session is good, but for the other role (dispatch 24). A cleaner
+ * on the work route, a handyman on the receipt or read-receipt route, and a
+ * stored role outside the two on either.
+ */
+export const ROLE_MISMATCH: Refusal = {
+  status: 403,
+  code: 'ROLE_MISMATCH',
+  message: 'Your account cannot log this kind of entry.',
+  hint: 'A cleaner logs receipts; a handyman logs work.',
+};
+
+/**
+ * The refusal to send when the signed-in account is not of `role`, else
+ * null. The role is the one read from the document on this request, so a
+ * role changed on the account holds at once; the token carries none.
+ */
+export function requireRole(cleaner: SignedInCleaner, role: 'cleaner' | 'handyman'): Refusal | null {
+  return cleaner.role === role ? null : ROLE_MISMATCH;
+}
+
 // ─── Token ─────────────────────────────────────────────────────
 
 /** What a valid token says. */

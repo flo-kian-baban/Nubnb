@@ -46,6 +46,11 @@
  * A cleaner never reaches /admin from here, and never sees another cleaner's
  * work: the API gives this page their own name and recent properties, the
  * property list, and item names as words only.
+ *
+ * ── Handymen (dispatch 24) ──
+ * The start route says the account's role. A handyman gets the work flow
+ * (HandymanApp): property → work → sent, and "My work". The code screen and
+ * the loading and failure states are shared.
  */
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -91,6 +96,7 @@ import { ItemsScreen, type ReadingStatus } from "./ItemsScreen";
 import { DoneScreen, type SentReceipt } from "./DoneScreen";
 import { ReceiptsScreen } from "./ReceiptsScreen";
 import { CleanerBar } from "./CleanerBar";
+import { HandymanApp } from "./HandymanApp";
 import styles from "./cleaner.module.css";
 
 type Phase =
@@ -588,6 +594,22 @@ export function CleanerApp() {
   // ── In ──
 
   const { start } = phase;
+
+  // A handyman's flow is its own (dispatch 24); the offline bar is shared.
+  if (start.cleaner.role === "handyman") {
+    return (
+      <div className={styles.app}>
+        {!online && (
+          <p className={styles.offlineBar} role="status">
+            <CloudOff aria-hidden />
+            <span>No signal. Nothing you type is lost.</span>
+          </p>
+        )}
+        <HandymanApp key={start.cleaner.id} start={start} onSignedOut={() => setPhase({ kind: "code" })} />
+      </div>
+    );
+  }
+
   const current = draft;
   if (!current) {
     return (

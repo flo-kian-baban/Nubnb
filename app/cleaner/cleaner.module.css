@@ -1300,3 +1300,26 @@
   border-radius: 50%;
   background: #fff;
 }
+
+/* ── The handyman's work screen and list (dispatch 24) ── */
+.workDescription {
+  height: auto;
+  min-height: 96px;
+  padding: 12px 14px;
+  resize: vertical;
+  line-height: 1.4;
+}
+.doneNote {
+  margin: 0;
+  color: var(--muted);
+  font-size: 16px;
+  font-weight: 600;
+  text-align: center;
+}
+.receiptDescription {
+  margin: 4px 0 0;
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}

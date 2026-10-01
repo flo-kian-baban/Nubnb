@@ -1,7 +1,14 @@
 "use client";
 
 /**
- * Cleaners: who can log costs, their codes, and whether those codes work.
+ * Team: the cleaners and handymen who can log costs, their codes, and
+ * whether those codes work. Since dispatch 24 an account has a role — a
+ * cleaner logs receipts, a handyman logs work — chosen when it is created
+ * and shown in its row; both come from the one code index. Beside each
+ * cleaner, their last 90 days of receipts in words (costs/patterns.ts), the
+ * $150–200 band always named, read from the same cost list the costs page
+ * reads. That second read failing shows as "could not be read", never as
+ * nothing sent.
  *
  * Reads and writes go through /api/admin/cleaners behind the admin session;
  * firestore.rules denies the browser any access to `cleaners` and
@@ -24,8 +31,12 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AlertTriangle, KeyRound, RefreshCw, UserPlus, Users } from "lucide-react";
 import { AdminHeader } from "../components/AdminHeader";
+import { AdminSelect } from "../components/AdminSelect";
 import { PinGate } from "../components/PinGate";
 import { NoticeBanner, useNotice } from "../components/Notice";
+import { fetchCosts } from "@/app/lib/costs-client";
+import { distributionText, watchList, type CleanerPattern } from "@/app/lib/costs/patterns";
+import { torontoDayOf } from "@/app/lib/costs/report";
 import {
   changeCleanerCode,
   changeCleanerStatus,
@@ -35,10 +46,14 @@ import {
   type CodeRequest,
 } from "@/app/lib/cleaners-client";
 import {
+  CLEANER_ROLES,
+  CLEANER_ROLE_LABELS,
   CLEANER_STATUS_LABELS,
   CODE_PATTERN,
   LIMITS,
+  isCleanerRole,
   isCleanerStatus,
+  type CleanerRole,
   type CleanerStatus,
   type CleanerSummary,
 } from "@/app/lib/cleaners/model";
@@ -52,6 +67,9 @@ type ListState =
   | { kind: "loading" }
   | { kind: "ready"; cleaners: CleanerSummary[] }
   | { kind: "error"; title: string; detail?: string; status: number };
+
+/** The cost list's read, for the 90-day distributions: never shown as "nothing" when it failed. */
+type PatternsState = { kind: "loading" } | { kind: "ready"; patterns: CleanerPattern[] } | { kind: "error"; title: string };
 
 /** The cleaner whose code is being changed, as the row showed them. */
 interface CodeEditor {
@@ -77,7 +95,9 @@ function Cleaners() {
   const [list, setList] = useState<ListState>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
   const [draft, setDraft] = useState("");
+  const [role, setRole] = useState<CleanerRole>("cleaner");
   const [creating, setCreating] = useState(false);
+  const [patterns, setPatterns] = useState<PatternsState>({ kind: "loading" });
   /** The name of a create whose outcome is unknown. */
   const [unconfirmed, setUnconfirmed] = useState<string | null>(null);
   /** The one save in flight: a status or a code change, for one cleaner. */
@@ -102,8 +122,25 @@ function Cleaners() {
     };
   }, [attempt]);
 
+  // The 90-day distributions come from the cost entries: the same one read the costs page makes.
+  useEffect(() => {
+    let cancelled = false;
+    fetchCosts().then((result) => {
+      if (cancelled) return;
+      setPatterns(
+        result.ok
+          ? { kind: "ready", patterns: watchList(result.data.entries, torontoDayOf(new Date())) }
+          : { kind: "error", title: result.title },
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [attempt]);
+
   const reload = () => {
     setList({ kind: "loading" });
+    setPatterns({ kind: "loading" });
     setAttempt((n) => n + 1);
   };
 
@@ -132,14 +169,14 @@ function Cleaners() {
     clearNotice();
     setUnconfirmed(null);
     setCreating(true);
-    const result = await createCleaner(name);
+    const result = await createCleaner(name, role);
     setCreating(false);
 
     if (result.ok) {
       const created = result.data.cleaner;
       showNotice({
         tone: "success",
-        title: `Created ${displayName(created.name ?? name)}.`,
+        title: `Created ${displayName(created.name ?? name)} as a ${CLEANER_ROLE_LABELS[role].toLowerCase()}.`,
         detail: created.code ? `Their code is ${created.code}.` : undefined,
       });
       setDraft("");
@@ -307,8 +344,14 @@ function Cleaners() {
             {/* ── Create ── */}
             <form className={styles.createRow} onSubmit={submit}>
               <label htmlFor="new-cleaner-name" className={styles.createLabel}>
-                New cleaner
+                New account
               </label>
+              <AdminSelect
+                label="Role"
+                value={role}
+                onChange={(value) => setRole(isCleanerRole(value) ? value : "cleaner")}
+                groups={[{ options: CLEANER_ROLES.map((value) => ({ value, label: CLEANER_ROLE_LABELS[value] })) }]}
+              />
               <input
                 id="new-cleaner-name"
                 type="text"
@@ -327,9 +370,10 @@ function Cleaners() {
                 disabled={!canCreate}
               >
                 <UserPlus size={16} />
-                <span>{creating ? "Creating…" : "Create cleaner"}</span>
+                <span>{creating ? "Creating…" : `Create ${CLEANER_ROLE_LABELS[role].toLowerCase()}`}</span>
               </button>
             </form>
+            <p className={styles.createNote}>A cleaner logs receipts; a handyman logs work done and its price. Both sign in at the same door with a four-digit code.</p>
 
             {/* ── Change a code ── */}
             {editor && (
@@ -406,8 +450,10 @@ function Cleaners() {
                   <thead>
                     <tr>
                       <th>Name</th>
+                      <th>Role</th>
                       <th>Code</th>
                       <th>Status</th>
+                      <th>Last 90 days</th>
                       <th>Created</th>
                       <th>Status changed</th>
                       <th>ID</th>
@@ -423,10 +469,16 @@ function Cleaners() {
                             <FieldText value={cleaner.name} />
                           </td>
                           <td>
+                            <RoleBadge role={cleaner.role} />
+                          </td>
+                          <td>
                             <CodeCell code={cleaner.code} />
                           </td>
                           <td>
                             <StatusBadge status={cleaner.status} />
+                          </td>
+                          <td className={styles.patternCell}>
+                            <Pattern cleaner={cleaner} state={patterns} />
                           </td>
                           <td className={styles.whenCell}>
                             <When iso={cleaner.createdAt} />
@@ -497,6 +549,39 @@ const STATUS_CLASS: Record<CleanerStatus, string> = {
   active: styles.badgeActive,
   deactivated: styles.badgeDeactivated,
 };
+
+/** A stored role (dispatch 24). One outside the two is shown as stored, marked as unexpected. */
+function RoleBadge({ role }: { role: string }) {
+  if (isCleanerRole(role)) {
+    return <span className={`${styles.badge} ${role === "handyman" ? styles.badgeHandyman : styles.badgeCleaner}`}>{CLEANER_ROLE_LABELS[role]}</span>;
+  }
+  return (
+    <span className={`${styles.badge} ${styles.badgeOdd}`} title="Not one of cleaner or handyman">
+      {role.trim() === "" ? "Empty" : role}
+    </span>
+  );
+}
+
+/** A cleaner's last 90 days in words; a handyman has no receipts to count; a failed read is said, never shown as nothing. */
+function Pattern({ cleaner, state }: { cleaner: CleanerSummary; state: PatternsState }) {
+  if (cleaner.role === "handyman") return <span className={styles.patternMuted}>Logs work, not receipts</span>;
+  if (state.kind === "loading") return <span className={styles.patternMuted}>…</span>;
+  if (state.kind === "error") {
+    return (
+      <span className={styles.patternWarn} title={state.title}>
+        Could not be read
+      </span>
+    );
+  }
+  const pattern = state.patterns.find((p) => p.cleanerId === cleaner.id);
+  if (!pattern) return <span className={styles.patternMuted}>No receipts in the last 90 days</span>;
+  return (
+    <span className={pattern.worthALook ? styles.patternWarn : undefined}>
+      {distributionText(pattern)}
+      {pattern.worthALook && ` · Worth a look: ${pattern.reasons.join("; ")}`}
+    </span>
+  );
+}
 
 /** A stored status. One outside the two is shown as stored, marked as unexpected. */
 function StatusBadge({ status }: { status: string | null }) {

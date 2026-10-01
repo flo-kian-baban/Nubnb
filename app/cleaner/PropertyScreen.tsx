@@ -20,6 +20,9 @@ interface PropertyScreenProps {
   selectedId: string | null;
   onChoose: (property: CleanerProperty) => void;
   onMyReceipts: () => void;
+  /** "My work" for a handyman (dispatch 24). */
+  listLabel?: string;
+  tag?: string;
 }
 
 /** How well a property matches the search: its name first, then its city. */
@@ -37,6 +40,8 @@ export function PropertyScreen({
   selectedId,
   onChoose,
   onMyReceipts,
+  listLabel = "My receipts",
+  tag,
 }: PropertyScreenProps) {
   const [query, setQuery] = useState("");
 
@@ -86,9 +91,10 @@ export function PropertyScreen({
   return (
     <>
       <CleanerBar
+        tag={tag}
         actions={
           <button type="button" className={styles.barButton} onClick={onMyReceipts}>
-            My receipts
+            {listLabel}
           </button>
         }
       />

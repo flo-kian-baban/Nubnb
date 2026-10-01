@@ -21,9 +21,11 @@ interface CleanerBarProps {
   title?: string;
   /** Buttons at the right, on the property screen. */
   actions?: ReactNode;
+  /** The tag beside the wordmark: "Receipts" for a cleaner, "Work" for a handyman (dispatch 24). */
+  tag?: string;
 }
 
-export function CleanerBar({ onBack, backDisabled, title, actions }: CleanerBarProps) {
+export function CleanerBar({ onBack, backDisabled, title, actions, tag = "Receipts" }: CleanerBarProps) {
   return (
     <header className={styles.bar}>
       <div className={styles.barInner}>
@@ -35,7 +37,7 @@ export function CleanerBar({ onBack, backDisabled, title, actions }: CleanerBarP
         ) : (
           <p className={styles.barBrand}>
             <span className={styles.barWordmark}>NUBNB</span>
-            <span className={styles.barTag}>Receipts</span>
+            <span className={styles.barTag}>{tag}</span>
           </p>
         )}
         {title ? <p className={styles.barTitle}>{title}</p> : actions ? <div className={styles.barActions}>{actions}</div> : null}

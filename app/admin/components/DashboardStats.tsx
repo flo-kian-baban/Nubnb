@@ -30,11 +30,15 @@
  * lead list and the cost list. Each pair of tiles shows its own read's
  * state, so a failed read is shown as a failure, never as 0.
  *
- * "To review" is the pending entries: the ones still waiting for a decision.
- * (The queue's default view is wider — everything not approved — because
- * rejected and removed entries stay there, marked.) The month is the Toronto
- * calendar month, by the day each entry was sent, and it adds up what the
- * ledger adds up: approved and pending entries, as `countsInTotals` says.
+ * "To review" is the pending entries plus, since dispatch 24, the receipts
+ * approved automatically that no admin has looked at: what the queue holds
+ * for an admin. (The queue's default view is wider still — rejected and
+ * removed entries stay there, marked.) Its detail line says how many were
+ * approved automatically, and names when a cleaner is worth a look
+ * (costs/patterns.ts), in the same words as the queue. The month is the
+ * Toronto calendar month, by the day each entry was sent, and it adds up
+ * what the ledger adds up: approved and pending entries, as
+ * `countsInTotals` says.
  */
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
@@ -48,8 +52,9 @@ import { rangeText, torontoDay } from "@/app/lib/availability/days";
 import { toAvailabilityProperty } from "@/app/lib/availability/property";
 import type { Property } from "@/app/types/property";
 import { mayBeUnnotified, type LeadSummary } from "@/app/lib/leads";
-import { ENTRY_TIME_ZONE, countsInTotals, dayIn, formatCents, type CostEntryView } from "@/app/lib/cleaners/model";
+import { ENTRY_TIME_ZONE, awaitingLook, countsInTotals, dayIn, formatCents, type CostEntryView } from "@/app/lib/cleaners/model";
 import { sentDay } from "@/app/lib/costs/report";
+import { watchList } from "@/app/lib/costs/patterns";
 import styles from "../page.module.css";
 
 type Read<T> = { kind: "loading" } | { kind: "ready"; data: T } | { kind: "error"; title: string };
@@ -82,8 +87,13 @@ function costFigures(entries: CostEntryView[]) {
   const today = dayIn(ENTRY_TIME_ZONE);
   const month = today.slice(0, 7);
   const thisMonth = entries.filter((entry) => countsInTotals(entry.status) && (sentDay(entry.createdAt) ?? "").startsWith(month));
+  const unseen = entries.filter(awaitingLook).length;
   return {
     pending: pending.length,
+    /** Approved automatically and not yet looked at (dispatch 24). */
+    unseen,
+    /** Cleaners the pattern rule names. */
+    worthALook: watchList(entries, today).filter((pattern) => pattern.worthALook).length,
     pendingCents: pending.reduce((sum, entry) => sum + centsOf(entry), 0),
     /** Pending entries whose lines cannot be read: their amount is not in `pendingCents`. */
     pendingUnreadable: pending.filter((entry) => entry.linesNow.kind !== "ok").length,
@@ -232,16 +242,22 @@ export function DashboardStats({ properties }: DashboardStatsProps) {
           <Tile
             href="/admin/costs"
             icon={<Receipt size={20} />}
-            value={costs.kind === "ready" ? costs.data.pending : "…"}
+            value={costs.kind === "ready" ? costs.data.pending + costs.data.unseen : "…"}
             label="Costs to review"
             detail={
               costs.kind === "ready"
-                ? costs.data.pending === 0
-                  ? "Nothing waiting"
-                  : `${formatCents(costs.data.pendingCents)} waiting${costs.data.pendingUnreadable > 0 ? `, ${plural(costs.data.pendingUnreadable, "entry", "entries")} unreadable` : ""}`
+                ? [
+                    costs.data.pending === 0
+                      ? null
+                      : `${plural(costs.data.pending, "entry", "entries")} pending, ${formatCents(costs.data.pendingCents)}${costs.data.pendingUnreadable > 0 ? `, ${plural(costs.data.pendingUnreadable, "entry", "entries")} unreadable` : ""}`,
+                    costs.data.unseen === 0 ? null : `${costs.data.unseen} approved automatically, not yet seen`,
+                    costs.data.worthALook === 0 ? null : `${plural(costs.data.worthALook, "cleaner", "cleaners")} worth a look`,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || "Nothing waiting"
                 : null
             }
-            tone={costs.kind === "ready" && costs.data.pending > 0 ? "accent" : undefined}
+            tone={costs.kind === "ready" && (costs.data.worthALook > 0 ? "alert" : costs.data.pending + costs.data.unseen > 0 ? "accent" : undefined) || undefined}
             busy={costs.kind === "loading"}
           />
           <Tile
@@ -252,8 +268,8 @@ export function DashboardStats({ properties }: DashboardStatsProps) {
             detail={
               costs.kind === "ready"
                 ? costs.data.monthPendingCents > 0
-                  ? `${plural(costs.data.monthEntries, "receipt", "receipts")} · ${formatCents(costs.data.monthPendingCents)} of it still to review`
-                  : plural(costs.data.monthEntries, "receipt", "receipts")
+                  ? `${plural(costs.data.monthEntries, "entry", "entries")} · ${formatCents(costs.data.monthPendingCents)} of it still to review`
+                  : plural(costs.data.monthEntries, "entry", "entries")
                 : null
             }
             busy={costs.kind === "loading"}

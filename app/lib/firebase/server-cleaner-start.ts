@@ -12,7 +12,9 @@
  * ── Item names ──
  * Names that differ only in capitals, accents or spacing are one name,
  * offered in the spelling used most, so that the same thing is picked rather
- * than typed a new way. The most used come first.
+ * than typed a new way. The most used come first. Drawn from receipt entries
+ * only (dispatch 24): a handyman's work description is never offered as an
+ * item.
  *
  * ── Reads ──
  * One per property (name and address only), one per entry of this cleaner's
@@ -72,6 +74,8 @@ function itemNames(entries: Record<string, unknown>[]): string[] {
   const byKey = new Map<string, { count: number; spellings: Map<string, number> }>();
   for (const entry of entries) {
     if (!Array.isArray(entry.lines)) continue;
+    // A work entry's line is a description of work, not an item (dispatch 24).
+    if (entry.kind === 'work') continue;
     for (const line of entry.lines) {
       const name = line && typeof line === 'object' ? (line as Record<string, unknown>).name : null;
       if (typeof name !== 'string') continue;
@@ -118,7 +122,7 @@ export async function readCleanerStart(cleanerId: string): Promise<Omit<CleanerS
     listCleanerFacingNames(),
     entries.where('cleanerId', '==', cleanerId).select('propertyId', 'createdAt').get(),
     // `createdAt` is on every entry, so ordering by it drops none of them.
-    entries.orderBy('createdAt', 'desc').limit(ITEM_SOURCE_ENTRIES).select('lines').get(),
+    entries.orderBy('createdAt', 'desc').limit(ITEM_SOURCE_ENTRIES).select('lines', 'kind').get(),
   ]);
 
   return {

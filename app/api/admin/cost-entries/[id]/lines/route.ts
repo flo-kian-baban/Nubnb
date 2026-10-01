@@ -16,6 +16,12 @@
  * on the status route: a changed entry is refused with 409, and a correction
  * that changes nothing writes nothing (`changed: false`). See changeEntryLine.
  *
+ * On a work entry (dispatch 24) the one line is the handyman's description
+ * and price: its name may run to 200 characters, and no line is added to
+ * it (422 ENTRY_WORK_ONE_LINE). A receipt line's name is held to 120 (422
+ * ENTRY_LINE_NAME_TOO_LONG); the schema here allows the longer of the two
+ * and changeEntryLine applies the entry's own limit.
+ *
  * Order: the admin session, then the cross-site and media-type refusals, then
  * the ID, the JSON and the schema, then the work. Every response is no-store,
  * the refusals included.
@@ -34,8 +40,8 @@ import {
 import { LIMITS } from '@/app/lib/cleaners/model';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import {
-  LineInputSchema,
   REVIEW_REFUSALS,
+  ReviewLineInputSchema,
   changeEntryLine,
 } from '@/app/lib/firebase/server-cost-entries';
 import { isDocumentId } from '@/app/lib/firebase/server-leads';
@@ -47,7 +53,7 @@ interface RouteContext {
 /** Strict: a body that carries anything else is refused, not trimmed. */
 const LineChangeSchema = z.strictObject({
   index: z.number().int().min(0).max(LIMITS.LINES_MAX_AFTER_REVIEW - 1).nullable(),
-  line: LineInputSchema,
+  line: ReviewLineInputSchema,
   seen: z.number().int().min(0).max(1_000_000),
 });
 

@@ -3,7 +3,9 @@
 /**
  * The one admin header (2026-09-30), the same on every admin page:
  *
- *   NUBNB  Admin   Properties · Leads · Costs · Cleaners · Availability   View Site ↗  [page action]
+ *   NUBNB  Admin   Properties · Leads · Costs · Team · Availability   View Site ↗  [page action]
+ *
+ * "Team" (dispatch 24) is the cleaners page, which now holds handymen too.
  *
  * Before this each page built its own: "Properties" was the title on one
  * page and a back link on the other three, "View Site" sat where a back
@@ -34,7 +36,7 @@ const SECTIONS: { key: AdminSection; label: string; href: string; Icon: typeof I
   { key: "properties", label: "Properties", href: "/admin", Icon: LayoutGrid },
   { key: "leads", label: "Leads", href: "/admin/leads", Icon: Inbox },
   { key: "costs", label: "Costs", href: "/admin/costs", Icon: Receipt },
-  { key: "cleaners", label: "Cleaners", href: "/admin/cleaners", Icon: Users },
+  { key: "cleaners", label: "Team", href: "/admin/cleaners", Icon: Users },
   // Dispatch 22 (2026-09-30): the search for a caller's dates, and the attention list.
   { key: "availability", label: "Availability", href: "/admin/availability", Icon: CalendarSearch },
 ];
