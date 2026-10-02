@@ -4,7 +4,8 @@
  * Team: the cleaners and handymen who can log costs, their codes, and
  * whether those codes work. Since dispatch 24 an account has a role — a
  * cleaner logs receipts, a handyman logs work — chosen when it is created
- * and shown in its row; both come from the one code index. Beside each
+ * (the header's "Add team member", NewMemberDialog.tsx) and shown in its
+ * row; both come from the one code index. Beside each
  * cleaner, their last 90 days of receipts in words (costs/patterns.ts), the
  * $150–200 band always named, read from the same cost list the costs page
  * reads. That second read failing shows as "could not be read", never as
@@ -31,9 +32,8 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AlertTriangle, KeyRound, RefreshCw, UserPlus, Users } from "lucide-react";
 import { AdminHeader } from "../components/AdminHeader";
-import { AdminSelect } from "../components/AdminSelect";
 import { PinGate } from "../components/PinGate";
-import { NoticeBanner, useNotice } from "../components/Notice";
+import { NoticeBanner, useNotice, type Notice } from "../components/Notice";
 import { fetchCosts } from "@/app/lib/costs-client";
 import { distributionText, watchList, type CleanerPattern } from "@/app/lib/costs/patterns";
 import { torontoDayOf } from "@/app/lib/costs/report";
@@ -46,18 +46,17 @@ import {
   type CodeRequest,
 } from "@/app/lib/cleaners-client";
 import {
-  CLEANER_ROLES,
   CLEANER_ROLE_LABELS,
   CLEANER_STATUS_LABELS,
   CODE_PATTERN,
-  LIMITS,
   isCleanerRole,
   isCleanerStatus,
   type CleanerRole,
   type CleanerStatus,
   type CleanerSummary,
 } from "@/app/lib/cleaners/model";
-import { Absent, FieldText, When } from "../leads/lead-display";
+import { Absent, FieldText } from "../leads/lead-display";
+import { NewMemberDialog } from "./NewMemberDialog";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
 
@@ -94,9 +93,12 @@ export default function CleanersPage() {
 function Cleaners() {
   const [list, setList] = useState<ListState>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
+  /** The new-member dialog: open, what is typed in it, and a refusal to show in it. */
+  const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
   const [role, setRole] = useState<CleanerRole>("cleaner");
   const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<Notice | null>(null);
   const [patterns, setPatterns] = useState<PatternsState>({ kind: "loading" });
   /** The name of a create whose outcome is unknown. */
   const [unconfirmed, setUnconfirmed] = useState<string | null>(null);
@@ -163,10 +165,25 @@ function Cleaners() {
   const busy = saving !== null;
   const canCreate = name !== "" && !creating;
 
+  const openAdding = () => {
+    clearNotice();
+    setDraft("");
+    setRole("cleaner");
+    setCreateError(null);
+    setAdding(true);
+  };
+
+  const closeAdding = () => {
+    setAdding(false);
+    setDraft("");
+    setCreateError(null);
+  };
+
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canCreate) return;
     clearNotice();
+    setCreateError(null);
     setUnconfirmed(null);
     setCreating(true);
     const result = await createCleaner(name, role);
@@ -174,21 +191,22 @@ function Cleaners() {
 
     if (result.ok) {
       const created = result.data.cleaner;
+      closeAdding();
       showNotice({
         tone: "success",
         title: `Created ${displayName(created.name ?? name)} as a ${CLEANER_ROLE_LABELS[role].toLowerCase()}.`,
         detail: created.code ? `Their code is ${created.code}.` : undefined,
       });
-      setDraft("");
       reload();
       return;
     }
     if (result.unknown) {
+      closeAdding();
       setUnconfirmed(name);
-      setDraft("");
       return;
     }
-    showNotice({ tone: "error", title: result.title, detail: describeFailure(result, "Nothing was created.") });
+    // A refusal stays in the dialog, with what was typed.
+    setCreateError({ tone: "error", title: result.title, detail: describeFailure(result, "Nothing was created.") });
   };
 
   const changeStatus = async (cleaner: CleanerSummary, target: CleanerStatus) => {
@@ -291,12 +309,19 @@ function Cleaners() {
 
   return (
     <div className={shared.container}>
-      {/* ── Header ── the shared one; this page's action is Refresh */}
+      {/* ── Header ── the shared one; Refresh, and Add once the list has loaded */}
       <AdminHeader current="cleaners">
         <button type="button" className={shared.btnGhost} onClick={reload} disabled={list.kind === "loading"}>
           <RefreshCw size={15} aria-hidden />
           <span>Refresh</span>
         </button>
+        {/* Never offered before the list has loaded: the person may already exist. */}
+        {list.kind === "ready" && (
+          <button type="button" className={shared.btnPrimary} onClick={openAdding}>
+            <UserPlus size={16} aria-hidden />
+            <span>Add team member</span>
+          </button>
+        )}
       </AdminHeader>
 
       <main className={shared.main}>
@@ -341,40 +366,6 @@ function Cleaners() {
           </div>
         ) : (
           <>
-            {/* ── Create ── */}
-            <form className={styles.createRow} onSubmit={submit}>
-              <label htmlFor="new-cleaner-name" className={styles.createLabel}>
-                New account
-              </label>
-              <AdminSelect
-                label="Role"
-                value={role}
-                onChange={(value) => setRole(isCleanerRole(value) ? value : "cleaner")}
-                groups={[{ options: CLEANER_ROLES.map((value) => ({ value, label: CLEANER_ROLE_LABELS[value] })) }]}
-              />
-              <input
-                id="new-cleaner-name"
-                type="text"
-                className={styles.createInput}
-                placeholder="Name"
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                maxLength={LIMITS.NAME_MAX}
-                autoComplete="off"
-                spellCheck={false}
-                disabled={creating}
-              />
-              <button
-                type="submit"
-                className={`${shared.btnPrimary} ${styles.createBtn}`}
-                disabled={!canCreate}
-              >
-                <UserPlus size={16} />
-                <span>{creating ? "Creating…" : `Create ${CLEANER_ROLE_LABELS[role].toLowerCase()}`}</span>
-              </button>
-            </form>
-            <p className={styles.createNote}>A cleaner logs receipts; a handyman logs work done and its price. Both sign in at the same door with a four-digit code.</p>
-
             {/* ── Change a code ── */}
             {editor && (
               <form
@@ -441,8 +432,11 @@ function Cleaners() {
             {list.cleaners.length === 0 ? (
               <div className={shared.empty}>
                 <Users size={48} strokeWidth={1} />
-                <h2>No cleaners yet</h2>
-                <p>Create one above.</p>
+                <h2>No team members yet</h2>
+                <button type="button" className={shared.btnPrimary} onClick={openAdding}>
+                  <UserPlus size={16} aria-hidden />
+                  <span>Add team member</span>
+                </button>
               </div>
             ) : (
               <div className={`${shared.tableContainer} ${styles.tableScroll}`}>
@@ -454,8 +448,6 @@ function Cleaners() {
                       <th>Code</th>
                       <th>Status</th>
                       <th>Last 90 days</th>
-                      <th>Created</th>
-                      <th>Status changed</th>
                       <th>ID</th>
                       <th className={shared.actionsHeader}>Actions</th>
                     </tr>
@@ -479,12 +471,6 @@ function Cleaners() {
                           </td>
                           <td className={styles.patternCell}>
                             <Pattern cleaner={cleaner} state={patterns} />
-                          </td>
-                          <td className={styles.whenCell}>
-                            <When iso={cleaner.createdAt} />
-                          </td>
-                          <td className={styles.whenCell}>
-                            <When iso={cleaner.statusChangedAt} />
                           </td>
                           <td>
                             <span className={styles.mono}>{cleaner.id}</span>
@@ -524,6 +510,19 @@ function Cleaners() {
           </>
         )}
       </main>
+
+      {adding && (
+        <NewMemberDialog
+          name={draft}
+          role={role}
+          creating={creating}
+          error={createError}
+          onName={setDraft}
+          onRole={setRole}
+          onSubmit={submit}
+          onClose={closeAdding}
+        />
+      )}
     </div>
   );
 }

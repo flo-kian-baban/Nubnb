@@ -26,11 +26,11 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { FileSpreadsheet, FileText, Receipt } from "lucide-react";
+import { FileSpreadsheet, FileText } from "lucide-react";
 import type { Notice } from "../components/Notice";
 import { recordPdfExport } from "@/app/lib/costs-client";
 import { formatCents, type CostEntryView, type ReportExportView } from "@/app/lib/cleaners/model";
-import { buildReport, cleanerLabel, entryPdfState, periodLabel, readPdfRecords, reportFileName, sentDay, shortDay, whatWasBoughtText, type EntryPdfState } from "@/app/lib/costs/report";
+import { buildReport, cleanerLabel, entryPdfState, periodLabel, readPdfRecords, reportFileName, sentDay, shortDay, type EntryPdfState } from "@/app/lib/costs/report";
 import { watchList } from "@/app/lib/costs/patterns";
 import { pdfFor } from "@/app/lib/costs/pdf";
 import { workbookFor } from "@/app/lib/costs/xlsx";
@@ -177,11 +177,11 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
           {unreadable > 0 && <span className={styles.noteWarn}> · {unreadable} cannot be added up</span>}
         </span>
         <span className={styles.blockActions}>
-          <button type="button" className={`${styles.btnGhost} ${styles.btnSmall}`} disabled={recording} onClick={() => exportReport("xlsx")} title={`Approved entries of ${monthLabel(month)}, as a workbook`}>
+          <button type="button" className={styles.btnGhost} disabled={recording} onClick={() => exportReport("xlsx")} title={`Approved entries of ${monthLabel(month)}, as a workbook`}>
             <FileSpreadsheet size={14} aria-hidden />
             <span>Excel</span>
           </button>
-          <button type="button" className={`${styles.btnGhost} ${styles.btnSmall}`} disabled={recording} onClick={() => exportReport("pdf")} title={`For the owner: approved entries of ${monthLabel(month)}, no names. Recorded, so a later correction shows against it.`}>
+          <button type="button" className={styles.btnGhost} disabled={recording} onClick={() => exportReport("pdf")} title={`For the owner: approved entries of ${monthLabel(month)}, no names. Recorded, so a later correction shows against it.`}>
             <FileText size={14} aria-hidden />
             <span>{recording ? "Recording…" : "PDF"}</span>
           </button>
@@ -198,18 +198,12 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
         </p>
       )}
 
-      {approved.length === 0 && alsoCarried.length === 0 ? (
-        <p className={styles.note}>
-          <Receipt size={14} aria-hidden style={{ verticalAlign: "-2px", marginRight: 6 }} />
-          Receipts cleaners send, handymen’s work and costs logged here appear once approved.
-        </p>
-      ) : (
+      {approved.length === 0 && alsoCarried.length === 0 ? null : (
         <table className={styles.costTable}>
           <thead>
             <tr>
-              <th>Sent</th>
+              <th className={styles.costWhen}>Submitted</th>
               <th>Logged by</th>
-              <th>What</th>
               <th className={styles.num}>Total</th>
             </tr>
           </thead>
@@ -221,7 +215,8 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
               const wasPrinted = printed?.get(entry.id);
               return (
                 <tr key={entry.id} className={styles.costRow} onClick={() => onOpenEntry(entry.id)}>
-                  <td>
+                  {/* The cost is named by the day it was submitted (Kian, 2026-10-01): what was bought is in the entry it opens. */}
+                  <td className={styles.costWhen}>
                     <button
                       type="button"
                       className={styles.rowButton}
@@ -237,7 +232,6 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
                     {cleanerLabel(entry)}
                     <KindBadge kind={entry.kind} />
                   </td>
-                  <td className={styles.costWhat}>{now.kind === "ok" ? whatWasBoughtText(now.lines) || "—" : <span className={styles.noteWarn} title={now.reason}>Cannot add up</span>}</td>
                   <td className={styles.num}>
                     {now.kind === "ok" ? (
                       <>
@@ -257,7 +251,9 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
                         )}
                       </>
                     ) : (
-                      <span className={styles.muted}>—</span>
+                      <span className={styles.noteWarn} title={now.reason}>
+                        Cannot add up
+                      </span>
                     )}
                   </td>
                 </tr>
@@ -265,12 +261,12 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
             })}
             {alsoCarried.length > 0 && (
               <tr className={styles.costGroup}>
-                <td colSpan={4}>Also in this statement</td>
+                <td colSpan={3}>Also in this statement</td>
               </tr>
             )}
             {alsoCarried.map((row) => (
               <tr key={row.key} className={row.entryId ? styles.costRow : undefined} onClick={row.entryId ? () => onOpenEntry(row.entryId) : undefined}>
-                <td colSpan={3} className={styles.costWhat}>
+                <td colSpan={2} className={styles.costWhat}>
                   {row.description}
                 </td>
                 <td className={styles.num}>{formatCents(row.amountCents)}</td>
@@ -280,7 +276,7 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
         </table>
       )}
 
-      <p className={styles.note} style={{ marginTop: 12 }}>
+      <p className={`${styles.note} ${styles.costsFoot}`}>
         <Link href={`/admin/costs?property=${encodeURIComponent(propertyId)}&status=approved`} prefetch={false} className={styles.linkButton}>
           Ledger: all dates, Excel and PDF
         </Link>

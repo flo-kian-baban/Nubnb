@@ -1,24 +1,31 @@
-/* DateRangeField: the field, and the calendar under it. Tokens from the admin container. */
+/* DateRangeField: the field, and the calendar under it. Tokens from the admin container; a place that wants a
+   smaller field sets --ctl-h, --ctl-radius, --ctl-pad-l, --ctl-pad-r, --ctl-gap and --ctl-font around it. */
+/* Never wider than the box it is placed in: a range longer than the room it is given ends in an ellipsis
+   (the whole range is the trigger's title and its label) instead of spilling over what sits beside it. */
 .root {
   position: relative;
   display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .trigger {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ctl-gap, 8px);
   height: var(--ctl-h, 40px);
-  padding: 0 12px 0 14px;
+  padding: 0 var(--ctl-pad-r, 12px) 0 var(--ctl-pad-l, 14px);
   background: var(--ctl-bg, rgba(255, 255, 255, 0.04));
   border: 1px solid var(--ctl-border, rgba(255, 255, 255, 0.09));
   border-radius: var(--ctl-radius, 12px);
   color: var(--ctl-fg, rgba(255, 255, 255, 0.85));
   font: inherit;
-  font-size: 13px;
+  font-size: var(--ctl-font, 13px);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  width: 100%;
+  min-width: 0;
   cursor: pointer;
   transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
 }
@@ -34,10 +41,19 @@
   box-shadow: var(--ctl-ring, 0 0 0 3px rgba(101, 153, 205, 0.18));
 }
 
+.value {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
 .icon {
+  flex-shrink: 0;
   color: rgba(255, 255, 255, 0.4);
 }
 .chevron {
+  flex-shrink: 0;
   color: rgba(255, 255, 255, 0.4);
   transition: transform 0.2s ease;
 }

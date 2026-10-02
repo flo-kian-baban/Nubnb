@@ -17,7 +17,7 @@ import type { Notice } from "../components/Notice";
 import { createOfficeEntry } from "@/app/lib/costs-client";
 import { LIMITS, formatCents, type CostEntryView } from "@/app/lib/cleaners/model";
 import { readAmount } from "../costs/cost-display";
-import styles from "../costs/page.module.css";
+import styles from "./page.module.css";
 
 interface Props {
   propertyId: string;
@@ -76,7 +76,7 @@ export function AddCostForm({ propertyId, propertyName, onAdded, show }: Props) 
 
   if (!open) {
     return (
-      <button type="button" className={styles.btnApprove} onClick={() => setOpen(true)}>
+      <button type="button" className={styles.btnPrimary} onClick={() => setOpen(true)}>
         <Plus size={15} aria-hidden />
         <span>Log a cost</span>
       </button>
@@ -84,10 +84,10 @@ export function AddCostForm({ propertyId, propertyName, onAdded, show }: Props) 
   }
 
   return (
-    <form className={`${styles.inlineForm} ${styles.addCost}`} onSubmit={submit} aria-label="Log a cost">
-      <p className={styles.editorTitle}>Log a cost · {propertyName}</p>
-      <div className={styles.editorGrid}>
-        <label className={styles.editorField}>
+    <form className={styles.form} onSubmit={submit} aria-label="Log a cost">
+      <p className={styles.formTitle}>Log a cost · {propertyName}</p>
+      <div className={styles.formGrid}>
+        <label>
           <span className={styles.fieldLabel}>Description</span>
           <input
             className={styles.textInput}
@@ -99,17 +99,17 @@ export function AddCostForm({ propertyId, propertyName, onAdded, show }: Props) 
             autoFocus
           />
         </label>
-        <label className={styles.editorField}>
+        <label>
           <span className={styles.fieldLabel}>Amount ($)</span>
           <input className={styles.textInput} inputMode="decimal" placeholder="185.00" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={saving} />
         </label>
-        <label className={styles.editorField}>
+        <label>
           <span className={styles.fieldLabel}>Tax ($, optional)</span>
           <input className={styles.textInput} inputMode="decimal" placeholder="none" value={tax} onChange={(e) => setTax(e.target.value)} disabled={saving} />
         </label>
       </div>
-      <div className={styles.formRow}>
-        <button type="submit" className={styles.btnApprove} disabled={saving}>
+      <div className={styles.formActions}>
+        <button type="submit" className={styles.btnPrimary} disabled={saving}>
           {saving ? "Logging…" : "Log and approve"}
         </button>
         <button type="button" className={styles.btnGhost} disabled={saving} onClick={close}>

@@ -54,7 +54,7 @@ export function EntryStatusBadge({ status, auto = false }: { status: string | nu
  * or a cost added by the office (dispatch 23D); a stored kind outside the
  * three shown as stored, marked.
  */
-export function KindBadge({ kind }: { kind: string }) {
+export function KindBadge({ kind, compact = false }: { kind: string; compact?: boolean }) {
   if (kind === "receipt") return null;
   if (kind === "work") {
     return (
@@ -64,9 +64,10 @@ export function KindBadge({ kind }: { kind: string }) {
     );
   }
   if (kind === "office") {
+    // In a table row, one word: the tooltip says the rest.
     return (
       <span className={`${styles.badge} ${styles.badgeOffice}`} title="Added by the office: a description and an amount, no receipt, approved on entry">
-        <Building2 size={11} aria-hidden /> Added by the office
+        <Building2 size={11} aria-hidden /> {compact ? "Office" : "Added by the office"}
       </span>
     );
   }

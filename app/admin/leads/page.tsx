@@ -172,50 +172,52 @@ function LeadInbox() {
           <>
             {/* ── Search & Filters ── */}
             <section className={shared.toolbar}>
-              <div className={shared.searchWrapper}>
-                <Search size={16} className={shared.searchIcon} />
-                <input
-                  type="search"
-                  className={shared.searchInput}
-                  placeholder="Search by name, email or property…"
-                  aria-label="Search leads by name, email or property"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                />
-              </div>
+              <div className={shared.toolbarRow}>
+                <div className={shared.searchWrapper}>
+                  <Search size={16} className={shared.searchIcon} />
+                  <input
+                    type="search"
+                    className={shared.searchInput}
+                    placeholder="Search by name, email or property…"
+                    aria-label="Search leads by name, email or property"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                  />
+                </div>
 
-              <div className={shared.filterGroup}>
-                <AdminSelect
-                  label="Filter by status"
-                  icon={<SlidersHorizontal size={14} />}
-                  value={statusFilter}
-                  onChange={(value) => setStatusFilter(value as LeadStatus | "all")}
-                  groups={[
-                    {
-                      options: [
-                        { value: "all", label: "All statuses" },
-                        ...LEAD_STATUSES.map((s) => ({ value: s, label: `${LEAD_STATUS_LABELS[s]} (${statusCounts.get(s) ?? 0})` })),
-                      ],
-                    },
-                  ]}
-                />
-                <AdminSelect
-                  label="Filter by source"
-                  value={sourceFilter}
-                  onChange={(value) => setSourceFilter(value as LeadSource | "all")}
-                  groups={[
-                    {
-                      options: [
-                        { value: "all", label: "All sources" },
-                        ...LEAD_SOURCES.map((s) => ({ value: s, label: `${LEAD_SOURCE_LABELS[s]} (${sourceCounts.get(s) ?? 0})` })),
-                      ],
-                    },
-                  ]}
-                />
+                <div className={shared.filterGroup}>
+                  <AdminSelect
+                    label="Filter by status"
+                    icon={<SlidersHorizontal size={14} />}
+                    value={statusFilter}
+                    onChange={(value) => setStatusFilter(value as LeadStatus | "all")}
+                    groups={[
+                      {
+                        options: [
+                          { value: "all", label: "All statuses" },
+                          ...LEAD_STATUSES.map((s) => ({ value: s, label: `${LEAD_STATUS_LABELS[s]} (${statusCounts.get(s) ?? 0})` })),
+                        ],
+                      },
+                    ]}
+                  />
+                  <AdminSelect
+                    label="Filter by source"
+                    value={sourceFilter}
+                    onChange={(value) => setSourceFilter(value as LeadSource | "all")}
+                    groups={[
+                      {
+                        options: [
+                          { value: "all", label: "All sources" },
+                          ...LEAD_SOURCES.map((s) => ({ value: s, label: `${LEAD_SOURCE_LABELS[s]} (${sourceCounts.get(s) ?? 0})` })),
+                        ],
+                      },
+                    ]}
+                  />
 
-                <span className={shared.resultCount}>
-                  {visible.length} of {leads.length}
-                </span>
+                  <span className={shared.resultCount}>
+                    {visible.length} of {leads.length}
+                  </span>
+                </div>
               </div>
             </section>
 

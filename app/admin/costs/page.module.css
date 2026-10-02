@@ -128,8 +128,9 @@
 }
 
 /* ── Totals ── */
+/* At the bottom of the page, under the entries (2026-10-02). */
 .totals {
-  margin-bottom: 20px;
+  margin-top: 24px;
   padding: 18px 20px;
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.02);
@@ -232,13 +233,73 @@
 /* ── Layout: list beside the open entry ── */
 .layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(380px, 500px);
+  grid-template-columns: minmax(0, 1fr) minmax(380px, 440px);
   gap: 20px;
   align-items: start;
 }
 
 .listPane {
   min-width: 0;
+}
+
+/* No entry open: the list has the whole width (2026-10-02). */
+.layoutWide {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* ── The entry table (2026-10-02): one line per entry ──
+   Every column is as wide as its widest entry; the property (or, for one
+   property, who logged it) takes what is left and is cut to it, its whole
+   name on hover. The cells' 20 px either side put 40 px between columns. */
+.entryTable th.colFit,
+.entryTable td.colFit {
+  width: 1%;
+  white-space: nowrap;
+}
+.entryTable td.colFlex {
+  max-width: 0;
+  width: 100%;
+}
+.entryTable .colCenter {
+  text-align: center !important;
+}
+.textCell {
+  font-size: 13.5px;
+  color: rgba(255, 255, 255, 0.85);
+}
+.oneLine {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.who {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.who .oneLine {
+  flex: 0 1 auto;
+}
+/* An entry open beside the list: the table tightens to keep one line per entry without scrolling sideways —
+   closer columns, a long name cut like the property, and neither the Receipt column nor the kind badge (the
+   pane shows both for the open entry). */
+.layoutOpen .entryTable th,
+.layoutOpen .entryTable td {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+.layoutOpen .entryTable .colReceipt,
+.layoutOpen .kindSlot {
+  display: none;
+}
+.kindSlot {
+  display: inline-flex;
+  flex: none;
+}
+.layoutOpen .who {
+  max-width: 140px;
 }
 
 .detailPane {
@@ -1060,11 +1121,6 @@
   background: rgba(110, 231, 160, 0.1);
   color: #8fe3b4;
   border-color: rgba(110, 231, 160, 0.3);
-}
-/* The log-a-cost form on the property's page (app/admin/property/AddCostForm.tsx), which draws from this file. */
-.addCost {
-  flex-basis: 100%;
-  margin: 4px 0 6px;
 }
 /* The ledger's totals: one line, the exports beside it. */
 .summaryRow {

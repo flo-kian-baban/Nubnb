@@ -3,8 +3,12 @@
 /**
  * The Finish tab (dispatch 23F): the reference and the date the statement
  * prints, the state of the draft, Finish and issue, and — once finished —
- * Download PDF and "Correct this statement…", with every earlier version of
- * the month's statement listed under it, each with its PDF.
+ * Download PDF, "Correct this statement…" and "Delete statement…" (Kian's
+ * ruling of 2026-10-02, dispatch 23G), with every earlier version of the
+ * month's statement listed under it, each with its PDF. Last, the release
+ * status (Kian, 2026-10-01): the four months before the current one, it,
+ * and the two after, each with its standing in the cycle (`monthStanding`,
+ * dispatch 23G); a month that has begun opens on a click.
  *
  * Finish sends the page's claim; the server rebuilds the statement and
  * refuses unless that is what is stored (dispatch 23B). After finishing the
@@ -15,11 +19,23 @@
 import { Download } from "lucide-react";
 import { formatCents } from "@/app/lib/cleaners/model";
 import { STATEMENT_LIMITS, addMonths, displayRef, isDayText, monthLabel, type MonthlyReportView } from "@/app/lib/reports/model";
-import type { MonthlyReportSummaryLike } from "@/app/lib/reports/statement";
+import type { MonthlyReportSummaryLike, Standing, StatementState } from "@/app/lib/reports/statement";
+import { StandingBadge } from "../components/StatementStatus";
 import { SentAt, whenText } from "../costs/cost-display";
 import type { Typed } from "./statement-form";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
+
+/** One month of the release status: what is stored for it, its standing, its current statement, whether it has begun. */
+export interface ReleaseRow {
+  month: string;
+  state: StatementState;
+  standing: Standing;
+  /** The month's current finished statement, if any. */
+  live: MonthlyReportSummaryLike | null;
+  /** After the current month: nothing can be written for it yet. */
+  upcoming: boolean;
+}
 
 export type SaveState = { kind: "saved"; at: string } | { kind: "saving" } | { kind: "unsaved" } | { kind: "failed"; reason: string } | { kind: "none" };
 
@@ -44,14 +60,18 @@ interface Props {
   finishing: boolean;
   onFinish: () => void;
   onCorrect: () => void;
+  deleting: boolean;
+  onDelete: () => void;
   linking: string | null;
   onDownload: (reportId: string) => void;
   verified: { ok: boolean; stored: string; computed: string } | null;
   /** How many download links were made for a report, and the last. */
   downloadsOf: (reportId: string) => { count: number; last: string | null };
+  releases: ReleaseRow[];
+  onMonth: (month: string) => void;
 }
 
-export function FinishTab({ month, monthOpen, typed, readOnly, onChange, finishedReport, versions, supersedes, save, reportForState, payableCents, buildable, finishing, onFinish, onCorrect, linking, onDownload, verified, downloadsOf }: Props) {
+export function FinishTab({ month, monthOpen, typed, readOnly, onChange, finishedReport, versions, supersedes, save, reportForState, payableCents, buildable, finishing, onFinish, onCorrect, deleting, onDelete, linking, onDownload, verified, downloadsOf, releases, onMonth }: Props) {
   const legacyView = readOnly && finishedReport?.legacy === true;
   const stateLine =
     readOnly && finishedReport ? (
@@ -123,8 +143,11 @@ export function FinishTab({ month, monthOpen, typed, readOnly, onChange, finishe
                 <Download size={14} aria-hidden />
                 <span>{linking === finishedReport.id ? "Opening…" : "Download PDF"}</span>
               </button>
-              <button type="button" className={styles.btnGhost} onClick={onCorrect} disabled={finishing}>
+              <button type="button" className={styles.btnGhost} onClick={onCorrect} disabled={finishing || deleting}>
                 Correct this statement…
+              </button>
+              <button type="button" className={`${styles.btnGhost} ${styles.btnDanger}`} onClick={onDelete} disabled={finishing || deleting}>
+                {deleting ? "Deleting…" : "Delete statement…"}
               </button>
               {verified && (
                 <span className={verified.ok ? styles.verified : styles.noteWarn} title={`stored ${verified.stored}\ncomputed ${verified.computed}`}>
@@ -137,7 +160,7 @@ export function FinishTab({ month, monthOpen, typed, readOnly, onChange, finishe
               <button type="button" className={styles.btnPrimary} onClick={onFinish} disabled={finishing || !buildable}>
                 {finishing ? "Finishing…" : "Finish and issue…"}
               </button>
-              <span className={styles.note}>{payableCents !== null ? `Your Revenue Share ${formatCents(payableCents)}.` : ""} A finished statement is never edited.</span>
+              {payableCents !== null && <span className={styles.note}>Your Revenue Share {formatCents(payableCents)}</span>}
             </>
           )}
         </div>
@@ -175,6 +198,48 @@ export function FinishTab({ month, monthOpen, typed, readOnly, onChange, finishe
           </ul>
         </section>
       )}
+
+      {/* ── Release status: the four months before the current one, it, and the two after ── */}
+      <section className={styles.block} aria-label="Release status">
+        <div className={styles.blockHead}>
+          <h3 className={styles.blockTitle}>Release status</h3>
+        </div>
+        <ul className={styles.releaseList}>
+          {releases.map((row) => {
+            const here = row.month === month;
+            return (
+              <li key={row.month} className={`${styles.releaseRow} ${here ? styles.releaseRowHere : ""}`} aria-current={here ? "true" : undefined}>
+                <span className={styles.releaseMonth}>
+                  {here || row.upcoming ? (
+                    <span className={here ? styles.releaseMonthHere : styles.releaseMonthUpcoming}>{monthLabel(row.month)}</span>
+                  ) : (
+                    <button type="button" className={styles.linkButton} onClick={() => onMonth(row.month)}>
+                      {monthLabel(row.month)}
+                    </button>
+                  )}
+                </span>
+                <span className={styles.releaseBadge}>
+                  {/* A month not begun is "Upcoming"; every other month says its standing, the property list's words. */}
+                  {row.upcoming && row.standing !== "finished" ? <StandingBadge standing="open" label="Upcoming" /> : <StandingBadge standing={row.standing} />}
+                </span>
+                <span className={styles.releaseDetail}>
+                  {row.live && (
+                    <>
+                      <span className={styles.mono}>{displayRef(row.live)}</span> · finished <SentAt iso={row.live.finishedAt} />
+                    </>
+                  )}
+                  {row.state.kind === "draft" && (
+                    <>
+                      {row.live ? " · " : ""}
+                      {row.state.superseding ? "correction in progress" : "draft"}, saved <SentAt iso={row.state.savedAt} />
+                    </>
+                  )}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      </section>
     </>
   );
 }

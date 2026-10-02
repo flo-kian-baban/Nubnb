@@ -48,7 +48,6 @@ import { AdminSelect } from "../components/AdminSelect";
 import { DateRangeField } from "../components/DateRangeField";
 import { PinGate } from "../components/PinGate";
 import { NoticeBanner, useNotice } from "../components/Notice";
-import { ageText } from "../components/DashboardStats";
 import { getPropertiesResult } from "@/app/lib/firebase/properties";
 import { fetchAvailability, refreshAvailability, type AvailabilityData } from "@/app/lib/availability-client";
 import { toAvailabilityProperty } from "@/app/lib/availability/property";
@@ -81,6 +80,16 @@ const dollars = (n: number) => `$${Math.round(n).toLocaleString("en-CA")}`;
 const plural = (n: number, one: string, many: string) => (n === 1 ? `1 ${one}` : `${n} ${many}`);
 
 /** "Tue 14:00", in Toronto time. */
+/** "just now", "23 min ago", "3 h 10 min ago". (On the admin home until its availability tiles went, 2026-10-02.) */
+function ageText(minutes: number): string {
+  if (!Number.isFinite(minutes)) return "an unknown time";
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return `${hours} h${rest ? ` ${rest} min` : ""} ago`;
+}
+
 const clockText = (iso: string) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "America/Toronto", weekday: "short", hour: "numeric", minute: "2-digit" }).format(new Date(iso));
 

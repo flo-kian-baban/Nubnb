@@ -9,9 +9,11 @@
  * a later sending decision; nothing sends), the month statements start
  * from, optionally the month they stop, the default fee rate a new
  * statement starts from, and the default fee amount of dispatch 23B, read
- * and kept, no longer used. A property without a record expects statements
- * from STATEMENTS_FROM_DEFAULT, prints no "Report For" block, and has no
- * default rate.
+ * and kept, no longer used. A property without a record owes a statement
+ * for every closed month from STATEMENTS_FROM_DEFAULT (Kian's ruling of
+ * 2026-10-02: a record only narrows that), prints no "Report For" block, and
+ * has no default rate. A record that `setReportFor` creates starts at that
+ * same month, so saving Report For narrows nothing.
  */
 
 import { z } from 'zod';

@@ -36,7 +36,9 @@ import {
   addMonths,
   currentReports,
   feeComputed,
+  inStatementScope,
   isClosedMonth,
+  lastClosedMonth,
   monthLabel,
   monthOfDay,
   monthRange,
@@ -483,27 +485,136 @@ export function feeRateSuggestion(previous: MonthlyReportView | null, management
   return previous?.fee?.rateBasisPoints ?? management?.defaultFeeRateBasisPoints ?? null;
 }
 
+// ─── Nubnb's reporting cycle ───────────────────────────────────
+//
+// Kian's ruling of 2026-10-02 (dispatch 23G): admins write the previous
+// month's statements between the 1st and the 10th of the current month. A
+// property's status is read from the previous month — what is due now:
+// finished is done; not finished is a warning, from the 1st to the 10th and
+// unchanged after the 10th; any month two or more months back with no
+// finished statement is a problem, which outranks the warning. The current
+// month is never counted: it is not due.
+//
+// This is the only place that rule is written. The property list's column,
+// the property page's head and month control, the Finish tab's release
+// status, the home panel and the Statements tile all read `monthStanding`
+// or `reportingStatus` and print `STANDING_LABELS`; none decides for itself.
+//
+// A month is owed when it is in the property's statement months: every
+// closed month by default, from STATEMENTS_FROM_DEFAULT, narrowed only by the
+// property's management record — its start month excludes earlier ones, its
+// end month later ones (Kian's ruling of 2026-10-02). A draft does not make a
+// month owed. It is finished when it has a current finished statement — one
+// no other statement replaces; a correction in progress beside it does not
+// unfinish it, and a draft is not a statement.
+
+/** Where one property-month stands in the cycle. */
+export type Standing =
+  /** It has a current finished statement. */
+  | 'finished'
+  /** The previous month, owed and not finished: a warning, whatever the day of the month. */
+  | 'due'
+  /** Two or more months back, owed and not finished: a problem. */
+  | 'pastDue'
+  /** The current month or a later one: never counted. */
+  | 'open'
+  /** Outside the property's statement months, and not finished. */
+  | 'notExpected';
+
+/** The words for each standing, the same everywhere a statement's status is shown. */
+export const STANDING_LABELS: Record<Standing, string> = {
+  finished: 'Finished',
+  due: 'Due',
+  pastDue: 'Past due',
+  open: 'Open, not yet due',
+  notExpected: 'No statement expected',
+};
+
+/** The rule, for one property-month. `today` is yyyy-mm-dd in Toronto; `owed`: the month is in the property's statement months. */
+export function monthStanding(input: { month: string; today: string; owed: boolean; finished: boolean }): Standing {
+  if (input.finished) return 'finished';
+  if (!input.owed) return 'notExpected';
+  const previous = lastClosedMonth(input.today);
+  if (input.month > previous) return 'open';
+  return input.month === previous ? 'due' : 'pastDue';
+}
+
+/** A property's status: done, a warning, a problem, or nothing due yet. */
+export type ReportingTone = 'done' | 'warning' | 'problem' | 'none';
+
+export interface ReportingStatus {
+  tone: ReportingTone;
+  /** The standing of `month`, whose label is the status's words. */
+  standing: Standing;
+  /**
+   * The month in question, where the list's column leads: the oldest
+   * past-due month for a problem; the previous month for a warning or done
+   * (the last month of the property's statements, when they ended before
+   * it); the first month a statement will be due when none is yet.
+   */
+  month: string;
+  /** Every month two or more back that is owed and not finished, oldest first. */
+  pastDue: string[];
+  /** The previous month and its standing. */
+  previous: { month: string; standing: Standing };
+}
+
+export interface ReportingInputs {
+  propertyId: string;
+  /** Today, yyyy-mm-dd in Toronto. */
+  today: string;
+  management: PropertyManagementView | null;
+  /** Finished reports — of this property or of every property; only this property's are read. */
+  reports: { id: string; propertyId: string; month: string; supersedes: Supersedes | null }[];
+}
+
+const TONE_OF: Record<Standing, ReportingTone> = { finished: 'done', due: 'warning', pastDue: 'problem', open: 'none', notExpected: 'none' };
+
+/** The rule, for one property: the worst of its months up to the previous one. */
+export function reportingStatus(input: ReportingInputs): ReportingStatus {
+  const { from, until } = statementMonths(input.management);
+  const previous = lastClosedMonth(input.today);
+  const finished = new Set(currentReports(input.reports.filter((report) => report.propertyId === input.propertyId)).map((report) => report.month));
+  const standingOf = (month: string) => monthStanding({ month, today: input.today, owed: inStatementScope(input.management, month), finished: finished.has(month) });
+  const last = until !== null && until < previous ? until : previous;
+  const pastDue = monthsBetween(from, last).filter((month) => standingOf(month) === 'pastDue');
+  const before = { month: previous, standing: standingOf(previous) };
+  const at = (month: string, standing: Standing): ReportingStatus => ({ tone: TONE_OF[standing], standing, month, pastDue, previous: before });
+  if (pastDue.length > 0) return at(pastDue[0], 'pastDue');
+  if (before.standing === 'due' || before.standing === 'finished') return at(previous, before.standing);
+  // The previous month is not owed: the record ends the statements before it (every one finished, or a month would be past due), or starts them later.
+  if (until !== null && until < previous && from <= until) return at(until, 'finished');
+  const first = from > monthOfDay(input.today) ? from : monthOfDay(input.today);
+  return at(first, standingOf(first));
+}
+
+/** Every property's status, by property ID, from the tracker's one read (the list, the panel and the tile share it). */
+export function reportingStatuses(input: { today: string; properties: { id: string }[]; management: PropertyManagementView[]; reports: ReportingInputs['reports'] }): Map<string, ReportingStatus> {
+  const records = new Map(input.management.map((record) => [record.propertyId, record]));
+  return new Map(input.properties.map((property) => [property.id, reportingStatus({ propertyId: property.id, today: input.today, management: records.get(property.id) ?? null, reports: input.reports })]));
+}
+
+/** What the Statements tile counts, over every property's status: statements past due, the previous month's due and finished. */
+export function reportingCounts(statuses: ReportingStatus[]): { pastDue: number; pastDueProperties: number; due: number; finished: number; owed: number } {
+  return {
+    pastDue: statuses.reduce((sum, status) => sum + status.pastDue.length, 0),
+    pastDueProperties: statuses.filter((status) => status.pastDue.length > 0).length,
+    due: statuses.filter((status) => status.previous.standing === 'due').length,
+    finished: statuses.filter((status) => status.previous.standing === 'finished').length,
+    owed: statuses.filter((status) => status.previous.standing === 'due' || status.previous.standing === 'finished').length,
+  };
+}
+
 // ─── The tracker ───────────────────────────────────────────────
 
+/** What is stored for a property-month. Its standing in the cycle is `monthStanding`'s. */
 export type StatementState =
   /** A closed month with no finished statement and nothing started. */
   | { kind: 'outstanding' }
-  /** A month that has not ended, with nothing started: open, not yet due (dispatch 23D). Never outstanding. */
+  /** A month that has not ended, with nothing started (dispatch 23D). */
   | { kind: 'open' }
   | { kind: 'draft'; savedAt: string; superseding: boolean }
   | { kind: 'finished'; report: MonthlyReportSummaryLike; replaced: number };
-
-/**
- * The words for each state. A closed month with nothing finished and nothing
- * started reads "Past due" (dispatch 23F: "past due for closed months"); the
- * current month with nothing started reads "Open, not yet due" (dispatch 23D).
- */
-export const STATEMENT_STATE_LABELS: Record<StatementState['kind'], string> = {
-  outstanding: 'Past due',
-  open: 'Open, not yet due',
-  draft: 'Draft',
-  finished: 'Finished',
-};
 
 /** The fields of a finished report the tracker needs; a full report satisfies it too. */
 export interface MonthlyReportSummaryLike {
@@ -524,6 +635,8 @@ export interface TrackerRow {
   propertyId: string;
   propertyName: string;
   state: StatementState;
+  /** The month's standing in the cycle: the row's badge. */
+  standing: Standing;
   /** Download records of the current finished report: how many, and the last. */
   downloads: number;
   lastDownloadAt: string | null;
@@ -550,7 +663,8 @@ export interface TrackerInputs {
   management: PropertyManagementView[];
 }
 
-const ORDER: Record<StatementState['kind'], number> = { outstanding: 0, open: 1, draft: 2, finished: 3 };
+/** The panel's order: what needs work first. */
+const ORDER: Record<Standing, number> = { pastDue: 0, due: 1, open: 2, notExpected: 3, finished: 4 };
 
 /** One property-month's reports, newest first, its live one, and its open draft. */
 function propertyMonth(propertyId: string, month: string, reports: MonthlyReportSummaryLike[], drafts: DraftLike[], current: Set<string>) {
@@ -571,7 +685,7 @@ function stateOf(month: string, today: string, found: ReturnType<typeof property
 /**
  * One row per property in scope for the month — or with a statement or a
  * draft for it, whatever its scope: a statement that exists is never hidden
- * — outstanding first, then open, then drafts, then finished.
+ * — past due first, then due, then open, then finished.
  */
 export function trackerRows(input: TrackerInputs): TrackerRow[] {
   const management = new Map(input.management.map((record) => [record.propertyId, record]));
@@ -579,9 +693,8 @@ export function trackerRows(input: TrackerInputs): TrackerRow[] {
   const rows: TrackerRow[] = [];
   for (const property of input.properties) {
     const record = management.get(property.id) ?? null;
-    const { from, until } = statementMonths(record);
     const found = propertyMonth(property.id, input.month, input.reports, input.drafts, current);
-    const inScope = input.month >= from && (until === null || input.month <= until);
+    const inScope = inStatementScope(record, input.month);
     if (!inScope && found.reports.length === 0 && found.draft === null) continue;
     const state = stateOf(input.month, input.today, found);
     const { live, reports } = found;
@@ -590,23 +703,19 @@ export function trackerRows(input: TrackerInputs): TrackerRow[] {
       propertyId: property.id,
       propertyName: property.name?.trim() || 'Unnamed property',
       state,
+      standing: monthStanding({ month: input.month, today: input.today, owed: inScope, finished: live !== null }),
       downloads: downloads.length,
       lastDownloadAt: downloads[downloads.length - 1] ?? null,
       reports: reports.map((report) => ({ report, replacedBy: input.reports.find((other) => other.supersedes?.reportId === report.id) ?? null })),
     });
   }
-  return rows.sort((a, b) => ORDER[a.state.kind] - ORDER[b.state.kind] || a.propertyName.localeCompare(b.propertyName, 'en-CA'));
+  return rows.sort((a, b) => ORDER[a.standing] - ORDER[b.standing] || a.propertyName.localeCompare(b.propertyName, 'en-CA'));
 }
 
-/** The line at the top, and the tile: how many finished, outstanding, open, in draft. */
-export function trackerCounts(rows: TrackerRow[]): { inScope: number; finished: number; outstanding: number; open: number; drafts: number } {
-  return {
-    inScope: rows.length,
-    finished: rows.filter((row) => row.state.kind === 'finished').length,
-    outstanding: rows.filter((row) => row.state.kind === 'outstanding').length,
-    open: rows.filter((row) => row.state.kind === 'open').length,
-    drafts: rows.filter((row) => row.state.kind === 'draft').length,
-  };
+/** The panel's line: how many rows stand where — `owed` every row but a draft on a month not owed — and how many hold a draft in progress. */
+export function trackerCounts(rows: TrackerRow[]): { owed: number; finished: number; due: number; pastDue: number; open: number; notExpected: number; drafts: number } {
+  const count = (standing: Standing) => rows.filter((row) => row.standing === standing).length;
+  return { owed: rows.length - count('notExpected'), finished: count('finished'), due: count('due'), pastDue: count('pastDue'), open: count('open'), notExpected: count('notExpected'), drafts: rows.filter((row) => row.state.kind === 'draft').length };
 }
 
 // ─── One property's months (the property page, dispatch 23D) ───
@@ -614,6 +723,8 @@ export function trackerCounts(rows: TrackerRow[]): { inScope: number; finished: 
 export interface PropertyMonthRow {
   month: string;
   state: StatementState;
+  /** The month's standing in the cycle. */
+  standing: Standing;
   /** Every finished report for the month, newest first, with which replaced which. */
   reports: { report: MonthlyReportSummaryLike; replacedBy: MonthlyReportSummaryLike | null }[];
   /** Whether the month is in the property's statement scope. */
@@ -634,47 +745,37 @@ export interface PropertyMonthsInputs {
  * current month, or an earlier month that has a statement or a draft,
  * whichever is earliest, to the current month or a later one that has one;
  * each with its state, newest first. The current month is always listed, so
- * a statement can be made for it whatever the property's scope. `outstanding`
- * is every closed month in scope with no finished current statement — a
- * month with only a draft included, since a draft is not a statement —
- * oldest first. The current month is never in it, nor is a month out of scope.
+ * a statement can be made for it whatever the property's scope. Which
+ * months need work is `reportingStatus`'s to say, not this list's.
  */
-export function propertyMonths(input: PropertyMonthsInputs): { rows: PropertyMonthRow[]; outstanding: string[] } {
-  const { from, until } = statementMonths(input.management);
+export function propertyMonths(input: PropertyMonthsInputs): { rows: PropertyMonthRow[] } {
+  const { from } = statementMonths(input.management);
   const thisMonth = monthOfDay(input.today);
   const touched = [...input.reports.map((report) => report.month), ...input.drafts.map((draft) => draft.month)].sort();
   const first = [from, thisMonth, ...(touched[0] !== undefined ? [touched[0]] : [])].sort()[0];
   const lastTouched = touched[touched.length - 1];
   const last = lastTouched !== undefined && lastTouched > thisMonth ? lastTouched : thisMonth;
-  const current = new Set(currentReports(input.reports).map((report) => report.id));
   const rows: PropertyMonthRow[] = [];
-  const outstanding: string[] = [];
   for (const month of monthsBetween(first, last)) {
-    const inScope = month >= from && (until === null || month <= until);
-    const found = propertyMonth(input.propertyId, month, input.reports, input.drafts, current);
-    if (!inScope && month !== thisMonth && found.reports.length === 0 && found.draft === null) continue;
-    const state = stateOf(month, input.today, found);
-    if (inScope && state.kind !== 'finished' && isClosedMonth(month, input.today)) outstanding.push(month);
-    rows.push({
-      month,
-      state,
-      inScope,
-      reports: found.reports.map((report) => ({ report, replacedBy: input.reports.find((other) => other.supersedes?.reportId === report.id) ?? null })),
-    });
+    const inScope = inStatementScope(input.management, month);
+    const one = propertyMonthState({ ...input, month, inScope });
+    if (!inScope && month !== thisMonth && one.reports.length === 0 && one.state.kind !== 'draft') continue;
+    rows.push({ month, inScope, ...one });
   }
-  return { rows: rows.reverse(), outstanding };
+  return { rows: rows.reverse() };
 }
 
 /**
- * One property-month's state and its reports, for the property page's month
- * control (dispatch 23F): the same reading `trackerRows` and `propertyMonths`
- * make, for any month, listed or not.
+ * One property-month's state, its standing and its reports, for the
+ * property page's month control (dispatch 23F): the same reading
+ * `trackerRows` and `propertyMonths` make, for any month, listed or not.
  */
-export function propertyMonthState(input: { propertyId: string; month: string; today: string; reports: MonthlyReportSummaryLike[]; drafts: DraftLike[] }): Pick<PropertyMonthRow, 'state' | 'reports'> {
+export function propertyMonthState(input: { propertyId: string; month: string; today: string; inScope: boolean; reports: MonthlyReportSummaryLike[]; drafts: DraftLike[] }): Pick<PropertyMonthRow, 'state' | 'standing' | 'reports'> {
   const current = new Set(currentReports(input.reports).map((report) => report.id));
   const found = propertyMonth(input.propertyId, input.month, input.reports, input.drafts, current);
   return {
     state: stateOf(input.month, input.today, found),
+    standing: monthStanding({ month: input.month, today: input.today, owed: input.inScope, finished: found.live !== null }),
     reports: found.reports.map((report) => ({ report, replacedBy: input.reports.find((other) => other.supersedes?.reportId === report.id) ?? null })),
   };
 }

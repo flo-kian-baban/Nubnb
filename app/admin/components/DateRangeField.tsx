@@ -124,6 +124,7 @@ export function DateRangeField({ label, from, to, onChange, presets = [], max, m
         aria-expanded={open}
         aria-controls={`${id}-popover`}
         aria-label={`${label}: ${text}`}
+        title={text}
         onClick={() => (open ? close() : setOpen(true))}
         onPointerEnter={() => calendarCode.preload()}
         onFocus={() => calendarCode.preload()}

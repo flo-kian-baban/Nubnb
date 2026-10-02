@@ -87,6 +87,10 @@
 .lineAlert {
   color: #f0a63a;
 }
+/* Something past due (dispatch 23G): the past-due badge's red. */
+.linePastDue {
+  color: #ef5350;
+}
 
 .num {
   text-align: right !important;

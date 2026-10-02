@@ -1,141 +1,118 @@
 "use client";
 
 /**
- * The six figures on the admin home (2026-09-30), each a link to where the
- * work is:
+ * The four figures on the admin home (Kian's ruling of 2026-10-02), left to
+ * right, each a way to where the work is:
  *
- *   New leads                → the inbox, filtered to new     act on it
- *   Costs to review          → the costs queue                act on it
- *   Leads, last 30 days      → the inbox                      how demand is going
- *   Cleaning costs, <month>  → the costs page, this month     what cleaning is costing
- *   Empty nights, next 30    → the attention list             what could be sold (dispatch 22)
- *   Free this weekend        → the search, this weekend       what to offer a caller (dispatch 22)
- *   Statements past due      → opens the statements panel     which statements are owed (23B, 23F)
+ *   Units                → the property list below          what the platform holds
+ *   Costs to review      → the costs queue                  act on it
+ *   New leads            → the inbox, filtered to new       act on it
+ *   Statements past due  → opens the statements panel       which statements are owed
+ *
+ * Every figure is a count; none is an amount of money. They replace seven
+ * (2026-09-30 to 2026-10-01): Leads in the last 30 days, Cleaning costs this
+ * month and the two availability figures (Empty nights, Free this weekend)
+ * are gone from the home. The Availability page still has both views.
+ *
+ * Units is every property document the page already holds — the list under
+ * the tiles, delisted ones included (they stay listed, by Kian's ruling).
  *
  * The Statements tile is the one that stays on the page (dispatch 23F,
  * Kian's ruling of 2026-10-01): a click opens the statements panel under
  * the tiles — the cross-property view that was the Reports section — with
  * a month control, one row per property and each row the way into that
- * property's page for that month. The panel reads the same answer the tile
- * does, GET /api/admin/monthly-reports, so opening it costs nothing more.
- * Which month it shows is kept in the address bar (?statements=yyyy-mm) so
- * a reload keeps it open.
+ * property's page for that month. Its figure is the statements past due in
+ * Nubnb's cycle (dispatch 23G: months two or more back with no finished
+ * statement), its detail the previous month's due and finished — every
+ * number from `reportingStatus`, the rule the property list's column and
+ * the panel use. The panel and the list read the same answer the tile does,
+ * GET /api/admin/monthly-reports, held by the page (`useStatements`), so
+ * neither costs a call more. Which month the panel shows is kept in the
+ * address bar (?statements=yyyy-mm) so a reload keeps it open.
  *
- * The two availability figures come from the stored copy of every calendar
- * (one read, GET /api/admin/availability) and the property list the page
- * already holds. The first is the sellable empty nights of the next 30
- * times each property's nightly price: a sum over admin-set prices, never
- * a price, and Kian's caveat sits under it: where nights are open, not why.
- * The second is how many properties are free for the coming weekend, and
- * how old the copy is; it turns to the alert tone when the copy is older
- * than two hours or a calendar could not be read.
- *
- * They replace four figures about the catalogue — total properties, average
- * nightly price, bedrooms, property types — that nothing could be done about
- * from here. The count of properties stays beside the list's filters. The
- * average price went for a plainer reason too: prices are set by admins and
- * no code computes one, an average included.
- *
- * Two reads, the same two the inbox and the costs page make on opening: the
- * lead list and the cost list. Each pair of tiles shows its own read's
- * state, so a failed read is shown as a failure, never as 0.
+ * Three reads besides the property list: the lead list, the cost list and
+ * the tracker, the same ones the inbox, the costs page and the panel make.
+ * Each tile shows its own read's state, so a failed read is shown as a
+ * failure, never as 0.
  *
  * "To review" is the pending entries plus, since dispatch 24, the receipts
  * approved automatically that no admin has looked at: what the queue holds
  * for an admin. (The queue's default view is wider still — rejected and
- * removed entries stay there, marked.) Its detail line says how many were
- * approved automatically, and names when a cleaner is worth a look
- * (costs/patterns.ts), in the same words as the queue. The month is the
- * Toronto calendar month, by the day each entry was sent, and it adds up
- * what the ledger adds up: approved and pending entries, as
- * `countsInTotals` says.
+ * removed entries stay there, marked.) Its detail line counts the two, and
+ * names when a cleaner is worth a look (costs/patterns.ts), in the same
+ * words as the queue.
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, BedDouble, CalendarDays, CalendarSearch, FileText, Inbox, Receipt, Wallet } from "lucide-react";
+import { AlertTriangle, ArrowRight, Building2, FileText, Inbox, Receipt } from "lucide-react";
 import { fetchLeads } from "@/app/lib/leads-client";
 import { fetchCosts } from "@/app/lib/costs-client";
 import { fetchTracker, type TrackerData } from "@/app/lib/reports-client";
 import { isMonth, lastClosedMonth, monthLabel, type ReportDownloadView } from "@/app/lib/reports/model";
-import { trackerCounts, trackerRows } from "@/app/lib/reports/statement";
+import { reportingCounts, type ReportingStatus } from "@/app/lib/reports/statement";
 import { StatementsPanel } from "./StatementsPanel";
-import { torontoDayOf } from "@/app/lib/costs/report";
-import { fetchAvailability, type AvailabilityData } from "@/app/lib/availability-client";
-import { homeFigures } from "@/app/lib/availability/attention";
-import { rangeText, torontoDay } from "@/app/lib/availability/days";
-import { toAvailabilityProperty } from "@/app/lib/availability/property";
 import type { Property } from "@/app/types/property";
 import { mayBeUnnotified, type LeadSummary } from "@/app/lib/leads";
-import { ENTRY_TIME_ZONE, awaitingLook, countsInTotals, dayIn, formatCents, type CostEntryView } from "@/app/lib/cleaners/model";
-import { sentDay } from "@/app/lib/costs/report";
+import { ENTRY_TIME_ZONE, awaitingLook, dayIn, type CostEntryView } from "@/app/lib/cleaners/model";
 import { watchList } from "@/app/lib/costs/patterns";
 import styles from "../page.module.css";
 
-type Read<T> = { kind: "loading" } | { kind: "ready"; data: T } | { kind: "error"; title: string };
+export type Read<T> = { kind: "loading" } | { kind: "ready"; data: T } | { kind: "error"; title: string };
 
-const DAY_MS = 86_400_000;
+/**
+ * The tracker's one read (GET /api/admin/monthly-reports), held by the admin
+ * home for the Statements tile, the panel and the property list's column.
+ * Refresh reads it again and keeps what is shown until the answer comes; a
+ * download link made from the panel adds its record without a read.
+ */
+export function useStatements() {
+  const [statements, setStatements] = useState<Read<TrackerData>>({ kind: "loading" });
+  const [attempt, setAttempt] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetchTracker().then((result) => {
+      if (cancelled) return;
+      setRefreshing(false);
+      setStatements(result.ok ? { kind: "ready", data: result.data } : { kind: "error", title: result.title });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [attempt]);
+  const refresh = useCallback(() => {
+    setRefreshing(true);
+    setStatements((prev) => (prev.kind === "error" ? { kind: "loading" } : prev));
+    setAttempt((n) => n + 1);
+  }, []);
+  const downloaded = useCallback((record: ReportDownloadView) => {
+    setStatements((prev) => (prev.kind === "ready" ? { kind: "ready", data: { ...prev.data, downloads: [...prev.data.downloads, record] } } : prev));
+  }, []);
+  return { statements, refresh, refreshing, downloaded };
+}
+export type StatementsRead = ReturnType<typeof useStatements>;
 
-/** What the lead list says: new ones (and how many of those nobody was told about), and the last two 30-day windows. */
-function leadFigures(leads: LeadSummary[], now: number) {
+/** What the lead list says: the new ones, and how many of those nobody was told about. */
+function leadFigures(leads: LeadSummary[]) {
   const fresh = leads.filter((lead) => lead.status === "new");
   const untold = fresh.filter((lead) => mayBeUnnotified(lead.notification)).length;
-  const at = (lead: LeadSummary) => Date.parse(lead.createdAt ?? "");
-  const since30 = now - 30 * DAY_MS;
-  const since60 = now - 60 * DAY_MS;
-  const last30 = leads.filter((lead) => {
-    const t = at(lead);
-    return Number.isFinite(t) && t >= since30;
-  }).length;
-  const previous30 = leads.filter((lead) => {
-    const t = at(lead);
-    return Number.isFinite(t) && t >= since60 && t < since30;
-  }).length;
-  return { fresh: fresh.length, untold, last30, previous30 };
+  return { fresh: fresh.length, untold };
 }
 
-const centsOf = (entry: CostEntryView) => (entry.linesNow.kind === "ok" ? entry.linesNow.totalCents : 0);
-
-/** What the cost list says: what waits for a decision, and what this month has cost so far. */
+/** What the cost list says waits for an admin: counts of entries, never their amounts. */
 function costFigures(entries: CostEntryView[]) {
-  const pending = entries.filter((entry) => entry.status === "pending");
   const today = dayIn(ENTRY_TIME_ZONE);
-  const month = today.slice(0, 7);
-  const thisMonth = entries.filter((entry) => countsInTotals(entry.status) && (sentDay(entry.createdAt) ?? "").startsWith(month));
-  const unseen = entries.filter(awaitingLook).length;
   return {
-    pending: pending.length,
+    pending: entries.filter((entry) => entry.status === "pending").length,
     /** Approved automatically and not yet looked at (dispatch 24). */
-    unseen,
+    unseen: entries.filter(awaitingLook).length,
     /** Cleaners the pattern rule names. */
     worthALook: watchList(entries, today).filter((pattern) => pattern.worthALook).length,
-    pendingCents: pending.reduce((sum, entry) => sum + centsOf(entry), 0),
-    /** Pending entries whose lines cannot be read: their amount is not in `pendingCents`. */
-    pendingUnreadable: pending.filter((entry) => entry.linesNow.kind !== "ok").length,
-    monthCents: thisMonth.reduce((sum, entry) => sum + centsOf(entry), 0),
-    monthEntries: thisMonth.length,
-    monthPendingCents: thisMonth.filter((entry) => entry.status === "pending").reduce((sum, entry) => sum + centsOf(entry), 0),
-    monthStart: `${month}-01`,
-    today,
   };
 }
 
-const monthName = (): string =>
-  new Intl.DateTimeFormat("en-CA", { timeZone: ENTRY_TIME_ZONE, month: "long" }).format(new Date());
-
 const plural = (n: number, one: string, many: string) => (n === 1 ? `1 ${one}` : `${n} ${many}`);
-
-const dollars = (n: number) => `$${Math.round(n).toLocaleString("en-CA")}`;
-
-/** "just now", "23 min", "3 h 10 min". */
-export function ageText(minutes: number): string {
-  if (!Number.isFinite(minutes)) return "an unknown time";
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return `${hours} h${rest ? ` ${rest} min` : ""} ago`;
-}
 
 interface TileProps {
   /** Where the tile leads; with `onClick` instead, the tile is a button that opens something on this page. */
@@ -147,13 +124,11 @@ interface TileProps {
   value: ReactNode;
   label: string;
   detail?: string | null;
-  /** A second quiet line under the detail: a caveat. */
-  note?: string | null;
   tone?: "accent" | "alert";
   busy?: boolean;
 }
 
-function Tile({ href, onClick, open, icon, value, label, detail, note, tone, busy }: TileProps) {
+function Tile({ href, onClick, open, icon, value, label, detail, tone, busy }: TileProps) {
   const toneClass = tone === "accent" ? styles.statCardAccent : tone === "alert" ? styles.statCardAlert : "";
   const body = (
     <>
@@ -162,7 +137,6 @@ function Tile({ href, onClick, open, icon, value, label, detail, note, tone, bus
         <span className={styles.statValue}>{value}</span>
         <span className={styles.statLabel}>{label}</span>
         {detail && <span className={styles.statDetail}>{detail}</span>}
-        {note && <span className={styles.statDetail}>{note}</span>}
       </div>
       <ArrowRight size={16} className={styles.statArrow} aria-hidden />
     </>
@@ -189,41 +163,26 @@ function FailedTile({ href, label, title }: { href: string; label: string; title
 interface DashboardStatsProps {
   /** The property list the page holds; null until it has loaded, or when it could not. */
   properties: Property[] | null;
+  /** Why the property list could not be read; null when it was, or while it loads. */
+  propertiesError: string | null;
+  /** The tracker's read, held by the page (`useStatements`). */
+  statements: StatementsRead;
+  /** Every property's status from that read, by property ID — the same map the list's column draws; null until it has loaded. */
+  statuses: Map<string, ReportingStatus> | null;
+  /** Today, yyyy-mm-dd in Toronto. */
+  today: string;
 }
 
-export function DashboardStats({ properties }: DashboardStatsProps) {
+export function DashboardStats({ properties, propertiesError, statements: read, statuses, today }: DashboardStatsProps) {
   const [leads, setLeads] = useState<Read<ReturnType<typeof leadFigures>>>({ kind: "loading" });
   const [costs, setCosts] = useState<Read<ReturnType<typeof costFigures>>>({ kind: "loading" });
-  const [availability, setAvailability] = useState<Read<AvailabilityData>>({ kind: "loading" });
-  /** Everything the statements tile and panel work from (dispatches 23B, 23F): the tracker's one read, kept whole. */
-  const [statements, setStatements] = useState<Read<TrackerData>>({ kind: "loading" });
-  const [statementsAttempt, setStatementsAttempt] = useState(0);
-  /** True while the tracker is read again from the panel's Refresh; the rows stay until the answer comes. */
-  const [refreshing, setRefreshing] = useState(false);
-  const today = torontoDayOf(new Date());
+  const { statements, refresh: refreshStatements, refreshing, downloaded } = read;
   /** The panel's month when it is open, from the address bar; null while it is closed. */
   const [panelMonth, setPanelMonth] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     const wanted = new URLSearchParams(window.location.search).get("statements");
     return isMonth(wanted) ? wanted : null;
   });
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchTracker().then((result) => {
-      if (cancelled) return;
-      setRefreshing(false);
-      setStatements(result.ok ? { kind: "ready", data: result.data } : { kind: "error", title: result.title });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [statementsAttempt]);
-  const refreshStatements = () => {
-    setRefreshing(true);
-    setStatements((prev) => (prev.kind === "error" ? { kind: "loading" } : prev));
-    setStatementsAttempt((n) => n + 1);
-  };
 
   // The panel's month in the address bar, so a reload keeps the panel open where it was.
   useEffect(() => {
@@ -233,29 +192,19 @@ export function DashboardStats({ properties }: DashboardStatsProps) {
     if (url.href !== window.location.href) window.history.replaceState(null, "", url.href);
   }, [panelMonth]);
 
-  /** The tile's figures: the last closed month, whatever the panel shows. */
-  const statementCounts = useMemo(() => {
-    if (statements.kind !== "ready") return null;
-    const month = lastClosedMonth(today);
-    return { month, counts: trackerCounts(trackerRows({ month, today, ...statements.data })) };
-  }, [statements, today]);
+  /** The tile's figures: every property's status, counted; whatever month the panel shows. */
+  const statementCounts = useMemo(() => (statuses ? reportingCounts([...statuses.values()]) : null), [statuses]);
+  const previousMonth = lastClosedMonth(today);
   const togglePanel = () => {
     if (statements.kind === "error") refreshStatements();
-    setPanelMonth((was) => (was === null ? lastClosedMonth(today) : null));
+    setPanelMonth((was) => (was === null ? previousMonth : null));
   };
-  const downloaded = useCallback((record: ReportDownloadView) => {
-    setStatements((prev) => (prev.kind === "ready" ? { kind: "ready", data: { ...prev.data, downloads: [...prev.data.downloads, record] } } : prev));
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
-    fetchAvailability().then((result) => {
-      if (cancelled) return;
-      setAvailability(result.ok ? { kind: "ready", data: result.data } : { kind: "error", title: result.title });
-    });
     fetchLeads().then((result) => {
       if (cancelled) return;
-      setLeads(result.ok ? { kind: "ready", data: leadFigures(result.data, Date.now()) } : { kind: "error", title: result.title });
+      setLeads(result.ok ? { kind: "ready", data: leadFigures(result.data) } : { kind: "error", title: result.title });
     });
     fetchCosts().then((result) => {
       if (cancelled) return;
@@ -266,98 +215,65 @@ export function DashboardStats({ properties }: DashboardStatsProps) {
     };
   }, []);
 
-  const month = monthName();
-
-  // The availability figures, once both the copy and the property list are here.
-  const figures = useMemo(() => {
-    if (availability.kind !== "ready" || properties === null) return null;
-    const { snapshot, today, now } = availability.data;
-    if (!snapshot) return { none: true as const };
-    return { none: false as const, ...homeFigures(snapshot, properties.map(toAvailabilityProperty), today || torontoDay(), now) };
-  }, [availability, properties]);
-  const availabilityBusy = availability.kind === "loading" || (availability.kind === "ready" && properties === null);
-
   return (
     <>
     <section className={styles.statsGrid} aria-label="At a glance">
-      {leads.kind === "error" ? (
-        <>
-          <FailedTile href="/admin/leads?status=new" label="New leads could not be read" title={leads.title} />
-          <FailedTile href="/admin/leads" label="Leads could not be read" title={leads.title} />
-        </>
+      {propertiesError !== null ? (
+        <FailedTile href="#properties" label="Units could not be read" title={propertiesError} />
       ) : (
-        <>
-          <Tile
-            href="/admin/leads?status=new"
-            icon={<Inbox size={20} />}
-            value={leads.kind === "ready" ? leads.data.fresh : "…"}
-            label="New leads"
-            detail={
-              leads.kind === "ready"
-                ? leads.data.untold > 0
-                  ? `${plural(leads.data.untold, "of them was", "of them were")} never emailed to you`
-                  : leads.data.fresh === 0
-                    ? "Nothing waiting"
-                    : "Waiting for an answer"
-                : null
-            }
-            tone={leads.kind === "ready" && leads.data.fresh > 0 ? "accent" : undefined}
-            busy={leads.kind === "loading"}
-          />
-          <Tile
-            href="/admin/leads"
-            icon={<CalendarDays size={20} />}
-            value={leads.kind === "ready" ? leads.data.last30 : "…"}
-            label="Leads, last 30 days"
-            detail={leads.kind === "ready" ? `${leads.data.previous30} in the 30 days before` : null}
-            busy={leads.kind === "loading"}
-          />
-        </>
+        <Tile
+          href="#properties"
+          icon={<Building2 size={20} />}
+          value={properties !== null ? properties.length : "…"}
+          label="Units"
+          busy={properties === null}
+        />
       )}
 
       {costs.kind === "error" ? (
-        <>
-          <FailedTile href="/admin/costs" label="Costs to review could not be read" title={costs.title} />
-          <FailedTile href="/admin/costs" label={`Cleaning costs, ${month}, could not be read`} title={costs.title} />
-        </>
+        <FailedTile href="/admin/costs" label="Costs to review could not be read" title={costs.title} />
       ) : (
-        <>
-          <Tile
-            href="/admin/costs"
-            icon={<Receipt size={20} />}
-            value={costs.kind === "ready" ? costs.data.pending + costs.data.unseen : "…"}
-            label="Costs to review"
-            detail={
-              costs.kind === "ready"
-                ? [
-                    costs.data.pending === 0
-                      ? null
-                      : `${plural(costs.data.pending, "entry", "entries")} pending, ${formatCents(costs.data.pendingCents)}${costs.data.pendingUnreadable > 0 ? `, ${plural(costs.data.pendingUnreadable, "entry", "entries")} unreadable` : ""}`,
-                    costs.data.unseen === 0 ? null : `${costs.data.unseen} approved automatically, not yet seen`,
-                    costs.data.worthALook === 0 ? null : `${plural(costs.data.worthALook, "cleaner", "cleaners")} worth a look`,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ") || "Nothing waiting"
-                : null
-            }
-            tone={costs.kind === "ready" && (costs.data.worthALook > 0 ? "alert" : costs.data.pending + costs.data.unseen > 0 ? "accent" : undefined) || undefined}
-            busy={costs.kind === "loading"}
-          />
-          <Tile
-            href={costs.kind === "ready" ? `/admin/costs?status=all&from=${costs.data.monthStart}&to=${costs.data.today}` : "/admin/costs"}
-            icon={<Wallet size={20} />}
-            value={costs.kind === "ready" ? formatCents(costs.data.monthCents) : "…"}
-            label={`Cleaning costs, ${month}`}
-            detail={
-              costs.kind === "ready"
-                ? costs.data.monthPendingCents > 0
-                  ? `${plural(costs.data.monthEntries, "entry", "entries")} · ${formatCents(costs.data.monthPendingCents)} of it still to review`
-                  : plural(costs.data.monthEntries, "entry", "entries")
-                : null
-            }
-            busy={costs.kind === "loading"}
-          />
-        </>
+        <Tile
+          href="/admin/costs"
+          icon={<Receipt size={20} />}
+          value={costs.kind === "ready" ? costs.data.pending + costs.data.unseen : "…"}
+          label="Costs to review"
+          detail={
+            costs.kind === "ready"
+              ? [
+                  costs.data.pending === 0 ? null : `${costs.data.pending} pending`,
+                  costs.data.unseen === 0 ? null : `${costs.data.unseen} approved automatically, not yet seen`,
+                  costs.data.worthALook === 0 ? null : `${plural(costs.data.worthALook, "cleaner", "cleaners")} worth a look`,
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || "Nothing waiting"
+              : null
+          }
+          tone={costs.kind === "ready" && (costs.data.worthALook > 0 ? "alert" : costs.data.pending + costs.data.unseen > 0 ? "accent" : undefined) || undefined}
+          busy={costs.kind === "loading"}
+        />
+      )}
+
+      {leads.kind === "error" ? (
+        <FailedTile href="/admin/leads?status=new" label="New leads could not be read" title={leads.title} />
+      ) : (
+        <Tile
+          href="/admin/leads?status=new"
+          icon={<Inbox size={20} />}
+          value={leads.kind === "ready" ? leads.data.fresh : "…"}
+          label="New leads"
+          detail={
+            leads.kind === "ready"
+              ? leads.data.untold > 0
+                ? `${plural(leads.data.untold, "of them was", "of them were")} never emailed to you`
+                : leads.data.fresh === 0
+                  ? "Nothing waiting"
+                  : "Waiting for an answer"
+              : null
+          }
+          tone={leads.kind === "ready" && leads.data.fresh > 0 ? "accent" : undefined}
+          busy={leads.kind === "loading"}
+        />
       )}
 
       {statements.kind === "error" ? (
@@ -367,81 +283,26 @@ export function DashboardStats({ properties }: DashboardStatsProps) {
           onClick={togglePanel}
           open={panelMonth !== null}
           icon={<FileText size={20} />}
-          value={statementCounts ? statementCounts.counts.outstanding : "…"}
-          label={`Statements past due, ${statementCounts ? monthLabel(statementCounts.month) : "last month"}`}
+          value={statementCounts ? statementCounts.pastDue : "…"}
+          label="Statements past due"
           detail={
             statementCounts
-              ? statementCounts.counts.inScope === 0
-                ? "No property expects a statement for this month yet"
-                : `${statementCounts.counts.finished} of ${statementCounts.counts.inScope} finished${statementCounts.counts.drafts > 0 ? ` · ${plural(statementCounts.counts.drafts, "draft", "drafts")} in progress` : ""}`
+              ? statementCounts.owed === 0 && statementCounts.pastDue === 0
+                ? "None due yet"
+                : `${monthLabel(previousMonth)}: ${statementCounts.due} due · ${statementCounts.finished} finished`
               : null
           }
-          tone={statementCounts && statementCounts.counts.outstanding > 0 ? "accent" : undefined}
+          tone={statementCounts ? (statementCounts.pastDue > 0 ? "alert" : statementCounts.due > 0 ? "accent" : undefined) : undefined}
           busy={statements.kind === "loading"}
         />
-      )}
-
-      {availability.kind === "error" ? (
-        <>
-          <FailedTile href="/admin/availability?view=attention" label="Empty nights could not be read" title={availability.title} />
-          <FailedTile href="/admin/availability" label="Free this weekend could not be read" title={availability.title} />
-        </>
-      ) : figures?.none ? (
-        <>
-          <Tile
-            href="/admin/availability?view=attention"
-            icon={<BedDouble size={20} />}
-            value="—"
-            label="Empty nights, next 30 days"
-            detail="No refresh has run yet. Open Availability and press Refresh now."
-            tone="alert"
-          />
-          <Tile href="/admin/availability" icon={<CalendarSearch size={20} />} value="—" label="Free this weekend" detail="No refresh has run yet" tone="alert" />
-        </>
-      ) : (
-        <>
-          <Tile
-            href="/admin/availability?view=attention"
-            icon={<BedDouble size={20} />}
-            value={figures && !figures.none ? dollars(figures.value30) : "…"}
-            label="Empty nights, next 30 days"
-            detail={
-              figures && !figures.none
-                ? `${plural(figures.withSellable30, "property", "properties")} with a sellable stretch · ${figures.fullyBooked30} fully booked · ${figures.blockedAll30} blocked for the whole month`
-                : null
-            }
-            note={figures && !figures.none ? "Where nights are open, not why, not whether anyone asked." : null}
-            busy={availabilityBusy}
-          />
-          <Tile
-            href={
-              figures && !figures.none
-                ? `/admin/availability?in=${figures.weekend.checkIn}&out=${figures.weekend.checkOut}`
-                : "/admin/availability"
-            }
-            icon={<CalendarSearch size={20} />}
-            value={figures && !figures.none ? figures.weekend.free : "…"}
-            label="Free this weekend"
-            detail={
-              figures && !figures.none
-                ? figures.stale
-                  ? `Last refreshed ${ageText(figures.ageMinutes)}; the hourly refresh may have stopped`
-                  : figures.failed > 0
-                    ? `${rangeText(figures.weekend.checkIn, figures.weekend.checkOut)} · refreshed ${ageText(figures.ageMinutes)}, ${plural(figures.failed, "calendar", "calendars")} could not be read`
-                    : `${rangeText(figures.weekend.checkIn, figures.weekend.checkOut)} · of ${figures.weekend.of} with a calendar · refreshed ${ageText(figures.ageMinutes)}`
-                : null
-            }
-            tone={figures && !figures.none && (figures.stale || figures.failed > 0) ? "alert" : undefined}
-            busy={availabilityBusy}
-          />
-        </>
       )}
     </section>
 
     {/* ── The statements panel (dispatch 23F): the tracker, under its tile ── */}
-    {panelMonth !== null && statements.kind === "ready" && (
+    {panelMonth !== null && statements.kind === "ready" && statuses && (
       <StatementsPanel
         data={statements.data}
+        statuses={statuses}
         month={panelMonth}
         today={today}
         onMonth={setPanelMonth}

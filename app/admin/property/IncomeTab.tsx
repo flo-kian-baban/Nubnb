@@ -44,7 +44,7 @@ export function IncomeTab({ typed, readOnly, sums, onChange }: Props) {
   const addLine = () => onChange({ ...typed, lines: [...typed.lines, { id: newId(), description: "", from: "", to: "", quantity: "1", rate: "" }] });
 
   return (
-    <section className={styles.block} aria-label="Income lines">
+    <section className={`${styles.block} ${styles.linesBlock}`} aria-label="Income lines">
       <div className={styles.blockHead}>
         <h3 className={styles.blockTitle}>Lines</h3>
         <span className={styles.blockTotal}>{sums ? `${formatCents(sums.incomeCents)} revenue · ${formatCents(-sums.expensesCents)} expenses` : "—"}</span>
@@ -53,7 +53,6 @@ export function IncomeTab({ typed, readOnly, sums, onChange }: Props) {
         <div className={styles.lineHead} aria-hidden>
           <span />
           <span>Description</span>
-          <span>Dates</span>
           <span className={styles.num}>Qty</span>
           <span className={styles.num}>Rate</span>
           <span className={styles.num}>Amount</span>
@@ -87,7 +86,7 @@ export function IncomeTab({ typed, readOnly, sums, onChange }: Props) {
             {readOnly ? (
               <span className={styles.lineDates}>{line.from || line.to ? rangeText(line.from || null, line.to || null) : <span className={styles.muted}>No dates</span>}</span>
             ) : (
-              <DateRangeField label={`Line ${i + 1} dates`} from={line.from} to={line.to} onChange={(range) => setLine(line.id, { from: range.from, to: range.to })} emptyText="No dates" className={styles.lineDates} />
+              <DateRangeField label={`Line ${i + 1} dates`} from={line.from} to={line.to} onChange={(range) => setLine(line.id, { from: range.from, to: range.to })} emptyText="Add dates" className={styles.lineDates} />
             )}
             <input
               className={`${styles.textInput} ${styles.amountInput} ${!readOnly && quantity === null ? styles.inputInvalid : ""}`}
@@ -126,7 +125,7 @@ export function IncomeTab({ typed, readOnly, sums, onChange }: Props) {
       })}
       {typed.lines.length === 0 && <p className={styles.note}>No lines yet.</p>}
       {!readOnly && (
-        <button type="button" className={`${styles.btnGhost} ${styles.btnSmall}`} onClick={addLine} disabled={typed.lines.length >= STATEMENT_LIMITS.LINES_MAX}>
+        <button type="button" className={`${styles.btnGhost} ${styles.btnSmall} ${styles.addLine}`} onClick={addLine} disabled={typed.lines.length >= STATEMENT_LIMITS.LINES_MAX}>
           <Plus size={13} aria-hidden />
           <span>Add line</span>
         </button>

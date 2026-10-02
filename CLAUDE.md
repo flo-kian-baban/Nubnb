@@ -164,6 +164,7 @@ no checkout. Do not build toward one unless asked.
 - **Admin-only, inside the existing admin panel, its own page, plus stats
   on the admin home page — the same shape as costs.** The section is called
   **Availability**. The current design language and styling throughout.
+  (The home-page stats were withdrawn on 2026-10-02: see Admin home below.)
 - **Availability is refreshed on a schedule and searched from the stored
   copy, not fetched live per property.** Slightly stale availability is
   acceptable; a slow search on a phone call is not. **Hourly.**
@@ -182,3 +183,43 @@ no checkout. Do not build toward one unless asked.
   same caveat, shorter, under the home-page tile.**
 - "Empty and available" is the real signal; a property blocked by its owner
   is not a problem to solve.
+
+## Admin home — Kian's ruling of 2026-10-02
+
+- **The stat tiles on top of the admin home are only four, left to right:**
+  1. the number of total units on the platform;
+  2. costs to be reviewed — just the number of the costs, not the price on
+     them;
+  3. leads coming in — only the new leads number;
+  4. past due reports to be generated.
+
+## Statements — Kian's rulings of 2026-10-02 (dispatch 23G)
+
+- **Nubnb's cycle: admins write the previous month's statements between the
+  1st and the 10th of the current month.**
+- **Every property owes a statement for every closed month by default.** A
+  property's management record narrows that — a start month excludes
+  earlier ones, an end month excludes later ones — but a property with no
+  record owes every closed month.
+- **A property's status is based on the previous month — what is due now:**
+  finished is done; not finished, from the 1st to the 10th, is a warning;
+  not finished after the 10th is a warning, unchanged; any month two or more
+  months back with no finished statement is a problem, which outranks the
+  warning. **The current month is never counted; it is not due.**
+- **The property list has a column showing that status**, in the tones the
+  rest of the admin uses, readable at a glance across every row, linking to
+  that property's page at the month in question. **The property page's
+  head, the home panel and the Statements tile use the same rule and the
+  same words. One function decides it.**
+- **An admin can delete a finished statement, whether or not it was
+  downloaded, and continue editing the month as a draft.** This replaces the
+  earlier ruling that a finished statement is never changed. **Consequence:
+  once deleted, there is no record of what an owner received.**
+- On delete, the report document and its stored PDF are removed, and the
+  draft reopens with everything the statement held — lines, fee, balance,
+  notes, Report For — so the admin continues rather than retypes. Download
+  records for it go too, since the statement they refer to is gone. **The
+  admin confirms first, told what is lost:** "This statement was downloaded
+  3 October. Deleting it removes the record of what was sent."
+- **Superseding stays as it is:** an admin can still correct by superseding
+  instead of deleting.

@@ -29,10 +29,20 @@
  * report and marks the draft finished. A claim that fails the second check
  * leaves an orphan PDF object, logged by path, as an orphaned receipt is.
  *
+ * ── Deleting a finished statement: the one exception ──
+ * `deleteFinishedStatement`, below, is the only code that deletes a finished
+ * report, a statement's PDF or a download record, and the only delete
+ * anywhere in the statements and costs records (Kian's ruling of 2026-10-02,
+ * dispatch 23G, against the earlier rule that a finished statement is never
+ * changed). It removes the month's current statement, its stored PDF and
+ * every download record of it, and reopens the month's draft holding
+ * everything the statement held. Once deleted, there is no record of what
+ * an owner received. Correcting by superseding is unchanged and keeps both.
+ *
  * ── What is never done ──
- * A finished report is never updated or deleted; a draft is never deleted;
- * no entry is written. The stored money figures are what was printed and
- * are never read back into a total.
+ * A finished report is never updated, and deleted only as above; a draft is
+ * never deleted; no entry is written. The stored money figures are what was
+ * printed and are never read back into a total.
  */
 
 import { createHash } from 'crypto';
@@ -43,21 +53,27 @@ import { isDocumentId } from './server-leads';
 import { listCosts, listPropertyEntries, propertyEntriesInTransaction, toCents } from './server-cost-entries';
 import { getManagement, listManagement, toBasisPoints } from './server-management';
 import { ADMIN_ACTOR, type CostEntryView, type Refusal } from '@/app/lib/cleaners/model';
+import { torontoDayOf } from '@/app/lib/costs/report';
 import {
   MONTHLY_REPORTS_COLLECTION,
   MONTHLY_REPORTS_PREFIX,
   MONTHLY_REPORT_DRAFTS_COLLECTION,
   MONTHLY_REPORT_DRAFT_SCHEMA_VERSION,
   MONTHLY_REPORT_SCHEMA_VERSION,
+  PROPERTY_MANAGEMENT_COLLECTION,
+  PROPERTY_MANAGEMENT_SCHEMA_VERSION,
   REPORT_DOWNLOADS_COLLECTION,
   REPORT_DOWNLOAD_SCHEMA_VERSION,
   INCOME_SOURCES,
+  STATEMENTS_FROM_DEFAULT,
   STATEMENT_LIMITS,
   feeComputed,
   isDayText,
   isMonth,
   lineAmount,
+  lineFromIncomeRow,
   readMonthlyReport,
+  readPropertyManagement,
   readReportDownload,
   readStatementDraft,
   reportRef,
@@ -67,6 +83,7 @@ import {
   type MonthlyReport,
   type MonthlyReportSummary,
   type MonthlyReportView,
+  type PropertyManagement,
   type PropertyManagementView,
   type ReportDownloadView,
   type StatementDraft,
@@ -554,6 +571,162 @@ export async function downloadLink(reportId: string): Promise<DownloadLinkResult
   const record = { schemaVersion: REPORT_DOWNLOAD_SCHEMA_VERSION, reportId, propertyId: report.propertyId, month: report.month, at: new Date().toISOString(), actor: ADMIN_ACTOR };
   await ref.create(record);
   return { kind: 'ok', url, expiresAt: new Date(expires).toISOString(), seconds: STATEMENT_LIMITS.DOWNLOAD_LINK_SECONDS, download: { id: ref.id, ...record } };
+}
+
+// ─── Deleting a finished statement ─────────────────────────────
+
+export const DeleteStatementInputSchema = z.strictObject({
+  /** How many download records the page showed the admin when they confirmed. */
+  downloadsSeen: z.number().int().min(0).max(1_000_000),
+});
+
+export type DeleteStatementResult =
+  | {
+      kind: 'deleted';
+      reportId: string;
+      /** How many download records went with it. */
+      downloads: number;
+      /** The stored PDF: deleted, already gone, or left in Storage after a failure (logged by path). */
+      pdf: 'deleted' | 'missing' | 'left';
+      /** The month's draft, reopened holding everything the statement held. */
+      draft: StatementDraftView;
+      /** The property's record when its Report For was set back to what the statement printed; null when it was left as it was. */
+      management: PropertyManagementView | null;
+    }
+  | { kind: 'no-such-report' }
+  /** Another statement replaces it: only a month's current statement is deleted. */
+  | { kind: 'replaced'; by: string }
+  /** A correction of it is in progress: the draft names it. */
+  | { kind: 'correction-in-progress' }
+  /** The month's draft is not the one this statement was finished from. */
+  | { kind: 'draft-changed' }
+  /** A download link was made since the page showed the count the admin confirmed. */
+  | { kind: 'downloaded-since'; downloads: number }
+  /** The transaction failed: it may or may not have been deleted. */
+  | { kind: 'failed' };
+
+export const DELETE_REFUSALS: Record<Exclude<DeleteStatementResult['kind'], 'deleted'>, Refusal> = {
+  'no-such-report': { status: 404, code: 'REPORT_NOT_FOUND', message: 'Statement not found', hint: 'It may already have been deleted. Reload the page.' },
+  replaced: { status: 409, code: 'REPORT_REPLACED', message: 'This statement was replaced by a newer one.', hint: 'Only the month\'s current statement can be deleted. Nothing was deleted.' },
+  'correction-in-progress': { status: 409, code: 'CORRECTION_IN_PROGRESS', message: 'A correction of this statement is in progress.', hint: 'Nothing was deleted. The month\'s page shows the correction; finishing it replaces this statement.' },
+  'draft-changed': { status: 409, code: 'DRAFT_CHANGED', message: 'The month\'s draft changed since the page loaded.', hint: 'Nothing was deleted. Reload the page.' },
+  'downloaded-since': { status: 409, code: 'DOWNLOADED_SINCE', message: 'This statement was downloaded again since the page loaded.', hint: 'Nothing was deleted. Reload the page to see when, and delete again if you still mean to.' },
+  failed: { status: 502, code: 'STATEMENT_DELETE_FAILED', message: 'Could not delete the statement.', hint: 'It may or may not have been deleted. Reload to see what is on record.' },
+};
+
+const sameReportFor = (a: { name: string; address: string } | null, b: { name: string; address: string } | null) => (a === null || b === null ? a === b : a.name === b.name && a.address === b.address);
+
+/**
+ * Delete a finished statement and reopen its month as a draft — THE ONE
+ * PLACE A FINISHED STATEMENT IS DELETED (Kian's ruling of 2026-10-02,
+ * dispatch 23G; see the head of this file). Nothing else in the statements
+ * or costs records is ever deleted.
+ *
+ * Only the month's current statement — the one its draft was finished as,
+ * which no other statement replaces — and only when the page's count of
+ * its downloads is still the count stored, so the admin confirmed against
+ * what is lost. In one transaction: the report document and every download
+ * record of it are deleted, and the draft is written back holding what the
+ * statement held — its lines, fee, carried balance, notes, reference, date,
+ * and the statement it replaced, when it was a correction (the replaced one
+ * becomes current again and the draft continues the correction). Report
+ * For lives on the property's record; when the record no longer says what
+ * the statement printed, it is set back to it. After the transaction the
+ * PDF object at the report's stored path is deleted; if that fails the
+ * object is left and logged by path, as an orphaned receipt is.
+ */
+export async function deleteFinishedStatement(reportId: string, input: { downloadsSeen: number }): Promise<DeleteStatementResult> {
+  if (!isDocumentId(reportId)) return { kind: 'no-such-report' };
+  const db = getAdminDb();
+  const reportRefDoc = db.collection(MONTHLY_REPORTS_COLLECTION).doc(reportId);
+  let pdfPath: string | null = null;
+  let outcome: DeleteStatementResult;
+  try {
+    outcome = await db.runTransaction(async (tx): Promise<DeleteStatementResult> => {
+      const snap = await tx.get(reportRefDoc);
+      const report = snap.exists ? readMonthlyReport(snap.id, snap.data() ?? {}) : null;
+      if (!report) return { kind: 'no-such-report' };
+      const draftRef = db.collection(MONTHLY_REPORT_DRAFTS_COLLECTION).doc(draftId(report.propertyId, report.month));
+      const managementRef = db.collection(PROPERTY_MANAGEMENT_COLLECTION).doc(report.propertyId);
+      const [reports, draftSnap, downloadsSnap, managementSnap] = await Promise.all([
+        propertyReports(report.propertyId, tx),
+        tx.get(draftRef),
+        tx.get(db.collection(REPORT_DOWNLOADS_COLLECTION).where('reportId', '==', reportId)),
+        tx.get(managementRef),
+      ]);
+
+      const newer = reports.find((other) => other.supersedes?.reportId === reportId);
+      if (newer) return { kind: 'replaced', by: newer.id };
+      const draft = draftSnap.exists ? readStatementDraft(draftSnap.id, draftSnap.data() ?? {}) : null;
+      if (!draft) return { kind: 'draft-changed' };
+      if (draft.finishedAs !== reportId) return draft.finishedAs === null && draft.supersedes?.reportId === reportId ? { kind: 'correction-in-progress' } : { kind: 'draft-changed' };
+      const downloads = downloadsSnap.docs.filter((doc) => readReportDownload(doc.id, doc.data()) !== null).length;
+      if (downloads !== input.downloadsSeen) return { kind: 'downloaded-since', downloads };
+
+      const now = new Date().toISOString();
+      const reopened: StatementDraft = {
+        schemaVersion: MONTHLY_REPORT_DRAFT_SCHEMA_VERSION,
+        propertyId: report.propertyId,
+        month: report.month,
+        reference: report.reference,
+        // A statement finished before the Payment Summary has no date of its own: the day it was finished.
+        reportDate: isDayText(report.reportDate) ? report.reportDate : torontoDayOf(new Date(report.finishedAt)),
+        lines: report.legacy ? report.income.map(lineFromIncomeRow) : report.lines,
+        fee: report.fee,
+        carried: report.carried,
+        notes: report.notes,
+        supersedes: report.supersedes,
+        revision: draft.revision + 1,
+        createdAt: draft.createdAt,
+        updatedAt: now,
+        finishedAs: null,
+        finishedRevision: null,
+      };
+
+      // Report For, as the statement printed it (a statement of version 3 froze it; an earlier one did not).
+      let management: PropertyManagementView | null = null;
+      if (!report.legacy) {
+        const was = managementSnap.exists ? readPropertyManagement(managementSnap.id, managementSnap.data() ?? {}) : null;
+        if (managementSnap.exists && was === null) throw new Error(`property_management/${report.propertyId} is not in the written shape`);
+        if (!sameReportFor(was?.reportFor ?? null, report.reportFor)) {
+          const next: PropertyManagement = was
+            ? { ...was, reportFor: report.reportFor, setAt: now }
+            : { schemaVersion: PROPERTY_MANAGEMENT_SCHEMA_VERSION, propertyId: report.propertyId, reportFor: report.reportFor, owners: [], statementsFrom: STATEMENTS_FROM_DEFAULT, statementsUntil: null, defaultFeeRateBasisPoints: null, defaultFee: null, setAt: now };
+          const { id: _id, ...fields } = next as PropertyManagement & { id?: string };
+          void _id;
+          tx.set(managementRef, fields);
+          management = { id: report.propertyId, ...fields };
+        }
+      }
+
+      tx.delete(reportRefDoc);
+      for (const doc of downloadsSnap.docs) tx.delete(doc.ref);
+      tx.set(draftRef, reopened);
+      pdfPath = report.pdf.path;
+      return { kind: 'deleted', reportId, downloads: downloadsSnap.size, pdf: 'left', draft: { id: draftRef.id, ...reopened }, management };
+    });
+  } catch (err) {
+    console.error(`[reports] deleting statement ${reportId} failed: grpc code ${grpcCode(err)}`);
+    return { kind: 'failed' };
+  }
+  if (outcome.kind !== 'deleted') return outcome;
+
+  // ── The PDF, after the record is gone; the path is the one the report stored, never the request's ──
+  const path = pdfPath as string | null;
+  if (path === null || !path.startsWith(`${MONTHLY_REPORTS_PREFIX}/`) || path.includes('..')) {
+    console.error(`[reports] statement ${reportId} deleted; its stored PDF path is not a statement's and was left alone`);
+    return outcome;
+  }
+  try {
+    const file = getAdminBucket().file(path);
+    const [exists] = await file.exists();
+    if (exists) await file.delete();
+    console.log(`[reports] statement ${reportId} deleted with ${outcome.downloads} download record(s); PDF ${exists ? 'deleted' : 'already missing'}`);
+    return { ...outcome, pdf: exists ? 'deleted' : 'missing' };
+  } catch (err) {
+    console.error(`[reports] orphaned statement PDF ${path} (statement ${reportId} deleted): code ${grpcCode(err)}`);
+    return outcome;
+  }
 }
 
 // ─── The tracker ───────────────────────────────────────────────

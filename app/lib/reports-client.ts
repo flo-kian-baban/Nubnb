@@ -1,7 +1,8 @@
 /**
  * Browser-side calls to the statements API (dispatch 23B): the tracker's
- * read, the editor's read, the draft save, the finish, and the download
- * link. The contract of costs-client.ts: every call resolves to a result,
+ * read, the editor's read, the draft save, the finish, the download link,
+ * and deleting a finished statement (dispatch 23G). The contract of
+ * costs-client.ts: every call resolves to a result,
  * never throws, never turns a failure into an empty list, and says whether
  * a write's outcome is unknown. Nothing is retried.
  *
@@ -164,6 +165,23 @@ export function finishStatement(claim: FinishClaim & { propertyId: string; month
 /** Set "Report For" on the property's record from the editor (dispatch 23E); null clears it. */
 export function setReportFor(propertyId: string, reportFor: { name: string; address: string } | null): Promise<ReportResult<{ record: PropertyManagementView }>> {
   return call(`/api/admin/properties/${encodeURIComponent(propertyId)}/report-for`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(reportFor) }, 'Saving who the report is for failed', (data) => isRecord(data) && isRecord(data.record), ['REPORT_FOR_WRITE_FAILED']);
+}
+
+/** What deleting a finished statement answers: the draft reopened with everything it held, and the property's record when its Report For was set back. */
+export interface StatementDeleted {
+  deleted: { reportId: string; downloads: number; pdf: 'deleted' | 'missing' | 'left' };
+  draft: StatementDraftView;
+  management: PropertyManagementView | null;
+}
+
+/**
+ * Delete a finished statement (Kian's ruling of 2026-10-02): its document,
+ * its PDF and its download records, the month reopened as a draft. The page
+ * sends how many downloads it showed the admin; DOWNLOADED_SINCE means one
+ * was made since, and nothing was deleted.
+ */
+export function deleteStatement(reportId: string, downloadsSeen: number): Promise<ReportResult<StatementDeleted>> {
+  return call(`/api/admin/monthly-reports/${encodeURIComponent(reportId)}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ downloadsSeen }) }, 'Deleting the statement failed', (data) => isRecord(data) && isRecord(data.deleted) && isDraft(data.draft), ['STATEMENT_DELETE_FAILED']);
 }
 
 /** A fresh 60-second link to a finished statement's PDF; one download record is made. */

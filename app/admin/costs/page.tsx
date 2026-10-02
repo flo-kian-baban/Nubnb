@@ -78,6 +78,16 @@
  * to say which statement an entry went into, so an entry opened in the
  * queue reaches its property and its statement too.
  *
+ * ── What needs review first (Kian, 2026-10-02) ──
+ * The entries come straight under the filters, and "Totals for what is
+ * shown" sits at the bottom of the page. In the queue the table is grouped:
+ * receipts approved automatically that nobody has looked at, then entries
+ * waiting for a decision, then — last — the rejected and removed ones, which
+ * are decided and only kept on record. The table is one line per entry:
+ * Sent · Property · Logged by · Total (items and tax in its tooltip) ·
+ * Status · Receipt; the property takes the width that is left, and the entry
+ * pane opens beside it only when an entry is opened.
+ *
  * The filters, the view and the open entry are mirrored into the URL
  * (?property=, ?status=, ?kind=, ?cleaner=, ?from=, ?to=, ?view=, ?entry=),
  * so a reload keeps them.
@@ -86,7 +96,7 @@
 import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { AlertTriangle, Building2, Eye, FileSpreadsheet, FileText, ImageIcon, Pencil, Receipt, RefreshCw, Search, Wrench } from "lucide-react";
+import { AlertTriangle, Eye, FileSpreadsheet, FileText, ImageIcon, Pencil, Receipt, RefreshCw, Search } from "lucide-react";
 import { AdminHeader } from "../components/AdminHeader";
 import { AdminSelect } from "../components/AdminSelect";
 import { DateRangeField } from "../components/DateRangeField";
@@ -268,7 +278,23 @@ function Costs() {
   const visible = useMemo(() => entries.filter((entry) => matchesFilters(entry, filters)), [entries, filters]);
   /** In the queue: the entries approved automatically that no admin has looked at, shown as their own group (dispatch 24). */
   const unseen = useMemo(() => (filters.status === NEEDS_ATTENTION ? visible.filter(awaitingLook) : []), [visible, filters.status]);
-  const rest = useMemo(() => (unseen.length > 0 ? visible.filter((entry) => !awaitingLook(entry)) : visible), [visible, unseen]);
+  /**
+   * The table's groups. In the queue (2026-10-02): what needs review first —
+   * approved automatically and not looked at, then waiting for a decision —
+   * and the rejected and removed entries, decided and kept on record, last.
+   * Anywhere else, one list, newest first.
+   */
+  const groups = useMemo(() => {
+    if (filters.status !== NEEDS_ATTENTION) return [{ key: "all", entries: visible }];
+    const decided = (entry: CostEntryView) => entry.status === "rejected" || entry.status === "removed";
+    return [
+      { key: "unseen", entries: unseen },
+      { key: "decide", entries: visible.filter((entry) => !awaitingLook(entry) && !decided(entry)) },
+      { key: "decided", entries: visible.filter((entry) => !awaitingLook(entry) && decided(entry)) },
+    ].filter((group) => group.entries.length > 0);
+  }, [visible, unseen, filters.status]);
+  /** In the queue: how many entries wait for an admin — a look or a decision. */
+  const toReview = groups.filter((group) => group.key === "unseen" || group.key === "decide").reduce((sum, group) => sum + group.entries.length, 0);
   /** Every cleaner and handyman an entry names, A to Z, for the filter. */
   const people = useMemo(() => {
     const byId = new Map<string, string>();
@@ -517,7 +543,7 @@ function Costs() {
                   {propertyName !== null && (
                     <>
                       {" · "}
-                      <Link href={`/admin/property?id=${encodeURIComponent(filters.propertyId)}`} prefetch={false} className={styles.linkButton} title="The property's page: its costs by month, income, statement and preview">
+                      <Link href={`/admin/property?id=${encodeURIComponent(filters.propertyId)}&tab=costs`} prefetch={false} className={styles.linkButton} title="The property's page: its costs by month, income, statement and preview">
                         Property page
                       </Link>
                     </>
@@ -532,22 +558,24 @@ function Costs() {
                 )}
               </div>
             ) : (
-              <p className={styles.modeLine}>
+              <p
+                className={styles.modeLine}
+                title={
+                  filters.status === NEEDS_ATTENTION
+                    ? "Everything not yet approved, and every receipt approved automatically (under $200.00) that nobody has looked at. Approve an entry and it moves to its property's ledger; mark an automatic one seen and it leaves the queue; reject or remove an entry and it stays here, marked, at the bottom."
+                    : undefined
+                }
+              >
                 {filters.status === NEEDS_ATTENTION ? (
                   <>
                     <strong>Review queue</strong>
-                    {oneProperty && <> · {propertyName ?? "Unknown property"}</>} · everything not yet approved, and
-                    every receipt approved automatically (under $200.00) that nobody has looked at. Approve an entry and
-                    it moves to its property’s ledger; mark an automatic one seen and it leaves the queue; reject or
-                    remove an entry and it stays here, marked.
+                    {oneProperty && <> · {propertyName ?? "Unknown property"}</>} · {toReview === 0 ? "nothing to review" : `${toReview} to review`}
                     {oneProperty && (
                       <>
-                        {" "}
-                        Approved entries are in{" "}
-                        <button type="button" className={styles.linkButton} onClick={() => setFilter({ status: "approved" })}>
-                          its ledger
+                        {" · "}
+                        <button type="button" className={styles.linkButton} onClick={() => setFilter({ status: "approved" })} title="Its approved entries, with the dates, totals and both exports">
+                          Ledger
                         </button>
-                        .
                       </>
                     )}
                   </>
@@ -677,8 +705,8 @@ function Costs() {
               </div>
             </section>
 
-            {/* ── Totals for what is shown, and the reports ── */}
-            {ledger ? (
+            {/* ── A ledger's line: its totals and its two exports, over its entries ── */}
+            {ledger && (
               /* On the property's page: one line, and the two exports beside it. */
               <section className={styles.summaryRow} aria-label="Totals">
                 <span className={styles.summaryText}>
@@ -700,7 +728,142 @@ function Costs() {
                   </span>
                 )}
               </section>
-            ) : (
+            )}
+
+            {oneProperty && (
+              <div className={styles.tabs} role="tablist" aria-label="Show">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={showing === "entries"}
+                  className={`${styles.tab} ${showing === "entries" ? styles.tabActive : ""}`}
+                  onClick={() => setView("entries")}
+                >
+                  Entries
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={showing === "items"}
+                  className={`${styles.tab} ${showing === "items" ? styles.tabActive : ""}`}
+                  onClick={() => setView("items")}
+                >
+                  Items bought
+                </button>
+              </div>
+            )}
+
+            <div className={`${styles.layout} ${selectedId === null ? styles.layoutWide : styles.layoutOpen}`}>
+              {/* ── List ── */}
+              <section className={styles.listPane} aria-label={showing === "items" ? "Items bought" : "Entries"}>
+                {visible.length === 0 && ledger ? (
+                  <div className={shared.empty}>
+                    <Receipt size={48} strokeWidth={1} />
+                    <h2>No approved costs in these dates</h2>
+                    {waiting > 0 && (
+                      <p>
+                        <button type="button" className={styles.linkButton} onClick={() => setFilter({ status: NEEDS_ATTENTION })}>
+                          {waiting === 1 ? "1 entry is" : `${waiting} entries are`} waiting in the review queue
+                        </button>
+                      </p>
+                    )}
+                  </div>
+                ) : visible.length === 0 ? (
+                  <div className={shared.empty}>
+                    <Search size={48} strokeWidth={1} />
+                    <h2>No entries match these filters</h2>
+                    <p>Try another property, status or dates.</p>
+                  </div>
+                ) : showing === "items" ? (
+                  <ItemsTable rows={items} selectedId={selectedId} onOpen={open} />
+                ) : (
+                  <div className={`${shared.tableContainer} ${styles.tableScroll}`}>
+                    {/* One line per entry: every column as wide as its widest entry, the property — or, for one
+                        property, who logged it — taking what is left (2026-10-02). */}
+                    <table className={`${shared.table} ${styles.entryTable}`}>
+                      <thead>
+                        <tr>
+                          <th className={styles.colFit}>Sent</th>
+                          {/* With one property chosen every row is that property's: its name is in the heading or the filter. */}
+                          {!oneProperty && <th className={styles.colFlex}>Property</th>}
+                          <th className={oneProperty ? styles.colFlex : styles.colFit}>Logged by</th>
+                          <th className={`${styles.colFit} ${styles.num}`}>Total</th>
+                          <th className={styles.colFit}>Status</th>
+                          <th className={`${styles.colFit} ${styles.colCenter} ${styles.colReceipt}`}>Receipt</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {groups.map((group) => (
+                          <Fragment key={group.key}>
+                            {/* In the queue, each group under its heading: what needs review first, the decided last. */}
+                            {group.key !== "all" && (
+                              <tr className={styles.groupRow}>
+                                <td colSpan={oneProperty ? 5 : 6}>
+                                  <span className={styles.groupTitle}>
+                                    {group.key === "unseen" ? "Approved automatically, not yet looked at" : group.key === "decide" ? "Needs a decision" : "Rejected or removed"} ({group.entries.length})
+                                  </span>
+                                  {group.key === "unseen" && (
+                                    <button
+                                      type="button"
+                                      className={styles.btnGhost}
+                                      disabled={marking !== null}
+                                      onClick={() => markSeen(unseen)}
+                                      title="Each already counts in its ledger. Seen takes it out of the queue; so does correcting, removing or rejecting it."
+                                    >
+                                      <Eye size={14} aria-hidden />
+                                      <span>{marking === "all" ? "Marking…" : `Mark all ${unseen.length} as seen`}</span>
+                                    </button>
+                                  )}
+                                  {group.key === "decided" && <span className={styles.note}>Kept on record; counted nowhere.</span>}
+                                </td>
+                              </tr>
+                            )}
+                            {group.entries.map((entry) => (
+                              <EntryRow
+                                key={entry.id}
+                                entry={entry}
+                                isOpen={entry.id === selectedId}
+                                showProperty={!oneProperty}
+                                pdf={pdfStates.get(entry.id) ?? null}
+                                seen={group.key === "unseen" ? { marking: marking !== null, busy: marking === entry.id, onSeen: () => markSeen([entry]) } : null}
+                                onOpen={open}
+                              />
+                            ))}
+                          </Fragment>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+
+              {/* ── The open entry: beside the list only when one is open, so the table has the width otherwise ── */}
+              {selectedId !== null && (
+                <aside ref={detailRef} className={styles.detailPane} aria-label="Entry">
+                  {selected ? (
+                    <EntryPane
+                      key={selected.id}
+                      entry={selected}
+                      pdf={pdfStates.get(selected.id) ?? null}
+                      pattern={selected.cleaner.id === null ? null : (patterns.find((pattern) => pattern.cleanerId === selected.cleaner.id) ?? null)}
+                      statements={selected.property.id === null ? null : (statementsByProperty[selected.property.id] ?? { kind: "loading" })}
+                      onChanged={replaceEntry}
+                      onClose={closePane}
+                    />
+                  ) : (
+                    <div className={styles.detailState}>
+                      <p>This entry is not in the list. It may have been opened from an old link.</p>
+                      <button type="button" className={styles.btnGhost} onClick={closePane}>
+                        Close
+                      </button>
+                    </div>
+                  )}
+                </aside>
+              )}
+            </div>
+
+            {/* ── Totals for what is shown, and the reports: at the bottom, under the entries (Kian, 2026-10-02) ── */}
+            {!ledger && (
             <section className={styles.totals} aria-label="Totals">
               <div className={styles.totalsHead}>
                 <h2 className={styles.totalsTitle}>Totals for what is shown</h2>
@@ -711,11 +874,7 @@ function Costs() {
                 </span>
               </div>
               {visible.length === 0 ? (
-                <p className={styles.note}>
-                  {ledger
-                    ? "Nothing to add up: this property has no approved costs in these dates."
-                    : "Nothing to add up: no entries match these filters."}
-                </p>
+                <p className={styles.note}>Nothing to add up: no entries match these filters.</p>
               ) : (
                 <div className={styles.tableScroll}>
                   <table className={styles.totalsTable}>
@@ -764,203 +923,109 @@ function Costs() {
               </div>
             </section>
             )}
-
-            {oneProperty && (
-              <div className={styles.tabs} role="tablist" aria-label="Show">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={showing === "entries"}
-                  className={`${styles.tab} ${showing === "entries" ? styles.tabActive : ""}`}
-                  onClick={() => setView("entries")}
-                >
-                  Entries
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={showing === "items"}
-                  className={`${styles.tab} ${showing === "items" ? styles.tabActive : ""}`}
-                  onClick={() => setView("items")}
-                >
-                  Items bought
-                </button>
-              </div>
-            )}
-
-            <div className={styles.layout}>
-              {/* ── List ── */}
-              <section className={styles.listPane} aria-label={showing === "items" ? "Items bought" : "Entries"}>
-                {visible.length === 0 && ledger ? (
-                  <div className={shared.empty}>
-                    <Receipt size={48} strokeWidth={1} />
-                    <h2>No approved costs in these dates</h2>
-                    {waiting > 0 && (
-                      <p>
-                        <button type="button" className={styles.linkButton} onClick={() => setFilter({ status: NEEDS_ATTENTION })}>
-                          {waiting === 1 ? "1 entry is" : `${waiting} entries are`} waiting in the review queue
-                        </button>
-                      </p>
-                    )}
-                  </div>
-                ) : visible.length === 0 ? (
-                  <div className={shared.empty}>
-                    <Search size={48} strokeWidth={1} />
-                    <h2>No entries match these filters</h2>
-                    <p>Try another property, status or dates.</p>
-                  </div>
-                ) : showing === "items" ? (
-                  <ItemsTable rows={items} selectedId={selectedId} onOpen={open} />
-                ) : (
-                  <div className={`${shared.tableContainer} ${styles.tableScroll}`}>
-                    <table className={shared.table}>
-                      <thead>
-                        <tr>
-                          <th>Sent</th>
-                          {/* With one property chosen every row is that property's: its name is in the heading or the filter. */}
-                          {!oneProperty && <th>Property</th>}
-                          <th>Logged by</th>
-                          <th className={styles.num}>Items</th>
-                          <th className={styles.num}>Tax</th>
-                          <th className={styles.num}>Total</th>
-                          <th>Status</th>
-                          <th>Receipt</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {/* Approved automatically, not yet looked at: its own group at the top of the queue (dispatch 24). */}
-                        {unseen.length > 0 && (
-                          <tr className={styles.groupRow}>
-                            <td colSpan={oneProperty ? 7 : 8}>
-                              <span className={styles.groupTitle}>Approved automatically, not yet looked at ({unseen.length})</span>
-                              <button type="button" className={styles.btnGhost} disabled={marking !== null} onClick={() => markSeen(unseen)}>
-                                <Eye size={14} aria-hidden />
-                                <span>{marking === "all" ? "Marking…" : `Mark all ${unseen.length} as seen`}</span>
-                              </button>
-                              <span className={styles.note}>Each already counts in its ledger. Seen takes it out of the queue; so does correcting, removing or rejecting it.</span>
-                            </td>
-                          </tr>
-                        )}
-                        {[...unseen, ...rest].map((entry, i) => {
-                          const isOpen = entry.id === selectedId;
-                          const unseenRow = i < unseen.length;
-                          return (
-                            <Fragment key={entry.id}>
-                              {unseen.length > 0 && i === unseen.length && (
-                                <tr className={styles.groupRow}>
-                                  <td colSpan={oneProperty ? 7 : 8}>
-                                    <span className={styles.groupTitle}>Needs a decision ({rest.length})</span>
-                                  </td>
-                                </tr>
-                              )}
-                              <tr
-                                className={`${styles.row} ${isOpen ? styles.rowOpen : ""} ${countsInTotals(entry.status) ? "" : styles.rowOut}`}
-                                onClick={() => open(entry.id)}
-                              >
-                                <td className={styles.whenCell}>
-                                  <button
-                                    type="button"
-                                    className={styles.rowButton}
-                                    aria-current={isOpen ? "true" : undefined}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      open(entry.id);
-                                    }}
-                                  >
-                                    <SentAt iso={entry.createdAt} />
-                                  </button>
-                                </td>
-                                {!oneProperty && <td className={styles.nameCell}>{propertyLabel(entry)}</td>}
-                                <td className={`${styles.nameCell} ${styles.cleanerCell}`}>
-                                  {cleanerLabel(entry)}
-                                  <KindBadge kind={entry.kind} />
-                                </td>
-                                <td className={styles.num}>
-                                  {entry.linesNow.kind === "ok" ? formatCents(entry.linesNow.itemsCents) : <Absent />}
-                                </td>
-                                <td className={styles.num}>
-                                  {entry.linesNow.kind === "ok" ? <TaxText now={entry.linesNow} /> : <Absent />}
-                                </td>
-                                <td className={styles.num}>
-                                  <TotalCell entry={entry} />
-                                  {/* Under the total it is about, so it is in view wherever the total is. */}
-                                  <PdfMark state={pdfStates.get(entry.id) ?? null} />
-                                </td>
-                                <td>
-                                  <span className={styles.statusCell}>
-                                    <EntryStatusBadge status={entry.status} auto={entry.autoApproved !== null} />
-                                    {unseenRow && (
-                                      <button
-                                        type="button"
-                                        className={styles.lineAction}
-                                        disabled={marking !== null}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          markSeen([entry]);
-                                        }}
-                                        aria-label="Mark as seen"
-                                      >
-                                        {marking === entry.id ? "Marking…" : "Seen"}
-                                      </button>
-                                    )}
-                                  </span>
-                                </td>
-                                <td>
-                                  {entry.receipts !== null && entry.receipts.length > 0 ? (
-                                    <ImageIcon size={16} className={styles.receiptIcon} aria-label="Receipt photo" />
-                                  ) : entry.kind === "work" ? (
-                                    <span className={styles.muted} title="A handyman's work entry has no receipt">
-                                      <Wrench size={13} aria-hidden /> No receipt: handyman work
-                                    </span>
-                                  ) : entry.kind === "office" ? (
-                                    <span className={styles.muted} title="Added by the office: a description and an amount, no receipt">
-                                      <Building2 size={13} aria-hidden /> No receipt: added by the office
-                                    </span>
-                                  ) : (
-                                    <Absent label="None" />
-                                  )}
-                                </td>
-                              </tr>
-                            </Fragment>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </section>
-
-              {/* ── The open entry ── */}
-              <aside ref={detailRef} className={styles.detailPane} aria-label="Entry">
-                {selected ? (
-                  <EntryPane
-                    key={selected.id}
-                    entry={selected}
-                    pdf={pdfStates.get(selected.id) ?? null}
-                    pattern={selected.cleaner.id === null ? null : (patterns.find((pattern) => pattern.cleanerId === selected.cleaner.id) ?? null)}
-                    statements={selected.property.id === null ? null : (statementsByProperty[selected.property.id] ?? { kind: "loading" })}
-                    onChanged={replaceEntry}
-                    onClose={closePane}
-                  />
-                ) : selectedId !== null ? (
-                  <div className={styles.detailState}>
-                    <p>This entry is not in the list. It may have been opened from an old link.</p>
-                    <button type="button" className={styles.btnGhost} onClick={closePane}>
-                      Close
-                    </button>
-                  </div>
-                ) : (
-                  <div className={styles.detailState}>
-                    <Receipt size={28} strokeWidth={1.5} />
-                    <p>Select an entry to see its receipt, items and history.</p>
-                  </div>
-                )}
-              </aside>
-            </div>
           </>
         )}
       </main>
     </div>
+  );
+}
+
+/**
+ * One entry, one line (2026-10-02): when it was sent, the property (cut to
+ * the column, its whole name on hover), who logged it with a one-word kind,
+ * the total with its PDF mark under it, the status, and whether a receipt
+ * photo came with it. A click anywhere opens it in the pane.
+ */
+function EntryRow({
+  entry,
+  isOpen,
+  showProperty,
+  pdf,
+  seen,
+  onOpen,
+}: {
+  entry: CostEntryView;
+  isOpen: boolean;
+  showProperty: boolean;
+  pdf: EntryPdfState | null;
+  /** In the queue's first group: the Seen button, and whether a mark is under way. */
+  seen: { marking: boolean; busy: boolean; onSeen: () => void } | null;
+  onOpen: (id: string) => void;
+}) {
+  const property = propertyLabel(entry);
+  const who = cleanerLabel(entry);
+  return (
+    <tr className={`${styles.row} ${isOpen ? styles.rowOpen : ""} ${countsInTotals(entry.status) ? "" : styles.rowOut}`} onClick={() => onOpen(entry.id)}>
+      <td className={`${styles.whenCell} ${styles.colFit}`}>
+        <button
+          type="button"
+          className={styles.rowButton}
+          aria-current={isOpen ? "true" : undefined}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpen(entry.id);
+          }}
+        >
+          <SentAt iso={entry.createdAt} />
+        </button>
+      </td>
+      {showProperty && (
+        <td className={`${styles.colFlex} ${styles.textCell}`}>
+          <span className={styles.oneLine} title={property}>
+            {property}
+          </span>
+        </td>
+      )}
+      <td className={`${showProperty ? styles.colFit : styles.colFlex} ${styles.textCell}`}>
+        <span className={styles.who}>
+          <span className={styles.oneLine} title={who}>
+            {who}
+          </span>
+          <span className={styles.kindSlot}>
+            <KindBadge kind={entry.kind} compact />
+          </span>
+        </span>
+      </td>
+      <td className={`${styles.colFit} ${styles.num}`}>
+        <TotalCell entry={entry} />
+        {/* Under the total it is about, so it is in view wherever the total is. */}
+        <PdfMark state={pdf} />
+      </td>
+      <td className={styles.colFit}>
+        <span className={styles.statusCell}>
+          <EntryStatusBadge status={entry.status} auto={entry.autoApproved !== null} />
+          {seen && (
+            <button
+              type="button"
+              className={styles.lineAction}
+              disabled={seen.marking}
+              onClick={(e) => {
+                e.stopPropagation();
+                seen.onSeen();
+              }}
+              aria-label="Mark as seen"
+            >
+              {seen.busy ? "Marking…" : "Seen"}
+            </button>
+          )}
+        </span>
+      </td>
+      <td className={`${styles.colFit} ${styles.colCenter} ${styles.colReceipt}`}>
+        {entry.receipts !== null && entry.receipts.length > 0 ? (
+          <ImageIcon size={16} className={styles.receiptIcon} aria-label="Receipt photo" />
+        ) : entry.kind === "work" ? (
+          <span className={styles.muted} title="A handyman's work entry has no receipt" aria-label="No receipt: handyman work">
+            —
+          </span>
+        ) : entry.kind === "office" ? (
+          <span className={styles.muted} title="Added by the office: a description and an amount, no receipt" aria-label="No receipt: added by the office">
+            —
+          </span>
+        ) : (
+          <Absent label="None" />
+        )}
+      </td>
+    </tr>
   );
 }
 
@@ -992,14 +1057,7 @@ function TotalsRow({ label, totals, strong = false }: { label: string; totals: T
   );
 }
 
-/** An entry's tax in words or figures: the amount, "none", or "in items" on an entry sent before tax was its own field. */
-export function TaxText({ now }: { now: Extract<CostEntryView["linesNow"], { kind: "ok" }> }) {
-  if (now.taxShape === "in-lines") return <span className={styles.muted} title="Sent before tax was its own field: any tax is a line among the items">in items</span>;
-  if (now.taxCents === null) return <span className={styles.muted}>none</span>;
-  return <>{formatCents(now.taxCents)}</>;
-}
-
-/** An entry's total as it now counts, marked when corrected; struck through when it does not count. */
+/** An entry's total as it now counts, marked when corrected; struck through when it does not count. Its items and tax are its tooltip. */
 function TotalCell({ entry }: { entry: CostEntryView }) {
   const now = entry.linesNow;
   if (now.kind !== "ok") {
@@ -1009,8 +1067,9 @@ function TotalCell({ entry }: { entry: CostEntryView }) {
       </span>
     );
   }
+  const tax = now.taxShape === "in-lines" ? "tax among the items (sent before tax was its own field)" : now.taxCents === null ? "no tax" : `tax ${formatCents(now.taxCents)}`;
   return (
-    <span className={styles.totalCell}>
+    <span className={styles.totalCell} title={`Items ${formatCents(now.itemsCents)} · ${tax}`}>
       {now.corrected && (
         <span
           className={styles.correctedMark}

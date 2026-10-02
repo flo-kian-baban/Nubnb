@@ -1,11 +1,12 @@
 /* The property's page (dispatch 23F): everything about one property, bound
-   to a month — four tabs on the left, the statement preview on the right.
+   to a month — the month picker over four tabs on the left, the statement
+   preview on the right.
    The header, the buttons and the state badges come from ../page.module.css;
    the entry pane and the add-cost form draw from ../costs/page.module.css.
    The field and block styles are the statement editor's (dispatch 23B–23E),
    moved here with it. */
 
-/* ── The head: the property, the month, its state ── */
+/* ── The head: the property ── */
 .head {
   display: flex;
   flex-wrap: wrap;
@@ -19,9 +20,21 @@
   font-weight: 700;
   color: #ffffff;
   letter-spacing: -0.02em;
-  line-height: 1.25;
+  /* 28 px, not 1.25 (27.5 px): a whole-pixel line keeps the month bar, the tabs and the preview below it on whole pixels. */
+  line-height: 28px;
   overflow-wrap: anywhere;
   margin-right: auto;
+}
+
+/* ── The month and its state, in the left column over the tabs ── */
+.monthBar {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-bottom: 14px;
 }
 .monthRow {
   display: flex;
@@ -32,13 +45,14 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: var(--ctl-h, 40px);
+  height: var(--ctl-h, 40px);
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--ctl-border, rgba(255, 255, 255, 0.09));
+  background: var(--ctl-bg, rgba(255, 255, 255, 0.04));
   color: rgba(255, 255, 255, 0.8);
   cursor: pointer;
+  flex-shrink: 0;
 }
 .monthStep:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.08);
@@ -49,32 +63,54 @@
   cursor: default;
 }
 .monthSelect {
-  min-width: 280px;
+  min-width: 250px;
 }
-.headState {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 10px;
+.monthSelect > button {
+  flex: 1 1 auto;
+  justify-content: space-between;
 }
 
-/* ── Two columns: the tabs and their body, the preview ── */
+/* ── Two columns: the month bar over the tabs and their body; the preview beside both ──
+   The month bar belongs to the page and the rest to MonthWork, which is remounted with each month;
+   MonthWork's own box is dropped (display: contents) so its two columns sit in this grid. The second
+   row is 1fr so a preview taller than the left column grows that row, never the month bar's. */
 .layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(400px, 44%);
-  gap: 20px;
+  /* Where round() is understood: the preview's column a whole multiple of 17 px, so its Letter-shaped card
+     (8.5 × 11, 17 px wide for every 22 px high) is whole pixels both ways and the page's edges fall on whole
+     pixels, not across one. */
+  grid-template-columns: minmax(0, 1fr) minmax(408px, round(down, 44%, 17px));
+  grid-template-rows: auto 1fr;
+  column-gap: 20px;
   align-items: start;
+}
+.work {
+  display: contents;
+}
+.side {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  min-width: 0;
 }
 @media (max-width: 1100px) {
   .layout {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+  }
+  .side {
+    grid-column: 1;
+    grid-row: 3;
+    margin-top: 20px;
   }
   .preview {
     position: static;
-    height: 70vh;
+    max-height: none;
   }
 }
 .left {
+  grid-column: 1;
+  grid-row: 2;
   min-width: 0;
 }
 
@@ -124,7 +160,7 @@
 .body {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
 }
 
 /* ── Blocks and fields (the editor's) ── */
@@ -136,10 +172,11 @@
 }
 .blockHead {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  margin: 0 0 10px;
+  gap: 8px 12px;
+  margin: 0 0 12px;
 }
 .blockTitle {
   margin: 0;
@@ -165,8 +202,8 @@
 .textInput {
   width: 100%;
   height: 36px;
-  padding: 0 10px;
-  border-radius: 9px;
+  padding: 0 11px;
+  border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(0, 0, 0, 0.25);
   color: #fff;
@@ -237,11 +274,14 @@ textarea.addressInput {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 8px 14px;
+  height: 36px;
+  padding: 0 14px;
   border-radius: 10px;
   font-size: 13px;
   font-weight: 600;
   font-family: inherit;
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
   text-decoration: none;
   transition: all 0.2s ease;
@@ -268,8 +308,18 @@ textarea.addressInput {
   opacity: 0.45;
   cursor: default;
 }
+/* Delete statement… (dispatch 23G): a ghost button in the past-due red, the one destructive action on the page. */
+.btnDanger {
+  color: #ef5350;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+.btnDanger:hover:not(:disabled) {
+  color: #ff6b68;
+  background: rgba(239, 68, 68, 0.1);
+}
 .btnSmall {
-  padding: 4px 9px;
+  height: 30px;
+  padding: 0 10px;
   font-size: 12px;
 }
 .linkButton {
@@ -311,80 +361,123 @@ textarea.addressInput {
   cursor: default;
 }
 
-/* ── Lines: order, description, dates, quantity, rate, the computed amount, remove ── */
+/* ── Lines: order, description, quantity, rate, the computed amount, remove; the dates under the description ──
+   One grid for the head and every line, 12 px apart: the description takes what the numbers leave (355 px of a
+   707 px block at 1,440 px). The dates are not a column: an optional detail of the line, as the statement prints
+   them after the description, they sit under it as a small field as wide as its range. Every label in the head
+   stands over the text of the field below it, 12 px in from the field's edge (1 px border, 11 px padding); the
+   amount is plain text, so its label is flush. Sized from the block's own width (a container query), not the
+   window's. */
+.linesBlock {
+  container: lines / inline-size;
+  --line-order: 20px;
+  --line-gap: 12px;
+}
 .lineHead,
 .lineRow {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) 172px 50px 88px 88px 32px;
-  gap: 8px;
+  grid-template-columns: var(--line-order) minmax(0, 1fr) 56px 96px 92px 28px;
+  column-gap: var(--line-gap);
   align-items: center;
 }
 .lineHead {
-  padding: 0 0 4px;
+  padding: 0 0 8px;
   font-size: 11px;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.45);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.lineHead > :nth-child(2) {
+  padding-left: 12px;
+}
+.lineHead > :nth-child(3),
+.lineHead > :nth-child(4) {
+  padding-right: 12px;
 }
 .lineRow {
-  padding: 8px 0;
+  grid-template-areas:
+    "order desc qty rate amount remove"
+    "order dates dates dates dates .";
+  row-gap: 8px;
+  padding: 12px 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  /* The dates field, smaller than a filter's: 30 px, its icon 12 px in, under the description's text. */
+  --ctl-h: 30px;
+  --ctl-radius: 8px;
+  --ctl-pad-l: 11px;
+  --ctl-pad-r: 10px;
+  --ctl-gap: 7px;
+  --ctl-font: 12.5px;
+  --ctl-bg: transparent;
 }
 .lineRow:last-of-type {
   border-bottom: none;
 }
+.lineRow > :nth-child(1) {
+  grid-area: order;
+}
+.lineRow > :nth-child(2) {
+  grid-area: desc;
+}
+.lineRow > :nth-child(3) {
+  grid-area: dates;
+  justify-self: start;
+}
+.lineRow > :nth-child(4) {
+  grid-area: qty;
+}
+.lineRow > :nth-child(5) {
+  grid-area: rate;
+}
+.lineRow > :nth-child(6) {
+  grid-area: amount;
+}
+.lineRow > :nth-child(7) {
+  grid-area: remove;
+  justify-self: end;
+}
 .lineDates {
   min-width: 0;
+  max-width: 100%;
   font-size: 12.5px;
   color: #e8edf3;
+}
+span.lineDates {
+  padding-left: 12px;
 }
 .lineAmount {
   font-size: 13px;
   color: #e8edf3;
   font-variant-numeric: tabular-nums;
 }
-/* What a line written before dispatch 23D also carries: shown, kept, not edited. */
+/* What a line written before dispatch 23D also carries: shown, kept, not edited; a third row only when there is one. */
 .lineDetails {
-  grid-column: 2 / 7;
+  grid-column: 2 / 6;
+  grid-row: 3;
   margin: 0;
+  padding-left: 12px;
   font-size: 12px;
   color: rgba(255, 255, 255, 0.5);
 }
-/* Below 1,300 px the preview takes its share of the width, so a line is two rows: the description, quantity, rate,
-   amount and remove on the first, the dates under the description on the second (and a line's earlier details under those). */
-@media (max-width: 1300px) {
+.addLine {
+  margin: 12px 0 0 calc(var(--line-order) + var(--line-gap));
+}
+/* A block too narrow to leave the description 140 px beside the numbers (352 px of them and the gaps): the
+   description on its own row, the numbers under it, the dates under those. */
+@container lines (max-width: 491px) {
   .lineHead {
     display: none;
   }
   .lineRow {
-    grid-template-columns: 28px minmax(0, 1fr) 50px 88px 88px 32px;
+    grid-template-columns: var(--line-order) 56px 96px minmax(0, 1fr) 28px;
     grid-template-areas:
-      "order desc qty rate amount remove"
-      "order dates dates dates dates dates"
-      "order details details details details details";
+      "order desc desc desc remove"
+      "order qty rate amount ."
+      "order dates dates dates .";
   }
-  .lineRow > :nth-child(1) {
-    grid-area: order;
-  }
-  .lineRow > :nth-child(2) {
-    grid-area: desc;
-  }
-  .lineRow > :nth-child(3) {
-    grid-area: dates;
-  }
-  .lineRow > :nth-child(4) {
-    grid-area: qty;
-  }
-  .lineRow > :nth-child(5) {
-    grid-area: rate;
-  }
-  .lineRow > :nth-child(6) {
-    grid-area: amount;
-  }
-  .lineRow > :nth-child(7) {
-    grid-area: remove;
-  }
-  .lineRow .lineDetails {
-    grid-area: details;
+  .lineDetails {
+    grid-column: 2 / 5;
+    grid-row: 4;
   }
 }
 .orderButtons {
@@ -416,10 +509,13 @@ textarea.addressInput {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 10px 12px;
 }
+/* The fee: a rate, a base and an amount, each as wide as the number it holds (180 px fits $999,999.99 with room),
+   not stretched across the block; the label under them takes the full width. */
 .feeGrid {
   display: grid;
-  grid-template-columns: 90px minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: 96px 180px 180px;
   gap: 10px 12px;
+  justify-content: start;
 }
 .feeGrid .linkButton,
 .feeGrid .note,
@@ -432,7 +528,7 @@ textarea.addressInput {
 }
 .carriedGrid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 150px;
+  grid-template-columns: minmax(0, 1fr) 180px;
   gap: 10px 12px;
   align-items: start;
 }
@@ -447,6 +543,48 @@ textarea.addressInput {
 }
 
 /* ── Finish ── */
+/* The release status on the Finish tab: one row a month, the month, its badge, its reference or save time; the page's month shaded. */
+.releaseList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: max-content max-content minmax(0, 1fr);
+  column-gap: 20px;
+  row-gap: 2px;
+}
+/* Each row shares the list's columns (subgrid), so every column is as wide as its widest entry and no wider. */
+.releaseRow {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
+  min-height: 34px;
+  padding: 4px 10px;
+  border-radius: 8px;
+}
+.releaseRowHere {
+  background: rgba(255, 255, 255, 0.05);
+}
+.releaseMonth {
+  font-size: 13px;
+}
+.releaseMonthHere {
+  font-weight: 600;
+  color: #ffffff;
+}
+.releaseMonthUpcoming {
+  color: rgba(255, 255, 255, 0.45);
+}
+.releaseBadge {
+  display: flex;
+}
+.releaseDetail {
+  min-width: 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+  overflow-wrap: anywhere;
+}
 .finishRow {
   display: flex;
   flex-wrap: wrap;
@@ -489,40 +627,69 @@ textarea.addressInput {
   align-items: center;
   justify-content: space-between;
   gap: 8px 12px;
-  margin: 0 0 10px;
+  margin: 0 0 12px;
+}
+.costsFoot {
+  margin: 12px 0 0;
 }
 .costsTotal {
   font-size: 13px;
   color: #c9d2dc;
   font-variant-numeric: tabular-nums;
 }
+/* The month's approved entries: the day each was submitted (the entry's name here), who logged it, its total.
+   The table keeps to the block's content edges, as the income lines do: its first and last columns have no
+   outer padding, so the day stands under the line above it and the total under the buttons' right edge. The
+   day and the total keep to one line and to their own width; who logged it takes the rest. */
 .costTable {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12.5px;
+  font-size: 13px;
+  line-height: 1.45;
 }
 .costTable th {
   text-align: left;
-  padding: 4px 6px;
+  padding: 0 12px 8px;
   font-size: 11px;
   font-weight: 600;
+  white-space: nowrap;
   color: rgba(255, 255, 255, 0.45);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 .costTable td {
-  padding: 7px 6px;
+  padding: 10px 12px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   vertical-align: top;
   color: #e8edf3;
 }
+.costTable th:first-child,
+.costTable td:first-child {
+  padding-left: 0;
+}
+.costTable th:last-child,
+.costTable td:last-child {
+  padding-right: 0;
+}
 .costTable tbody tr:last-child td {
   border-bottom: none;
+}
+.costWhen {
+  width: 1%;
+  white-space: nowrap;
+}
+.costTable th.num,
+.costTable td.num {
+  width: 1%;
 }
 .costRow {
   cursor: pointer;
 }
 .costRow:hover td {
-  background: rgba(255, 255, 255, 0.03);
+  color: #ffffff;
+}
+.costRow:hover .rowButton {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .costGroup td {
   padding-top: 12px;
@@ -559,11 +726,39 @@ textarea.addressInput {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+/* The log-a-cost form, under the head when open. */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  margin: 0 0 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.formTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffffff;
+}
+.formGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px 12px;
+}
+.formActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 /* The open entry, in place of the list: the costs page's pane, on this page. */
 .entryDrill {
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 16px;
+  border-radius: 14px;
 }
 .drillHead {
   display: flex;
@@ -572,36 +767,39 @@ textarea.addressInput {
   padding: 10px 14px 0;
 }
 
-/* ── The preview: two frames, swapped when the new one has loaded ── */
+/* ── The preview: the statement's pages drawn by PDF.js (PdfPages.tsx), each a canvas the card's width ──
+   The card has no border and no padding: the white page is its edge, cut by the 14 px corners, with nothing
+   of a PDF viewer's background, margin or shadow round it. The card is a Letter page's proportions, so one
+   page fills it exactly; a statement of several pages scrolls inside it, the pages 8 px apart. The grey shows
+   only between pages and while there is nothing to draw. */
 .preview {
   position: sticky;
   top: 80px;
-  height: calc(100vh - 110px);
-  min-height: 520px;
+  aspect-ratio: 8.5 / 11;
+  max-height: calc(100vh - 96px);
   border-radius: 14px;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
   background: #525659;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
 }
-.previewFrame {
-  position: absolute;
-  inset: 0;
+.previewPages {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.previewPage {
+  display: block;
   width: 100%;
-  height: 100%;
-  border: none;
-  background: #525659;
-}
-.previewHidden {
-  visibility: hidden;
-}
-.previewNote {
-  margin: 8px 0 0;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.45);
+  height: auto;
+  background: #ffffff;
 }
 .previewEmpty {
   position: absolute;
   inset: 0;
+  background: #525659;
   display: flex;
   align-items: center;
   justify-content: center;

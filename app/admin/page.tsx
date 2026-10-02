@@ -9,8 +9,11 @@ import { PropertyForm } from "./components/PropertyForm";
 import { PinGate } from "./components/PinGate";
 import { NoticeBanner, useNotice } from "./components/Notice";
 import { AdminHeader } from "./components/AdminHeader";
-import { DashboardStats } from "./components/DashboardStats";
+import { DashboardStats, useStatements } from "./components/DashboardStats";
 import { AdminSelect } from "./components/AdminSelect";
+import { ReportingStatusCell } from "./components/StatementStatus";
+import { torontoDayOf } from "@/app/lib/costs/report";
+import { reportingStatuses } from "@/app/lib/reports/statement";
 import styles from "./page.module.css";
 import {
   Plus,
@@ -102,6 +105,16 @@ function filtersFromUrl() {
 const propertyHref = (id: string) => `/admin/property?id=${encodeURIComponent(id)}`;
 
 export default function AdminPage() {
+  // Everything under the PIN gate (as the property page): the statements read is admin-only, and the page's
+  // reads start once the session exists (dispatch 23G moved that read up from the tiles into the page).
+  return (
+    <PinGate>
+      <AdminHome />
+    </PinGate>
+  );
+}
+
+function AdminHome() {
   const router = useRouter();
   const [properties, setProperties] = useState<Property[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -115,6 +128,19 @@ export default function AdminPage() {
   const { notice, show: showNotice, clear: clearNotice } = useNotice();
   const [editingProperty, setEditingProperty] = useState<Property | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
+
+  // The statements read (GET /api/admin/monthly-reports), shared by the Statements tile, its panel and
+  // the list's Statement column (dispatch 23G): every property's status by the one rule, `reportingStatus`.
+  const statementsRead = useStatements();
+  const today = torontoDayOf(new Date());
+  const statuses = useMemo(() => {
+    const read = statementsRead.statements;
+    if (read.kind !== "ready") return null;
+    // The list's properties and the tracker's: the same documents; both are included, so a property
+    // added since either read still has a status.
+    const ids = new Map([...read.data.properties, ...properties].map((p) => [p.id, { id: p.id }]));
+    return reportingStatuses({ today, properties: [...ids.values()], management: read.data.management, reports: read.data.reports });
+  }, [statementsRead.statements, properties, today]);
 
   // Search, filters and sort (2026-09-30). They start from the address bar
   // and are written back to it (?q=&city=&type=&beds=&sort=), so a reload or
@@ -319,7 +345,6 @@ export default function AdminPage() {
   };
 
   return (
-    <PinGate>
     <div className={styles.container}>
       {/* ── Header ── the shared one; this page's action is Add Property */}
       <AdminHeader current="properties">
@@ -333,8 +358,11 @@ export default function AdminPage() {
         {/* ── Notices (deletes, seeding) ── */}
         <NoticeBanner notice={notice} onDismiss={clearNotice} className={styles.pageNotice} />
 
-        {/* ── The six figures: each a link to where the work is (components/DashboardStats.tsx) ── */}
-        <DashboardStats properties={isLoading || loadError ? null : properties} />
+        {/* ── The four figures: each a way to where the work is (components/DashboardStats.tsx) ── */}
+        <DashboardStats properties={isLoading || loadError ? null : properties} propertiesError={isLoading ? null : loadError} statements={statementsRead} statuses={statuses} today={today} />
+
+        {/* Where the Units tile leads: the top of the list. */}
+        <div id="properties" className={styles.listAnchor} aria-hidden />
 
         {/* ── Search, filters and sort (2026-09-30) ──
             Search matches every word typed against the name, location, city,
@@ -485,15 +513,17 @@ export default function AdminPage() {
           </div>
         ) : (
           <div className={`${styles.tableContainer} ${styles.tableScroll}`}>
-            <table className={styles.table}>
+            {/* The name takes what is left; every other column is as wide as its widest entry. */}
+            <table className={`${styles.table} ${styles.propertyTable}`}>
               <thead>
                 <tr>
                   <th>Property</th>
-                  <th>Location</th>
-                  <th>Type</th>
-                  <th>Beds</th>
-                  <th>Price / Night</th>
-                  <th className={styles.actionsHeader}>Actions</th>
+                  <th className={styles.colFit}>Statement</th>
+                  <th className={styles.colFit}>Location</th>
+                  <th className={styles.colFit}>Type</th>
+                  <th className={`${styles.colFit} ${styles.colEnd}`}>Beds</th>
+                  <th className={`${styles.colFit} ${styles.colEnd}`}>Price / Night</th>
+                  <th className={`${styles.colFit} ${styles.colEnd}`}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -515,16 +545,26 @@ export default function AdminPage() {
                         <span className={styles.propertyName}>{p.name}</span>
                       </Link>
                     </td>
-                    <td><span className={styles.locationText}>{p.location}</span></td>
-                    <td>
+                    {/* The reporting cycle's status for the property, a link to its page at the month in question (dispatch 23G). */}
+                    <td className={styles.colFit}>
+                      {statuses?.get(p.id) ? (
+                        <ReportingStatusCell propertyId={p.id} status={statuses.get(p.id)!} />
+                      ) : statementsRead.statements.kind === "error" ? (
+                        <span className={styles.locationText} title={statementsRead.statements.title}>—</span>
+                      ) : (
+                        <span className={styles.locationText} aria-busy>…</span>
+                      )}
+                    </td>
+                    <td className={styles.colFit}><span className={styles.locationText}>{p.location}</span></td>
+                    <td className={styles.colFit}>
                       <span className={`${styles.typeBadge} ${getTypeBadgeClass(p.type)}`}>
                         {p.type}
                       </span>
                     </td>
-                    <td><span className={styles.bedsText}>{p.bedrooms}</span></td>
-                    <td><span className={styles.priceText}>${nightlyPrice(p).toLocaleString()} {p.currency}</span></td>
+                    <td className={`${styles.colFit} ${styles.colEnd}`}><span className={styles.bedsText}>{p.bedrooms}</span></td>
+                    <td className={`${styles.colFit} ${styles.colEnd}`}><span className={styles.priceText}>${nightlyPrice(p).toLocaleString()} {p.currency}</span></td>
                     {/* A click in this cell that misses a control does nothing: it is beside Delete. */}
-                    <td className={styles.actionsCell} onClick={(event) => event.stopPropagation()} title="">
+                    <td className={`${styles.actionsCell} ${styles.colFit}`} onClick={(event) => event.stopPropagation()} title="">
                       <div className={styles.actionsFlex}>
                         <Link
                           href={propertyHref(p.id)}
@@ -566,6 +606,5 @@ export default function AdminPage() {
         />
       )}
     </div>
-    </PinGate>
   );
 }

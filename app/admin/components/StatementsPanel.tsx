@@ -15,11 +15,14 @@
  * link was made and when last, and Download PDF; a replaced statement is
  * listed under its row, marked, with the reason.
  *
- * The states, in the month's words: Finished; Draft (or Correction in
- * progress); "Open, not yet due" for the current month with nothing
- * started (dispatch 23D); "Past due" for a closed month with nothing
- * finished and nothing started (dispatch 23F). Rows sort past due first,
- * then open, then drafts, then finished.
+ * Each row's badge is the month's standing in Nubnb's cycle (dispatch 23G,
+ * `monthStanding`, the rule the property list's column and the tile use):
+ * Finished; Due for the previous month and Past due for an earlier one,
+ * when no statement is finished; "Open, not yet due" for the current month
+ * (dispatch 23D). A draft is said beside the badge, not instead of it. Rows
+ * sort past due first, then due, then open, then finished. Under the line,
+ * the months other than the one shown that hold statements past due, each a
+ * way to that month.
  */
 
 import { useMemo, useState, type MouseEvent } from "react";
@@ -27,28 +30,21 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, Download, RefreshCw, X } from "lucide-react";
 import { NoticeBanner, useNotice } from "./Notice";
+import { StandingBadge, propertyMonthHref } from "./StatementStatus";
 import { fetchStatementLink, type TrackerData } from "@/app/lib/reports-client";
 import { formatCents } from "@/app/lib/cleaners/model";
 import { addMonths, displayRef, lastClosedMonth, monthLabel, monthOfDay, type ReportDownloadView } from "@/app/lib/reports/model";
-import { STATEMENT_STATE_LABELS, looseEnds, trackerCounts, trackerRows, type StatementState, type TrackerRow } from "@/app/lib/reports/statement";
+import { looseEnds, trackerCounts, trackerRows, type ReportingStatus, type TrackerRow } from "@/app/lib/reports/statement";
 import { SentAt, whenText } from "../costs/cost-display";
 import shared from "../page.module.css";
 import styles from "./StatementsPanel.module.css";
 
 const SESSION_HINT = "Your admin session may have expired — reload and sign in again.";
 
-/** The property's page for a month: where its statement is written. */
-export const propertyMonthHref = (propertyId: string, month: string) => `/admin/property?id=${encodeURIComponent(propertyId)}&month=${month}`;
-
-export const STATE_CLASS: Record<StatementState["kind"], string> = {
-  outstanding: shared.stateOutstanding,
-  open: shared.stateOpen,
-  draft: shared.stateDraft,
-  finished: shared.stateFinished,
-};
-
 interface Props {
   data: TrackerData;
+  /** Every property's status, by property ID: the months past due other than the one shown. */
+  statuses: Map<string, ReportingStatus>;
   month: string;
   /** Today, yyyy-mm-dd in Toronto. */
   today: string;
@@ -60,13 +56,19 @@ interface Props {
   onDownloaded: (record: ReportDownloadView) => void;
 }
 
-export function StatementsPanel({ data, month, today, onMonth, onClose, onRefresh, refreshing, onDownloaded }: Props) {
+export function StatementsPanel({ data, statuses, month, today, onMonth, onClose, onRefresh, refreshing, onDownloaded }: Props) {
   const router = useRouter();
   const { notice, show, clear } = useNotice();
   const [linking, setLinking] = useState<string | null>(null);
 
   const rows = useMemo<TrackerRow[]>(() => trackerRows({ month, today, ...data }), [data, month, today]);
   const counts = useMemo(() => trackerCounts(rows), [rows]);
+  /** The other months with statements past due, oldest first, and how many in each. */
+  const pastDueElsewhere = useMemo(() => {
+    const byMonth = new Map<string, number>();
+    for (const status of statuses.values()) for (const m of status.pastDue) if (m !== month) byMonth.set(m, (byMonth.get(m) ?? 0) + 1);
+    return [...byMonth.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [statuses, month]);
   const ends = useMemo(() => {
     const names = new Map(data.properties.map((p) => [p.id, p.name?.trim() || "Unnamed property"]));
     return looseEnds(month, data.entries, data.reports, data.management, (id) => names.get(id) ?? "Unknown property");
@@ -121,13 +123,28 @@ export function StatementsPanel({ data, month, today, onMonth, onClose, onRefres
 
       <NoticeBanner notice={notice} onDismiss={clear} className={shared.pageNotice} />
 
-      <p className={`${styles.line} ${counts.outstanding > 0 ? styles.lineAlert : ""}`}>
-        <strong>{counts.finished} of {counts.inScope}</strong> statements finished
-        {counts.outstanding > 0 && <> · {counts.outstanding} past due</>}
+      <p className={`${styles.line} ${counts.pastDue > 0 ? styles.linePastDue : counts.due > 0 ? styles.lineAlert : ""}`}>
+        <strong>{counts.finished} of {counts.owed}</strong> statements finished
+        {counts.pastDue > 0 && <> · {counts.pastDue} past due</>}
+        {counts.due > 0 && <> · {counts.due} due</>}
         {counts.open > 0 && <> · {counts.open} open, not yet due</>}
         {counts.drafts > 0 && <> · {counts.drafts} {counts.drafts === 1 ? "draft" : "drafts"} in progress</>}
         {unreadable > 0 && <span className={styles.noteWarn}> · {unreadable} stored {unreadable === 1 ? "document is" : "documents are"} not in the written shape and left out</span>}
       </p>
+      {pastDueElsewhere.length > 0 && (
+        <p className={`${styles.line} ${styles.linePastDue}`}>
+          Past due in other months:{" "}
+          {pastDueElsewhere.map(([m, n], i) => (
+            <span key={m}>
+              {i > 0 && " · "}
+              <button type="button" className={styles.linkButton} onClick={() => onMonth(m)}>
+                {monthLabel(m)}
+              </button>{" "}
+              ({n})
+            </span>
+          ))}
+        </p>
+      )}
 
       {rows.length === 0 ? (
         <div className={styles.empty}>
@@ -202,9 +219,9 @@ function PanelRow({
 }) {
   const href = propertyMonthHref(row.propertyId, month);
   const { state } = row;
-  const live = state.kind === "finished" ? state.report : null;
+  /** The month's current finished statement: the row's figures, its exports and its PDF; with a correction in progress beside it, still this one. */
+  const live = state.kind === "finished" ? state.report : row.standing === "finished" ? (row.reports.find((r) => r.replacedBy === null)?.report ?? null) : null;
   const replaced = row.reports.filter((r) => r.replacedBy !== null);
-  const label = state.kind === "draft" && state.superseding ? "Correction in progress" : STATEMENT_STATE_LABELS[state.kind];
   return (
     <>
       <tr className={styles.row} onClick={(event) => onOpen(event, row.propertyId)} aria-label={`Open ${row.propertyName} for ${monthLabel(month)}`}>
@@ -215,16 +232,16 @@ function PanelRow({
         </td>
         <td>
           <span className={styles.stateCell}>
-            <span className={`${shared.stateBadge} ${STATE_CLASS[state.kind]}`}>{label}</span>
-            {state.kind === "draft" && (
+            <StandingBadge standing={row.standing} />
+            {live && (
               <span className={styles.note}>
-                saved <SentAt iso={state.savedAt} />
+                <SentAt iso={live.finishedAt} /> · <span className={styles.mono}>{displayRef(live)}</span>
+                {replaced.length > 0 && ` · replaced ×${replaced.length}`}
               </span>
             )}
-            {state.kind === "finished" && (
+            {state.kind === "draft" && (
               <span className={styles.note}>
-                <SentAt iso={state.report.finishedAt} /> · <span className={styles.mono}>{displayRef(state.report)}</span>
-                {state.replaced > 0 && ` · replaced ×${state.replaced}`}
+                {state.superseding ? "correction in progress" : "draft"}, saved <SentAt iso={state.savedAt} />
               </span>
             )}
           </span>

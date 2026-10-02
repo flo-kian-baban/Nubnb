@@ -5,12 +5,14 @@
  * place an admin works on a property. Everything about it, bound to a month
  * the admin picks — back for past months, forward to the current one.
  *
- *   Left, four tabs:
- *     Costs    log a cost, and the month's approved entries (each opens here)
+ *   Left, the month picker with the month's state, then four tabs, Income
+ *   first and open by default (Kian, 2026-10-01):
  *     Income   the month's lines
+ *     Costs    log a cost, and the month's approved entries (each opens here)
  *     Details  Report For, the fee and its rate, the carried balance, notes
  *     Finish   the reference and date, finish the statement, download this
- *              month's PDF and any earlier version
+ *              month's PDF and any earlier version, and the release status of
+ *              the four months before the current one, it, and the two after
  *   Right, the statement preview, always visible, on every tab.
  *
  * ── The preview shows the month as it stands ──
@@ -36,6 +38,20 @@
  * under the Statements tile. The costs ledger for any dates stays at
  * /admin/costs?property=&status=approved, a link away from the Costs tab.
  *
+ * ── The head says what is due (dispatch 23G) ──
+ * Beside the name, the property's status in Nubnb's cycle — the months past
+ * due, the previous month when it is due, or the month that says it is done
+ * — each a way to that month; `reportingStatus` decides it, as for the
+ * property list's column and the home's tile and panel. The month control's
+ * badge is that month's standing, by the same rule.
+ *
+ * ── Deleting a finished statement (Kian's ruling of 2026-10-02) ──
+ * The Finish tab offers "Delete statement…" beside "Correct this
+ * statement…". The confirmation names what is lost — whether and when the
+ * statement was downloaded; the server deletes the report, its PDF and its
+ * download records, and answers the draft reopened with everything the
+ * statement held, which the month then shows, editable, to be finished again.
+ *
  * The month, the tab and the open entry are mirrored into the address bar
  * (?id=&month=&tab=&entry=), so a reload keeps them.
  */
@@ -48,9 +64,9 @@ import { AdminHeader } from "../components/AdminHeader";
 import { AdminSelect } from "../components/AdminSelect";
 import { PinGate } from "../components/PinGate";
 import { NoticeBanner, useNotice, type Notice } from "../components/Notice";
-import { STATE_CLASS } from "../components/StatementsPanel";
+import { ReportingStatusLine, StandingBadge } from "../components/StatementStatus";
 import { fetchCosts } from "@/app/lib/costs-client";
-import { fetchPropertyStatements, fetchStatementLink, finishStatement, saveDraft, setReportFor as saveReportFor, type PropertyStatements } from "@/app/lib/reports-client";
+import { deleteStatement, fetchPropertyStatements, fetchStatementLink, finishStatement, saveDraft, setReportFor as saveReportFor, type PropertyStatements, type StatementDeleted } from "@/app/lib/reports-client";
 import { formatCents, type CostEntryView, type CostsView, type ReportExportView } from "@/app/lib/cleaners/model";
 import { torontoDayOf } from "@/app/lib/costs/report";
 import {
@@ -70,13 +86,14 @@ import {
   type ReportFor,
   type StatementDraftView,
 } from "@/app/lib/reports/model";
-import { STATEMENT_STATE_LABELS, buildStatement, previousStatement, propertyMonthState, propertyMonths, statementOf, type AnyStatement, type FinishClaim, type PropertyMonthRow, type StatementState } from "@/app/lib/reports/statement";
+import { STANDING_LABELS, buildStatement, previousStatement, propertyMonthState, propertyMonths, reportingStatus, statementOf, type AnyStatement, type FinishClaim, type PropertyMonthRow } from "@/app/lib/reports/statement";
 import { statementPdf } from "@/app/lib/reports/statement-pdf";
 import type { PropertyStatementsState } from "../costs/EntryPane";
 import { CostsTab } from "./CostsTab";
 import { DetailsTab } from "./DetailsTab";
-import { FinishTab, type SaveState } from "./FinishTab";
+import { FinishTab, type ReleaseRow, type SaveState } from "./FinishTab";
 import { IncomeTab } from "./IncomeTab";
+import { PdfPages } from "./PdfPages";
 import { fromReport, fromStored, revenueOf, sha256Hex, suggestedTyped, toDraft, toPayload, type ReportForDraft, type Typed } from "./statement-form";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
@@ -84,16 +101,14 @@ import styles from "./page.module.css";
 type Read<T> = { kind: "loading" } | { kind: "ready"; data: T } | { kind: "error"; title: string; detail?: string; status: number };
 type Tab = "costs" | "income" | "details" | "finish";
 const TABS: { key: Tab; label: string }[] = [
-  { key: "costs", label: "Costs" },
   { key: "income", label: "Income" },
+  { key: "costs", label: "Costs" },
   { key: "details", label: "Details" },
   { key: "finish", label: "Finish" },
 ];
 const isTab = (value: string | null): value is Tab => TABS.some((tab) => tab.key === value);
 
 const SESSION_HINT = "Your admin session may have expired — reload and sign in again.";
-/** If a viewer has not said "load" by then, the frames swap anyway: a viewer that never says so would otherwise show nothing. */
-const PREVIEW_SWAP_FALLBACK_MS = 1500;
 
 export default function PropertyPage() {
   return (
@@ -105,18 +120,19 @@ export default function PropertyPage() {
   );
 }
 
-/** A month's state in a few words, for the month list. */
-function stateWords(state: StatementState, inScope: boolean): string {
-  switch (state.kind) {
-    case "finished":
-      return `finished · ${displayRef(state.report)}`;
-    case "draft":
-      return state.superseding ? "correction in progress" : "draft";
-    case "outstanding":
-      return inScope ? "past due" : "no statement expected";
-    case "open":
-      return inScope ? "open, not yet due" : "no statement expected";
-  }
+/** A month in a few words, for the month list: its standing, then what is stored ("due · draft", "finished · # Sep-321-John"). */
+function monthWords(row: Pick<PropertyMonthRow, "state" | "standing" | "reports">): string {
+  const live = row.reports.find((r) => r.replacedBy === null)?.report;
+  const standing = row.standing === "finished" && live ? `finished · ${displayRef(live)}` : STANDING_LABELS[row.standing].toLowerCase();
+  if (row.state.kind !== "draft") return standing;
+  return `${standing} · ${row.state.superseding ? "correction in progress" : "draft"}`;
+}
+
+/** "3 October", or "3 October 2025" outside the current year: the day a download was made, in Toronto. */
+function dayWords(iso: string, today: string): string {
+  const [y, m, d] = torontoDayOf(new Date(iso)).split("-").map(Number);
+  const month = new Date(Date.UTC(y, m - 1, 1)).toLocaleString("en-CA", { month: "long", timeZone: "UTC" });
+  return `${d} ${month}${String(y) === today.slice(0, 4) ? "" : ` ${y}`}`;
 }
 
 function PropertyPageInner() {
@@ -131,7 +147,7 @@ function PropertyPageInner() {
   });
   const [tab, setTab] = useState<Tab>(() => {
     const wanted = params.get("tab");
-    return isTab(wanted) ? wanted : "costs";
+    return isTab(wanted) ? wanted : "income";
   });
   const [entryId, setEntryId] = useState<string | null>(() => params.get("entry"));
   const [costs, setCosts] = useState<Read<CostsView>>({ kind: "loading" });
@@ -161,7 +177,7 @@ function PropertyPageInner() {
     const url = new URL(window.location.href);
     const set = (key: string, value: string | null) => (value === null || value === "" ? url.searchParams.delete(key) : url.searchParams.set(key, value));
     set("month", month);
-    set("tab", tab === "costs" ? null : tab);
+    set("tab", tab === "income" ? null : tab);
     set("entry", entryId);
     if (url.href !== window.location.href) window.history.replaceState(null, "", url.href);
   }, [month, tab, entryId]);
@@ -206,6 +222,26 @@ function PropertyPageInner() {
   const onExportRecorded = useCallback((record: ReportExportView) => {
     setCosts((prev) => (prev.kind === "ready" ? { kind: "ready", data: { ...prev.data, exports: [record, ...prev.data.exports] } } : prev));
   }, []);
+  /** Bumped when a statement is deleted, so the month's work is mounted afresh from the reopened draft. */
+  const [generation, setGeneration] = useState(0);
+  const onStatementDeleted = useCallback((answer: StatementDeleted) => {
+    const { reportId } = answer.deleted;
+    setStatements((prev) =>
+      prev.kind === "ready"
+        ? {
+            kind: "ready",
+            data: {
+              ...prev.data,
+              reports: prev.data.reports.filter((r) => r.id !== reportId),
+              downloads: prev.data.downloads.filter((d) => d.reportId !== reportId),
+              drafts: prev.data.drafts.some((d) => d.id === answer.draft.id) ? prev.data.drafts.map((d) => (d.id === answer.draft.id ? answer.draft : d)) : [...prev.data.drafts, answer.draft],
+              management: answer.management ?? prev.data.management,
+            },
+          }
+        : prev,
+    );
+    setGeneration((n) => n + 1);
+  }, []);
 
   const data = statements.kind === "ready" ? statements.data : null;
   const costData = costs.kind === "ready" ? costs.data : null;
@@ -213,14 +249,26 @@ function PropertyPageInner() {
   // ── The months ──
   const draftLikes = useMemo(() => (data ? data.drafts.map((d) => ({ propertyId: d.propertyId, month: d.month, updatedAt: d.updatedAt, finishedAs: d.finishedAs, superseding: d.supersedes !== null })) : []), [data]);
   const months = useMemo(() => (data ? propertyMonths({ propertyId, today, management: data.management, reports: data.reports, drafts: draftLikes }) : null), [data, draftLikes, propertyId, today]);
-  const monthNow = useMemo(() => (data ? propertyMonthState({ propertyId, month, today, reports: data.reports, drafts: draftLikes }) : null), [data, draftLikes, propertyId, month, today]);
   const inScope = data ? inStatementScope(data.management, month) : true;
+  const monthNow = useMemo(() => (data ? propertyMonthState({ propertyId, month, today, inScope, reports: data.reports, drafts: draftLikes }) : null), [data, draftLikes, propertyId, month, today, inScope]);
+  /** The property's status in the cycle (dispatch 23G): the head's line, by the rule the list, the panel and the tile use. */
+  const status = useMemo(() => (data ? reportingStatus({ propertyId, today, management: data.management, reports: data.reports }) : null), [data, propertyId, today]);
   /** The months the control lists: the property's, and the chosen one when it is earlier than any of them. */
   const monthOptions = useMemo(() => {
     if (!months || !monthNow) return [];
-    const rows: PropertyMonthRow[] = months.rows.some((row) => row.month === month) ? months.rows : [...months.rows, { month, state: monthNow.state, reports: monthNow.reports, inScope }].sort((a, b) => b.month.localeCompare(a.month));
-    return rows.map((row) => ({ value: row.month, label: `${monthLabel(row.month)} · ${stateWords(row.state, row.inScope)}` }));
+    const rows: PropertyMonthRow[] = months.rows.some((row) => row.month === month) ? months.rows : [...months.rows, { month, ...monthNow, inScope }].sort((a, b) => b.month.localeCompare(a.month));
+    return rows.map((row) => ({ value: row.month, label: `${monthLabel(row.month)} · ${monthWords(row)}` }));
   }, [months, monthNow, month, inScope]);
+
+  /** The Finish tab's release status: the four months before the current one, it, and the two after (Kian, 2026-10-01). */
+  const releases = useMemo<ReleaseRow[]>(() => {
+    if (!data) return [];
+    return [-4, -3, -2, -1, 0, 1, 2].map((offset) => {
+      const m = addMonths(thisMonth, offset);
+      const one = propertyMonthState({ propertyId, month: m, today, inScope: inStatementScope(data.management, m), reports: data.reports, drafts: draftLikes });
+      return { month: m, state: one.state, standing: one.standing, live: one.reports.find((r) => r.replacedBy === null)?.report ?? null, upcoming: m > thisMonth };
+    });
+  }, [data, draftLikes, propertyId, today, thisMonth]);
 
   const propertyName = data?.propertyName ?? costData?.properties?.find((p) => p.id === propertyId)?.name ?? null;
 
@@ -274,80 +322,68 @@ function PropertyPageInner() {
               <span>Retry</span>
             </button>
           </div>
-        ) : loading || !data || !costData || !months || !monthNow ? (
+        ) : loading || !data || !costData || !months || !monthNow || !status ? (
           <div className={shared.loading}>
             <div className={shared.spinner} />
             <p>Loading the property…</p>
           </div>
         ) : (
           <>
-            {/* ── The head: the property, the month, its state ── */}
+            {/* ── The head: the property, and what is due for it (dispatch 23G) ── */}
             <div className={styles.head}>
               <h2 className={styles.title}>{data.propertyName}</h2>
-              <div className={styles.monthRow}>
-                <button type="button" className={styles.monthStep} aria-label="Previous month" onClick={() => setMonth((m) => addMonths(m, -1))}>
-                  <ChevronLeft size={18} aria-hidden />
-                </button>
-                <AdminSelect label="Month" className={styles.monthSelect} value={month} onChange={setMonth} groups={[{ options: monthOptions }]} />
-                <button type="button" className={styles.monthStep} aria-label="Next month" disabled={month >= thisMonth} onClick={() => setMonth((m) => addMonths(m, 1))}>
-                  <ChevronRight size={18} aria-hidden />
-                </button>
-              </div>
-              <div className={styles.headState}>
-                {inScope || monthNow.state.kind === "draft" || monthNow.state.kind === "finished" ? (
-                  <span className={`${shared.stateBadge} ${STATE_CLASS[monthNow.state.kind]}`}>{monthNow.state.kind === "draft" && monthNow.state.superseding ? "Correction in progress" : STATEMENT_STATE_LABELS[monthNow.state.kind]}</span>
-                ) : (
-                  <span className={`${shared.stateBadge} ${shared.stateOpen}`}>No statement expected</span>
-                )}
-                {months.outstanding.length > 0 && (
-                  <span className={styles.noteWarn} role="status">
-                    Past due:{" "}
-                    {months.outstanding.map((m, i) => {
-                      const row = months.rows.find((x) => x.month === m);
-                      return (
-                        <span key={m}>
-                          {i > 0 && ", "}
-                          <button type="button" className={styles.linkButton} onClick={() => setMonth(m)} disabled={m === month}>
-                            {monthLabel(m)}
-                          </button>
-                          {row?.state.kind === "draft" && " (draft)"}
-                        </span>
-                      );
-                    })}
-                  </span>
-                )}
-              </div>
+              <ReportingStatusLine status={status} current={month} onMonth={setMonth} />
             </div>
 
-            <MonthWork
-              key={`${month}:${attempt}`}
-              propertyId={propertyId}
-              propertyName={data.propertyName}
-              month={month}
-              today={today}
-              tab={tab}
-              onTab={setTab}
-              entryId={entryId}
-              onEntry={setEntryId}
-              entries={costData.entries}
-              exports={costData.exports}
-              reports={data.reports}
-              draft={data.drafts.find((d) => d.month === month) ?? null}
-              management={data.management}
-              downloads={data.downloads}
-              statementsState={{ kind: "ready", data }}
-              unreadable={data.unreadable.reports + data.unreadable.drafts}
-              show={show}
-              clear={clear}
-              onReload={reload}
-              onDraftSaved={onDraftSaved}
-              onReportFinished={onReportFinished}
-              onManagement={onManagement}
-              onDownloaded={onDownloaded}
-              onEntryChanged={onEntryChanged}
-              onEntryAdded={onEntryAdded}
-              onExportRecorded={onExportRecorded}
-            />
+            {/* ── The month and its state over the tabs, the preview beside both. The bar is outside MonthWork,
+                 which is remounted with each month, so the arrows keep focus as the admin steps through months. ── */}
+            <div className={styles.layout}>
+              <div className={styles.monthBar}>
+                <div className={styles.monthRow}>
+                  <button type="button" className={styles.monthStep} aria-label="Previous month" onClick={() => setMonth((m) => addMonths(m, -1))}>
+                    <ChevronLeft size={18} aria-hidden />
+                  </button>
+                  <AdminSelect label="Month" className={styles.monthSelect} value={month} onChange={setMonth} groups={[{ options: monthOptions }]} />
+                  <button type="button" className={styles.monthStep} aria-label="Next month" disabled={month >= thisMonth} onClick={() => setMonth((m) => addMonths(m, 1))}>
+                    <ChevronRight size={18} aria-hidden />
+                  </button>
+                </div>
+                <StandingBadge standing={monthNow.standing} />
+              </div>
+
+              <MonthWork
+                key={`${month}:${attempt}:${generation}`}
+                propertyId={propertyId}
+                propertyName={data.propertyName}
+                month={month}
+                today={today}
+                tab={tab}
+                onTab={setTab}
+                entryId={entryId}
+                onEntry={setEntryId}
+                entries={costData.entries}
+                exports={costData.exports}
+                reports={data.reports}
+                draft={data.drafts.find((d) => d.month === month) ?? null}
+                management={data.management}
+                downloads={data.downloads}
+                statementsState={{ kind: "ready", data }}
+                unreadable={data.unreadable.reports + data.unreadable.drafts}
+                show={show}
+                clear={clear}
+                onReload={reload}
+                onDraftSaved={onDraftSaved}
+                onReportFinished={onReportFinished}
+                onManagement={onManagement}
+                onDownloaded={onDownloaded}
+                onEntryChanged={onEntryChanged}
+                onEntryAdded={onEntryAdded}
+                onExportRecorded={onExportRecorded}
+                onStatementDeleted={onStatementDeleted}
+                releases={releases}
+                onMonth={setMonth}
+              />
+            </div>
           </>
         )}
       </main>
@@ -382,6 +418,12 @@ interface MonthWorkProps {
   onEntryChanged: (entry: CostEntryView) => void;
   onEntryAdded: (entry: CostEntryView) => void;
   onExportRecorded: (record: ReportExportView) => void;
+  /** A finished statement was deleted: the server's answer, with the draft reopened. */
+  onStatementDeleted: (answer: StatementDeleted) => void;
+  /** The Finish tab's release status, worked out by the page from every month's reports and drafts. */
+  releases: ReleaseRow[];
+  /** Opens another month: the page owns the month. */
+  onMonth: (month: string) => void;
 }
 
 /**
@@ -398,7 +440,7 @@ function MonthWork(props: MonthWorkProps) {
   const finishedReport: MonthlyReportView | null = draft ? (draft.finishedAs !== null ? (reports.find((r) => r.id === draft.finishedAs) ?? live) : null) : live;
   const readOnly = finishedReport !== null;
   const previous = useMemo(() => previousStatement(reports, month), [reports, month]);
-  const versions = useMemo(() => propertyMonthState({ propertyId, month, today, reports, drafts: draft ? [{ propertyId, month, updatedAt: draft.updatedAt, finishedAs: draft.finishedAs, superseding: draft.supersedes !== null }] : [] }).reports, [propertyId, month, today, reports, draft]);
+  const versions = useMemo(() => propertyMonthState({ propertyId, month, today, inScope: true, reports, drafts: draft ? [{ propertyId, month, updatedAt: draft.updatedAt, finishedAs: draft.finishedAs, superseding: draft.supersedes !== null }] : [] }).reports, [propertyId, month, today, reports, draft]);
 
   // ── What is typed ──
   const [typed, setTyped] = useState<Typed>(() => (finishedReport ? fromReport(finishedReport, today) : draft ? fromStored(draft, today) : suggestedTyped(previous, management, month, today)));
@@ -526,42 +568,12 @@ function MonthWork(props: MonthWorkProps) {
     [],
   );
 
-  // ── The live PDF, 300 ms after the last change, double-buffered ──
-  const frameA = useRef<HTMLIFrameElement>(null);
-  const frameB = useRef<HTMLIFrameElement>(null);
-  const [shown, setShown] = useState<"a" | "b">("a");
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [viewerInline, setViewerInline] = useState(true);
-  const urlsRef = useRef<{ a: string | null; b: string | null }>({ a: null, b: null });
-  useEffect(() => {
-    setViewerInline(typeof navigator.pdfViewerEnabled === "boolean" ? navigator.pdfViewerEnabled : true);
-  }, []);
+  // ── The live PDF, 300 ms after the last change; PdfPages draws it (the old pages stay until the new ones are drawn) ──
+  const [previewBytes, setPreviewBytes] = useState<Uint8Array | null>(null);
   useEffect(() => {
     if (!statement) return;
-    const timer = window.setTimeout(() => {
-      const bytes = statementPdf(statement);
-      const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: "application/pdf" }));
-      setPreviewUrl(url);
-      const target = shown === "a" ? "b" : "a";
-      const frame = (target === "a" ? frameA : frameB).current;
-      if (!frame) return;
-      let swapped = false;
-      const swap = () => {
-        if (swapped) return;
-        swapped = true;
-        frame.removeEventListener("load", swap);
-        setShown(target);
-        const old = urlsRef.current[shown];
-        if (old) window.setTimeout(() => URL.revokeObjectURL(old), 1000);
-        urlsRef.current[target] = url;
-      };
-      frame.addEventListener("load", swap);
-      window.setTimeout(swap, PREVIEW_SWAP_FALLBACK_MS);
-      frame.src = `${url}#toolbar=0&navpanes=0&view=FitH`;
-    }, STATEMENT_LIMITS.PREVIEW_DELAY_MS);
+    const timer = window.setTimeout(() => setPreviewBytes(statementPdf(statement)), STATEMENT_LIMITS.PREVIEW_DELAY_MS);
     return () => window.clearTimeout(timer);
-    // `shown` is read at draw time on purpose: the frame to draw into is the hidden one.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statement]);
 
   // ── Finish ──
@@ -582,7 +594,7 @@ function MonthWork(props: MonthWorkProps) {
       `Finish and issue # ${typed.reference.trim()} for ${props.propertyName}, ${monthLabel(month)}?`,
       `Your Revenue Share: ${formatCents(built.statement.payableCents)}.`,
       pending > 0 ? `${pending === 1 ? "1 entry" : `${pending} entries`} sent in ${monthLabel(month)} ${pending === 1 ? "is" : "are"} still pending and ${pending === 1 ? "is" : "are"} not in it.` : null,
-      "A finished statement is never edited; a mistake in it is corrected with a replacing statement.",
+      "A finished statement is never edited; a mistake in it is corrected with a replacing statement, or the statement is deleted.",
     ]
       .filter(Boolean)
       .join("\n");
@@ -640,6 +652,52 @@ function MonthWork(props: MonthWorkProps) {
     show({ tone: "info", title: "Correcting the statement.", detail: "The lines, fee, balance and notes are copied from the finished statement; the recorded costs are read fresh. Finish it to replace the old one." });
   };
 
+  // ── Delete (Kian's ruling of 2026-10-02): the confirmation names what is lost; the server does the rest ──
+  const [deleting, setDeleting] = useState(false);
+  const remove = async () => {
+    if (!finishedReport || deleting || finishing) return;
+    const seen = downloads.filter((d) => d.reportId === finishedReport.id).map((d) => d.at).sort();
+    const replaced = finishedReport.supersedes ? reports.find((r) => r.id === finishedReport.supersedes!.reportId) : undefined;
+    const question = [
+      `Delete ${displayRef(finishedReport)}, ${props.propertyName}, ${monthLabel(month)}?`,
+      seen.length === 0
+        ? "This statement was never downloaded."
+        : `This statement was downloaded ${seen.length === 1 ? dayWords(seen[0], today) : `${seen.length} times, last ${dayWords(seen[seen.length - 1], today)}`}. Deleting it removes the record of what was sent.`,
+      replaced ? `${displayRef(replaced)}, which it replaced, becomes the month's statement again; the draft continues the correction.` : null,
+      "Its PDF is deleted too. The month reopens as a draft holding everything the statement had.",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    if (!window.confirm(question)) return;
+    clear();
+    setDeleting(true);
+    const result = await deleteStatement(finishedReport.id, seen.length);
+    setDeleting(false);
+    if (!result.ok) {
+      if (result.code === "DOWNLOADED_SINCE" || result.code === "DRAFT_CHANGED" || result.code === "REPORT_NOT_FOUND" || result.code === "CORRECTION_IN_PROGRESS" || result.code === "REPORT_REPLACED") {
+        show({ tone: "warning", title: result.title, detail: `${result.detail ?? ""} The page reloads what is stored.` });
+        onReload();
+        return;
+      }
+      show(result.unknown ? { tone: "warning", title: "The statement may or may not have been deleted. Reload to see what is on record.", detail: result.title } : { tone: "error", title: result.title, detail: result.detail });
+      return;
+    }
+    const { deleted } = result.data;
+    show({
+      tone: deleted.pdf === "left" ? "warning" : "success",
+      title: replaced
+        ? `Deleted ${displayRef(finishedReport)}. ${displayRef(replaced)} is ${monthLabel(month)}'s statement again; the correction continues as a draft.`
+        : `Deleted ${displayRef(finishedReport)}. ${monthLabel(month)} is a draft again.`,
+      detail: [
+        deleted.pdf === "left" ? "Its PDF could not be deleted from storage and is left there, unlisted." : null,
+        result.data.management ? "Report For is set back to what the statement printed." : null,
+      ]
+        .filter(Boolean)
+        .join(" ") || undefined,
+    });
+    props.onStatementDeleted(result.data);
+  };
+
   // ── Download ──
   const download = async (reportId: string) => {
     if (linking !== null) return;
@@ -663,7 +721,7 @@ function MonthWork(props: MonthWorkProps) {
   const approvedInMonth = built.kind === "ok" ? built.statement.costs.filter((c) => c.group === "month").length : null;
 
   return (
-    <div className={styles.layout}>
+    <div className={styles.work}>
       <div className={styles.left}>
         {/* ── The tabs ── */}
         <div className={styles.tabs} role="tablist" aria-label="Property">
@@ -736,36 +794,25 @@ function MonthWork(props: MonthWorkProps) {
               finishing={finishing}
               onFinish={finish}
               onCorrect={correct}
+              deleting={deleting}
+              onDelete={remove}
               linking={linking}
               onDownload={download}
               verified={verified}
               downloadsOf={downloadsOf}
+              releases={props.releases}
+              onMonth={props.onMonth}
             />
           )}
         </div>
       </div>
 
       {/* ── The preview, alive on every tab ── */}
-      <div>
+      <div className={styles.side}>
         <div className={styles.preview} aria-label="The statement as a PDF">
-          <iframe ref={frameA} className={`${styles.previewFrame} ${shown === "a" ? "" : styles.previewHidden}`} title="Statement PDF" />
-          <iframe ref={frameB} className={`${styles.previewFrame} ${shown === "b" ? "" : styles.previewHidden}`} title="Statement PDF, next" />
+          <PdfPages bytes={statement ? previewBytes : null} label={`${monthLabel(month)} statement`} />
           {!statement && <div className={styles.previewEmpty}>{built.kind === "unreadable" ? "No statement until every approved entry can be added up." : "No statement to show."}</div>}
         </div>
-        <p className={styles.previewNote}>
-          {!viewerInline && (
-            <>
-              This browser does not show PDFs inline.{" "}
-              {previewUrl && (
-                <a href={previewUrl} target="_blank" rel="noopener" className={styles.linkButton}>
-                  Open the current PDF in a tab
-                </a>
-              )}
-              {" · "}
-            </>
-          )}
-          {readOnly ? "The finished statement, drawn from the frozen record." : "The statement as it stands, redrawn as you type. What you see is what Finish stores."}
-        </p>
       </div>
     </div>
   );

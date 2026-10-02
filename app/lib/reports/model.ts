@@ -55,8 +55,15 @@ export const REPORT_DOWNLOAD_SCHEMA_VERSION = 1;
 /** 2 (dispatch 23E): `reportFor` and `defaultFeeRateBasisPoints` may be present. */
 export const PROPERTY_MANAGEMENT_SCHEMA_VERSION = 2;
 
-/** The first month statements are expected from, for a property with no management record (Kian's decision 4). */
-export const STATEMENTS_FROM_DEFAULT = '2026-10';
+/**
+ * The first month a property owes a statement for when no management record
+ * narrows it. Kian's ruling of 2026-10-02: every property owes a statement for
+ * every closed month by default; a record's start month excludes earlier ones
+ * and its end month later ones. Nubnb's statements begin with September 2026,
+ * the first month of its costs; with no first month at all, every month before
+ * would read past due. (Decision 4 had October 2026.)
+ */
+export const STATEMENTS_FROM_DEFAULT = '2026-09';
 
 /**
  * The words an income row's `source` could be, on rows written before

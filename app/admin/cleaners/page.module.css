@@ -37,51 +37,12 @@
   cursor: default;
 }
 
-/* ── Create row ── */
-.createRow {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px 12px;
-  margin-bottom: 24px;
-}
-
 .createLabel {
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: rgba(255, 255, 255, 0.4);
-}
-
-.createInput {
-  flex: 1;
-  max-width: 400px;
-  min-width: 220px;
-  height: var(--ctl-h);
-  padding: 0 14px;
-  background: var(--ctl-bg);
-  border: 1px solid var(--ctl-border);
-  border-radius: var(--ctl-radius);
-  color: var(--ctl-fg);
-  font-size: 13px;
-  font-family: inherit;
-  outline: none;
-  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
-}
-.createInput::placeholder {
-  color: var(--ctl-placeholder);
-}
-.createInput:hover {
-  border-color: var(--ctl-border-hover);
-}
-.createInput:focus {
-  border-color: var(--ctl-focus);
-  background: var(--ctl-bg-hover);
-  box-shadow: var(--ctl-ring);
-}
-.createInput:disabled {
-  opacity: 0.6;
 }
 
 /* The shared primary button has no disabled look of its own. */
@@ -185,12 +146,6 @@
   overflow-wrap: anywhere;
 }
 
-.whenCell {
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.6);
-  white-space: nowrap;
-}
-
 .mono {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: 12px;
@@ -264,23 +219,12 @@
 
 /* ── Responsive ── */
 @media (max-width: 640px) {
-  .createInput {
-    max-width: none;
-    min-width: 0;
-    flex-basis: 100%;
-  }
   .codeEditor {
     padding: 18px 16px;
   }
 }
 
 /* ── Roles and the 90-day distribution (dispatch 24) ── */
-.createNote {
-  margin: -8px 0 18px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: rgba(255, 255, 255, 0.45);
-}
 .badgeCleaner {
   background: rgba(101, 153, 205, 0.14);
   color: #8dbbe8;
@@ -305,4 +249,200 @@
 .patternWarn {
   color: #f0a63a;
   font-weight: 600;
+}
+
+/* ── New team member dialog (NewMemberDialog.tsx) ──
+   The overlay and panel follow PropertyForm's modal, narrower. */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.dialog {
+  width: 100%;
+  max-width: 480px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  border-radius: 20px;
+  background: #0e0e0e;
+  color: #ffffff;
+  box-shadow: 0 48px 96px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.dialogHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.dialogTitle {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: #ffffff;
+}
+
+.dialogClose {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.dialogClose:hover:not(:disabled) {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+}
+.dialogClose:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.dialogClose:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 2px;
+}
+
+.dialogBody {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding: 22px 24px 4px;
+}
+
+.dialogLabel {
+  display: block;
+  margin: 0 0 8px;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.roleField {
+  margin: 0;
+  padding: 0;
+  border: none;
+  min-width: 0;
+}
+
+.roleCards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.roleCard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+.roleCard:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.05);
+}
+.roleCardOn,
+.roleCardOn:hover {
+  border-color: rgba(101, 153, 205, 0.7);
+  background: rgba(101, 153, 205, 0.1);
+}
+.roleCard:has(.roleRadio:focus-visible) {
+  box-shadow: 0 0 0 2px #7fb0e0;
+}
+.roleField:disabled .roleCard {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* The native radio stays in the form and the tab order; the card is what shows. */
+.roleRadio {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+
+.roleIcon {
+  margin-bottom: 6px;
+  color: rgba(255, 255, 255, 0.45);
+}
+.roleCardOn .roleIcon {
+  color: #8dbbe8;
+}
+
+.roleName {
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.roleDoes {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.nameField {
+  display: flex;
+  flex-direction: column;
+}
+
+.nameInput {
+  width: 100%;
+  height: 44px;
+  padding: 0 14px;
+  background: var(--ctl-bg);
+  border: 1px solid var(--ctl-border);
+  border-radius: var(--ctl-radius);
+  color: #ffffff;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+.nameInput:hover {
+  border-color: var(--ctl-border-hover);
+}
+.nameInput:focus {
+  border-color: var(--ctl-focus);
+  background: var(--ctl-bg-hover);
+  box-shadow: var(--ctl-ring);
+}
+.nameInput:disabled {
+  opacity: 0.6;
+}
+
+.dialogFoot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 22px 24px 24px;
 }
