@@ -3,15 +3,18 @@
 /**
  * Adding a team member: a dialog opened from the header's "Add team member",
  * as Add Property opens its form. The role is chosen first, as two cards
- * that say what each role does, then the name. The page makes the call: a
- * refusal is shown here with the typed name kept; a create closes the dialog
- * and the page's notice gives the new code.
+ * that say what each role does, then the name, then the code: four digits
+ * the admin types (Kian, dispatch 23H), or fills with "Generate" and keeps or
+ * changes. The page makes the call: a refusal — the admin PIN, a code on the
+ * reserved list, one already in use or used before — is shown here with
+ * what was typed kept; a create closes the dialog and the page's notice
+ * repeats the code.
  */
 
 import { useEffect, useRef, type FormEvent } from "react";
-import { Hammer, Receipt, X } from "lucide-react";
+import { Dices, Hammer, Receipt, X } from "lucide-react";
 import { NoticeBanner, type Notice } from "../components/Notice";
-import { CLEANER_ROLES, CLEANER_ROLE_LABELS, LIMITS, type CleanerRole } from "@/app/lib/cleaners/model";
+import { CLEANER_ROLES, CLEANER_ROLE_LABELS, CODE_PATTERN, LIMITS, type CleanerRole } from "@/app/lib/cleaners/model";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
 
@@ -25,15 +28,20 @@ const ROLE_ICON = { cleaner: Receipt, handyman: Hammer } as const;
 interface Props {
   name: string;
   role: CleanerRole;
+  /** The code as typed so far: digits only, at most four. */
+  code: string;
   creating: boolean;
   error: Notice | null;
   onName: (value: string) => void;
   onRole: (value: CleanerRole) => void;
+  onCode: (value: string) => void;
+  /** Fill the code field with a suggested code. */
+  onGenerate: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onClose: () => void;
 }
 
-export function NewMemberDialog({ name, role, creating, error, onName, onRole, onSubmit, onClose }: Props) {
+export function NewMemberDialog({ name, role, code, creating, error, onName, onRole, onCode, onGenerate, onSubmit, onClose }: Props) {
   const nameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -110,6 +118,31 @@ export function NewMemberDialog({ name, role, creating, error, onName, onRole, o
             />
           </div>
 
+          <div className={styles.nameField}>
+            <label htmlFor="new-member-code" className={styles.dialogLabel}>
+              Code
+            </label>
+            <div className={styles.codeEditorRow}>
+              <input
+                id="new-member-code"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]{4}"
+                maxLength={4}
+                className={styles.codeInput}
+                value={code}
+                onChange={(e) => onCode(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                autoComplete="off"
+                spellCheck={false}
+                disabled={creating}
+              />
+              <button type="button" className={styles.btnGhost} onClick={onGenerate} disabled={creating}>
+                <Dices size={15} aria-hidden />
+                <span>Generate</span>
+              </button>
+            </div>
+          </div>
+
           <NoticeBanner notice={error} />
         </div>
 
@@ -117,7 +150,7 @@ export function NewMemberDialog({ name, role, creating, error, onName, onRole, o
           <button type="button" className={shared.btnGhost} onClick={onClose} disabled={creating}>
             Cancel
           </button>
-          <button type="submit" className={shared.btnPrimary} disabled={creating || name.trim() === ""}>
+          <button type="submit" className={shared.btnPrimary} disabled={creating || name.trim() === "" || !CODE_PATTERN.test(code)}>
             {creating ? "Creating…" : `Create ${CLEANER_ROLE_LABELS[role].toLowerCase()}`}
           </button>
         </div>

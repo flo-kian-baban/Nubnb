@@ -145,32 +145,76 @@ export type IssueCleanerResult =
   | { kind: 'admin-pin-missing' }
   /** The database could not be reached. Nothing was written. */
   | { kind: 'unavailable' }
+  /** The typed code is not four digits. Nothing was read or written. */
+  | { kind: 'not-a-code' }
+  /** The typed code is the admin PIN, or on the reserved list. Nothing was read or written. */
+  | { kind: 'reserved'; reason: ReservedReason }
+  /** The typed code is issued already: someone's now, or anyone's before. Nothing was written. */
+  | { kind: 'taken'; retired: boolean }
   /** Every candidate was reserved or already issued. Nothing was written. */
   | { kind: 'exhausted' }
   /** The write failed in a way that does not say whether it landed. Never retried. */
   | { kind: 'unconfirmed' };
 
+/** A new account's document, holding `code`, as of `now`. */
+function newCleaner(name: string, role: CleanerRole, code: string, now: string) {
+  const created: HistoryEvent = {
+    at: now,
+    action: 'created',
+    from: null,
+    to: 'active',
+    actor: ADMIN_ACTOR,
+    reason: null,
+  };
+  return {
+    schemaVersion: CLEANER_SCHEMA_VERSION,
+    name,
+    role,
+    code,
+    status: 'active' satisfies CleanerStatus,
+    statusChangedAt: now,
+    createdAt: now,
+    sessionEpoch: 1,
+    codeIssuedAt: now,
+    history: [created],
+  };
+}
+
 /**
- * Create a cleaner and issue their code.
+ * Create a cleaner and issue their code: the four digits the admin typed
+ * (dispatch 23H: the code is set at creation), or, when `typed` is null, a
+ * code drawn here.
  *
  * `name` must already be validated (NFC, trimmed, 1–80 characters, no control
  * characters). `adminPin` is the admin PIN, passed in by the admin route —
  * one of the few readers of it besides the admin session module. It is only
- * compared against candidates.
+ * compared against codes.
  *
- * The cleaner and their code document are written in one batch of two
- * `create()` calls: all or nothing, and refused outright if the code's
- * document already exists. Of two concurrent issuances of the same code,
- * exactly one wins. A refused candidate wrote nothing, so the next is tried,
- * up to five. Any other failure stops at once: the batch may have landed,
- * and retrying could create the cleaner twice.
+ * A typed code is refused before anything is read when it is the admin PIN
+ * or on the reserved list, and refused by the transaction when it was ever
+ * issued — the same refusals as a code change (setCleanerCode). The
+ * transaction reads the code's document, then `create()`s it and the
+ * cleaner: all or nothing.
+ *
+ * A drawn code is written in one batch of two `create()` calls: all or
+ * nothing, and refused outright if the code's document already exists. Of
+ * two concurrent issuances of the same code, exactly one wins. A refused
+ * candidate wrote nothing, so the next is tried, up to five. Any other
+ * failure stops at once: the batch may have landed, and retrying could
+ * create the cleaner twice.
  */
 export async function issueCleaner(
   name: string,
   role: CleanerRole,
   adminPin: string | undefined,
+  typed: string | null = null,
 ): Promise<IssueCleanerResult> {
   if (!adminPin) return { kind: 'admin-pin-missing' };
+  if (typed !== null) {
+    if (!CODE_PATTERN.test(typed)) return { kind: 'not-a-code' };
+    const reason = reservedReason(typed, adminPin);
+    if (reason) return { kind: 'reserved', reason };
+  }
 
   let db: ReturnType<typeof getAdminDb>;
   try {
@@ -179,6 +223,8 @@ export async function issueCleaner(
     console.error('[cleaners] create failed before any write: the database is not configured');
     return { kind: 'unavailable' };
   }
+
+  if (typed !== null) return issueTyped(db, name, role, typed);
 
   for (let n = 1; n <= MAX_CANDIDATES; n++) {
     const code = generateCandidate();
@@ -189,27 +235,7 @@ export async function issueCleaner(
 
     const cleanerRef = db.collection(CLEANERS_COLLECTION).doc();
     const now = new Date().toISOString();
-
-    const created: HistoryEvent = {
-      at: now,
-      action: 'created',
-      from: null,
-      to: 'active',
-      actor: ADMIN_ACTOR,
-      reason: null,
-    };
-    const cleaner = {
-      schemaVersion: CLEANER_SCHEMA_VERSION,
-      name,
-      role,
-      code,
-      status: 'active' satisfies CleanerStatus,
-      statusChangedAt: now,
-      createdAt: now,
-      sessionEpoch: 1,
-      codeIssuedAt: now,
-      history: [created],
-    };
+    const cleaner = newCleaner(name, role, code, now);
 
     try {
       await db
@@ -232,6 +258,33 @@ export async function issueCleaner(
 
   console.error(`[cleaners] no code issued: all ${MAX_CANDIDATES} candidates were reserved or taken`);
   return { kind: 'exhausted' };
+}
+
+/** Create a cleaner holding the code the admin typed, already checked against the PIN and the reserved list. */
+async function issueTyped(
+  db: ReturnType<typeof getAdminDb>,
+  name: string,
+  role: CleanerRole,
+  code: string,
+): Promise<IssueCleanerResult> {
+  const codeRef = db.collection(CLEANER_CODES_COLLECTION).doc(code);
+  const cleanerRef = db.collection(CLEANERS_COLLECTION).doc();
+  try {
+    return await db.runTransaction(async (tx): Promise<IssueCleanerResult> => {
+      const issued = await tx.get(codeRef);
+      if (issued.exists) return { kind: 'taken', retired: issued.get('retiredAt') != null };
+      const now = new Date().toISOString();
+      const cleaner = newCleaner(name, role, code, now);
+      tx.create(codeRef, codeRecord(cleanerRef.id, now));
+      tx.create(cleanerRef, cleaner);
+      return { kind: 'created', cleaner: readCleanerSummary(cleanerRef.id, cleaner) };
+    });
+  } catch (err) {
+    // The code's document appeared between the read and the commit: nothing was written.
+    if (isAlreadyExists(err)) return { kind: 'taken', retired: false };
+    console.error(`[cleaners] create not confirmed: grpc code ${grpcCode(err)}`);
+    return { kind: 'unconfirmed' };
+  }
 }
 
 // ─── Status ────────────────────────────────────────────────────

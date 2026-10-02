@@ -32,7 +32,7 @@
  * `statusReason`, and appends to `history`: an admin approves, rejects with a
  * reason, or removes an entry, and corrects or adds a line as a history event
  * that carries the line before and after (readLinesNow in model.ts applies
- * them). Nothing is ever deleted, so every earlier state stays readable.
+ * them). A review deletes nothing, so every earlier state stays readable.
  * Each review is one transaction that first checks the entry is as the admin
  * last saw it — its history the same length — so two admins acting at once
  * cannot write over each other. None of it depends on the entry's status: an
@@ -66,6 +66,14 @@
  * no one-time key, because the admin page sends once and says when an
  * outcome is unknown. It is corrected and removed like any other entry.
  *
+ * ── Deleted outright (Kian's ruling of 2026-10-02, dispatch 23H) ──
+ * deleteCostEntry, below, is the one code that deletes a cost entry: the
+ * document with its history, the model's reading kept beside it, the
+ * one-time-key record naming it, and its receipt object in Storage. A
+ * deleted entry leaves no record of what was claimed or who logged it. It
+ * is refused while a finished statement prints the entry. Removing an entry
+ * is unchanged and is how an admin excludes one without erasing it.
+ *
  * ── Reports handed out ──
  * A PDF goes to a property's co-owners, and an entry in it can still be
  * corrected or removed afterwards. So each PDF is recorded before the page
@@ -92,10 +100,11 @@
 
 import { z } from 'zod';
 import type { DocumentReference, DocumentSnapshot, Transaction } from 'firebase-admin/firestore';
-import { getAdminDb } from './admin';
+import { getAdminBucket, getAdminDb } from './admin';
 import { isDocumentId } from './server-leads';
 import type { ReadingAttachment } from '@/app/lib/cleaners/readings';
 import { inRange, sentDay } from '@/app/lib/costs/report';
+import { MONTHLY_REPORTS_COLLECTION } from '@/app/lib/reports/model';
 import {
   ADMIN_ACTOR,
   AUTO_APPROVAL_REASON,
@@ -1370,6 +1379,174 @@ export function markEntrySeen(id: string, seen: number): Promise<ReviewResult> {
       event: { at: now, action: 'seen', from: null, to: null, actor: ADMIN_ACTOR, reason: null },
     };
   });
+}
+
+// ─── Delete (Kian's ruling of 2026-10-02, dispatch 23H) ────────
+
+/** A finished statement that prints an entry, named for the refusal. */
+export interface PrintedIn {
+  id: string;
+  month: string | null;
+  /** The printed reference, "Sep-321-John"; null when the statement has none. */
+  reference: string | null;
+  finishedAt: string | null;
+  /** A newer statement replaces it: it was still sent. */
+  replaced: boolean;
+}
+
+export type DeleteEntryResult =
+  | {
+      kind: 'deleted';
+      id: string;
+      /** Each receipt object: deleted, already gone, or left in Storage after a failure (logged by path). */
+      receipts: ('deleted' | 'missing' | 'left')[];
+      /** Whether the model's reading beside it (cost_entry_readings) went too. */
+      reading: boolean;
+      /** How many one-time-key records (cost_entry_submissions) naming it went too. */
+      submissions: number;
+    }
+  /** No entry has this ID. */
+  | { kind: 'not-found' }
+  /** The entry's history is not the length the admin saw when they confirmed. Nothing was deleted. */
+  | { kind: 'changed-since' }
+  /** A finished statement prints it. Nothing was deleted. */
+  | { kind: 'in-statement'; statements: PrintedIn[] }
+  /** The transaction failed: it may or may not have been deleted. */
+  | { kind: 'failed' };
+
+/** What the delete route answers for every outcome but `deleted` and `in-statement`. */
+export const DELETE_ENTRY_REFUSALS: Record<Exclude<DeleteEntryResult['kind'], 'deleted' | 'in-statement'>, Refusal> = {
+  'not-found': {
+    status: 404,
+    code: 'ENTRY_NOT_FOUND',
+    message: 'Entry not found',
+    hint: 'It may already have been deleted. Refresh the page.',
+  },
+  'changed-since': {
+    status: 409,
+    code: 'ENTRY_CHANGED',
+    message: 'This entry changed since it was loaded.',
+    hint: 'Nothing was deleted. Refresh, check what changed, and delete again if you still mean to.',
+  },
+  failed: {
+    status: 502,
+    code: 'ENTRY_DELETE_FAILED',
+    message: 'Could not delete the entry.',
+    hint: 'It may or may not have been deleted. Refresh to see what is on record.',
+  },
+};
+
+/**
+ * Whether a finished statement's stored fields name the entry: its cost rows,
+ * the `entryIds` later statements go by, or its adjustments. Read from the
+ * raw fields, so a statement not in the written shape still counts.
+ */
+function printsEntry(fields: Record<string, unknown>, entryId: string): boolean {
+  const names = (rows: unknown) =>
+    Array.isArray(rows) && rows.some((row) => !!row && typeof row === 'object' && (row as Record<string, unknown>).entryId === entryId);
+  return (Array.isArray(fields.entryIds) && fields.entryIds.includes(entryId)) || names(fields.costs) || names(fields.adjustments);
+}
+
+/**
+ * Delete a cost entry outright — THE ONE PLACE A COST ENTRY IS DELETED (Kian's
+ * ruling of 2026-10-02, dispatch 23H, reversing the earlier one that nothing
+ * is deleted). A deleted entry leaves no record of what was claimed or who
+ * logged it. Removing an entry (setEntryStatus) is unchanged: it takes the
+ * entry out of totals and keeps it, marked.
+ *
+ * Only as the admin saw it when they confirmed — its history the length
+ * `seen` says — and never when a finished statement prints it: a statement
+ * already sent cannot name an entry that no longer exists. Every finished
+ * statement of its property is read, and any other that names it, current or
+ * replaced.
+ *
+ * In one transaction: the entry document, and with it its history, which
+ * lives on it; the model's reading kept beside it (cost_entry_readings/{id});
+ * and the one-time-key record that names it (cost_entry_submissions), since
+ * each holds who logged it and the reading holds what the receipt said. A
+ * recorded cost PDF (cost_report_exports) is never changed: it keeps what it
+ * printed, and the ledger then says that PDF no longer matches. After the
+ * transaction each receipt object at the entry's stored path is deleted; if
+ * that fails the object is left and logged by path, as an orphaned receipt is.
+ */
+export async function deleteCostEntry(id: string, seen: number): Promise<DeleteEntryResult> {
+  if (!isDocumentId(id)) return { kind: 'not-found' };
+  let paths: string[] = [];
+  let outcome: DeleteEntryResult;
+  try {
+    const db = getAdminDb();
+    const ref = db.collection(COST_ENTRIES_COLLECTION).doc(id);
+    const reports = db.collection(MONTHLY_REPORTS_COLLECTION);
+
+    outcome = await db.runTransaction(async (tx): Promise<DeleteEntryResult> => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) return { kind: 'not-found' };
+      const stored = snap.data() ?? {};
+      if (!Array.isArray(stored.history) || stored.history.length !== seen) return { kind: 'changed-since' };
+
+      const propertyId: unknown = stored.propertyId;
+      const [ofProperty, naming, reading, submissions] = await Promise.all([
+        typeof propertyId === 'string' && isDocumentId(propertyId) ? tx.get(reports.where('propertyId', '==', propertyId)) : null,
+        tx.get(reports.where('entryIds', 'array-contains', id)),
+        tx.get(db.collection(COST_ENTRY_READINGS_COLLECTION).doc(id)),
+        tx.get(db.collection(COST_ENTRY_SUBMISSIONS_COLLECTION).where('entryId', '==', id)),
+      ]);
+      const finished = new Map([...(ofProperty?.docs ?? []), ...naming.docs].map((doc) => [doc.id, doc.data()]));
+      const replacedIds = new Set(
+        [...finished.values()].map((fields) => (fields.supersedes as { reportId?: unknown } | null | undefined)?.reportId).filter((value) => typeof value === 'string'),
+      );
+      const printing = [...finished].filter(([, fields]) => printsEntry(fields, id));
+      if (printing.length > 0) {
+        return {
+          kind: 'in-statement',
+          statements: printing
+            .map(([reportId, fields]) => ({
+              id: reportId,
+              month: fieldText(fields.month),
+              reference: fieldText(fields.reference)?.trim() || null,
+              finishedAt: fieldText(fields.finishedAt),
+              replaced: replacedIds.has(reportId),
+            }))
+            .sort((a, b) => (b.finishedAt ?? '').localeCompare(a.finishedAt ?? '') || a.id.localeCompare(b.id)),
+        };
+      }
+
+      const receipts: unknown = stored.receipts;
+      paths = (Array.isArray(receipts) ? receipts : [])
+        .map((receipt) => (receipt && typeof receipt === 'object' ? (receipt as Record<string, unknown>).path : undefined))
+        .filter((path): path is string => typeof path === 'string');
+      const mine = submissions.docs.filter((doc) => doc.get('entryId') === id);
+      tx.delete(ref);
+      if (reading.exists) tx.delete(reading.ref);
+      for (const doc of mine) tx.delete(doc.ref);
+      return { kind: 'deleted', id, receipts: [], reading: reading.exists, submissions: mine.length };
+    });
+  } catch (err) {
+    console.error(`[cost-entries] deleting ${id} failed: grpc code ${grpcCode(err)}`);
+    return { kind: 'failed' };
+  }
+  if (outcome.kind !== 'deleted') return outcome;
+
+  // ── The receipt objects, after the record is gone; each path is the one the entry stored, never the request's ──
+  const receipts: ('deleted' | 'missing' | 'left')[] = [];
+  for (const path of paths) {
+    if (!path.startsWith(`${RECEIPTS_PREFIX}/${id}/`) || path.includes('..')) {
+      console.error(`[cost-entries] entry ${id} deleted; a stored receipt path is not under its own receipts/ folder and was left alone`);
+      receipts.push('left');
+      continue;
+    }
+    try {
+      const file = getAdminBucket().file(path);
+      const [exists] = await file.exists();
+      if (exists) await file.delete();
+      receipts.push(exists ? 'deleted' : 'missing');
+    } catch (err) {
+      console.error(`[cost-entries] orphaned receipt ${path} (entry ${id} deleted): code ${grpcCode(err)}`);
+      receipts.push('left');
+    }
+  }
+  console.log(`[cost-entries] entry ${id} deleted with ${outcome.submissions} submission record(s), reading ${outcome.reading ? 'deleted' : 'none'}, receipts ${receipts.join(', ') || 'none'}`);
+  return { ...outcome, receipts };
 }
 
 // ─── Reports handed out ────────────────────────────────────────

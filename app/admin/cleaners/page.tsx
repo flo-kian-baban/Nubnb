@@ -5,7 +5,8 @@
  * whether those codes work. Since dispatch 24 an account has a role — a
  * cleaner logs receipts, a handyman logs work — chosen when it is created
  * (the header's "Add team member", NewMemberDialog.tsx) and shown in its
- * row; both come from the one code index. Beside each
+ * row; both come from the one code index. The admin types the code when
+ * creating (Kian, dispatch 23H), or fills it with "Generate". Beside each
  * cleaner, their last 90 days of receipts in words (costs/patterns.ts), the
  * $150–200 band always named, read from the same cost list the costs page
  * reads. That second read failing shows as "could not be read", never as
@@ -42,6 +43,7 @@ import {
   changeCleanerStatus,
   createCleaner,
   fetchCleaners,
+  suggestCode,
   type CleanerResult,
   type CodeRequest,
 } from "@/app/lib/cleaners-client";
@@ -97,6 +99,8 @@ function Cleaners() {
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
   const [role, setRole] = useState<CleanerRole>("cleaner");
+  /** The new member's code as typed in the dialog. */
+  const [newCode, setNewCode] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<Notice | null>(null);
   const [patterns, setPatterns] = useState<PatternsState>({ kind: "loading" });
@@ -163,12 +167,13 @@ function Cleaners() {
 
   const name = draft.trim();
   const busy = saving !== null;
-  const canCreate = name !== "" && !creating;
+  const canCreate = name !== "" && CODE_PATTERN.test(newCode) && !creating;
 
   const openAdding = () => {
     clearNotice();
     setDraft("");
     setRole("cleaner");
+    setNewCode("");
     setCreateError(null);
     setAdding(true);
   };
@@ -176,6 +181,7 @@ function Cleaners() {
   const closeAdding = () => {
     setAdding(false);
     setDraft("");
+    setNewCode("");
     setCreateError(null);
   };
 
@@ -186,7 +192,7 @@ function Cleaners() {
     setCreateError(null);
     setUnconfirmed(null);
     setCreating(true);
-    const result = await createCleaner(name, role);
+    const result = await createCleaner(name, role, newCode);
     setCreating(false);
 
     if (result.ok) {
@@ -517,8 +523,11 @@ function Cleaners() {
           role={role}
           creating={creating}
           error={createError}
+          code={newCode}
           onName={setDraft}
           onRole={setRole}
+          onCode={setNewCode}
+          onGenerate={() => setNewCode(suggestCode())}
           onSubmit={submit}
           onClose={closeAdding}
         />

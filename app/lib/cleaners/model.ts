@@ -188,6 +188,30 @@ export const LIMITS = {
  */
 export const CODE_PATTERN = /^[0-9]{4}$/;
 
+/** Every run of four consecutive digits in `digits`: 0123 … 6789 for ascending. */
+function runsIn(digits: string): string[] {
+  return Array.from({ length: digits.length - 3 }, (_, start) => digits.slice(start, start + 4));
+}
+
+/**
+ * The reserved list: the twenty-four codes too easy to guess or to type by
+ * accident — the ten same-digit codes (0000 … 9999), the seven ascending
+ * runs (0123 … 6789) and the seven descending runs (9876 … 3210). With only
+ * ten thousand codes, these are the first an attacker would try. Here, not in
+ * codes.ts, so the Team page's "Generate" can skip them too (dispatch 23H);
+ * the server's refusal (reservedReason) is still what decides.
+ */
+const TOO_EASY_CODES: ReadonlySet<string> = new Set([
+  ...'0123456789'.split('').map((digit) => digit.repeat(4)),
+  ...runsIn('0123456789'),
+  ...runsIn('9876543210'),
+]);
+
+/** Whether a code is on the reserved list. */
+export function isTooEasyCode(code: string): boolean {
+  return TOO_EASY_CODES.has(code);
+}
+
 /**
  * The one-time key a cleaner's phone gives each receipt: a random UUID, as
  * `crypto.randomUUID()` writes it (version 4, lowercase).

@@ -31,10 +31,12 @@
  *
  * ── Deleting a finished statement: the one exception ──
  * `deleteFinishedStatement`, below, is the only code that deletes a finished
- * report, a statement's PDF or a download record, and the only delete
- * anywhere in the statements and costs records (Kian's ruling of 2026-10-02,
- * dispatch 23G, against the earlier rule that a finished statement is never
- * changed). It removes the month's current statement, its stored PDF and
+ * report, a statement's PDF or a download record (Kian's ruling of
+ * 2026-10-02, dispatch 23G, against the earlier rule that a finished
+ * statement is never changed). The one other delete in the statements and
+ * costs records is a cost entry's (deleteCostEntry in
+ * server-cost-entries.ts, dispatch 23H), refused while a finished statement
+ * prints the entry. It removes the month's current statement, its stored PDF and
  * every download record of it, and reopens the month's draft holding
  * everything the statement held. Once deleted, there is no record of what
  * an owner received. Correcting by superseding is unchanged and keeps both.
@@ -619,8 +621,8 @@ const sameReportFor = (a: { name: string; address: string } | null, b: { name: s
 /**
  * Delete a finished statement and reopen its month as a draft — THE ONE
  * PLACE A FINISHED STATEMENT IS DELETED (Kian's ruling of 2026-10-02,
- * dispatch 23G; see the head of this file). Nothing else in the statements
- * or costs records is ever deleted.
+ * dispatch 23G; see the head of this file). Elsewhere in the statements and
+ * costs records only a cost entry is deleted (deleteCostEntry, dispatch 23H).
  *
  * Only the month's current statement — the one its draft was finished as,
  * which no other statement replaces — and only when the page's count of

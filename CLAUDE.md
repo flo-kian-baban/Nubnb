@@ -223,3 +223,23 @@ no checkout. Do not build toward one unless asked.
   3 October. Deleting it removes the record of what was sent."
 - **Superseding stays as it is:** an admin can still correct by superseding
   instead of deleting.
+
+## Team and costs — Kian's rulings of 2026-10-02 (dispatch 23H)
+
+- **When an admin creates a cleaner or a handyman, they type the 4-digit
+  code** rather than being given a generated one. Offer to generate one, but
+  let them type it. The existing refusals hold: a code already in use, a code
+  equal to the admin PIN, and the reserved list. Changing a code afterwards
+  is unchanged.
+- **An admin can delete a cost entry entirely — the document, its history,
+  and its receipt object in Storage.** This reverses the earlier ruling that
+  nothing is deleted. **Consequence: a deleted entry leaves no record of what
+  was claimed or who logged it.**
+- **A confirmation names what is lost:** who logged it, when, the amount, and
+  that the receipt photo goes with it. It is the only safeguard, so it is
+  written plainly.
+- **Removal stays as it is** — excluded from totals, still visible, marked —
+  so an admin can exclude without erasing.
+- **The delete is refused when the entry is printed in a finished
+  statement, and says which.** A statement already sent cannot reference an
+  entry that no longer exists.

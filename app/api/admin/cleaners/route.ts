@@ -1,10 +1,17 @@
 /**
  * GET  /api/admin/cleaners — Every cleaner and handyman, newest first, with their codes (admin-only).
- * POST /api/admin/cleaners — Create a cleaner or a handyman and issue their code (admin-only).
+ * POST /api/admin/cleaners — Create a cleaner or a handyman with their code (admin-only).
  *
- * The body is `{ name, role? }` (dispatch 24): `role` is `cleaner` or
+ * The body is `{ name, role?, code? }`. `role` (dispatch 24) is `cleaner` or
  * `handyman`, and `cleaner` when absent, for the callers that predate it.
  * Both roles come from the one code index, so a code is unique across both.
+ * `code` (dispatch 23H) is the four digits the admin typed — the Team page
+ * always sends one, which its "Generate" may have filled in; when absent, the
+ * server draws one, as before. A typed code is refused, with nothing
+ * written, exactly as on a code change:
+ *   422 CLEANER_CODE_IS_ADMIN_PIN  the admin PIN
+ *   422 CLEANER_CODE_TOO_EASY      on the reserved list (1111, 1234, 9876 …)
+ *   409 CLEANER_CODE_TAKEN         someone's code now, or anyone's before
  *
  * A cleaner signs in at their own door, /api/cleaner, with a four-digit code;
  * this is where the admin makes one. By Kian's ruling of 2026-09-28 codes are
@@ -35,7 +42,7 @@ import {
   apiValidationError,
   noStore,
 } from '@/app/lib/api/safe-response';
-import { CLEANER_ROLES, LIMITS, type Refusal } from '@/app/lib/cleaners/model';
+import { CLEANER_ROLES, CODE_PATTERN, LIMITS, type Refusal } from '@/app/lib/cleaners/model';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import {
   issueCleaner,
@@ -45,10 +52,12 @@ import {
 
 const CONTROL_CHARACTER = /\p{Cc}/u;
 
+const CODE_MESSAGE = 'A code is four digits, like 0429';
+
 /**
- * Strict: a body that carries anything besides `name` and `role` is refused,
- * not trimmed. The name is stored as validated here — NFC, trimmed, 1–80
- * characters, no control characters. Duplicates are allowed.
+ * Strict: a body that carries anything besides `name`, `role` and `code` is
+ * refused, not trimmed. The name is stored as validated here — NFC, trimmed,
+ * 1–80 characters, no control characters. Duplicates are allowed.
  */
 const NewCleanerSchema = z.strictObject({
   name: z
@@ -63,6 +72,8 @@ const NewCleanerSchema = z.strictObject({
     ),
   /** `cleaner` when absent (dispatch 24). */
   role: z.enum(CLEANER_ROLES).optional().transform((value) => value ?? 'cleaner'),
+  /** The four digits the admin typed (dispatch 23H); absent, the server draws a code. */
+  code: z.string().regex(CODE_PATTERN, CODE_MESSAGE).optional().transform((value) => value ?? null),
 });
 
 /**
@@ -70,7 +81,7 @@ const NewCleanerSchema = z.strictObject({
  * anything, except `unconfirmed`, which cannot say whether the batch landed
  * and is never retried.
  */
-const ISSUE_REFUSALS: Record<Exclude<IssueCleanerResult['kind'], 'created'>, Refusal> = {
+const ISSUE_REFUSALS: Record<Exclude<IssueCleanerResult['kind'], 'created' | 'not-a-code' | 'reserved' | 'taken'>, Refusal> = {
   'admin-pin-missing': {
     status: 503,
     code: 'ADMIN_PIN_NOT_CONFIGURED',
@@ -95,6 +106,32 @@ const ISSUE_REFUSALS: Record<Exclude<IssueCleanerResult['kind'], 'created'>, Ref
     hint: 'It may have been created. Reload the list: if the name appears, their code is in their row.',
   },
 };
+
+/** A typed code refused: the refusals of a code change, saying nothing was created. */
+const ADMIN_PIN_REFUSAL: Refusal = {
+  status: 422,
+  code: 'CLEANER_CODE_IS_ADMIN_PIN',
+  message: 'That is the admin PIN.',
+  hint: 'A code can never be the admin PIN: whoever holds it would open /admin with it. Nothing was created.',
+};
+
+const TOO_EASY_REFUSAL: Refusal = {
+  status: 422,
+  code: 'CLEANER_CODE_TOO_EASY',
+  message: 'That code is too easy to guess.',
+  hint: 'Four of the same digit and runs like 1234 or 9876 are never used. Nothing was created.',
+};
+
+function takenRefusal(retired: boolean): Refusal {
+  return {
+    status: 409,
+    code: 'CLEANER_CODE_TAKEN',
+    message: retired
+      ? 'That code was used before and is never given out again.'
+      : 'That code belongs to someone else on the team.',
+    hint: 'Choose another, or generate one. Nothing was created.',
+  };
+}
 
 /**
  * The one thing logged about a failed read: its gRPC code, as on every other
@@ -159,9 +196,19 @@ export async function POST(request: NextRequest) {
 
   // ── Issue ──
   // Read inside the handler, never at module scope, and passed on unlogged.
-  const outcome = await issueCleaner(result.data.name, result.data.role, process.env.ADMIN_PIN);
-  if (outcome.kind !== 'created') return noStore(apiFailure(ISSUE_REFUSALS[outcome.kind]));
-
-  // The new cleaner, their code included. Nothing logs it.
-  return noStore(apiSuccess({ cleaner: outcome.cleaner }, 201));
+  // The body may hold a code, so it is never logged.
+  const outcome = await issueCleaner(result.data.name, result.data.role, process.env.ADMIN_PIN, result.data.code);
+  switch (outcome.kind) {
+    case 'created':
+      // The new cleaner, their code included. Nothing logs it.
+      return noStore(apiSuccess({ cleaner: outcome.cleaner }, 201));
+    case 'not-a-code':
+      return noStore(apiValidationError([{ path: 'code', message: CODE_MESSAGE }]));
+    case 'reserved':
+      return noStore(apiFailure(outcome.reason === 'admin-pin' ? ADMIN_PIN_REFUSAL : TOO_EASY_REFUSAL));
+    case 'taken':
+      return noStore(apiFailure(takenRefusal(outcome.retired)));
+    default:
+      return noStore(apiFailure(ISSUE_REFUSALS[outcome.kind]));
+  }
 }

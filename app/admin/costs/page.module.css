@@ -81,6 +81,16 @@
 .btnReject:hover:not(:disabled) {
   background: rgba(239, 68, 68, 0.9);
 }
+/* Delete outright (dispatch 23H): a ghost button in the red the property page's "Delete statement…" uses. */
+.btnDanger {
+  color: #ef5350;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+.btnDanger:hover:not(:disabled) {
+  color: #ff6b68;
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.45);
+}
 .btnGhost:disabled,
 .btnApprove:disabled,
 .btnReject:disabled {

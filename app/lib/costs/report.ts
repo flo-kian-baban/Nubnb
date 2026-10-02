@@ -602,7 +602,7 @@ export type SincePdf =
   | { kind: 'left'; status: string | null }
   /** Still approved, but its lines can no longer be added up. */
   | { kind: 'unreadable' }
-  /** No entry has this ID now. Nothing is ever erased, so this is not expected. */
+  /** No entry has this ID now: it was deleted outright (dispatch 23H). */
   | { kind: 'missing' };
 
 const CORRECTIONS = new Set(['line_corrected', 'line_added', 'tax_corrected']);
@@ -682,6 +682,28 @@ export function comparePdf(record: PdfRecord, all: CostEntryView[]): PdfComparis
       : null,
     verdict: !amountsMatch ? 'differs' : changes.length > 0 ? 'wording' : 'matches',
   };
+}
+
+/** A recorded PDF of one property that lists entries since deleted outright (dispatch 23H). */
+export interface DeletedSincePdf {
+  record: PdfRecord;
+  /** What the PDF printed for each entry that no longer exists. */
+  printed: PrintedEntry[];
+}
+
+/**
+ * The property's recorded PDFs, newest first, that list an entry no longer
+ * on record — deleted outright since (Kian's ruling of 2026-10-02). Such an
+ * entry has no row left to carry a mark, so the ledger says it per PDF:
+ * whoever received that PDF holds a total that includes it. `all` must be
+ * every entry the page has, so an entry is "gone" only when it truly is.
+ */
+export function deletedSincePdf(records: PdfRecord[], all: CostEntryView[], propertyId: string): DeletedSincePdf[] {
+  const onRecord = new Set(all.map((entry) => entry.id));
+  return records
+    .filter((record) => record.propertyId === propertyId)
+    .map((record) => ({ record, printed: record.entries.filter((printed) => !onRecord.has(printed.entryId)) }))
+    .filter((found) => found.printed.length > 0);
 }
 
 /** One PDF an entry went out in. */

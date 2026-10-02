@@ -216,6 +216,10 @@ function PropertyPageInner() {
   const onEntryChanged = useCallback((entry: CostEntryView) => {
     setCosts((prev) => (prev.kind === "ready" ? { kind: "ready", data: { ...prev.data, entries: prev.data.entries.map((e) => (e.id === entry.id ? entry : e)) } } : prev));
   }, []);
+  /** An entry deleted outright (dispatch 23H): it leaves the page's list. */
+  const onEntryDeleted = useCallback((id: string) => {
+    setCosts((prev) => (prev.kind === "ready" ? { kind: "ready", data: { ...prev.data, entries: prev.data.entries.filter((e) => e.id !== id) } } : prev));
+  }, []);
   const onEntryAdded = useCallback((entry: CostEntryView) => {
     setCosts((prev) => (prev.kind === "ready" ? { kind: "ready", data: { ...prev.data, entries: [entry, ...prev.data.entries] } } : prev));
   }, []);
@@ -377,6 +381,7 @@ function PropertyPageInner() {
                 onManagement={onManagement}
                 onDownloaded={onDownloaded}
                 onEntryChanged={onEntryChanged}
+                onEntryDeleted={onEntryDeleted}
                 onEntryAdded={onEntryAdded}
                 onExportRecorded={onExportRecorded}
                 onStatementDeleted={onStatementDeleted}
@@ -416,6 +421,7 @@ interface MonthWorkProps {
   onManagement: (record: PropertyManagementView) => void;
   onDownloaded: (record: ReportDownloadView) => void;
   onEntryChanged: (entry: CostEntryView) => void;
+  onEntryDeleted: (id: string) => void;
   onEntryAdded: (entry: CostEntryView) => void;
   onExportRecorded: (record: ReportExportView) => void;
   /** A finished statement was deleted: the server's answer, with the draft reopened. */
@@ -756,6 +762,7 @@ function MonthWork(props: MonthWorkProps) {
               openEntryId={props.entryId}
               onOpenEntry={props.onEntry}
               onEntryChanged={props.onEntryChanged}
+              onEntryDeleted={props.onEntryDeleted}
               onEntryAdded={props.onEntryAdded}
               onExportRecorded={props.onExportRecorded}
               show={show}

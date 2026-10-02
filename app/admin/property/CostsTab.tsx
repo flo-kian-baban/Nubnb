@@ -30,7 +30,7 @@ import { FileSpreadsheet, FileText } from "lucide-react";
 import type { Notice } from "../components/Notice";
 import { recordPdfExport } from "@/app/lib/costs-client";
 import { formatCents, type CostEntryView, type ReportExportView } from "@/app/lib/cleaners/model";
-import { buildReport, cleanerLabel, entryPdfState, periodLabel, readPdfRecords, reportFileName, sentDay, shortDay, type EntryPdfState } from "@/app/lib/costs/report";
+import { buildReport, cleanerLabel, deletedSincePdf, entryPdfState, periodLabel, readPdfRecords, reportFileName, sentDay, shortDay, type EntryPdfState } from "@/app/lib/costs/report";
 import { watchList } from "@/app/lib/costs/patterns";
 import { pdfFor } from "@/app/lib/costs/pdf";
 import { workbookFor } from "@/app/lib/costs/xlsx";
@@ -61,12 +61,14 @@ interface Props {
   openEntryId: string | null;
   onOpenEntry: (id: string | null) => void;
   onEntryChanged: (entry: CostEntryView) => void;
+  /** An entry deleted outright (dispatch 23H). */
+  onEntryDeleted: (id: string) => void;
   onEntryAdded: (entry: CostEntryView) => void;
   onExportRecorded: (record: ReportExportView) => void;
   show: (notice: Notice) => void;
 }
 
-export function CostsTab({ propertyId, propertyName, month, today, entries, exports, statement, finishedReport, statements, openEntryId, onOpenEntry, onEntryChanged, onEntryAdded, onExportRecorded, show }: Props) {
+export function CostsTab({ propertyId, propertyName, month, today, entries, exports, statement, finishedReport, statements, openEntryId, onOpenEntry, onEntryChanged, onEntryDeleted, onEntryAdded, onExportRecorded, show }: Props) {
   const [recording, setRecording] = useState(false);
   const range = monthRange(month);
   const inMonth = (entry: CostEntryView) => {
@@ -85,6 +87,11 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
   /** The recorded cost PDFs, and how each entry stands beside the newest for its day. */
   const pdfRecords = useMemo(() => readPdfRecords(exports).records, [exports]);
   const pdfStateOf = (entry: CostEntryView): EntryPdfState | null => (pdfRecords.length === 0 ? null : entryPdfState(entry, pdfRecords));
+  /** Recorded PDFs covering the month that list an entry since deleted (dispatch 23H): no row is left to mark, so each is said. */
+  const deletedSince = useMemo(
+    () => deletedSincePdf(pdfRecords, entries, propertyId).filter(({ record }) => record.from <= range.to && record.to >= range.from),
+    [pdfRecords, entries, propertyId, range.from, range.to],
+  );
   /** What the finished statement printed for each entry it carried, so a later change shows. */
   const printed = useMemo(() => (finishedReport ? new Map(finishedReport.costs.map((cost) => [cost.entryId, cost.totalCents])) : null), [finishedReport]);
   /** What else the statement carries: earlier-month entries and adjustments, as it prints them. */
@@ -163,6 +170,11 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
           pattern={entry.cleaner.id === null ? null : (patterns.find((pattern) => pattern.cleanerId === entry.cleaner.id) ?? null)}
           statements={statements}
           onChanged={onEntryChanged}
+          onDeleted={(id, done) => {
+            onOpenEntry(null);
+            onEntryDeleted(id);
+            show(done);
+          }}
           onClose={() => onOpenEntry(null)}
         />
       </div>
@@ -197,6 +209,15 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
           </Link>
         </p>
       )}
+
+      {deletedSince.map(({ record, printed }) => (
+        <p key={record.id} className={styles.noteWarn} role="status">
+          The cost PDF exported {whenText(record.createdAt)} for {periodLabel(record.from, record.to)} lists{" "}
+          {printed.length === 1 ? "an entry" : `${printed.length} entries`} since deleted, at{" "}
+          {formatCents(printed.reduce((sum, entry) => sum + entry.totalCents, 0))}: whoever received it holds a total that includes{" "}
+          {printed.length === 1 ? "it" : "them"}.
+        </p>
+      ))}
 
       {approved.length === 0 && alsoCarried.length === 0 ? null : (
         <table className={styles.costTable}>

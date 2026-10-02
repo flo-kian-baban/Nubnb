@@ -19,7 +19,7 @@
  */
 
 import { describeErrorBody, readErrorBody } from '@/app/lib/api/http-failure';
-import type { CleanerRole, CleanerStatus, CleanerSummary } from '@/app/lib/cleaners/model';
+import { isTooEasyCode, type CleanerRole, type CleanerStatus, type CleanerSummary } from '@/app/lib/cleaners/model';
 
 export type CleanerResult<T> =
   | { ok: true; data: T }
@@ -143,18 +143,36 @@ export function fetchCleaners(): Promise<CleanerResult<CleanerSummary[]>> {
 }
 
 /** Create a cleaner or a handyman (dispatch 24). The answer carries the new account, code included. Never retried. */
-export function createCleaner(name: string, role: CleanerRole): Promise<CleanerResult<{ cleaner: CleanerSummary }>> {
+/** Create a cleaner or a handyman holding the four digits the admin typed (dispatch 23H). */
+export function createCleaner(name: string, role: CleanerRole, code: string): Promise<CleanerResult<{ cleaner: CleanerSummary }>> {
   return call(
     '/api/admin/cleaners',
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, role }),
+      body: JSON.stringify({ name, role, code }),
     },
     'Creating the cleaner failed',
-    (data) => isRecord(data) && isCleanerSummary(data.cleaner),
+    (data) => isRecord(data) && isCleanerSummary(data.cleaner) && data.cleaner.code === code,
     ['CLEANER_CREATE_UNCONFIRMED'],
   );
+}
+
+/**
+ * A code to offer in the create dialog: four digits drawn uniformly from the
+ * browser's CSPRNG, never one on the reserved list. Only a suggestion, typed
+ * into the field for the admin to keep or change: the server still refuses
+ * the admin PIN and any code issued before.
+ */
+export function suggestCode(): string {
+  const draw = new Uint16Array(1);
+  for (;;) {
+    crypto.getRandomValues(draw);
+    // 60,000 is the largest multiple of 10,000 under 65,536: no digit is favoured.
+    if (draw[0] >= 60_000) continue;
+    const code = String(draw[0] % 10_000).padStart(4, '0');
+    if (!isTooEasyCode(code)) return code;
+  }
 }
 
 export function changeCleanerStatus(

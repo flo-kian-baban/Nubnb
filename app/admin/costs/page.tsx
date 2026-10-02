@@ -33,7 +33,9 @@
  * recorded before it is downloaded, and the page sets every recorded PDF
  * beside the ledger as it now stands: a list of the property's PDFs saying
  * which still match, a mark on each entry that has changed since the newest
- * PDF covering its day, and the same in the entry pane.
+ * PDF covering its day, and the same in the entry pane. An entry deleted
+ * outright (dispatch 23H) has no row left to mark, so the ledger says, per
+ * PDF, that it lists an entry since deleted.
  *
  * ── What counts ──
  * Approved and pending entries count in totals, shown apart; rejected and
@@ -101,7 +103,7 @@ import { AdminHeader } from "../components/AdminHeader";
 import { AdminSelect } from "../components/AdminSelect";
 import { DateRangeField } from "../components/DateRangeField";
 import { PinGate } from "../components/PinGate";
-import { NoticeBanner, useNotice } from "../components/Notice";
+import { NoticeBanner, useNotice, type Notice } from "../components/Notice";
 import { fetchCosts, markEntrySeen, recordPdfExport } from "@/app/lib/costs-client";
 import { fetchPropertyStatements } from "@/app/lib/reports-client";
 import {
@@ -122,6 +124,7 @@ import {
   buildReport,
   cleanerLabel,
   countedItems,
+  deletedSincePdf,
   entryPdfState,
   inQueue,
   isDay,
@@ -272,6 +275,16 @@ function Costs() {
   }, []);
 
   const closePane = useCallback(() => setSelectedId(null), []);
+
+  /** An entry deleted outright (dispatch 23H): it leaves the list, the pane closes, and the page says what went. */
+  const dropEntry = useCallback(
+    (id: string, done: Notice) => {
+      setList((prev) => (prev.kind === "ready" ? { ...prev, entries: prev.entries.filter((entry) => entry.id !== id) } : prev));
+      setSelectedId(null);
+      show(done);
+    },
+    [show],
+  );
 
   const entries = useMemo(() => (list.kind === "ready" ? list.entries : []), [list]);
   const known = list.kind === "ready" ? list.properties : null;
@@ -730,6 +743,17 @@ function Costs() {
               </section>
             )}
 
+            {/* ── The property's PDFs that list an entry since deleted outright (dispatch 23H) ── */}
+            {ledger &&
+              deletedSincePdf(pdfs.records, entries, filters.propertyId).map(({ record, printed }) => (
+                <p key={record.id} className={styles.noteWarn} role="status">
+                  The PDF exported {whenText(record.createdAt)} for {periodLabel(record.from, record.to)} lists{" "}
+                  {printed.length === 1 ? "an entry" : `${printed.length} entries`} since deleted, at{" "}
+                  {formatCents(printed.reduce((sum, entry) => sum + entry.totalCents, 0))}: whoever received it holds a total that includes{" "}
+                  {printed.length === 1 ? "it" : "them"}.
+                </p>
+              ))}
+
             {oneProperty && (
               <div className={styles.tabs} role="tablist" aria-label="Show">
                 <button
@@ -848,6 +872,7 @@ function Costs() {
                       pattern={selected.cleaner.id === null ? null : (patterns.find((pattern) => pattern.cleanerId === selected.cleaner.id) ?? null)}
                       statements={selected.property.id === null ? null : (statementsByProperty[selected.property.id] ?? { kind: "loading" })}
                       onChanged={replaceEntry}
+                      onDeleted={dropEntry}
                       onClose={closePane}
                     />
                   ) : (

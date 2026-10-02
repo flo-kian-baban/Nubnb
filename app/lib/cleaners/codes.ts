@@ -18,6 +18,7 @@
  */
 
 import { randomInt, timingSafeEqual } from 'crypto';
+import { isTooEasyCode } from './model';
 
 /** Digits in a code. The same as the admin PIN, which is why the PIN itself is never a code. */
 export const CODE_LENGTH = 4;
@@ -33,25 +34,6 @@ export const CODE_LENGTH = 4;
 export function generateCandidate(): string {
   return String(randomInt(0, 10_000)).padStart(CODE_LENGTH, '0');
 }
-
-/** Every run of CODE_LENGTH consecutive digits in `digits`: 0123 … 6789 for ascending. */
-function runsIn(digits: string): string[] {
-  return Array.from({ length: digits.length - CODE_LENGTH + 1 }, (_, start) =>
-    digits.slice(start, start + CODE_LENGTH),
-  );
-}
-
-/**
- * The reserved list: the twenty-four codes too easy to guess or to type by
- * accident — the ten same-digit codes (0000 … 9999), the seven ascending
- * runs (0123 … 6789) and the seven descending runs (9876 … 3210). With only
- * ten thousand codes, these are the first an attacker would try.
- */
-const TRIVIAL_CODES: ReadonlySet<string> = new Set([
-  ...'0123456789'.split('').map((digit) => digit.repeat(CODE_LENGTH)),
-  ...runsIn('0123456789'),
-  ...runsIn('9876543210'),
-]);
 
 /**
  * Whether this code is the admin PIN.
@@ -77,8 +59,9 @@ function isAdminPin(code: string, adminPin: string): boolean {
 export type ReservedReason = 'admin-pin' | 'too-easy';
 
 /**
- * Whether a code is reserved: the admin PIN, or on the reserved list.
- * Issuance draws again; a code an admin types is refused with the reason.
+ * Whether a code is reserved: the admin PIN, or on the reserved list (the
+ * twenty-four too easy to guess: isTooEasyCode in model.ts). Issuance draws
+ * again; a code an admin types is refused with the reason.
  *
  * Codes already issued — in use, or replaced and so retired — are reserved
  * too, but that is a fact about the database, not the digits: `create()` of
@@ -86,6 +69,6 @@ export type ReservedReason = 'admin-pin' | 'too-easy';
  */
 export function reservedReason(code: string, adminPin: string): ReservedReason | null {
   if (isAdminPin(code, adminPin)) return 'admin-pin';
-  if (TRIVIAL_CODES.has(code)) return 'too-easy';
+  if (isTooEasyCode(code)) return 'too-easy';
   return null;
 }

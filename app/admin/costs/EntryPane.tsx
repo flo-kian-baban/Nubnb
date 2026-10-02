@@ -8,10 +8,18 @@
  * Approve, reject (with a reason the cleaner sees) or remove, whenever the
  * admin chooses; each of the three can follow any other, so approving undoes
  * a removal. A line is corrected, or one added — a discount, say, which the
- * phone cannot enter — without a reason. Nothing is ever deleted: the entry's
- * lines stay as the cleaner sent them, each correction goes into the history
- * with the line before and after, and every earlier version stays beneath its
- * line, struck through.
+ * phone cannot enter — without a reason. A review deletes nothing: the
+ * entry's lines stay as the cleaner sent them, each correction goes into the
+ * history with the line before and after, and every earlier version stays
+ * beneath its line, struck through.
+ *
+ * ── Delete (Kian's ruling of 2026-10-02, dispatch 23H) ──
+ * "Delete…" erases the entry outright: the entry, its history and its
+ * receipt photo. The confirmation is the only safeguard, so it says plainly
+ * who logged it, when, the amount, that the photo goes with it, and that no
+ * record is kept. An entry a finished statement prints is never deleted: the
+ * pane says which statement before asking, and the server refuses it too.
+ * Remove is unchanged and is how an entry is excluded without erasing it.
  *
  * ── Items, tax, total (dispatch 21) ──
  * Under the receipt: the items bought, then the tax, then the total, each
@@ -57,11 +65,11 @@
 
 import { useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
-import { AlertTriangle, Ban, Check, Eye, Plus, Trash2, X } from "lucide-react";
+import { AlertTriangle, Ban, Check, CircleMinus, Eye, Plus, Trash2, X } from "lucide-react";
 import { NoticeBanner, useNotice, type Notice } from "../components/Notice";
-import { currentReports, displayRef, monthLabel, monthOfDay } from "@/app/lib/reports/model";
+import { currentReports, displayRef, monthLabel, monthOfDay, type MonthlyReportView } from "@/app/lib/reports/model";
 import type { PropertyStatements } from "@/app/lib/reports-client";
-import { changeEntryLine, changeEntryTax, markEntrySeen, setEntryStatus, type CostResult, type EntryChange } from "@/app/lib/costs-client";
+import { changeEntryLine, changeEntryTax, deleteEntry, markEntrySeen, setEntryStatus, type CostResult, type EntryChange } from "@/app/lib/costs-client";
 import {
   ENTRY_STATUS_LABELS,
   HISTORY_ACTION_LABELS,
@@ -76,9 +84,11 @@ import {
 import { distributionText, splitText, type CleanerPattern } from "@/app/lib/costs/patterns";
 import {
   cleanerLabel,
+  longDay,
   propertyLabel,
   sentDay,
   shortDay,
+  torontoDayOf,
   type EntryPdfState,
   type PdfAppearance,
   type PdfRecord,
@@ -113,6 +123,8 @@ interface EntryPaneProps {
   statements: PropertyStatementsState | null;
   /** The entry as the server now stores it, after a review. */
   onChanged: (entry: CostEntryView) => void;
+  /** The entry was deleted (dispatch 23H): take it off the page and show `notice` there, the pane being gone. */
+  onDeleted: (id: string, notice: Notice) => void;
   onClose: () => void;
 }
 
@@ -132,9 +144,9 @@ const STATUS_DONE: Record<ReviewStatus, string> = {
   removed: "It has left its property’s ledger, totals and reports, and stays in the review queue, marked.",
 };
 
-export function EntryPane({ entry, pdf, pattern, statements, onChanged, onClose }: EntryPaneProps) {
+export function EntryPane({ entry, pdf, pattern, statements, onChanged, onDeleted, onClose }: EntryPaneProps) {
   /** What is being saved, for its button's label; null when nothing is. */
-  const [saving, setSaving] = useState<ReviewStatus | "line" | "tax" | "seen" | null>(null);
+  const [saving, setSaving] = useState<ReviewStatus | "line" | "tax" | "seen" | "delete" | null>(null);
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
   const [draft, setDraft] = useState<LineDraft | null>(null);
@@ -210,6 +222,65 @@ export function EntryPane({ entry, pdf, pattern, statements, onChanged, onClose 
       setRejecting(false);
       setReason("");
     }
+  };
+
+  /**
+   * Delete outright (dispatch 23H). Refused here, without asking, when the
+   * property's statements show a finished one printing it; otherwise the
+   * admin confirms against a plain account of what is lost, and the server
+   * checks again.
+   */
+  const remove = async () => {
+    if (busy || seen === null) return;
+    const printing = statements?.kind === "ready" ? printedIn(entry.id, statements.data.reports) : [];
+    if (printing.length > 0) {
+      show({
+        tone: "error",
+        title: "This entry is printed in a finished statement, so it cannot be deleted.",
+        detail: `It is in ${printing.map(statementWords).join(", and in ")}. A statement already sent cannot point to an entry that no longer exists. To take it out of totals, remove it instead.`,
+      });
+      return;
+    }
+    const logger = office ? "the office" : `${cleanerLabel(entry)} (${work ? "handyman" : "cleaner"})`;
+    const amount = now.kind === "ok" ? formatCents(now.totalCents) : "an amount that cannot be added up";
+    const photo = entry.receipts !== null && entry.receipts.length > 0;
+    const question = [
+      "Delete this entry for good?",
+      "",
+      `Logged by ${logger} on ${whenText(entry.createdAt)}`,
+      `Amount: ${amount}, for ${propertyLabel(entry)}.`,
+      photo ? "The receipt photo is deleted with it." : "It has no receipt photo.",
+      pdf !== null ? `It went out in a PDF exported ${whenText(pdf.lastListed.record.createdAt)}; that PDF will no longer match the ledger.` : null,
+      "",
+      "Nothing is kept: there will be no record of what was claimed or who logged it. This cannot be undone.",
+      "To take it out of totals and keep it on record, use Remove instead.",
+    ]
+      .filter((line) => line !== null)
+      .join("\n");
+    if (!window.confirm(question)) return;
+
+    clear();
+    setSaving("delete");
+    const result = await deleteEntry(entry.id, { seen });
+    setSaving(null);
+    if (!result.ok) {
+      show(
+        result.unknown
+          ? { tone: "warning", title: "The entry may or may not have been deleted. Refresh to see what is on record.", detail: result.title }
+          : { tone: "error", title: result.title, detail: failureDetail(result) },
+      );
+      return;
+    }
+    const left = result.data.deleted.receipts.includes("left");
+    onDeleted(entry.id, {
+      tone: left ? "warning" : "success",
+      title: `Deleted: ${amount} for ${propertyLabel(entry)}, logged by ${logger} on ${whenText(entry.createdAt)}`,
+      detail: left
+        ? "The receipt photo could not be deleted from storage and is left there, unlisted."
+        : photo
+          ? "Its history and receipt photo are deleted too. No record of it is kept."
+          : "Its history is deleted too. No record of it is kept.",
+    });
   };
 
   const markSeen = async () => {
@@ -344,7 +415,7 @@ export function EntryPane({ entry, pdf, pattern, statements, onChanged, onClose 
         {entry.status === "approved" && reviewable && (
           <p className={styles.statusNote}>
             Approved: it counts in its property’s ledger and reports. It can still be corrected or removed; every
-            change is recorded in the history below, and nothing is erased.
+            change is recorded in the history below.
           </p>
         )}
 
@@ -378,10 +449,14 @@ export function EntryPane({ entry, pdf, pattern, statements, onChanged, onClose 
             )}
             {entry.status !== "removed" && (
               <button type="button" className={styles.btnGhost} disabled={busy} onClick={() => review("removed")}>
-                <Trash2 size={15} aria-hidden />
+                <CircleMinus size={15} aria-hidden />
                 <span>{saving === "removed" ? "Saving…" : "Remove…"}</span>
               </button>
             )}
+            <button type="button" className={`${styles.btnGhost} ${styles.btnDanger}`} disabled={busy} onClick={remove}>
+              <Trash2 size={15} aria-hidden />
+              <span>{saving === "delete" ? "Deleting…" : "Delete…"}</span>
+            </button>
           </div>
         ) : (
           <p className={styles.noteWarn}>
@@ -827,6 +902,21 @@ function StatementLinks({ entry, statements }: { entry: CostEntryView; statement
       <p className={styles.fieldValue}>{statement}</p>
     </section>
   );
+}
+
+/** Every finished statement, current or since replaced, that prints the entry or an adjustment for it. */
+function printedIn(entryId: string, reports: MonthlyReportView[]): { report: MonthlyReportView; replaced: boolean }[] {
+  const current = new Set(currentReports(reports).map((report) => report.id));
+  return reports
+    .filter((report) => report.entryIds.includes(entryId) || report.costs.some((row) => row.entryId === entryId) || report.adjustments.some((row) => row.entryId === entryId))
+    .sort((a, b) => b.finishedAt.localeCompare(a.finishedAt))
+    .map((report) => ({ report, replaced: !current.has(report.id) }));
+}
+
+/** One statement in words, as the server's refusal puts it. */
+function statementWords({ report, replaced }: { report: MonthlyReportView; replaced: boolean }): string {
+  const finished = Number.isFinite(Date.parse(report.finishedAt)) ? `, finished ${longDay(torontoDayOf(new Date(report.finishedAt)))}` : "";
+  return `the statement for ${monthLabel(report.month)} (${displayRef(report)})${finished}${replaced ? ", since replaced" : ""}`;
 }
 
 /** Where a name comes from, when it is not simply the current one. */

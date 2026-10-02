@@ -304,6 +304,44 @@ export function setEntryStatus(
  * history length the page shows. The answer's entry carries the `seen`
  * event; `changed` is false when an admin had already acted on it.
  */
+/** The answer to a delete (dispatch 23H): what went with the entry. */
+export interface EntryDeleted {
+  deleted: {
+    id: string;
+    /** Each receipt object: "deleted", "missing" (already gone) or "left" in Storage after a failure. */
+    receipts: string[];
+    reading: boolean;
+    submissions: number;
+  };
+}
+
+/**
+ * Delete an entry outright (Kian's ruling of 2026-10-02): the entry, its
+ * history and its receipt photo. `seen` is the history length the page showed
+ * when the admin confirmed; the server refuses if it changed since, and while
+ * a finished statement prints the entry.
+ */
+export function deleteEntry(id: string, request: { seen: number }): Promise<CostResult<EntryDeleted>> {
+  return call(
+    `/api/admin/cost-entries/${encodeURIComponent(id)}`,
+    {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    },
+    'Deleting the entry failed',
+    (data) =>
+      isRecord(data) &&
+      isRecord(data.deleted) &&
+      data.deleted.id === id &&
+      Array.isArray(data.deleted.receipts) &&
+      data.deleted.receipts.every((outcome) => typeof outcome === 'string') &&
+      typeof data.deleted.reading === 'boolean' &&
+      typeof data.deleted.submissions === 'number',
+    ['ENTRY_DELETE_FAILED'],
+  );
+}
+
 export function markEntrySeen(id: string, request: { seen: number }): Promise<CostResult<EntryChange>> {
   return call(
     `/api/admin/cost-entries/${encodeURIComponent(id)}/seen`,

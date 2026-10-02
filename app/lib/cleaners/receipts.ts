@@ -19,7 +19,9 @@
  *
  * ── Create-only ──
  * Written with `ifGenerationMatch: 0`, so the app can never overwrite a
- * receipt, and the app has no code that removes one. A receipt whose entry
+ * receipt. The one code that removes one is deleteCostEntry
+ * (server-cost-entries.ts, dispatch 23H), which deletes an entry's receipt
+ * at the path the entry stored, after the entry itself. A receipt whose entry
  * was then not written stays behind as an orphan: private, costing cents,
  * and attributable through its `entryId` and `cleanerId` metadata.
  *
