@@ -119,6 +119,8 @@ function AdminHome() {
   const [properties, setProperties] = useState<Property[]>([]);
   /** Which properties are unlisted (dispatch 24): read beside the documents, never inside one. */
   const [unlistedIds, setUnlistedIds] = useState<Set<string>>(new Set());
+  /** The month each property was created (Firestore's create time): no statement is owed before it (Kian's ruling of 2026-10-03). */
+  const [createdMonths, setCreatedMonths] = useState<Map<string, string | null>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   // null = the read succeeded. A failed read must never render as "no properties
   // yet", which invites re-creating records that already exist.
@@ -139,10 +141,12 @@ function AdminHome() {
     const read = statementsRead.statements;
     if (read.kind !== "ready") return null;
     // The list's properties and the tracker's: the same documents; both are included, so a property
-    // added since either read still has a status.
-    const ids = new Map([...read.data.properties, ...properties].map((p) => [p.id, { id: p.id }]));
+    // added since either read still has a status, with the month it was created from whichever read has it.
+    const created = new Map(read.data.properties.map((p) => [p.id, p.createdMonth ?? null]));
+    for (const [id, month] of createdMonths) if (month !== null) created.set(id, month);
+    const ids = new Map([...read.data.properties, ...properties].map((p) => [p.id, { id: p.id, createdMonth: created.get(p.id) ?? null }]));
     return reportingStatuses({ today, properties: [...ids.values()], management: read.data.management, reports: read.data.reports });
-  }, [statementsRead.statements, properties, today]);
+  }, [statementsRead.statements, properties, createdMonths, today]);
 
   // Search, filters and sort (2026-09-30). They start from the address bar
   // and are written back to it (?q=&city=&type=&beds=&sort=), so a reload or
@@ -195,6 +199,7 @@ function AdminHome() {
       if (result.ok) {
         setProperties(result.data.properties);
         setUnlistedIds(result.data.unlistedIds);
+        setCreatedMonths(result.data.createdMonths);
         setLoadError(null);
       } else {
         setProperties([]);

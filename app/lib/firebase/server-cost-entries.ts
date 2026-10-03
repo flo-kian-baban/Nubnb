@@ -101,6 +101,7 @@
 import { z } from 'zod';
 import type { DocumentReference, DocumentSnapshot, Transaction } from 'firebase-admin/firestore';
 import { getAdminBucket, getAdminDb } from './admin';
+import { createdMonthOf } from './created-month';
 import { isDocumentId } from './server-leads';
 import type { ReadingAttachment } from '@/app/lib/cleaners/readings';
 import { inRange, sentDay } from '@/app/lib/costs/report';
@@ -920,6 +921,8 @@ interface CleanerNow {
 
 interface PropertyNow {
   name: string | null;
+  /** The Toronto month the document was created, from Firestore's create time; only the whole-collection lookup reads it. */
+  createdMonth?: string | null;
 }
 
 /** The IDs worth looking up: real document IDs, each once. */
@@ -1023,7 +1026,7 @@ function toView(
 async function lookUpAllProperties(): Promise<Map<string, PropertyNow> | null> {
   try {
     const snapshot = await getAdminDb().collection('properties').select('name').get();
-    return new Map(snapshot.docs.map((doc): [string, PropertyNow] => [doc.id, { name: fieldText(doc.get('name')) }]));
+    return new Map(snapshot.docs.map((doc): [string, PropertyNow] => [doc.id, { name: fieldText(doc.get('name')), createdMonth: createdMonthOf(doc.createTime) }]));
   } catch (err) {
     console.error(`[cost-entries] could not look up properties: grpc code ${grpcCode(err)}`);
     return null;
@@ -1067,7 +1070,7 @@ export async function listCosts(): Promise<CostsView> {
       properties === null
         ? null
         : [...properties.entries()]
-            .map(([id, now]) => ({ id, name: now.name }))
+            .map(([id, now]) => ({ id, name: now.name, createdMonth: now.createdMonth ?? null }))
             .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', 'en-CA') || a.id.localeCompare(b.id)),
   };
 }

@@ -30,7 +30,8 @@ export interface TrackerData {
   drafts: StatementDraftSummary[];
   downloads: ReportDownloadView[];
   management: PropertyManagementView[];
-  properties: { id: string; name: string | null }[];
+  /** Every property, with the Toronto month its document was created (the owed-months rule needs it). */
+  properties: { id: string; name: string | null; createdMonth?: string | null }[];
   entries: CostEntryView[];
   unreadable: { reports: number; drafts: number; downloads: number };
 }
@@ -91,6 +92,8 @@ export interface DraftPayload {
 /** Everything a property's page shows about its statements (dispatch 23D). */
 export interface PropertyStatements {
   propertyName: string;
+  /** The Toronto month the property's document was created: no month before it is owed (Kian's ruling of 2026-10-03). */
+  createdMonth: string | null;
   reports: MonthlyReportView[];
   drafts: StatementDraftView[];
   downloads: ReportDownloadView[];

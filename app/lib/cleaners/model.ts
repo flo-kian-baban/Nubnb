@@ -775,6 +775,8 @@ export interface ReportExportView {
 export interface PropertyNameView {
   id: string;
   name: string | null;
+  /** The Toronto month the property's document was created, by Firestore's own create time (the owed-months rule, Kian's ruling of 2026-10-03). */
+  createdMonth?: string | null;
 }
 
 /** What GET /api/admin/cost-entries answers: everything the costs page works from. */

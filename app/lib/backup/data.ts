@@ -191,8 +191,8 @@ export interface SelectInputs {
   month: string;
   today: string;
   madeAt: string;
-  /** Every property: its ID and name. */
-  properties: { id: string; name: string | null }[];
+  /** Every property: its ID, its name, and the Toronto month its document was created (the owed-months rule needs it). */
+  properties: { id: string; name: string | null; createdMonth?: string | null }[];
   /** Every cost entry, as stored. */
   entries: { id: string; stored: Record<string, unknown> }[];
   /** Every finished statement, read, with its stored document. */
@@ -245,7 +245,7 @@ export function selectMonthPackage(input: SelectInputs): Selection {
     const reportsOfProperty = allReports.filter((report) => report.propertyId === property.id);
     const live = current.find((report) => report.propertyId === property.id && report.month === month) ?? null;
     const draft = input.drafts.find((d) => d.view.propertyId === property.id && d.view.month === month && d.view.finishedAs === null)?.view ?? null;
-    const standing = monthStanding({ month, today, owed: inStatementScope(record, month), finished: live !== null, excluded: isExcludedFromReporting(record) });
+    const standing = monthStanding({ month, today, owed: inStatementScope(record, month, property.createdMonth ?? null), finished: live !== null, excluded: isExcludedFromReporting(record) });
 
     let statement: Statement | null = null;
     let unreadable: string[] = [];

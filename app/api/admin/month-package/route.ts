@@ -47,6 +47,7 @@ import {
   readStatementDraft,
 } from '@/app/lib/reports/model';
 import { selectMonthPackage, type SelectInputs } from '@/app/lib/backup/data';
+import { createdMonthOf } from '@/app/lib/firebase/created-month';
 
 /** The one thing logged about a Firestore or Storage error: its code. */
 function errorCode(err: unknown): string {
@@ -87,7 +88,7 @@ export async function GET(request: NextRequest) {
       month,
       today: torontoDayOf(madeAt),
       madeAt: madeAt.toISOString(),
-      properties: properties.docs.map((doc) => ({ id: doc.id, name: typeof doc.get('name') === 'string' ? (doc.get('name') as string) : null })),
+      properties: properties.docs.map((doc) => ({ id: doc.id, name: typeof doc.get('name') === 'string' ? (doc.get('name') as string) : null, createdMonth: createdMonthOf(doc.createTime) })),
       entries: entries.docs.map((doc) => ({ id: doc.id, stored: doc.data() })),
       reports: reports.docs.flatMap((doc) => {
         const view = readMonthlyReport(doc.id, doc.data());

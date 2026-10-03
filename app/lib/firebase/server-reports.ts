@@ -51,6 +51,7 @@ import { createHash } from 'crypto';
 import { z } from 'zod';
 import type { Transaction } from 'firebase-admin/firestore';
 import { getAdminBucket, getAdminDb } from './admin';
+import { createdMonthOf } from './created-month';
 import { isDocumentId } from './server-leads';
 import { listCosts, listPropertyEntries, propertyEntriesInTransaction, toCents } from './server-cost-entries';
 import { getManagement, listManagement, toBasisPoints } from './server-management';
@@ -251,12 +252,17 @@ async function propertyReports(propertyId: string, tx?: Transaction): Promise<Mo
   return reports.sort((a, b) => b.finishedAt.localeCompare(a.finishedAt) || a.id.localeCompare(b.id));
 }
 
-async function propertyName(propertyId: string): Promise<string | null> {
+/** A property's name, and the Toronto month its document was created (Firestore's own create time); null when it does not exist. */
+async function propertyFacts(propertyId: string): Promise<{ name: string; createdMonth: string | null } | null> {
   const db = getAdminDb();
   const [doc] = await db.getAll(db.collection('properties').doc(propertyId), { fieldMask: ['name'] });
   if (!doc.exists) return null;
   const name: unknown = doc.get('name');
-  return typeof name === 'string' && name.trim() !== '' ? name : 'Unnamed property';
+  return { name: typeof name === 'string' && name.trim() !== '' ? name : 'Unnamed property', createdMonth: createdMonthOf(doc.createTime) };
+}
+
+async function propertyName(propertyId: string): Promise<string | null> {
+  return (await propertyFacts(propertyId))?.name ?? null;
 }
 
 /** Everything the editor works from. */
@@ -288,6 +294,8 @@ export async function readStatementBundle(propertyId: string, month: string): Pr
 /** Everything a property's page shows about its statements (dispatch 23D). */
 export interface PropertyStatements {
   propertyName: string;
+  /** The Toronto month the property's document was created: no month before it is owed (Kian's ruling of 2026-10-03). */
+  createdMonth: string | null;
   /** Every finished report of the property, whole, newest first. */
   reports: MonthlyReportView[];
   /** Every draft of the property, whole. */
@@ -307,8 +315,9 @@ export interface PropertyStatements {
  */
 export async function readPropertyStatements(propertyId: string): Promise<PropertyStatements | null> {
   if (!isDocumentId(propertyId)) return null;
-  const name = await propertyName(propertyId);
-  if (name === null) return null;
+  const facts = await propertyFacts(propertyId);
+  if (facts === null) return null;
+  const name = facts.name;
   const db = getAdminDb();
   const [reportsSnap, draftsSnap, downloadsSnap, management] = await Promise.all([
     db.collection(MONTHLY_REPORTS_COLLECTION).where('propertyId', '==', propertyId).get(),
@@ -336,7 +345,7 @@ export async function readPropertyStatements(propertyId: string): Promise<Proper
     else unreadable.downloads += 1;
   }
   reports.sort((a, b) => b.finishedAt.localeCompare(a.finishedAt) || a.id.localeCompare(b.id));
-  return { propertyName: name, reports, drafts, downloads, management, unreadable };
+  return { propertyName: name, createdMonth: facts.createdMonth, reports, drafts, downloads, management, unreadable };
 }
 
 // ─── The draft ─────────────────────────────────────────────────
@@ -738,7 +747,8 @@ export interface TrackerData {
   drafts: StatementDraftSummary[];
   downloads: ReportDownloadView[];
   management: PropertyManagementView[];
-  properties: { id: string; name: string | null }[];
+  /** Every property, with the Toronto month its document was created (the owed-months rule needs it). */
+  properties: { id: string; name: string | null; createdMonth?: string | null }[];
   entries: CostEntryView[];
   /** Documents left out because they are not in the written shape. */
   unreadable: { reports: number; drafts: number; downloads: number };

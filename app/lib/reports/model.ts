@@ -60,12 +60,13 @@ export const MONTH_DOWNLOAD_SCHEMA_VERSION = 1;
 export const PROPERTY_MANAGEMENT_SCHEMA_VERSION = 3;
 
 /**
- * The first month a property owes a statement for when no management record
- * narrows it. Kian's ruling of 2026-10-02: every property owes a statement for
- * every closed month by default; a record's start month excludes earlier ones
- * and its end month later ones. Nubnb's statements begin with September 2026,
- * the first month of its costs; with no first month at all, every month before
- * would read past due. (Decision 4 had October 2026.)
+ * The first month any property owes a statement for. Kian's ruling of
+ * 2026-10-02: every property owes a statement for every closed month by
+ * default; a record's start month excludes earlier ones and its end month
+ * later ones. Nubnb's statements begin with September 2026, the first month
+ * of its costs; with no first month at all, every month before would read
+ * past due. (Decision 4 had October 2026.) Since 2026-10-03 a property added
+ * later owes from the month it was added (`statementMonths`).
  */
 export const STATEMENTS_FROM_DEFAULT = '2026-09';
 
@@ -825,9 +826,19 @@ export function isExcludedFromReporting(management: Pick<PropertyManagementView,
   return management?.excludedFromReporting === true;
 }
 
-/** The months a property's statements run, from its record or the default. */
-export function statementMonths(management: PropertyManagementView | null): { from: string; until: string | null } {
-  return { from: management?.statementsFrom ?? STATEMENTS_FROM_DEFAULT, until: management?.statementsUntil ?? null };
+/**
+ * The months a property's statements run (Kian's rulings): from the later of
+ * STATEMENTS_FROM_DEFAULT (September 2026) and the month the property's
+ * document was created, by Firestore's own create time (2026-10-03: a
+ * property added in October owes nothing for September); a management
+ * record's start month narrows that further, never widens it; its end month
+ * ends them. `createdMonth` is null where the create time is not known, which
+ * leaves the default.
+ */
+export function statementMonths(management: PropertyManagementView | null, createdMonth: string | null = null): { from: string; until: string | null } {
+  const base = createdMonth !== null && createdMonth > STATEMENTS_FROM_DEFAULT ? createdMonth : STATEMENTS_FROM_DEFAULT;
+  const recordFrom = management?.statementsFrom ?? null;
+  return { from: recordFrom !== null && recordFrom > base ? recordFrom : base, until: management?.statementsUntil ?? null };
 }
 
 /**
@@ -835,9 +846,9 @@ export function statementMonths(management: PropertyManagementView | null): { fr
  * months, and not excluded from reporting (Kian's ruling of 2026-10-03: an
  * excluded property owes no statements).
  */
-export function inStatementScope(management: PropertyManagementView | null, month: string): boolean {
+export function inStatementScope(management: PropertyManagementView | null, month: string, createdMonth: string | null = null): boolean {
   if (isExcludedFromReporting(management)) return false;
-  const { from, until } = statementMonths(management);
+  const { from, until } = statementMonths(management, createdMonth);
   return month >= from && (until === null || month <= until);
 }
 

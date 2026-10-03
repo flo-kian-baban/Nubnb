@@ -197,10 +197,10 @@ no checkout. Do not build toward one unless asked.
 
 - **Nubnb's cycle: admins write the previous month's statements between the
   1st and the 10th of the current month.**
-- **Every property owes a statement for every closed month by default.** A
-  property's management record narrows that — a start month excludes
-  earlier ones, an end month excludes later ones — but a property with no
-  record owes every closed month.
+- **A property owes statements from the latest of September 2026, the month
+  it was added, and its record's start month.** Kian's ruling of 2026-10-03,
+  superseding the earlier one that a property with no record owes every
+  closed month.
 - **A property's status is based on the previous month — what is due now:**
   finished is done; not finished, from the 1st to the 10th, is a warning;
   not finished after the 10th is a warning, unchanged; any month two or more
@@ -275,3 +275,9 @@ no checkout. Do not build toward one unless asked.
   own page, the property API, the sitemap. It stays fully usable inside:
   the admin, the cleaner app, availability, reporting. It is unreadable by
   the public, Firestore rules included, without breaking listed ones.
+
+## Releases — Kian's ruling of 2026-10-03
+
+- **When a commit changes `firestore.rules` or `storage.rules`, deploying
+  them is part of releasing that commit, and the dispatch report says so.**
+  No rules change sits undeployed.
