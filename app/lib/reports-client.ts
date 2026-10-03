@@ -61,11 +61,11 @@ export interface LinePayload {
   reference?: string | null;
 }
 
-/** The fee as the page sends it: the rate in percent ("20") or null, the base, the amount or null for the computed one. */
+/** The fee as the page sends it: the rate in percent ("20") or null, the base or null until typed (it has no default), the amount or null for the computed one. */
 export interface FeePayload {
   label: string;
   rate: string | null;
-  base: string;
+  base: string | null;
   amount: string | null;
 }
 

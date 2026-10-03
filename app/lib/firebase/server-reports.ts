@@ -162,14 +162,18 @@ export const LineInputSchema = z
 
 /**
  * The fee as the page sends it: a label, a rate in percent or null, the
- * base, and the amount or null to take the computed one. The computed
- * amount and whether it was overwritten are worked out here.
+ * base or null, and the amount or null to take the computed one. The
+ * computed amount and whether it was overwritten are worked out here.
+ *
+ * The base is only ever what the admin typed: it has no default (Kian's
+ * ruling, dispatch 26), so a draft may hold a rate with no base yet. Such a
+ * draft saves, and cannot be finished (see finishStatement).
  */
 export const StatementFeeInputSchema = z
   .strictObject({
     label: line(STATEMENT_LIMITS.FEE_LABEL_MAX, 'Label the fee'),
     rate: z.string().regex(RATE, 'A rate in percent, like 20 or 12.5').transform(toBasisPoints).nullable(),
-    base: z.string().regex(AMOUNT, 'A base with two decimals, like 9539.78').transform(toCents),
+    base: z.string().regex(AMOUNT, 'A base with two decimals, like 9539.78').transform(toCents).nullable(),
     amount: z.string().regex(AMOUNT, 'An amount with two decimals, like 1907.96').transform(toCents).nullable(),
   })
   .superRefine((fee, ctx) => {
@@ -178,7 +182,7 @@ export const StatementFeeInputSchema = z
   .transform((fee): Fee => {
     const computedCents = feeComputed(fee.base, fee.rate);
     const amountCents = fee.amount ?? computedCents ?? 0;
-    return { label: fee.label, rateBasisPoints: fee.rate, baseCents: fee.base, computedCents, amountCents, overwritten: amountCents !== computedCents };
+    return { label: fee.label, rateBasisPoints: fee.rate, baseCents: fee.base, computedCents, amountCents, overwritten: fee.amount !== null && amountCents !== computedCents };
   });
 
 /** The carried balance as the page sends it: a label, a signed amount, and the statement the suggestion came from or null. */
@@ -428,7 +432,7 @@ export async function saveDraft(input: DraftInput): Promise<SaveDraftResult> {
 export type FinishResult =
   | { kind: 'finished'; report: MonthlyReportView }
   | { kind: 'no-such-property' }
-  /** The draft has no reference or no date yet. Nothing written. */
+  /** The draft has no reference or no date yet, or a fee rate with no base. Nothing written. */
   | { kind: 'incomplete'; missing: string[] }
   /** No draft at that revision, or the draft is already finished. */
   | { kind: 'draft-changed' }
@@ -442,7 +446,7 @@ export type FinishResult =
 
 export const FINISH_REFUSALS: Record<Exclude<FinishResult['kind'], 'finished'>, Refusal> = {
   'no-such-property': { status: 404, code: 'PROPERTY_NOT_FOUND', message: 'Property not found' },
-  incomplete: { status: 422, code: 'STATEMENT_INCOMPLETE', message: 'The statement needs a reference and a date before it is finished.', hint: 'Nothing was written. Fill them in and finish again.' },
+  incomplete: { status: 422, code: 'STATEMENT_INCOMPLETE', message: 'The statement needs a reference, a date and, when the fee has a rate, the base it applies to before it is finished.', hint: 'Nothing was written. Fill them in and finish again.' },
   'draft-changed': { status: 409, code: 'DRAFT_CHANGED', message: 'The draft changed since it was loaded, or is already finished.', hint: 'Nothing was written. Reload the page.' },
   'changed-since': { status: 409, code: 'STATEMENT_CHANGED', message: 'An entry in this statement changed since the page loaded.', hint: 'Nothing was written. Reload, check what changed, and finish again.' },
   unreadable: { status: 409, code: 'STATEMENT_ENTRY_UNREADABLE', message: 'An approved entry in this statement cannot be added up.', hint: 'Nothing was written. Open the entry in the ledger to see why.' },
@@ -501,7 +505,12 @@ export async function finishStatement(input: FinishInput): Promise<FinishResult>
   if (bundle === null) return { kind: 'no-such-property' };
   const { draft } = bundle;
   if (draft === null || draft.revision !== input.draftRevision || draft.finishedAs !== null) return { kind: 'draft-changed' };
-  const missing = [...(draft.reference.trim() === '' ? ['reference'] : []), ...(isDayText(draft.reportDate) ? [] : ['reportDate'])];
+  // A rate with no base cannot be finished: the base has no default and is never worked out by code (Kian's ruling, dispatch 26).
+  const missing = [
+    ...(draft.reference.trim() === '' ? ['reference'] : []),
+    ...(isDayText(draft.reportDate) ? [] : ['reportDate']),
+    ...(draft.fee && draft.fee.rateBasisPoints !== null && draft.fee.baseCents === null ? ['feeBase'] : []),
+  ];
   if (missing.length > 0) return { kind: 'incomplete', missing };
 
   const db = getAdminDb();

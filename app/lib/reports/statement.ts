@@ -446,15 +446,17 @@ export function closingWords(payableCents: number): { label: string; amount: str
 }
 
 /** The label the fee starts with: "NuBNB 20% Net of $9,539.78". */
-export function feeLabelFor(rateBasisPoints: number | null, baseCents: number): string {
-  return rateBasisPoints === null ? 'NuBNB fee' : `NuBNB ${rateText(rateBasisPoints)} Net of ${formatCents(baseCents)}`;
+export function feeLabelFor(rateBasisPoints: number | null, baseCents: number | null): string {
+  if (rateBasisPoints === null) return 'NuBNB fee';
+  // No base typed yet (dispatch 26: the base has no default): the label names the rate alone.
+  return baseCents === null ? `NuBNB ${rateText(rateBasisPoints)}` : `NuBNB ${rateText(rateBasisPoints)} Net of ${formatCents(baseCents)}`;
 }
 
 /** A fee from a rate and a base, the amount computed; the amount given overrides it. */
-export function feeFrom(label: string, rateBasisPoints: number | null, baseCents: number, amountCents: number | null): Fee {
+export function feeFrom(label: string, rateBasisPoints: number | null, baseCents: number | null, amountCents: number | null): Fee {
   const computedCents = feeComputed(baseCents, rateBasisPoints);
   const amount = amountCents ?? computedCents ?? 0;
-  return { label, rateBasisPoints, baseCents, computedCents, amountCents: amount, overwritten: amount !== computedCents };
+  return { label, rateBasisPoints, baseCents, computedCents, amountCents: amount, overwritten: amountCents !== null && amount !== computedCents };
 }
 
 /** "Airbnb · ref HMABC123", for a line loaded from a row written before dispatch 23D; "" when it carried nothing. */

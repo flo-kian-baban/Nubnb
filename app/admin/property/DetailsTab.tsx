@@ -8,9 +8,10 @@
  * "Report For" is the property's record, saved on its own through its route
  * 800 ms after the last change, so the unit's info shows the same; the
  * fee, the balance and the notes are the draft's and save with it. The fee's
- * amount is the rate on the base — prefilled from the revenue lines — until
- * the admin types an amount, which is then overwritten; its label is
- * prefilled until edited. The carried balance is offered from the previous
+ * base is only what the admin types: it starts empty and is never filled in
+ * (Kian's ruling, dispatch 26), and a rate with no base cannot be finished.
+ * Its amount is the rate on the base until the admin types an amount, which
+ * is then overwritten; its label is prefilled until edited. The carried balance is offered from the previous
  * month's closing figure and never applied by code.
  *
  * Each block is laid out as the Income and Costs blocks are (Kian,
@@ -39,14 +40,12 @@ interface Props {
   /** The previous month's current statement, for the suggestions. */
   previous: MonthlyReportView | null;
   management: PropertyManagementView | null;
-  /** The revenue the typed lines add up to, the fee's base when not edited. */
-  revenueCents: number;
   /** The carried balance as parsed; null when none or unreadable. */
   carriedCents: number | null;
 }
 
-export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForState, onReportFor, finishedReport, previous, management, revenueCents, carriedCents }: Props) {
-  const fee = typed.fee ? feeNow(typed.fee, revenueCents) : null;
+export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForState, onReportFor, finishedReport, previous, management, carriedCents }: Props) {
+  const fee = typed.fee ? feeNow(typed.fee) : null;
   const setFee = (patch: Partial<FeeDraft>) => typed.fee && onChange({ ...typed, fee: { ...typed.fee, ...patch } });
   const suggestedCarried = carriedSuggestion(previous);
   /** A statement finished before the Payment Summary has no Report For of its own: the block is blank. */
@@ -88,7 +87,7 @@ export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForStat
                   No fee
                 </button>
               ) : (
-                <button type="button" className={`${styles.btnGhost} ${styles.btnSmall}`} onClick={() => onChange({ ...typed, fee: { label: "", rate: rateField(feeRateSuggestion(previous, management)), base: "", amount: "", baseEdited: false, amountEdited: false, labelEdited: false } })}>
+                <button type="button" className={`${styles.btnGhost} ${styles.btnSmall}`} onClick={() => onChange({ ...typed, fee: { label: "", rate: rateField(feeRateSuggestion(previous, management)), base: "", amount: "", amountEdited: false, labelEdited: false } })}>
                   Add a fee
                 </button>
               )}
@@ -105,28 +104,25 @@ export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForStat
               <label className={styles.fieldLabel} htmlFor="fee-base">Of (the base)</label>
               <input
                 id="fee-base"
-                className={`${styles.textInput} ${styles.amountInput} ${!readOnly && fee.baseCents === null ? styles.inputInvalid : ""}`}
+                className={`${styles.textInput} ${styles.amountInput} ${!readOnly && (fee.baseMissing || fee.baseInvalid) ? styles.inputInvalid : ""}`}
                 inputMode="decimal"
-                value={typed.fee.baseEdited ? typed.fee.base : amountField(revenueCents)}
+                value={typed.fee.base}
                 disabled={readOnly}
-                onChange={(e) => setFee({ base: e.target.value, baseEdited: true })}
+                placeholder="0.00"
+                onChange={(e) => setFee({ base: e.target.value })}
                 onBlur={() => {
                   if (!typed.fee) return;
                   const read = readAmount(typed.fee.base);
-                  if (typed.fee.baseEdited && read && read !== typed.fee.base) setFee({ base: read });
+                  if (read && read !== typed.fee.base) setFee({ base: read });
                 }}
               />
-              {!readOnly && typed.fee.baseEdited && (
-                <button type="button" className={styles.linkButton} onClick={() => setFee({ base: "", baseEdited: false })}>
-                  Use the revenue sum, {formatCents(revenueCents)}
-                </button>
-              )}
+              {!readOnly && fee.baseMissing && <span className={styles.noteWarn}>type the base the rate applies to</span>}
             </div>
             <div className={`${styles.field} ${styles.fieldAmount}`}>
               <label className={styles.fieldLabel} htmlFor="fee-amount">Amount</label>
               <input
                 id="fee-amount"
-                className={`${styles.textInput} ${styles.amountInput} ${!readOnly && fee.amountCents === null ? styles.inputInvalid : ""}`}
+                className={`${styles.textInput} ${styles.amountInput} ${!readOnly && fee.amountCents === null && !(fee.baseMissing && !typed.fee.amountEdited) ? styles.inputInvalid : ""}`}
                 inputMode="decimal"
                 value={typed.fee.amountEdited ? typed.fee.amount : fee.computedCents === null ? "" : amountField(fee.computedCents)}
                 disabled={readOnly}

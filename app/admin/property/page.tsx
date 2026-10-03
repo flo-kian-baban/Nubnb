@@ -94,7 +94,7 @@ import { DetailsTab } from "./DetailsTab";
 import { FinishTab, type ReleaseRow, type SaveState } from "./FinishTab";
 import { IncomeTab } from "./IncomeTab";
 import { PdfPages } from "./PdfPages";
-import { fromReport, fromStored, revenueOf, sha256Hex, suggestedTyped, toDraft, toPayload, type ReportForDraft, type Typed } from "./statement-form";
+import { fromReport, fromStored, sha256Hex, suggestedTyped, toDraft, toPayload, type ReportForDraft, type Typed } from "./statement-form";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
 
@@ -491,7 +491,6 @@ function MonthWork(props: MonthWorkProps) {
   }, [finishedReport, reports, built]);
   /** The figures the tabs show: the frozen statement's once finished, else the live build's. */
   const sums = finishedReport ? (finishedReport.legacy ? null : finishedReport) : built.kind === "ok" ? built.statement : null;
-  const revenueCents = useMemo(() => revenueOf(parsed.lines), [parsed.lines]);
 
   // ── Save, 800 ms after the last change; the first save on a month with nothing stored creates the draft ──
   const doSave = useCallback(async () => {
@@ -780,7 +779,6 @@ function MonthWork(props: MonthWorkProps) {
               finishedReport={finishedReport}
               previous={previous}
               management={management}
-              revenueCents={revenueCents}
               carriedCents={parsed.carried?.amountCents ?? null}
             />
           )}

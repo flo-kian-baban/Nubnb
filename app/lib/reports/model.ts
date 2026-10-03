@@ -241,8 +241,8 @@ export function lineAmount(quantity: number, rateCents: number): number {
 }
 
 /** The fee the rate gives on the base, rounded half up to the cent; null without a rate. */
-export function feeComputed(baseCents: number, rateBasisPoints: number | null): number | null {
-  if (rateBasisPoints === null) return null;
+export function feeComputed(baseCents: number | null, rateBasisPoints: number | null): number | null {
+  if (rateBasisPoints === null || baseCents === null) return null;
   return Math.round((baseCents * rateBasisPoints) / 10_000);
 }
 
@@ -328,9 +328,14 @@ export interface Fee {
   label: string;
   /** 2000 for 20 %; null when the amount was typed with no rate. */
   rateBasisPoints: number | null;
-  /** What the rate is applied to, zero or more. */
-  baseCents: number;
-  /** round(base × rate / 10,000); null without a rate. */
+  /**
+   * What the rate is applied to, zero or more, as the admin typed it. Null
+   * until it is typed: the base has no default (Kian's ruling, dispatch 26),
+   * and a statement with a rate and no base cannot be finished. A fee with
+   * no rate may keep it null.
+   */
+  baseCents: number | null;
+  /** round(base × rate / 10,000); null without a rate or without a base. */
   computedCents: number | null;
   /** Zero or more: printed as a negative line. */
   amountCents: number;
@@ -610,8 +615,8 @@ export function readFee(value: unknown): Fee | null | undefined {
   if (!isRecord(value) || !isText(value.label) || !isCents(value.amountCents)) return undefined;
   if (!('rateBasisPoints' in value)) return { label: value.label, rateBasisPoints: null, baseCents: 0, computedCents: null, amountCents: value.amountCents, overwritten: true };
   const { rateBasisPoints, baseCents, computedCents, amountCents, overwritten } = value;
-  if (!(rateBasisPoints === null || isCents(rateBasisPoints)) || !isCents(baseCents) || !(computedCents === null || isCents(computedCents)) || typeof overwritten !== 'boolean') return undefined;
-  return { label: value.label, rateBasisPoints: rateBasisPoints as number | null, baseCents, computedCents: computedCents as number | null, amountCents, overwritten };
+  if (!(rateBasisPoints === null || isCents(rateBasisPoints)) || !(baseCents === null || isCents(baseCents)) || !(computedCents === null || isCents(computedCents)) || typeof overwritten !== 'boolean') return undefined;
+  return { label: value.label, rateBasisPoints: rateBasisPoints as number | null, baseCents: baseCents as number | null, computedCents: computedCents as number | null, amountCents, overwritten };
 }
 
 export function readCarried(value: unknown): Carried | null | undefined {

@@ -24,13 +24,17 @@ export interface LineDraft {
   /** Present on a line loaded with what a row written before dispatch 23D carried; saved back as loaded. */
   details?: { source?: Line["source"]; reference?: string | null };
 }
-/** The fee as typed. The three flags say what the admin has taken over; what they have not follows the lines. */
+/**
+ * The fee as typed. The base is only ever what the admin typed: it has no
+ * default and never follows the lines (Kian's ruling, dispatch 26). The two
+ * flags say whether the amount and the label were taken over; what was not
+ * follows the rate and the base.
+ */
 export interface FeeDraft {
   label: string;
   rate: string;
   base: string;
   amount: string;
-  baseEdited: boolean;
   amountEdited: boolean;
   labelEdited: boolean;
 }
@@ -80,34 +84,34 @@ export function lineDraftOf(line: Line): LineDraft {
   return { id: line.id, description: line.description, from: line.from ?? "", to: line.to ?? "", quantity: String(line.quantity), rate: amountField(line.rateCents), ...(Object.keys(details).length > 0 ? { details } : {}) };
 }
 
-/** The stored fee as typed: what the admin had taken over is told from what the stored figures say. */
-export function feeDraftOf(fee: Fee, revenueCents: number): FeeDraft {
+/**
+ * The stored fee as typed. A stored base is kept exactly as stored, and an
+ * empty one stays empty: a draft saved before dispatch 26 keeps what it
+ * holds, and from now on nothing fills the base in.
+ */
+export function feeDraftOf(fee: Fee): FeeDraft {
   const label = feeLabelFor(fee.rateBasisPoints, fee.baseCents);
   return {
     label: fee.label,
     rate: rateField(fee.rateBasisPoints),
-    base: amountField(fee.baseCents),
+    base: fee.baseCents === null ? "" : amountField(fee.baseCents),
     amount: amountField(fee.amountCents),
-    baseEdited: fee.baseCents !== revenueCents,
     amountEdited: fee.overwritten,
     labelEdited: fee.label !== label,
   };
 }
 
-/** A fee as typed before anything is typed: the rate offered, everything else following the lines. */
+/** A fee as typed before anything is typed: the rate offered, the base empty (it has no default), the rest following them. */
 export function freshFee(rateBasisPoints: number | null): FeeDraft | null {
-  return rateBasisPoints === null ? null : { label: "", rate: rateField(rateBasisPoints), base: "", amount: "", baseEdited: false, amountEdited: false, labelEdited: false };
+  return rateBasisPoints === null ? null : { label: "", rate: rateField(rateBasisPoints), base: "", amount: "", amountEdited: false, labelEdited: false };
 }
 
-export const revenueOf = (lines: Line[]) => lines.filter((line) => line.amountCents > 0).reduce((sum, line) => sum + line.amountCents, 0);
-
 export function fromStored(draft: Pick<StatementDraftView, "reference" | "reportDate" | "lines" | "fee" | "carried" | "notes">, today: string): Typed {
-  const revenue = revenueOf(draft.lines);
   return {
     reference: draft.reference,
     reportDate: draft.reportDate || today,
     lines: draft.lines.map(lineDraftOf),
-    fee: draft.fee ? feeDraftOf(draft.fee, revenue) : null,
+    fee: draft.fee ? feeDraftOf(draft.fee) : null,
     carried: draft.carried ? { label: draft.carried.label, amount: amountField(draft.carried.amountCents), fromReportId: draft.carried.fromReportId } : null,
     notes: draft.notes ?? "",
   };
@@ -136,16 +140,25 @@ export function suggestedTyped(previous: MonthlyReportView | null, management: P
   };
 }
 
-/** The fee as it stands: the base and the amount that follow the lines, filled in; the computed amount beside. */
-export function feeNow(fee: FeeDraft, revenueCents: number): { rateBp: number | null; baseCents: number | null; computedCents: number | null; amountCents: number | null; label: string } {
+/**
+ * The fee as it stands from what is typed: the base as typed (null when
+ * empty, never filled in), the computed amount beside, and the amount and
+ * label following them unless taken over. `baseInvalid` is a base typed that
+ * is not an amount; `baseMissing` is a rate with no base, which cannot be
+ * finished (dispatch 26).
+ */
+export function feeNow(fee: FeeDraft): { rateBp: number | null; baseCents: number | null; baseInvalid: boolean; baseMissing: boolean; computedCents: number | null; amountCents: number | null; label: string } {
   const rateBp = fee.rate.trim() === "" ? null : readRate(fee.rate);
-  const baseText = fee.baseEdited ? readAmount(fee.base) : amountField(revenueCents);
+  const baseTyped = fee.base.trim();
+  const baseText = baseTyped === "" ? null : readAmount(baseTyped);
+  const baseInvalid = baseTyped !== "" && (baseText === null || baseText.startsWith("-"));
   const baseCents = baseText === null || baseText.startsWith("-") ? null : centsOf(baseText);
-  const computedCents = baseCents === null ? null : feeComputed(baseCents, rateBp);
+  const baseMissing = rateBp !== null && baseTyped === "";
+  const computedCents = feeComputed(baseCents, rateBp);
   const amountText = fee.amountEdited ? readAmount(fee.amount) : computedCents === null ? null : amountField(computedCents);
   const amountCents = amountText === null || amountText.startsWith("-") ? null : centsOf(amountText);
-  const label = fee.labelEdited ? fee.label : feeLabelFor(rateBp, baseCents ?? 0);
-  return { rateBp, baseCents, computedCents, amountCents, label };
+  const label = fee.labelEdited ? fee.label : feeLabelFor(rateBp, baseCents);
+  return { rateBp, baseCents, baseInvalid, baseMissing, computedCents, amountCents, label };
 }
 
 /** The typed draft as the writer and the server take it; a field that cannot be read is named. */
@@ -167,11 +180,12 @@ export function toDraft(typed: Typed): { lines: Line[]; fee: Fee | null; carried
     if (line.details && "reference" in line.details) out.reference = line.details.reference ?? null;
     lines.push(out);
   });
-  const revenue = revenueOf(lines);
   let fee: Fee | null = null;
   if (typed.fee) {
-    const now = feeNow(typed.fee, revenue);
-    if ((typed.fee.rate.trim() !== "" && now.rateBp === null) || now.baseCents === null || now.amountCents === null || now.label.trim() === "") {
+    const now = feeNow(typed.fee);
+    if (now.baseMissing) {
+      problems.push("Management fee: type the base the rate applies to. It is never filled in.");
+    } else if ((typed.fee.rate.trim() !== "" && now.rateBp === null) || now.baseInvalid || now.amountCents === null || now.label.trim() === "") {
       problems.push("Management fee: a rate in percent or an amount, a base, and a label");
     } else {
       fee = { label: now.label.trim(), rateBasisPoints: now.rateBp, baseCents: now.baseCents, computedCents: now.computedCents, amountCents: now.amountCents, overwritten: now.amountCents !== now.computedCents };
@@ -188,9 +202,7 @@ export function toDraft(typed: Typed): { lines: Line[]; fee: Fee | null; carried
 
 /** The draft as the server saves it, whole, from what is typed. */
 export function toPayload(propertyId: string, month: string, revision: number, typed: Typed, supersedes: { reportId: string; reason: string } | null): DraftPayload {
-  const parsed = toDraft(typed);
-  const revenue = revenueOf(parsed.lines);
-  const fee = typed.fee ? feeNow(typed.fee, revenue) : null;
+  const fee = typed.fee ? feeNow(typed.fee) : null;
   return {
     propertyId,
     month,
@@ -208,7 +220,8 @@ export function toPayload(propertyId: string, month: string, revision: number, t
         ? {
             label: fee.label.trim(),
             rate: typed.fee.rate.trim() === "" ? null : typed.fee.rate.trim(),
-            base: fee.baseCents === null ? (readAmount(typed.fee.base) ?? typed.fee.base) : amountField(fee.baseCents),
+            // Empty stays empty (null): a rate with no base saves as a draft and cannot be finished.
+            base: typed.fee.base.trim() === "" ? null : fee.baseCents === null ? (readAmount(typed.fee.base) ?? typed.fee.base) : amountField(fee.baseCents),
             amount: typed.fee.amountEdited || fee.rateBp === null ? (fee.amountCents === null ? (readAmount(typed.fee.amount) ?? typed.fee.amount) : amountField(fee.amountCents)) : null,
           }
         : null,

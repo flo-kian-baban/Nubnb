@@ -281,3 +281,19 @@ no checkout. Do not build toward one unless asked.
 - **When a commit changes `firestore.rules` or `storage.rules`, deploying
   them is part of releasing that commit, and the dispatch report says so.**
   No rules change sits undeployed.
+
+## Dispatch 26 — Kian's rulings of 2026-10-03
+
+- **The calendar link:** strip `icalUrl` from every public response, page
+  and payload. Deny browser reads of the properties collection entirely in
+  `firestore.rules`, since no browser reads it any more. Change no property
+  document.
+- **The Fund page: take it offline until counsel has read it.** Remove it
+  from the site and every link to it. Keep its content in the repo, unused.
+  A visitor to /fund sees the site's not-found page.
+- **The fee base: no default.** The fee base starts empty on every new
+  statement. A statement cannot be finished while it has a fee rate and no
+  base. Drafts already saved keep what they hold.
+- **The five receipt photos:** restore all five from Storage's 7-day hold
+  into a private prefix, `receipts-restored/`, before 9 October. Nothing
+  reads them; they are kept as evidence.

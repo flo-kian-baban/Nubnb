@@ -132,7 +132,7 @@ export function propertyWorkbook(input: PropertyWorkbookInput): Uint8Array<Array
     ...facts([
       ['Fee', statement.fee ? text(statement.fee.label) : text('No fee')],
       ['Fee rate', statement.fee?.rateBasisPoints != null ? text(rateText(statement.fee.rateBasisPoints)) : null],
-      ['Fee base', statement.fee && statement.fee.rateBasisPoints !== null ? money(statement.fee.baseCents) : null],
+      ['Fee base', statement.fee && statement.fee.rateBasisPoints !== null && statement.fee.baseCents !== null ? money(statement.fee.baseCents) : null],
       ['Fee as computed', statement.fee && statement.fee.computedCents !== null ? money(statement.fee.computedCents) : null],
       ['Fee as printed', statement.fee ? money(statement.fee.amountCents) : null],
       ['Overwritten', statement.fee ? text(statement.fee.overwritten ? 'Yes' : 'No') : null],
@@ -300,7 +300,7 @@ export function feeIncomeWorkbook(input: FeeIncomeInput): Uint8Array<ArrayBuffer
       s ? money(s.incomeCents) : null,
       s ? money(s.expensesCents) : null,
       s ? money(s.recordedCents) : null,
-      s?.fee && s.fee.rateBasisPoints !== null ? money(s.fee.baseCents) : null,
+      s?.fee && s.fee.rateBasisPoints !== null && s.fee.baseCents !== null ? money(s.fee.baseCents) : null,
       s?.fee?.rateBasisPoints != null ? text(rateText(s.fee.rateBasisPoints)) : null,
       s?.fee && s.fee.computedCents !== null ? money(s.fee.computedCents) : null,
       s ? money(s.feeCents) : null,
