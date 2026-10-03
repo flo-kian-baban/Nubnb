@@ -85,9 +85,6 @@ export default function AboutPage() {
           <Link href="/contact" className={styles.navLink}>
             Contact
           </Link>
-          <Link href="/fund" className={styles.navCta}>
-            The Fund
-          </Link>
         </div>
       </nav>
 

@@ -17,7 +17,8 @@
  *
  *   property  "Request these dates" on a listing, which carries the property
  *   partner   a link on /about/partners
- *   fund      a link on /fund
+ *   fund      a link on the Fund page, offline since dispatch 26; still
+ *             recognised, so an old link and old enquiries keep their source
  *   general   anything else: the site nav, a bookmark, a search result
  */
 export const INQUIRY_SOURCES = ['property', 'partner', 'fund', 'general'] as const;
@@ -63,7 +64,11 @@ const SUBJECT_LISTING = 'I want to list my property';
 const SUBJECT_FUND = "I'm interested in the Fund";
 const SUBJECT_GENERAL = 'General enquiry';
 
-/** The subjects the contact form offers, and the only ones the contact route accepts. */
+/**
+ * The only subjects the contact route accepts. The Fund subject stays here
+ * so a form already open in a browser can still be sent, and stored Fund
+ * enquiries still classify.
+ */
 export const INQUIRY_SUBJECTS = [
   SUBJECT_BOOKING,
   SUBJECT_LISTING,
@@ -72,11 +77,22 @@ export const INQUIRY_SUBJECTS = [
 ] as const;
 export type InquirySubject = (typeof INQUIRY_SUBJECTS)[number];
 
+/**
+ * The subjects the contact form offers. The Fund is not among them while the
+ * Fund page is offline (Kian's ruling, dispatch 26: until counsel has read it).
+ */
+export const OFFERED_SUBJECTS: readonly InquirySubject[] = [
+  SUBJECT_BOOKING,
+  SUBJECT_LISTING,
+  SUBJECT_GENERAL,
+];
+
 /** The subject each way in starts with. The visitor can still change it. */
 export const DEFAULT_SUBJECT: Record<InquirySource, InquirySubject> = {
   property: SUBJECT_BOOKING,
   partner: SUBJECT_LISTING,
-  fund: SUBJECT_FUND,
+  // An old link into /contact from the Fund page still arrives as `fund`.
+  fund: SUBJECT_GENERAL,
   general: SUBJECT_BOOKING,
 };
 

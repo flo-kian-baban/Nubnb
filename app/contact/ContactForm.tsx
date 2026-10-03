@@ -4,7 +4,7 @@ import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, CalendarDays, CheckCircle, Send, Users } from "lucide-react";
 import styles from "./page.module.css";
-import { DEFAULT_SUBJECT, INQUIRY_SUBJECTS } from "@/app/lib/inquiry";
+import { DEFAULT_SUBJECT, OFFERED_SUBJECTS } from "@/app/lib/inquiry";
 import type { InquiryOrigin } from "./stay-request";
 
 type FormState = "idle" | "sending" | "success" | "error";
@@ -184,7 +184,7 @@ export default function ContactForm({ origin }: { origin: InquiryOrigin }) {
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
               >
-                {INQUIRY_SUBJECTS.map((s) => (
+                {OFFERED_SUBJECTS.map((s) => (
                   <option key={s} value={s}>{s}</option>
                 ))}
               </select>
