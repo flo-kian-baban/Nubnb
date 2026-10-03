@@ -1,5 +1,6 @@
 /**
- * GET    /api/properties/[id] — Read one complete property (public).
+ * GET    /api/properties/[id] — Read one complete property (public; an
+ *                               unlisted one only with an admin session).
  * PUT    /api/properties/[id] — Update a property (admin-only).
  * DELETE /api/properties/[id] — Delete a property (admin-only).
  *
@@ -64,7 +65,9 @@ export async function GET(request: NextRequest, context: RouteContext) {
   }
 
   try {
-    const property = await getPropertyById(id);
+    // An unlisted property (Kian's ruling of 2026-10-03) is 404 to the public, exactly like one that does not
+    // exist; the admin form reads through this route too, and with its session it gets the document.
+    const property = await getPropertyById(id, { includeUnlisted: verifyAdminSession(request).valid });
     if (!property) return apiError('Property not found', 404);
     return apiSuccess(property);
   } catch (err) {
@@ -137,7 +140,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     }
 
     await docRef.update(updateData);
-    revalidateListingPages(`update ${id}`);
+    revalidateListingPages(`update ${id}`, id);
 
     console.log(`[PUT /api/properties/${id}] Updated successfully (${Object.keys(updateData).length} fields)`);
     return apiSuccess({ id });
@@ -170,7 +173,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     }
 
     await docRef.delete();
-    revalidateListingPages(`delete ${id}`);
+    revalidateListingPages(`delete ${id}`, id);
 
     return apiSuccess({ id, deleted: true });
   } catch (err) {

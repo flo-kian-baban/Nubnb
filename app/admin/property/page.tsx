@@ -74,7 +74,7 @@ import {
   addMonths,
   currentReports,
   displayRef,
-  inStatementScope,
+  inStatementScope, isExcludedFromReporting,
   isClosedMonth,
   isDayText,
   isMonth,
@@ -254,7 +254,7 @@ function PropertyPageInner() {
   const draftLikes = useMemo(() => (data ? data.drafts.map((d) => ({ propertyId: d.propertyId, month: d.month, updatedAt: d.updatedAt, finishedAs: d.finishedAs, superseding: d.supersedes !== null })) : []), [data]);
   const months = useMemo(() => (data ? propertyMonths({ propertyId, today, management: data.management, reports: data.reports, drafts: draftLikes }) : null), [data, draftLikes, propertyId, today]);
   const inScope = data ? inStatementScope(data.management, month) : true;
-  const monthNow = useMemo(() => (data ? propertyMonthState({ propertyId, month, today, inScope, reports: data.reports, drafts: draftLikes }) : null), [data, draftLikes, propertyId, month, today, inScope]);
+  const monthNow = useMemo(() => (data ? propertyMonthState({ propertyId, month, today, inScope, excluded: isExcludedFromReporting(data.management), reports: data.reports, drafts: draftLikes }) : null), [data, draftLikes, propertyId, month, today, inScope]);
   /** The property's status in the cycle (dispatch 23G): the head's line, by the rule the list, the panel and the tile use. */
   const status = useMemo(() => (data ? reportingStatus({ propertyId, today, management: data.management, reports: data.reports }) : null), [data, propertyId, today]);
   /** The months the control lists: the property's, and the chosen one when it is earlier than any of them. */
@@ -269,7 +269,7 @@ function PropertyPageInner() {
     if (!data) return [];
     return [-4, -3, -2, -1, 0, 1, 2].map((offset) => {
       const m = addMonths(thisMonth, offset);
-      const one = propertyMonthState({ propertyId, month: m, today, inScope: inStatementScope(data.management, m), reports: data.reports, drafts: draftLikes });
+      const one = propertyMonthState({ propertyId, month: m, today, inScope: inStatementScope(data.management, m), excluded: isExcludedFromReporting(data.management), reports: data.reports, drafts: draftLikes });
       return { month: m, state: one.state, standing: one.standing, live: one.reports.find((r) => r.replacedBy === null)?.report ?? null, upcoming: m > thisMonth };
     });
   }, [data, draftLikes, propertyId, today, thisMonth]);

@@ -33,13 +33,16 @@ import { NoticeBanner, useNotice } from "./Notice";
 import { StandingBadge, propertyMonthHref } from "./StatementStatus";
 import { fetchStatementLink, type TrackerData } from "@/app/lib/reports-client";
 import { formatCents } from "@/app/lib/cleaners/model";
-import { addMonths, displayRef, lastClosedMonth, monthLabel, monthOfDay, type ReportDownloadView } from "@/app/lib/reports/model";
+import { addMonths, displayRef, lastClosedMonth, monthLabel, monthName, monthOfDay, type ReportDownloadView } from "@/app/lib/reports/model";
+import { downloadMonthZip, type MonthZipStep } from "@/app/lib/backup/download";
 import { looseEnds, trackerCounts, trackerRows, type ReportingStatus, type TrackerRow } from "@/app/lib/reports/statement";
 import { SentAt, whenText } from "../costs/cost-display";
 import shared from "../page.module.css";
 import styles from "./StatementsPanel.module.css";
 
 const SESSION_HINT = "Your admin session may have expired — reload and sign in again.";
+/** What the month's download button says while it works (dispatch 24). */
+const ZIP_STEP_WORDS: Record<MonthZipStep, string> = { asking: "Reading the month…", fetching: "Fetching the files…", building: "Making the ZIP…", saving: "Saving…" };
 
 interface Props {
   data: TrackerData;
@@ -60,6 +63,7 @@ export function StatementsPanel({ data, statuses, month, today, onMonth, onClose
   const router = useRouter();
   const { notice, show, clear } = useNotice();
   const [linking, setLinking] = useState<string | null>(null);
+  const [zipStep, setZipStep] = useState<MonthZipStep | null>(null);
 
   const rows = useMemo<TrackerRow[]>(() => trackerRows({ month, today, ...data }), [data, month, today]);
   const counts = useMemo(() => trackerCounts(rows), [rows]);
@@ -89,6 +93,25 @@ export function StatementsPanel({ data, statuses, month, today, onMonth, onClose
     show({ tone: "success", title: `The PDF link opened; it works for ${result.data.seconds} seconds.` });
   };
 
+  /**
+   * The month as a ZIP (Kian's ruling of 2026-10-03): owners' folders and
+   * Nubnb's, as the backup will hold them, made in this browser. Its
+   * statements count as downloaded, so the rows are read again after.
+   */
+  const downloadMonth = async () => {
+    if (zipStep !== null) return;
+    clear();
+    setZipStep("asking");
+    const result = await downloadMonthZip(month, setZipStep);
+    setZipStep(null);
+    if (!result.ok) {
+      show({ tone: "error", title: result.title, detail: [result.detail, result.status === 401 || result.status === 403 ? SESSION_HINT : null].filter(Boolean).join(" ") });
+      return;
+    }
+    show({ tone: "success", title: `${result.name} saved: ${result.folders} ${result.folders === 1 ? "property" : "properties"}, ${result.files} files.` });
+    if (result.statements > 0) onRefresh();
+  };
+
   /** A click anywhere on a row opens the property's page for the month; a click on a control is that control's own. */
   const openRow = (event: MouseEvent<HTMLTableRowElement>, propertyId: string) => {
     if ((event.target as HTMLElement).closest("a, button")) return;
@@ -112,6 +135,16 @@ export function StatementsPanel({ data, statuses, month, today, onMonth, onClose
         </button>
         <span className={styles.note}>{monthWord}</span>
         <div className={styles.headRight}>
+          <button
+            type="button"
+            className={styles.headBtn}
+            onClick={downloadMonth}
+            disabled={zipStep !== null}
+            title={`Every property's folder and Nubnb's for ${monthLabel(month)}, as the backup will hold them: statements, workbooks, receipts`}
+          >
+            <Download size={15} aria-hidden />
+            {zipStep ? ZIP_STEP_WORDS[zipStep] : `Download ${monthName(month)}`}
+          </button>
           <button type="button" className={styles.iconBtn} onClick={onRefresh} disabled={refreshing} aria-label="Refresh the statements" title="Refresh">
             <RefreshCw size={15} aria-hidden />
           </button>

@@ -51,9 +51,13 @@ export const MONTHLY_REPORTS_PREFIX = 'monthly-reports';
 /** 3 (dispatch 23E): lines with a quantity and a rate, the fee with its rate, the carried balance, the reference and date, "Report For" frozen. */
 export const MONTHLY_REPORT_SCHEMA_VERSION = 3;
 export const MONTHLY_REPORT_DRAFT_SCHEMA_VERSION = 3;
-export const REPORT_DOWNLOAD_SCHEMA_VERSION = 1;
-/** 2 (dispatch 23E): `reportFor` and `defaultFeeRateBasisPoints` may be present. */
-export const PROPERTY_MANAGEMENT_SCHEMA_VERSION = 2;
+/** 2 (dispatch 24): `via` may be present — 'month-package' when the statement went out in a month's ZIP. */
+export const REPORT_DOWNLOAD_SCHEMA_VERSION = 2;
+/** One record per month ZIP an admin downloaded (dispatch 24). */
+export const MONTH_DOWNLOADS_COLLECTION = 'month_downloads';
+export const MONTH_DOWNLOAD_SCHEMA_VERSION = 1;
+/** 2 (dispatch 23E): `reportFor` and `defaultFeeRateBasisPoints` may be present. 3 (dispatch 24): `excludedFromReporting` may be present. */
+export const PROPERTY_MANAGEMENT_SCHEMA_VERSION = 3;
 
 /**
  * The first month a property owes a statement for when no management record
@@ -460,6 +464,8 @@ export interface ReportDownload {
   month: string;
   at: string;
   actor: Actor;
+  /** How it went out, when not as its own PDF link (dispatch 24): 'month-package' for a month's ZIP. */
+  via?: string;
 }
 
 export interface Owner {
@@ -482,6 +488,12 @@ export interface PropertyManagement {
   defaultFeeRateBasisPoints: number | null;
   /** The default fee of dispatch 23B, an amount; read and kept, no longer used. */
   defaultFee: { label: string; amountCents: number } | null;
+  /**
+   * Excluded from reporting (Kian's ruling of 2026-10-03, dispatch 24): the
+   * property owes no statements. Written only as `true`, and absent
+   * otherwise, so a record that never set it keeps its shape.
+   */
+  excludedFromReporting?: boolean;
   setAt: string;
 }
 
@@ -777,9 +789,10 @@ export function readMonthlyReport(id: string, fields: Record<string, unknown>): 
 }
 
 export function readReportDownload(id: string, fields: Record<string, unknown>): ReportDownloadView | null {
-  const { reportId, propertyId, month, at, actor, schemaVersion } = fields;
+  const { reportId, propertyId, month, at, actor, schemaVersion, via } = fields;
   if (!isText(reportId) || !isText(propertyId) || !isMonth(month) || !isText(at) || !isActor(actor)) return null;
-  return { id, schemaVersion: isCents(schemaVersion) ? schemaVersion : 0, reportId, propertyId, month, at, actor };
+  if (via !== undefined && !isText(via)) return null;
+  return { id, schemaVersion: isCents(schemaVersion) ? schemaVersion : 0, reportId, propertyId, month, at, actor, ...(via === undefined ? {} : { via }) };
 }
 
 export function readPropertyManagement(id: string, fields: Record<string, unknown>): PropertyManagementView | null {
@@ -790,6 +803,8 @@ export function readPropertyManagement(id: string, fields: Record<string, unknow
   if (!isText(propertyId) || owners === null || !isMonth(statementsFrom) || !(statementsUntil === null || statementsUntil === undefined || isMonth(statementsUntil))) return null;
   if (defaultFee === undefined || reportFor === undefined || !isText(setAt)) return null;
   if (!(defaultFeeRateBasisPoints === null || defaultFeeRateBasisPoints === undefined || isCents(defaultFeeRateBasisPoints))) return null;
+  const { excludedFromReporting } = fields;
+  if (excludedFromReporting !== undefined && typeof excludedFromReporting !== 'boolean') return null;
   return {
     id,
     schemaVersion: isCents(schemaVersion) ? schemaVersion : 0,
@@ -800,8 +815,14 @@ export function readPropertyManagement(id: string, fields: Record<string, unknow
     statementsUntil: (statementsUntil as string | null | undefined) ?? null,
     defaultFeeRateBasisPoints: (defaultFeeRateBasisPoints as number | null | undefined) ?? null,
     defaultFee,
+    ...(excludedFromReporting === undefined ? {} : { excludedFromReporting }),
     setAt,
   };
+}
+
+/** Whether the property is excluded from reporting (dispatch 24): it then owes no statement for any month. */
+export function isExcludedFromReporting(management: Pick<PropertyManagementView, 'excludedFromReporting'> | null | undefined): boolean {
+  return management?.excludedFromReporting === true;
 }
 
 /** The months a property's statements run, from its record or the default. */
@@ -809,8 +830,13 @@ export function statementMonths(management: PropertyManagementView | null): { fr
   return { from: management?.statementsFrom ?? STATEMENTS_FROM_DEFAULT, until: management?.statementsUntil ?? null };
 }
 
-/** Whether a property expects a statement for `month`. */
+/**
+ * Whether a property expects a statement for `month`: inside its statement
+ * months, and not excluded from reporting (Kian's ruling of 2026-10-03: an
+ * excluded property owes no statements).
+ */
 export function inStatementScope(management: PropertyManagementView | null, month: string): boolean {
+  if (isExcludedFromReporting(management)) return false;
   const { from, until } = statementMonths(management);
   return month >= from && (until === null || month <= until);
 }

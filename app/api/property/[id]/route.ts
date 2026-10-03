@@ -29,6 +29,7 @@
 
 import { getAdminDb } from '@/app/lib/firebase/admin';
 import { getPropertyById } from '@/app/lib/firebase/server-properties';
+import { unlistedPropertyIds } from '@/app/lib/firebase/server-visibility';
 import { apiSuccess, apiError } from '@/app/lib/api/safe-response';
 
 export const dynamic = 'force-static';
@@ -39,14 +40,16 @@ interface RouteContext {
 }
 
 /**
- * Prerender one file per property.
+ * Prerender one file per listed property. An unlisted one (Kian's ruling of
+ * 2026-10-03) gets no file: asked for, it renders on demand and answers 404,
+ * the same answer as an ID that does not exist.
  *
  * Reads IDs only — this runs at build time and there is no reason to pull
  * 1.64 MB of documents to list 44 keys.
  */
 export async function generateStaticParams() {
-  const snapshot = await getAdminDb().collection('properties').select().get();
-  return snapshot.docs.map((doc) => ({ id: doc.id }));
+  const [snapshot, unlisted] = await Promise.all([getAdminDb().collection('properties').select().get(), unlistedPropertyIds()]);
+  return snapshot.docs.filter((doc) => !unlisted.has(doc.id)).map((doc) => ({ id: doc.id }));
 }
 
 /**

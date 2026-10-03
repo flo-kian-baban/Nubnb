@@ -1,7 +1,7 @@
 "use client";
 
 import { Property, Offer } from "@/app/types/property";
-import { addProperty, updateProperty, MutationIssue, getCleanerFacingName, setCleanerFacingName, getManagement, setManagement, type ManagementPayload } from '@/app/lib/firebase/properties';
+import { addProperty, updateProperty, MutationIssue, getCleanerFacingName, setCleanerFacingName, getManagement, setManagement, setUnlisted, type ManagementPayload } from '@/app/lib/firebase/properties';
 import { STATEMENTS_FROM_DEFAULT, STATEMENT_LIMITS, isMonth, rateText } from "@/app/lib/reports/model";
 import { amountField } from "../costs/cost-display";
 import { hasPriceDivergence, nightlyPrice } from "@/app/lib/price";
@@ -104,11 +104,13 @@ const ISSUE_SECTION: Record<string, string> = {
 
 interface PropertyFormProps {
   initialData?: Property;
+  /** Whether the property is unlisted (dispatch 24), as the list read it beside the documents. */
+  initialUnlisted?: boolean;
   onClose: () => void;
   onSave: () => void;
 }
 
-export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps) {
+export function PropertyForm({ initialData, initialUnlisted = false, onClose, onSave }: PropertyFormProps) {
   const [formData, setFormData] = useState<Partial<Property>>(() =>
     initialData
       ? {
@@ -245,6 +247,13 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
    * dispatch 23E): its own server-only document, loaded and saved apart
    * from the property, like the name for cleaners.
    */
+  /**
+   * Unlisted (Kian's ruling of 2026-10-03, dispatch 24): kept in its own
+   * server-only collection, saved by its own route; `loadedUnlisted` is what
+   * the server holds.
+   */
+  const [unlisted, setUnlistedDraft] = useState(initialUnlisted);
+  const [loadedUnlisted, setLoadedUnlisted] = useState(initialUnlisted);
   const [management, setManagement_] = useState<ManagementDraft>(emptyManagement);
   const [loadedManagement, setLoadedManagement] = useState<string>(JSON.stringify(emptyManagement()));
   const [managementState, setManagementState] = useState<"none" | "loading" | "ready" | "unavailable">(initialData?.id ? "loading" : "none");
@@ -264,6 +273,7 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
               until: result.data.statementsUntil ?? "",
               feeRate: result.data.defaultFeeRateBasisPoints === null ? "" : rateText(result.data.defaultFeeRateBasisPoints).replace("%", ""),
               legacyFee: result.data.defaultFee ? { label: result.data.defaultFee.label, amount: amountField(result.data.defaultFee.amountCents) } : null,
+              excluded: result.data.excludedFromReporting === true,
             }
           : emptyManagement();
         setManagement_(draft);
@@ -992,9 +1002,26 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
     // `onSave()` used to run unconditionally, so the modal closed and the list
     // refetched whether or not the write landed. Close only on confirmed
     // success; on failure keep the modal, the entered data, and show why.
+    // ── Unlisted, before anything else on an edit (dispatch 24) ──
+    // Unlisting takes the property off the public site before any other change
+    // is published; listing it again is the same one write. A create carries
+    // the flag itself, and the route writes both at once.
+    if (initialData?.id && unlisted !== loadedUnlisted) {
+      const shown = await setUnlisted(initialData.id, unlisted);
+      if (!shown.ok) {
+        setIsSaving(false);
+        setSaveError({
+          title: `Not saved — ${shown.error}`,
+          detail: shown.status === 401 || shown.status === 403 ? 'Your admin session may have expired. Open the admin in a new tab to sign in again, then save — your entries here are kept.' : 'Nothing was saved. Your entries are kept; save again to retry.',
+        });
+        return;
+      }
+      setLoadedUnlisted(shown.data.unlisted);
+    }
+
     const result = initialData?.id
       ? await updateProperty(initialData.id, finalData)
-      : await addProperty(finalData as Omit<Property, "id">);
+      : await addProperty(finalData as Omit<Property, "id">, { unlisted });
 
     setIsSaving(false);
 
@@ -1172,6 +1199,34 @@ export function PropertyForm({ initialData, onClose, onSave }: PropertyFormProps
               </p>
             </div>
           )}
+
+          {/* --- On the site, and in reporting (dispatch 24) --- */}
+          <div className={styles.section}>
+            <h3>Status</h3>
+            <div className={styles.checkboxGroup}>
+              <label className={styles.checkboxItem} title="Not on the public site: the homepage, the map, its own page and the property API. Still in the admin, the cleaner app and availability.">
+                <input type="checkbox" checked={unlisted} onChange={(e) => setUnlistedDraft(e.target.checked)} aria-label="Unlisted" />
+                Unlisted
+              </label>
+              <label
+                className={styles.checkboxItem}
+                title={
+                  managementState === "unavailable"
+                    ? "The statements record could not be read, so this cannot be changed until the form is reopened."
+                    : "Owes no statements: left out of the Statement column's counts, the tile and the home panel. Costs and income stay."
+                }
+              >
+                <input
+                  type="checkbox"
+                  checked={management.excluded}
+                  disabled={managementState === "loading" || managementState === "unavailable"}
+                  onChange={(e) => setManagement_({ ...management, excluded: e.target.checked })}
+                  aria-label="Exclude from reporting"
+                />
+                Exclude from reporting
+              </label>
+            </div>
+          </div>
 
           {/* --- Data Sources --- */}
           <div className={styles.section}>
@@ -1875,10 +1930,12 @@ interface ManagementDraft {
   feeRate: string;
   /** The default fee amount of dispatch 23B, as loaded; sent back unchanged, no longer shown. */
   legacyFee: { label: string; amount: string } | null;
+  /** Excluded from reporting (dispatch 24): the property owes no statements. */
+  excluded: boolean;
 }
 
 function emptyManagement(): ManagementDraft {
-  return { reportForName: "", reportForAddress: "", owners: [], from: STATEMENTS_FROM_DEFAULT, until: "", feeRate: "", legacyFee: null };
+  return { reportForName: "", reportForAddress: "", owners: [], from: STATEMENTS_FROM_DEFAULT, until: "", feeRate: "", legacyFee: null, excluded: false };
 }
 
 /**
@@ -1897,6 +1954,6 @@ function toManagementPayload(draft: ManagementDraft): { record: ManagementPayloa
   const reportFor = reportForName === "" ? null : { name: reportForName, address: draft.reportForAddress.trim() };
   const feeRate = draft.feeRate.trim();
   if (feeRate !== "" && !/^(100(\.0{1,2})?|[0-9]{1,2}(\.[0-9]{1,2})?)$/.test(feeRate)) return { problem: "The default fee rate is a percent, like 20 or 12.5." };
-  if (reportFor === null && owners.length === 0 && draft.from === STATEMENTS_FROM_DEFAULT && draft.until === "" && feeRate === "" && draft.legacyFee === null) return { record: null };
-  return { record: { reportFor, owners, statementsFrom: draft.from, statementsUntil: draft.until || null, defaultFeeRate: feeRate || null, ...(draft.legacyFee ? { defaultFee: draft.legacyFee } : {}) } };
+  if (reportFor === null && owners.length === 0 && draft.from === STATEMENTS_FROM_DEFAULT && draft.until === "" && feeRate === "" && draft.legacyFee === null && !draft.excluded) return { record: null };
+  return { record: { reportFor, owners, statementsFrom: draft.from, statementsUntil: draft.until || null, defaultFeeRate: feeRate || null, ...(draft.legacyFee ? { defaultFee: draft.legacyFee } : {}), excludedFromReporting: draft.excluded } };
 }

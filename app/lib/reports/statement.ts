@@ -40,6 +40,7 @@ import {
   feeComputed,
   inStatementScope,
   isClosedMonth,
+  isExcludedFromReporting,
   lastClosedMonth,
   monthLabel,
   monthOfDay,
@@ -532,7 +533,9 @@ export type Standing =
   /** The current month or a later one: never counted. */
   | 'open'
   /** Outside the property's statement months, and not finished. */
-  | 'notExpected';
+  | 'notExpected'
+  /** The property is excluded from reporting (Kian's ruling of 2026-10-03), and the month is not finished: owed by nobody, counted nowhere. */
+  | 'excluded';
 
 /** The words for each standing, the same everywhere a statement's status is shown. */
 export const STANDING_LABELS: Record<Standing, string> = {
@@ -541,11 +544,17 @@ export const STANDING_LABELS: Record<Standing, string> = {
   pastDue: 'Past due',
   open: 'Open, not yet due',
   notExpected: 'No statement expected',
+  excluded: 'Excluded from reporting',
 };
 
-/** The rule, for one property-month. `today` is yyyy-mm-dd in Toronto; `owed`: the month is in the property's statement months. */
-export function monthStanding(input: { month: string; today: string; owed: boolean; finished: boolean }): Standing {
+/**
+ * The rule, for one property-month. `today` is yyyy-mm-dd in Toronto; `owed`:
+ * the month is in the property's statement months; `excluded`: the property
+ * is excluded from reporting, so no month of it is owed.
+ */
+export function monthStanding(input: { month: string; today: string; owed: boolean; finished: boolean; excluded?: boolean }): Standing {
   if (input.finished) return 'finished';
+  if (input.excluded) return 'excluded';
   if (!input.owed) return 'notExpected';
   const previous = lastClosedMonth(input.today);
   if (input.month > previous) return 'open';
@@ -581,12 +590,14 @@ export interface ReportingInputs {
   reports: { id: string; propertyId: string; month: string; supersedes: Supersedes | null }[];
 }
 
-const TONE_OF: Record<Standing, ReportingTone> = { finished: 'done', due: 'warning', pastDue: 'problem', open: 'none', notExpected: 'none' };
+const TONE_OF: Record<Standing, ReportingTone> = { finished: 'done', due: 'warning', pastDue: 'problem', open: 'none', notExpected: 'none', excluded: 'none' };
 
 /** The rule, for one property: the worst of its months up to the previous one. */
 export function reportingStatus(input: ReportingInputs): ReportingStatus {
   const { from, until } = statementMonths(input.management);
   const previous = lastClosedMonth(input.today);
+  // Excluded from reporting (Kian's ruling of 2026-10-03): it owes no statements, so nothing of it is due, past due or counted as finished.
+  if (isExcludedFromReporting(input.management)) return { tone: 'none', standing: 'excluded', month: previous, pastDue: [], previous: { month: previous, standing: 'excluded' } };
   const finished = new Set(currentReports(input.reports.filter((report) => report.propertyId === input.propertyId)).map((report) => report.month));
   const standingOf = (month: string) => monthStanding({ month, today: input.today, owed: inStatementScope(input.management, month), finished: finished.has(month) });
   const last = until !== null && until < previous ? until : previous;
@@ -677,7 +688,7 @@ export interface TrackerInputs {
 }
 
 /** The panel's order: what needs work first. */
-const ORDER: Record<Standing, number> = { pastDue: 0, due: 1, open: 2, notExpected: 3, finished: 4 };
+const ORDER: Record<Standing, number> = { pastDue: 0, due: 1, open: 2, notExpected: 3, excluded: 3, finished: 4 };
 
 /** One property-month's reports, newest first, its live one, and its open draft. */
 function propertyMonth(propertyId: string, month: string, reports: MonthlyReportSummaryLike[], drafts: DraftLike[], current: Set<string>) {
@@ -706,6 +717,8 @@ export function trackerRows(input: TrackerInputs): TrackerRow[] {
   const rows: TrackerRow[] = [];
   for (const property of input.properties) {
     const record = management.get(property.id) ?? null;
+    // An excluded property leaves the panel (Kian's ruling of 2026-10-03), statements and drafts included: it owes nothing.
+    if (isExcludedFromReporting(record)) continue;
     const found = propertyMonth(property.id, input.month, input.reports, input.drafts, current);
     const inScope = inStatementScope(record, input.month);
     if (!inScope && found.reports.length === 0 && found.draft === null) continue;
@@ -728,7 +741,7 @@ export function trackerRows(input: TrackerInputs): TrackerRow[] {
 /** The panel's line: how many rows stand where — `owed` every row but a draft on a month not owed — and how many hold a draft in progress. */
 export function trackerCounts(rows: TrackerRow[]): { owed: number; finished: number; due: number; pastDue: number; open: number; notExpected: number; drafts: number } {
   const count = (standing: Standing) => rows.filter((row) => row.standing === standing).length;
-  return { owed: rows.length - count('notExpected'), finished: count('finished'), due: count('due'), pastDue: count('pastDue'), open: count('open'), notExpected: count('notExpected'), drafts: rows.filter((row) => row.state.kind === 'draft').length };
+  return { owed: rows.length - count('notExpected') - count('excluded'), finished: count('finished'), due: count('due'), pastDue: count('pastDue'), open: count('open'), notExpected: count('notExpected'), drafts: rows.filter((row) => row.state.kind === 'draft').length };
 }
 
 // ─── One property's months (the property page, dispatch 23D) ───
@@ -771,7 +784,7 @@ export function propertyMonths(input: PropertyMonthsInputs): { rows: PropertyMon
   const rows: PropertyMonthRow[] = [];
   for (const month of monthsBetween(first, last)) {
     const inScope = inStatementScope(input.management, month);
-    const one = propertyMonthState({ ...input, month, inScope });
+    const one = propertyMonthState({ ...input, month, inScope, excluded: isExcludedFromReporting(input.management) });
     if (!inScope && month !== thisMonth && one.reports.length === 0 && one.state.kind !== 'draft') continue;
     rows.push({ month, inScope, ...one });
   }
@@ -783,12 +796,12 @@ export function propertyMonths(input: PropertyMonthsInputs): { rows: PropertyMon
  * property page's month control (dispatch 23F): the same reading
  * `trackerRows` and `propertyMonths` make, for any month, listed or not.
  */
-export function propertyMonthState(input: { propertyId: string; month: string; today: string; inScope: boolean; reports: MonthlyReportSummaryLike[]; drafts: DraftLike[] }): Pick<PropertyMonthRow, 'state' | 'standing' | 'reports'> {
+export function propertyMonthState(input: { propertyId: string; month: string; today: string; inScope: boolean; excluded?: boolean; reports: MonthlyReportSummaryLike[]; drafts: DraftLike[] }): Pick<PropertyMonthRow, 'state' | 'standing' | 'reports'> {
   const current = new Set(currentReports(input.reports).map((report) => report.id));
   const found = propertyMonth(input.propertyId, input.month, input.reports, input.drafts, current);
   return {
     state: stateOf(input.month, input.today, found),
-    standing: monthStanding({ month: input.month, today: input.today, owed: input.inScope, finished: found.live !== null }),
+    standing: monthStanding({ month: input.month, today: input.today, owed: input.inScope, finished: found.live !== null, excluded: input.excluded }),
     reports: found.reports.map((report) => ({ report, replacedBy: input.reports.find((other) => other.supersedes?.reportId === report.id) ?? null })),
   };
 }
@@ -824,6 +837,8 @@ export function looseEnds(
   const current = currentReports(reports);
   const out: LooseEnds = { pending: [], late: [], adjustments: [] };
   for (const [propertyId, list] of byProperty) {
+    // An excluded property owes no statement, so nothing of it is a loose end of one.
+    if (isExcludedFromReporting(records.get(propertyId))) continue;
     const pending = list.filter((entry) => entry.status === 'pending' && (sentDay(entry.createdAt) ?? '') >= range.from && (sentDay(entry.createdAt) ?? '') <= range.to).length;
     if (pending > 0) out.pending.push({ propertyId, propertyName: nameOf(propertyId), count: pending });
     const mine = current.filter((report) => report.propertyId === propertyId);

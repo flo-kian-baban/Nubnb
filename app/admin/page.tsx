@@ -117,13 +117,15 @@ export default function AdminPage() {
 function AdminHome() {
   const router = useRouter();
   const [properties, setProperties] = useState<Property[]>([]);
+  /** Which properties are unlisted (dispatch 24): read beside the documents, never inside one. */
+  const [unlistedIds, setUnlistedIds] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
   // null = the read succeeded. A failed read must never render as "no properties
   // yet", which invites re-creating records that already exist.
   const [loadError, setLoadError] = useState<string | null>(null);
-  // A Firestore read that never settles (unreachable project) leaves the SDK
-  // retrying forever. Say so rather than spinning silently. Purely advisory —
-  // the read is not cancelled.
+  // A read that never settles (an unreachable project) would leave the page
+  // waiting. Say so rather than spinning silently. Purely advisory — the read
+  // is not cancelled.
   const [isSlowLoad, setIsSlowLoad] = useState(false);
   const { notice, show: showNotice, clear: clearNotice } = useNotice();
   const [editingProperty, setEditingProperty] = useState<Property | null>(null);
@@ -191,7 +193,8 @@ function AdminHome() {
     try {
       const result = await getPropertiesResult();
       if (result.ok) {
-        setProperties(result.data);
+        setProperties(result.data.properties);
+        setUnlistedIds(result.data.unlistedIds);
         setLoadError(null);
       } else {
         setProperties([]);
@@ -543,6 +546,11 @@ function AdminHome() {
                           <img src={p.coverImage} alt="" className={styles.thumb} />
                         </span>
                         <span className={styles.propertyName}>{p.name}</span>
+                        {unlistedIds.has(p.id) && (
+                          <span className={`${styles.stateBadge} ${styles.stateOpen} ${styles.unlistedBadge}`} title="Not on the public site: hidden from the homepage, the map, its own page and the property API">
+                            Unlisted
+                          </span>
+                        )}
                       </Link>
                     </td>
                     {/* The reporting cycle's status for the property, a link to its page at the month in question (dispatch 23G). */}
@@ -601,6 +609,7 @@ function AdminHome() {
       {isFormOpen && (
         <PropertyForm
           initialData={editingProperty || undefined}
+          initialUnlisted={editingProperty ? unlistedIds.has(editingProperty.id) : false}
           onClose={() => setIsFormOpen(false)}
           onSave={handleSaveContent}
         />

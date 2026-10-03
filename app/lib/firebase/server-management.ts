@@ -106,6 +106,8 @@ export const ManagementInputSchema = z
     /** "20" or "12.5"; null for none. */
     defaultFeeRate: z.string().regex(RATE, 'A rate in percent, like 20 or 12.5').transform(toBasisPoints).nullable().optional(),
     defaultFee: FeeInputSchema.nullable().optional(),
+    /** Excluded from reporting (dispatch 24): the property owes no statements. Absent keeps what is stored. */
+    excludedFromReporting: z.boolean().optional(),
   })
   .superRefine((body, ctx) => {
     if (body.statementsUntil !== null && body.statementsUntil < body.statementsFrom) {
@@ -138,6 +140,7 @@ export type SetManagementResult = { kind: 'set'; record: PropertyManagementView 
 
 /** The record as stored, from the form's input; absent optional fields keep what is stored. */
 function stored(propertyId: string, input: ManagementInput, was: PropertyManagementView | null): PropertyManagement {
+  const excluded = input.excludedFromReporting ?? was?.excludedFromReporting === true;
   return {
     schemaVersion: PROPERTY_MANAGEMENT_SCHEMA_VERSION,
     propertyId,
@@ -147,6 +150,8 @@ function stored(propertyId: string, input: ManagementInput, was: PropertyManagem
     statementsUntil: input.statementsUntil,
     defaultFeeRateBasisPoints: input.defaultFeeRate === undefined ? (was?.defaultFeeRateBasisPoints ?? null) : input.defaultFeeRate,
     defaultFee: input.defaultFee === undefined ? (was?.defaultFee ?? null) : input.defaultFee,
+    // Written only when true: a record that is not excluded keeps the shape it always had.
+    ...(excluded ? { excludedFromReporting: true } : {}),
     setAt: new Date().toISOString(),
   };
 }

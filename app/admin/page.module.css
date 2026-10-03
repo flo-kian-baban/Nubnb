@@ -697,6 +697,11 @@
   -webkit-box-orient: vertical;
 }
 
+/* Unlisted (dispatch 24): beside the name, the quiet state badge's look. */
+.unlistedBadge {
+  flex-shrink: 0;
+}
+
 /* ── Cell Styles ── */
 .locationText {
   font-size: 13px;

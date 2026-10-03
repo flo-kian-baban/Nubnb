@@ -140,7 +140,7 @@ function Availability() {
     });
     getPropertiesResult().then((result) => {
       if (cancelled) return;
-      setProperties(result.ok ? { kind: "ready", data: result.data } : { kind: "error", title: result.error, status: 0 });
+      setProperties(result.ok ? { kind: "ready", data: result.data.properties } : { kind: "error", title: result.error, status: 0 });
     });
     return () => {
       cancelled = true;

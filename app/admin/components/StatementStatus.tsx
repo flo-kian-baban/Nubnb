@@ -21,6 +21,7 @@ export const STANDING_CLASS: Record<Standing, string> = {
   pastDue: shared.statePastDue,
   open: shared.stateOpen,
   notExpected: shared.stateOpen,
+  excluded: shared.stateOpen,
 };
 
 /** The property's page for a month: where its statement is written. */

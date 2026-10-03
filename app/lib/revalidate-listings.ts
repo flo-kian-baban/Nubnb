@@ -1,7 +1,7 @@
 /**
  * On-demand revalidation for the renter-facing pages.
  *
- * `/`, `/property/[slug]` and `/api/property/[id]` are cached and regenerated
+ * `/`, `/property/[slug]`, `/api/property/[id]` and `/about/guests` are cached and regenerated
  * on a timer, which on its own would mean an admin edit sat invisible until
  * the timer expired.
  * Every write path that can change what a visitor sees calls this instead, so
@@ -33,7 +33,11 @@ import { revalidatePath } from 'next/cache';
  */
 export const LISTINGS_REVALIDATE_SECONDS = 3600;
 
-export function revalidateListingPages(reason: string): void {
+/**
+ * Revalidate every renter-facing page that holds the catalogue, and, when
+ * the write was to one property, that property's prerendered JSON.
+ */
+export function revalidateListingPages(reason: string, propertyId?: string): void {
   try {
     // The homepage carries the whole catalogue, so any write can change it.
     revalidatePath('/');
@@ -45,6 +49,12 @@ export function revalidateListingPages(reason: string): void {
     // this an edit would show on the pages but not in the panel, which is the
     // more confusing half of being stale.
     revalidatePath('/api/property/[id]', 'page');
+    // That call does not reach a route handler's cache: its tag is the route's,
+    // not a page's, and the file kept answering HIT (found in dispatch 24, when
+    // an unlisted property's JSON was still served). The concrete path does.
+    if (propertyId) revalidatePath(`/api/property/${propertyId}`);
+    // The guests page maps the catalogue (dispatch 24: built on the server since, so it holds no unlisted property).
+    revalidatePath('/about/guests');
   } catch (err) {
     console.error(`[revalidate] ${reason}: failed to revalidate listing pages`, err);
   }

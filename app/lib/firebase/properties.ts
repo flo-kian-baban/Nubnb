@@ -1,9 +1,12 @@
 /**
- * Property data access layer.
+ * Property data access layer, for the admin.
  *
- * READ operations use the client Firestore SDK (public data, no auth required).
- * WRITE operations call authenticated server-side API routes that use the
- * Firebase Admin SDK — the client SDK never writes to Firestore.
+ * READ and WRITE operations both call authenticated server-side API routes
+ * that use the Firebase Admin SDK. The browser no longer reads Firestore
+ * (dispatch 24): the rules refuse a browser that lists `properties`, so that
+ * an unlisted property is unreadable by the public, and an admin's browser
+ * looks like anyone's to them. The public pages read on the server
+ * (server-properties.ts).
  *
  * Authentication is handled automatically via the HTTP-only session cookie
  * set by /api/admin-auth. No headers or client-side tokens needed.
@@ -15,11 +18,7 @@
  */
 
 import type { PropertyManagementView } from '@/app/lib/reports/model';
-import { collection, doc, getDocs, getDoc, query } from 'firebase/firestore';
-import { db, isFirebaseConfigured } from './config';
 import { Property } from '@/app/types/property';
-
-const COLLECTION_NAME = 'properties';
 
 // ─── Result types ──────────────────────────────────────────────
 
@@ -80,60 +79,33 @@ function networkFailure(error: unknown, fallback: string): Extract<MutationResul
   };
 }
 
-// ─── READ (client SDK — public data) ───────────────────────────
+// ─── READ (the admin route, Admin SDK) ─────────────────────────
 
-/**
- * Read every property, distinguishing a failed read from an empty collection.
- * Prefer this in the admin, where "the backend is down" and "there is nothing
- * here" must not look the same.
- */
-export async function getPropertiesResult(): Promise<ReadResult<Property[]>> {
-  if (!isFirebaseConfigured() || !db) {
-    return { ok: false, error: 'Firebase is not configured — the property database is unreachable.' };
-  }
-  try {
-    const q = query(collection(db, COLLECTION_NAME));
-    const querySnapshot = await getDocs(q);
-    const properties: Property[] = [];
-    querySnapshot.forEach((docSnap) => {
-      properties.push({ id: docSnap.id, ...docSnap.data() } as Property);
-    });
-    return { ok: true, data: properties };
-  } catch (error) {
-    console.error('Error getting documents: ', error);
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : 'Failed to load properties from Firestore.',
-    };
-  }
+/** Every property as stored, and which of them are unlisted (beside them: never a field the form could send back). */
+export interface AdminProperties {
+  properties: Property[];
+  unlistedIds: Set<string>;
 }
 
 /**
- * Array-returning wrapper kept for the public pages, whose existing callers
- * treat the result as a plain list. An error still yields `[]` here — callers
- * that need to tell the two apart use {@link getPropertiesResult}.
+ * Read every property, distinguishing a failed read from an empty collection,
+ * for the admin, where "the backend is down" and "there is nothing here" must
+ * not look the same.
  */
-export async function getProperties(): Promise<Property[]> {
-  const result = await getPropertiesResult();
-  return result.ok ? result.data : [];
-}
-
-export async function getProperty(id: string): Promise<Property | null> {
-  if (!isFirebaseConfigured() || !db) return null;
+export async function getPropertiesResult(): Promise<ReadResult<AdminProperties>> {
+  let res: Response;
   try {
-    const docRef = doc(db, COLLECTION_NAME, id);
-    const docSnap = await getDoc(docRef);
-
-    if (docSnap.exists()) {
-      return { id: docSnap.id, ...docSnap.data() } as Property;
-    } else {
-      console.log("No such document!");
-      return null;
-    }
+    res = await fetch('/api/admin/properties', { cache: 'no-store' });
   } catch (error) {
-    console.error("Error getting document:", error);
-    return null;
+    return { ok: false, error: error instanceof Error ? error.message : 'Could not reach the server.' };
   }
+  const body = await res.json().catch(() => ({}));
+  const data = body && typeof body === 'object' ? (body as { data?: { properties?: unknown; unlistedIds?: unknown } }).data : undefined;
+  if (!res.ok || !data || !Array.isArray(data.properties) || !Array.isArray(data.unlistedIds)) {
+    const said = body && typeof body === 'object' && typeof (body as { error?: unknown }).error === 'string' ? (body as { error: string }).error : null;
+    return { ok: false, error: said ?? `Could not load the properties (HTTP ${res.status}).` };
+  }
+  return { ok: true, data: { properties: data.properties as Property[], unlistedIds: new Set(data.unlistedIds.filter((id): id is string => typeof id === 'string')) } };
 }
 
 // ─── WRITE (server-side API routes via Admin SDK) ──────────────
@@ -141,10 +113,12 @@ export async function getProperty(id: string): Promise<Property | null> {
 
 export async function addProperty(
   property: Omit<Property, 'id'>,
+  options: { unlisted?: boolean } = {},
 ): Promise<MutationResult<{ id: string }>> {
   let res: Response;
   try {
-    res = await fetch('/api/properties', {
+    // Unlisted from the start (dispatch 24): the route writes the property and its mark in one batch.
+    res = await fetch(options.unlisted ? '/api/properties?unlisted=1' : '/api/properties', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(property),
@@ -246,6 +220,30 @@ export interface ManagementPayload {
   statementsUntil: string | null;
   defaultFeeRate: string | null;
   defaultFee?: { label: string; amount: string } | null;
+  /** Excluded from reporting (dispatch 24). Always sent, so unticking it clears what is stored. */
+  excludedFromReporting: boolean;
+}
+
+// ─── Unlisted (dispatch 24) ────────────────────────────────────
+// Its own server-only collection, reached through the admin route below:
+// never a field on the property document.
+
+/** Unlist the property, or list it again. */
+export async function setUnlisted(id: string, unlisted: boolean): Promise<MutationResult<{ unlisted: boolean }>> {
+  let res: Response;
+  try {
+    res = await fetch(`/api/admin/properties/${encodeURIComponent(id)}/visibility`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ unlisted }),
+    });
+  } catch (error) {
+    return networkFailure(error, 'Could not reach the server to save whether the property is listed');
+  }
+  if (!res.ok) return toFailure(res, 'Failed to save whether the property is listed');
+  const body = await res.json().catch(() => ({}));
+  const stored = body && typeof body === 'object' ? (body as { data?: { unlisted?: unknown } }).data?.unlisted : undefined;
+  return { ok: true, data: { unlisted: stored === true } };
 }
 
 export async function setCleanerFacingName(id: string, name: string | null): Promise<MutationResult<{ name: string | null }>> {

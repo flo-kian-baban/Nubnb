@@ -32,6 +32,7 @@
  */
 
 import { getAdminDb } from '@/app/lib/firebase/admin';
+import { PROPERTY_VISIBILITY_COLLECTION } from '@/app/lib/firebase/server-visibility';
 import { getIcalFeed, IcalFetchError } from '@/app/lib/api/ical-cache';
 import { parseIcalEvents } from '@/app/lib/api/ical-parser';
 import { addYears, startOfDay } from 'date-fns';
@@ -58,9 +59,16 @@ export async function GET(_request: Request, context: RouteContext) {
 
   let icalUrl: string;
   try {
-    const snap = await getAdminDb().collection(COLLECTION).doc(id).get();
+    const db = getAdminDb();
+    const [snap, mark] = await db.getAll(db.collection(COLLECTION).doc(id), db.collection(PROPERTY_VISIBILITY_COLLECTION).doc(id), { fieldMask: ['icalUrl', 'unlisted'] });
     if (!snap.exists) {
       return json({ success: false, error: 'Property not found' }, 404, NO_CACHE);
+    }
+    // Unlisted (Kian's ruling of 2026-10-03): the same answer as a property that does not exist. Cached at the edge like a
+    // success, so the edge replaces whatever it held for the property within ten minutes; a 404 sent no-store would leave
+    // stale-while-revalidate serving the last calendar for up to a day.
+    if (mark.exists && mark.data()?.unlisted === true) {
+      return json({ success: false, error: 'Property not found' }, 404, EDGE_CACHE);
     }
     const raw = snap.data()?.icalUrl;
     icalUrl = typeof raw === 'string' ? raw.trim() : '';

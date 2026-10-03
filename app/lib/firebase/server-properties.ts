@@ -22,6 +22,7 @@
  */
 
 import { getAdminDb } from './admin';
+import { PROPERTY_VISIBILITY_COLLECTION, unlistedPropertyIds } from './server-visibility';
 import type { Property, PropertySummary } from '@/app/types/property';
 
 const COLLECTION = 'properties';
@@ -134,34 +135,38 @@ export function toSummary(id: string, data: Record<string, unknown>): PropertySu
 // ─── Reads ─────────────────────────────────────────────────────
 
 /**
- * Every property, projected down to what the homepage renders.
+ * Every listed property, projected down to what the homepage renders. An
+ * unlisted property (Kian's ruling of 2026-10-03, see server-visibility.ts) is
+ * left out: every public page builds its catalogue from this, so the
+ * homepage, the map, the search, the property pages and /about/guests never
+ * see one.
  *
  * `.select()` is a Firestore projection, so the omitted fields are not read
  * out of Firestore either — this is cheaper on the wire in both directions,
  * not just smaller in the page.
  *
- * @throws if the read fails. See the failure contract at the top of the file.
+ * @throws if either read fails. See the failure contract at the top of the file.
  */
 export async function getPropertySummaries(): Promise<PropertySummary[]> {
-  const snapshot = await getAdminDb()
-    .collection(COLLECTION)
-    .select(...SUMMARY_FIELDS)
-    .get();
+  const [snapshot, unlisted] = await Promise.all([getAdminDb().collection(COLLECTION).select(...SUMMARY_FIELDS).get(), unlistedPropertyIds()]);
 
-  return snapshot.docs.map((doc) => toSummary(doc.id, doc.data() as Record<string, unknown>));
+  return snapshot.docs.filter((doc) => !unlisted.has(doc.id)).map((doc) => toSummary(doc.id, doc.data() as Record<string, unknown>));
 }
 
 /**
  * One complete property document, for the detail panel.
  *
- * `null` means the document does not exist — a real answer, and a different
- * thing from a read that failed, which throws.
+ * `null` means the document does not exist, or the property is unlisted and
+ * the caller is public — both real answers, and both different from a read
+ * that failed, which throws. Only an admin read passes `includeUnlisted`.
  *
  * @throws if the read fails.
  */
-export async function getPropertyById(id: string): Promise<Property | null> {
-  const doc = await getAdminDb().collection(COLLECTION).doc(id).get();
+export async function getPropertyById(id: string, options: { includeUnlisted?: boolean } = {}): Promise<Property | null> {
+  const db = getAdminDb();
+  const [doc, mark] = await db.getAll(db.collection(COLLECTION).doc(id), db.collection(PROPERTY_VISIBILITY_COLLECTION).doc(id));
   if (!doc.exists) return null;
+  if (!options.includeUnlisted && mark.exists && mark.data()?.unlisted === true) return null;
 
   const data = doc.data() as Record<string, unknown>;
 

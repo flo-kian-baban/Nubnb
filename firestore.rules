@@ -3,12 +3,26 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Public listings: anyone can read, nobody can write from a browser.
-    // All writes go through your API routes using the Admin SDK,
-    // which bypasses these rules entirely.
+    // Public listings: anyone can read a listed property, one document at a
+    // time; nobody can write from a browser. All writes go through the API
+    // routes using the Admin SDK, which bypasses these rules entirely.
+    //
+    // Kian's ruling of 2026-10-03 (dispatch 24): an unlisted property is
+    // unreadable by the public, rules included, without breaking listed ones.
+    // A property is unlisted while property_visibility/{propertyId} says so.
+    // Rules are not filters, so a query over the collection cannot be allowed
+    // for listed documents only: listing the collection from a browser is
+    // refused for everyone. No page lists it from a browser since dispatch
+    // 24: the public pages read on the server, the admin through its routes.
     match /properties/{propertyId} {
-      allow read: if true;
+      allow get: if !isUnlisted(propertyId);
+      allow list: if false;
       allow write: if false;
+    }
+
+    function isUnlisted(propertyId) {
+      return exists(/databases/$(database)/documents/property_visibility/$(propertyId))
+        && get(/databases/$(database)/documents/property_visibility/$(propertyId)).data.get('unlisted', false) == true;
     }
 
     // Contact form submissions: written by the server only, never readable
@@ -61,6 +75,11 @@ service cloud.firestore {
     match /monthly_reports/{reportId} { allow read, write: if false; }
     match /report_downloads/{downloadId} { allow read, write: if false; }
     match /property_management/{propertyId} { allow read, write: if false; }
+    // Dispatch 24 (2026-10-03): which properties are unlisted (read by the
+    // rule above and by the server, never by a browser), and one record per
+    // month ZIP an admin downloaded.
+    match /property_visibility/{propertyId} { allow read, write: if false; }
+    match /month_downloads/{downloadId} { allow read, write: if false; }
 
     // Everything else: denied.
     match /{document=**} {

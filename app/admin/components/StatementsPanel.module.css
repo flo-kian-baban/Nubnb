@@ -73,6 +73,31 @@
   opacity: 0.4;
   cursor: default;
 }
+/* Download the month as a ZIP (dispatch 24): the head's one worded action, the icon buttons' shape. */
+.headBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.8);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.headBtn:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+}
+.headBtn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
 
 /* The line at the top: the counts for the month. */
 .line {

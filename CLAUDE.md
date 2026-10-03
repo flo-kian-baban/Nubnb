@@ -250,3 +250,28 @@ no checkout. Do not build toward one unless asked.
   **Consequence: the account is gone for good and cannot be reactivated.**
 - **A code can be reused when no active account holds it.** This replaces
   the earlier rule that a replaced code is never given out again.
+
+## Backup — Kian's rulings of 2026-10-03 (dispatch 24)
+
+- **The backup is a mirror.** What is deleted in Nubnb is deleted from the
+  backup.
+- **A "Back up this month" button on the admin home from the 11th.** It
+  lists the properties still due and backs up what exists; running it again
+  updates the backup.
+- **Owners' folders are separate from Nubnb's.**
+- **No versions.** A corrected statement replaces the old one.
+- **The admin can download a whole month as a ZIP** in the same folder
+  structure the backup will use.
+
+## Properties — Kian's rulings of 2026-10-03 (dispatch 24)
+
+- **Exclude from reporting:** a toggle in the property edit form. An
+  excluded property owes no statements: it leaves the Statement column's
+  due and past-due counts, the tile, the home panel and the backup button's
+  check. It still has costs, income and a property page; nothing about it
+  is deleted. Stored server-side, never on the property document.
+- **Unlisted:** a toggle in the property edit form. An unlisted property
+  does not appear anywhere on the public site — the homepage, the map, its
+  own page, the property API, the sitemap. It stays fully usable inside:
+  the admin, the cleaner app, availability, reporting. It is unreadable by
+  the public, Firestore rules included, without breaking listed ones.

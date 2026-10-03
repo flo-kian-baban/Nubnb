@@ -25,7 +25,12 @@ export function crc32(bytes: Uint8Array): number {
 }
 
 export interface ZipFile {
-  /** ASCII path inside the archive, e.g. "xl/workbook.xml". */
+  /**
+   * Path inside the archive, e.g. "xl/workbook.xml". A name beyond ASCII (a
+   * property's name in the month ZIP, dispatch 24) is written in UTF-8 with
+   * the ZIP's UTF-8 flag set, so every tool reads it as written; an ASCII
+   * name is written exactly as before.
+   */
   name: string;
   data: Uint8Array;
 }
@@ -49,6 +54,8 @@ export function zipStored(files: ZipFile[], modified: Date): Uint8Array<ArrayBuf
 
   for (const file of files) {
     const name = encoder.encode(file.name);
+    // General purpose bit 11: the name is UTF-8. Only set when it matters, so an ASCII-named archive is byte for byte as before.
+    const flags = name.length === file.name.length ? 0 : 0x0800;
     const crc = crc32(file.data);
     const size = file.data.length;
 
@@ -56,7 +63,7 @@ export function zipStored(files: ZipFile[], modified: Date): Uint8Array<ArrayBuf
     const l = new DataView(local.buffer);
     l.setUint32(0, 0x04034b50, true); // local file header
     l.setUint16(4, 20, true); // version needed: 2.0
-    l.setUint16(6, 0, true); // flags
+    l.setUint16(6, flags, true); // flags
     l.setUint16(8, 0, true); // method: stored
     l.setUint16(10, time, true);
     l.setUint16(12, date, true);
@@ -72,7 +79,7 @@ export function zipStored(files: ZipFile[], modified: Date): Uint8Array<ArrayBuf
     c.setUint32(0, 0x02014b50, true); // central directory header
     c.setUint16(4, 20, true); // version made by
     c.setUint16(6, 20, true); // version needed
-    c.setUint16(8, 0, true); // flags
+    c.setUint16(8, flags, true); // flags
     c.setUint16(10, 0, true); // method: stored
     c.setUint16(12, time, true);
     c.setUint16(14, date, true);

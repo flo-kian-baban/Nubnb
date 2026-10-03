@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
     // window before appearing. The create/update/delete routes already do
     // this; until these fields were read by anything, this one had no reason
     // to.
-    revalidateListingPages(`mirror ${id}`);
+    revalidateListingPages(`mirror ${id}`, id);
 
     console.log(
       `[mirror-property-images] ${id}: mirrored=${result.mirrored} reused=${result.reused} ` +

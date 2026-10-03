@@ -5,14 +5,14 @@ import Map, { Marker, MapRef } from "react-map-gl/maplibre";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { MapPin } from "lucide-react";
-import { Property } from "@/app/types/property";
+import type { PropertySummary } from "@/app/types/property";
 import styles from "./PreviewMap.module.css";
 
 const MAP_STYLE =
   "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
 
 interface PreviewMapProps {
-  properties: Property[];
+  properties: Pick<PropertySummary, 'id' | 'coordinates'>[];
 }
 
 export function PreviewMap({ properties }: PreviewMapProps) {
