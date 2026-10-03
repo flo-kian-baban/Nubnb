@@ -13,6 +13,10 @@
  * prefilled until edited. The carried balance is offered from the previous
  * month's closing figure and never applied by code.
  *
+ * Each block is laid out as the Income and Costs blocks are (Kian,
+ * 2026-10-02): its name, its figure and its one action in the head, the
+ * labelled fields under it, on the same widths.
+ *
  * A finished month shows the frozen values, disabled.
  */
 
@@ -60,12 +64,12 @@ export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForStat
           {!readOnly && reportForState === "saving" && <span className={styles.note}>Saving…</span>}
         </div>
         {/* Name and address side by side, so the tab's four blocks fit a 1,280 × 800 window (Kian, 2026-10-01). */}
-        <div className={styles.twoCols}>
-          <div>
+        <div className={styles.fields}>
+          <div className={`${styles.field} ${styles.fieldHalf}`}>
             <label className={styles.fieldLabel} htmlFor="report-for-name">Name</label>
             <input id="report-for-name" className={styles.textInput} value={legacyView ? "" : shownName} maxLength={STATEMENT_LIMITS.REPORT_FOR_NAME_MAX} disabled={readOnly} placeholder="Name" onChange={(e) => onReportFor({ ...reportFor, name: e.target.value })} />
           </div>
-          <div>
+          <div className={`${styles.field} ${styles.fieldHalf}`}>
             <label className={styles.fieldLabel} htmlFor="report-for-address">Address</label>
             <textarea id="report-for-address" className={`${styles.textInput} ${styles.addressInput}`} value={legacyView ? "" : shownAddress} maxLength={STATEMENT_LIMITS.REPORT_FOR_ADDRESS_MAX} disabled={readOnly} placeholder={"321-20 John St.\nToronto, ON, M5V 0G5"} rows={2} onChange={(e) => onReportFor({ ...reportFor, address: e.target.value })} />
           </div>
@@ -76,15 +80,28 @@ export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForStat
       <section className={styles.block} aria-label="Management fee">
         <div className={styles.blockHead}>
           <h3 className={styles.blockTitle}>Management fee</h3>
-          <span className={styles.blockTotal}>{fee?.amountCents != null ? formatCents(-fee.amountCents) : "—"}</span>
+          <span className={styles.blockTotal}>{fee?.amountCents != null ? formatCents(-fee.amountCents) : typed.fee ? "—" : "None"}</span>
+          {!readOnly && (
+            <span className={styles.blockActions}>
+              {typed.fee ? (
+                <button type="button" className={`${styles.btnGhost} ${styles.btnSmall}`} onClick={() => onChange({ ...typed, fee: null })}>
+                  No fee
+                </button>
+              ) : (
+                <button type="button" className={`${styles.btnGhost} ${styles.btnSmall}`} onClick={() => onChange({ ...typed, fee: { label: "", rate: rateField(feeRateSuggestion(previous, management)), base: "", amount: "", baseEdited: false, amountEdited: false, labelEdited: false } })}>
+                  Add a fee
+                </button>
+              )}
+            </span>
+          )}
         </div>
-        {typed.fee && fee ? (
-          <div className={styles.feeGrid}>
-            <div>
+        {typed.fee && fee && (
+          <div className={styles.fields}>
+            <div className={`${styles.field} ${styles.fieldQty}`}>
               <label className={styles.fieldLabel} htmlFor="fee-rate">Rate (%)</label>
               <input id="fee-rate" className={`${styles.textInput} ${styles.amountInput} ${!readOnly && typed.fee.rate.trim() !== "" && fee.rateBp === null ? styles.inputInvalid : ""}`} inputMode="decimal" value={typed.fee.rate} disabled={readOnly} placeholder="20" onChange={(e) => setFee({ rate: e.target.value })} />
             </div>
-            <div>
+            <div className={`${styles.field} ${styles.fieldAmount}`}>
               <label className={styles.fieldLabel} htmlFor="fee-base">Of (the base)</label>
               <input
                 id="fee-base"
@@ -105,7 +122,7 @@ export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForStat
                 </button>
               )}
             </div>
-            <div>
+            <div className={`${styles.field} ${styles.fieldAmount}`}>
               <label className={styles.fieldLabel} htmlFor="fee-amount">Amount</label>
               <input
                 id="fee-amount"
@@ -137,7 +154,7 @@ export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForStat
                 <span className={styles.note}>computed from the rate</span>
               ) : null}
             </div>
-            <div className={styles.feeLabelCell}>
+            <div className={`${styles.field} ${styles.fieldFull}`}>
               <label className={styles.fieldLabel} htmlFor="fee-label">Label</label>
               <input id="fee-label" className={`${styles.textInput} ${!readOnly && fee.label.trim() === "" ? styles.inputInvalid : ""}`} value={fee.label} maxLength={STATEMENT_LIMITS.FEE_LABEL_MAX} disabled={readOnly} onChange={(e) => setFee({ label: e.target.value, labelEdited: true })} />
               {!readOnly && typed.fee.labelEdited && (
@@ -146,21 +163,7 @@ export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForStat
                 </button>
               )}
             </div>
-            {!readOnly && (
-              <button type="button" className={`${styles.btnGhost} ${styles.btnSmall}`} onClick={() => onChange({ ...typed, fee: null })}>
-                No fee
-              </button>
-            )}
           </div>
-        ) : (
-          <p className={styles.note}>
-            No fee.{" "}
-            {!readOnly && (
-              <button type="button" className={styles.linkButton} onClick={() => onChange({ ...typed, fee: { label: "", rate: rateField(feeRateSuggestion(previous, management)), base: "", amount: "", baseEdited: false, amountEdited: false, labelEdited: false } })}>
-                Add a fee
-              </button>
-            )}
-          </p>
         )}
       </section>
 
@@ -168,15 +171,35 @@ export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForStat
       <section className={styles.block} aria-label="Carried balance">
         <div className={styles.blockHead}>
           <h3 className={styles.blockTitle}>Carried balance</h3>
-          <span className={styles.blockTotal}>{carriedCents !== null ? formatCents(-carriedCents) : "—"}</span>
+          <span className={styles.blockTotal}>{carriedCents !== null ? formatCents(-carriedCents) : typed.carried ? "—" : "None"}</span>
+          {!readOnly && (
+            <span className={styles.blockActions}>
+              {typed.carried ? (
+                <button type="button" className={`${styles.btnGhost} ${styles.btnSmall}`} onClick={() => onChange({ ...typed, carried: null })}>
+                  No balance
+                </button>
+              ) : (
+                <>
+                  {suggestedCarried && previous && (
+                    <button type="button" className={`${styles.btnGhost} ${styles.btnSmall}`} onClick={() => onChange({ ...typed, carried: { label: suggestedCarried.label, amount: amountField(suggestedCarried.amountCents), fromReportId: suggestedCarried.fromReportId } })} title={`${monthLabel(previous.month)} closed at ${formatCents(previous.payableCents)}`}>
+                      Carry {formatCents(suggestedCarried.amountCents)} from {monthLabel(previous.month)}
+                    </button>
+                  )}
+                  <button type="button" className={`${styles.btnGhost} ${styles.btnSmall}`} onClick={() => onChange({ ...typed, carried: { label: "", amount: "", fromReportId: null } })}>
+                    Type a balance
+                  </button>
+                </>
+              )}
+            </span>
+          )}
         </div>
-        {typed.carried ? (
-          <div className={styles.carriedGrid}>
-            <div>
+        {typed.carried && (
+          <div className={styles.fields}>
+            <div className={`${styles.field} ${styles.fieldGrow}`}>
               <label className={styles.fieldLabel} htmlFor="carried-label">Label</label>
               <input id="carried-label" className={`${styles.textInput} ${!readOnly && typed.carried.label.trim() === "" ? styles.inputInvalid : ""}`} value={typed.carried.label} maxLength={STATEMENT_LIMITS.CARRIED_LABEL_MAX} disabled={readOnly} placeholder="Balance From June" onChange={(e) => onChange({ ...typed, carried: { ...typed.carried!, label: e.target.value } })} />
             </div>
-            <div>
+            <div className={`${styles.field} ${styles.fieldAmount}`}>
               <label className={styles.fieldLabel} htmlFor="carried-amount">Amount deducted</label>
               <input
                 id="carried-amount"
@@ -193,29 +216,7 @@ export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForStat
               />
               <span className={styles.note}>{typed.carried.fromReportId ? "from the previous statement" : "typed"}</span>
             </div>
-            {!readOnly && (
-              <button type="button" className={`${styles.btnGhost} ${styles.btnSmall}`} onClick={() => onChange({ ...typed, carried: null })}>
-                No balance
-              </button>
-            )}
           </div>
-        ) : (
-          <p className={styles.note}>
-            {suggestedCarried && previous ? `${monthLabel(previous.month)} closed at ${formatCents(previous.payableCents)}. ` : "None. "}
-            {!readOnly && suggestedCarried && (
-              <button type="button" className={styles.linkButton} onClick={() => onChange({ ...typed, carried: { label: suggestedCarried.label, amount: amountField(suggestedCarried.amountCents), fromReportId: suggestedCarried.fromReportId } })}>
-                Carry it: {suggestedCarried.label} {formatCents(suggestedCarried.amountCents)}
-              </button>
-            )}
-            {!readOnly && (
-              <>
-                {suggestedCarried ? " · " : ""}
-                <button type="button" className={styles.linkButton} onClick={() => onChange({ ...typed, carried: { label: "", amount: "", fromReportId: null } })}>
-                  Type a balance
-                </button>
-              </>
-            )}
-          </p>
         )}
       </section>
 

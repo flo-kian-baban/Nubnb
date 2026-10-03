@@ -54,8 +54,12 @@
  * nothing here is a dead end. Since dispatch 23F the statement is written
  * on the property's page, so both links land there, on the right month.
  *
- * The pane is shown on the costs page beside the queue or the ledger, and
- * on the property's page in place of the month's list (dispatch 23F).
+ * ── Where it is shown (Kian, 2026-10-02) ──
+ * On the costs page it opens under its own row, as an accordion: one entry
+ * open at a time, no heading (the row says whose and when), the receipt in
+ * its own column beside everything else when the space allows. On the
+ * property's page it takes the place of the month's list (dispatch 23F),
+ * with its heading. The status is said once, by its badge.
  *
  * Changes are not optimistic. Each sends the length of the history this pane
  * shows, and the server refuses it if the entry changed since — another
@@ -121,11 +125,13 @@ interface EntryPaneProps {
   pattern: CleanerPattern | null;
   /** The property's statements (dispatch 23D), to say which one printed this entry; null when the entry names no property. */
   statements: PropertyStatementsState | null;
-  /** The entry as the server now stores it, after a review. */
-  onChanged: (entry: CostEntryView) => void;
+  /** The entry as the server now stores it, after a review, and what the pane told the admin (for the page, if the entry leaves its list). */
+  onChanged: (entry: CostEntryView, notice: Notice) => void;
   /** The entry was deleted (dispatch 23H): take it off the page and show `notice` there, the pane being gone. */
   onDeleted: (id: string, notice: Notice) => void;
   onClose: () => void;
+  /** The property, who logged it and when, over the rest; false under the entry's own row, which says them. */
+  showHeading?: boolean;
 }
 
 /** A line being corrected (its place) or added (null), as typed so far. */
@@ -144,7 +150,7 @@ const STATUS_DONE: Record<ReviewStatus, string> = {
   removed: "It has left its property’s ledger, totals and reports, and stays in the review queue, marked.",
 };
 
-export function EntryPane({ entry, pdf, pattern, statements, onChanged, onDeleted, onClose }: EntryPaneProps) {
+export function EntryPane({ entry, pdf, pattern, statements, onChanged, onDeleted, onClose, showHeading = true }: EntryPaneProps) {
   /** What is being saved, for its button's label; null when nothing is. */
   const [saving, setSaving] = useState<ReviewStatus | "line" | "tax" | "seen" | "delete" | null>(null);
   const [rejecting, setRejecting] = useState(false);
@@ -180,8 +186,9 @@ export function EntryPane({ entry, pdf, pattern, statements, onChanged, onDelete
   /** Show the server's answer: the new entry, or why not, or that nobody can tell. */
   const settle = (result: CostResult<EntryChange>, done: (change: EntryChange) => Notice): boolean => {
     if (result.ok) {
-      onChanged(result.data.entry);
-      show(done(result.data));
+      const told = done(result.data);
+      show(told);
+      onChanged(result.data.entry, told);
       return true;
     }
     show(
@@ -364,445 +371,450 @@ export function EntryPane({ entry, pdf, pattern, statements, onChanged, onDelete
     if (saved) setDraft(null);
   };
 
+  /** Whether a receipt photo came with it: then it has its own column, beside everything else. */
+  const hasReceipt = entry.receipts !== null && entry.receipts.length > 0;
+  const noReceipt = work ? "No receipt: handyman work" : office ? "No receipt: added by the office" : "No receipt on record";
+  const closeButton = (
+    <button type="button" className={styles.closeBtn} onClick={onClose} aria-label="Close the entry">
+      <X size={16} />
+    </button>
+  );
+
   return (
     <div className={styles.detail}>
-      {/* ── Whose, and when ── */}
-      <div className={styles.detailHead}>
-        <div className={styles.detailHeadText}>
-          <h2 className={styles.detailTitle}>{propertyLabel(entry)}</h2>
-          <p className={styles.detailMeta}>
-            {cleanerLabel(entry)} <KindBadge kind={entry.kind} /> · sent <SentAt iso={entry.createdAt} />
-          </p>
-          <NameNotes entry={entry} />
+      {/* ── Whose, and when: on the property's page, where no row above says it ── */}
+      {showHeading ? (
+        <div className={styles.detailHead}>
+          <div className={styles.detailHeadText}>
+            <h2 className={styles.detailTitle}>{propertyLabel(entry)}</h2>
+            <p className={styles.detailMeta}>
+              {cleanerLabel(entry)} <KindBadge kind={entry.kind} /> · sent <SentAt iso={entry.createdAt} />
+            </p>
+            <NameNotes entry={entry} />
+          </div>
+          {closeButton}
         </div>
-        <button type="button" className={styles.closeBtn} onClick={onClose} aria-label="Close the entry">
-          <X size={16} />
-        </button>
-      </div>
+      ) : (
+        <NameNotes entry={entry} />
+      )}
 
       <NoticeBanner notice={notice} onDismiss={clear} className={styles.detailNotice} />
 
-      {/* ── Review ── */}
-      <section className={styles.statusBlock} aria-label="Review">
-        <div className={styles.statusRow}>
-          <EntryStatusBadge status={entry.status} auto={entry.autoApproved !== null} />
-          <span className={styles.statusSince}>
-            since <SentAt iso={entry.statusChangedAt} />
-          </span>
-        </div>
-        {entry.autoApproved !== null && (
-          <p className={unseen ? styles.autoNote : styles.statusNote}>
-            {unseen
-              ? "Approved automatically: under $200.00, and no admin has looked at it. It counts in the ledger now. Correct it, remove it, or mark it seen."
-              : "Approved automatically: under $200.00 as sent."}
-            {autoTotal !== null && ` The rule saw ${formatCents(autoTotal)}.`}
-          </p>
-        )}
-        {entry.status === "rejected" && (
-          <p className={styles.reasonText}>
-            Reason, as the cleaner sees it: <FieldText value={entry.statusReason} />
-          </p>
-        )}
-        {entry.status === "removed" && (
-          <p className={styles.statusNote}>
-            Removed: it stays in the record and in the review queue, marked, and does not count in totals or reports.
-            Approve it to count it again.
-          </p>
-        )}
-        {entry.status === "rejected" && (
-          <p className={styles.statusNote}>Rejected: it does not count in totals or reports.</p>
-        )}
-        {entry.status === "approved" && reviewable && (
-          <p className={styles.statusNote}>
-            Approved: it counts in its property’s ledger and reports. It can still be corrected or removed; every
-            change is recorded in the history below.
-          </p>
+      <div className={hasReceipt ? styles.detailGrid : undefined}>
+        {/* ── The receipt, in its own column, as large as the column allows (Kian, 2026-10-02) ── */}
+        {hasReceipt && (
+          <section className={styles.receiptColumn} aria-label="Receipt">
+            <ReceiptImage key={entry.id} entryId={entry.id} />
+          </section>
         )}
 
-        {reviewable ? (
-          <div className={styles.actions}>
-            {unseen && (
-              <button type="button" className={styles.btnApprove} disabled={busy} onClick={markSeen}>
-                <Eye size={15} aria-hidden />
-                <span>{saving === "seen" ? "Saving…" : "Seen"}</span>
-              </button>
-            )}
-            {entry.status !== "approved" && (
-              <button type="button" className={styles.btnApprove} disabled={busy} onClick={() => review("approved")}>
-                <Check size={15} aria-hidden />
-                <span>{saving === "approved" ? "Saving…" : "Approve"}</span>
-              </button>
-            )}
-            {entry.status !== "rejected" && (
-              <button
-                type="button"
-                className={styles.btnGhost}
-                disabled={busy || rejecting}
-                onClick={() => {
-                  clear();
-                  setRejecting(true);
-                }}
-              >
-                <Ban size={15} aria-hidden />
-                <span>Reject…</span>
-              </button>
-            )}
-            {entry.status !== "removed" && (
-              <button type="button" className={styles.btnGhost} disabled={busy} onClick={() => review("removed")}>
-                <CircleMinus size={15} aria-hidden />
-                <span>{saving === "removed" ? "Saving…" : "Remove…"}</span>
-              </button>
-            )}
-            <button type="button" className={`${styles.btnGhost} ${styles.btnDanger}`} disabled={busy} onClick={remove}>
-              <Trash2 size={15} aria-hidden />
-              <span>{saving === "delete" ? "Deleting…" : "Delete…"}</span>
-            </button>
-          </div>
-        ) : (
-          <p className={styles.noteWarn}>
-            This entry’s history cannot be read, so it cannot be reviewed here. Nothing about it has been changed.
-          </p>
-        )}
-
-        {rejecting && (
-          <form
-            className={styles.inlineForm}
-            onSubmit={(event) => {
-              event.preventDefault();
-              review("rejected");
-            }}
-          >
-            <label htmlFor="reject-reason" className={styles.fieldLabel}>
-              Why is it rejected? The cleaner sees this.
-            </label>
-            {leavesPdf !== "" && <p className={styles.noteWarn}>{leavesPdf.trim()}</p>}
-            <textarea
-              id="reject-reason"
-              className={styles.textInput}
-              rows={3}
-              maxLength={LIMITS.REASON_MAX}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              disabled={busy}
-              autoFocus
-            />
-            <div className={styles.formRow}>
-              <button type="submit" className={styles.btnReject} disabled={busy || reason.trim() === ""}>
-                {saving === "rejected" ? "Saving…" : "Reject entry"}
-              </button>
-              <button
-                type="button"
-                className={styles.btnGhost}
-                disabled={busy}
-                onClick={() => {
-                  setRejecting(false);
-                  setReason("");
-                }}
-              >
-                Cancel
-              </button>
+        <div className={styles.detailMain}>
+          {/* ── Review: the status once, then what can be done ── */}
+          <section className={styles.statusBlock} aria-label="Review">
+            <div className={styles.statusRow}>
+              <EntryStatusBadge status={entry.status} auto={entry.autoApproved !== null} />
+              <span className={styles.statusSince}>
+                since <SentAt iso={entry.statusChangedAt} />
+              </span>
+              {!hasReceipt && <span className={styles.statusSince}>· {noReceipt}</span>}
+              {!showHeading && <span className={styles.statusClose}>{closeButton}</span>}
             </div>
-          </form>
-        )}
-      </section>
-
-      {/* ── Its property, and the statement it went into (dispatch 23D) ── */}
-      <StatementLinks entry={entry} statements={statements} />
-
-      {/* ── The PDFs it went out in, when there are any ── */}
-      {pdf !== null && <PdfSection entry={entry} pdf={pdf} />}
-
-      {/* ── Receipt ── */}
-      <section className={styles.section}>
-        <h3 className={styles.sectionTitle}>Receipt</h3>
-        {entry.receipts !== null && entry.receipts.length > 0 ? (
-          <ReceiptImage key={entry.id} entryId={entry.id} />
-        ) : work ? (
-          <p className={styles.note}>No receipt: handyman work. The description and the price are what the handyman logged.</p>
-        ) : office ? (
-          <p className={styles.note}>No receipt: added by the office. The description and the amount are what the admin entered; it was approved on entry.</p>
-        ) : (
-          <Absent label="No receipt on record" />
-        )}
-      </section>
-
-      {/* ── Items, then tax, then total — or the work done, or the office's cost ── */}
-      <section className={styles.section}>
-        <h3 className={styles.sectionTitle}>{office ? "Cost" : work ? "Work done" : "Items bought"}</h3>
-        {now.kind === "unreadable" ? (
-          <div>
-            <p className={styles.noteWarn}>
-              {now.reason} This entry is not counted in any total or report, and its lines cannot be corrected here.
-            </p>
-            {entry.lines !== null && entry.lines.length > 0 && (
-              <ul className={styles.rawLines}>
-                {entry.lines.map((line, i) => (
-                  <li key={i}>
-                    {i + 1}. {lineText(line)}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        ) : (
-          <>
-            <div className={styles.linesScroll}>
-              <table className={styles.lines}>
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th>{oneLine ? "Description" : "Item"}</th>
-                    <th>Qty (reference)</th>
-                    <th className={styles.num}>{office ? "Amount" : work ? "Price" : "Line total as printed"}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {now.lines.map((line) => (
-                    <tr key={line.index} className={draft?.index === line.index ? styles.lineEditing : undefined}>
-                      <td className={styles.lineNumber}>{line.index + 1}</td>
-                      <td className={styles.lineName}>
-                        <FieldText value={line.name} />
-                        {line.origin === "added" && (
-                          <span className={`${styles.badge} ${styles.badgeAdded}`}>Added by admin</span>
-                        )}
-                        {line.earlier.map((version, i) => (
-                          <span key={i} className={styles.earlier}>
-                            <s>
-                              {version.name ?? "no name"} · {quantityText(version.quantity)} ·{" "}
-                              {formatCents(version.lineTotalCents)}
-                            </s>{" "}
-                            <span className={styles.earlierWhen}>
-                              {line.origin === "sent" && i === 0 ? "as sent" : "earlier"}, replaced{" "}
-                              <SentAt iso={version.replacedAt} />
-                            </span>
-                          </span>
-                        ))}
-                        {reviewable && (
-                          <button
-                            type="button"
-                            className={styles.lineAction}
-                            disabled={busy}
-                            onClick={() => correct(line)}
-                            aria-label={`Correct line ${line.index + 1}`}
-                          >
-                            Correct
-                          </button>
-                        )}
-                      </td>
-                      <td>{quantityText(line.quantity)}</td>
-                      <td className={styles.num}>{formatCents(line.lineTotalCents)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr>
-                    <td />
-                    <td colSpan={2}>Items</td>
-                    <td className={styles.num}>{formatCents(now.itemsCents)}</td>
-                  </tr>
-                  <tr className={styles.taxRow}>
-                    <td />
-                    <td colSpan={2}>
-                      Tax
-                      {now.taxShape === "in-lines" && (
-                        <span className={styles.note}> · sent before tax was its own field: any tax is a line among the items above</span>
-                      )}
-                      {now.taxShape === "field" && reviewable && taxDraft === null && (
-                        <button
-                          type="button"
-                          className={styles.lineAction}
-                          disabled={busy}
-                          onClick={() => {
-                            clear();
-                            setTaxDraft(now.taxCents === null ? "" : amountField(now.taxCents));
-                          }}
-                          aria-label="Correct the tax"
-                        >
-                          Correct
-                        </button>
-                      )}
-                    </td>
-                    <td className={styles.num}>
-                      {now.taxShape === "in-lines" ? "in items" : now.taxCents === null ? "none" : formatCents(now.taxCents)}
-                    </td>
-                  </tr>
-                  <tr className={styles.totalRow}>
-                    <td />
-                    <td colSpan={2}>Total</td>
-                    <td className={styles.num}>{formatCents(now.totalCents)}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-            {now.corrected && (
-              <p className={styles.note}>
-                {office ? "Entered" : "Sent"} by {who} as {formatCents(now.sentTotalCents)}; corrections are above.
+            {entry.autoApproved !== null && (
+              <p className={unseen ? styles.autoNote : styles.statusNote}>
+                Approved automatically: under $200.00{autoTotal !== null && `; the rule saw ${formatCents(autoTotal)}`}.
+                {unseen && " No admin has looked at it yet."}
               </p>
             )}
-            <p className={styles.note}>
-              {office
-                ? "The description and the amount are as the office entered them, corrections applied. Tax is recorded apart when there is any. The total is the amount plus the tax."
-                : work
-                  ? "The description and the price are as the handyman logged them, corrections applied. Tax can be recorded if an invoice carries it. The total is the price plus the tax."
-                  : "Each amount is what the receipt prints for that line, for all of that item together. Quantities are for reference and are never multiplied. The total is the items plus the tax."}
-            </p>
-
-            {taxDraft !== null && (
-              <form className={styles.inlineForm} onSubmit={saveTax} aria-label="Tax editor">
-                <p className={styles.editorTitle}>Correct the tax</p>
-                <label className={styles.editorField}>
-                  <span className={styles.fieldLabel}>Tax as printed ($)</span>
-                  <input
-                    className={styles.textInput}
-                    inputMode="decimal"
-                    placeholder="12.71, or empty for none"
-                    value={taxDraft}
-                    onChange={(e) => setTaxDraft(e.target.value)}
-                    disabled={busy}
-                    autoFocus
-                  />
-                </label>
-                <div className={styles.formRow}>
-                  <button type="submit" className={styles.btnApprove} disabled={busy}>
-                    {saving === "tax" ? "Saving…" : "Save tax"}
-                  </button>
-                  <button type="button" className={styles.btnGhost} disabled={busy} onClick={() => setTaxDraft(null)}>
-                    Cancel
-                  </button>
-                </div>
-              </form>
+            {entry.status === "rejected" && (
+              <p className={styles.reasonText}>
+                Reason, as the cleaner sees it: <FieldText value={entry.statusReason} />
+              </p>
             )}
 
-            {draft ? (
-              <form className={styles.inlineForm} onSubmit={saveLine} aria-label="Line editor">
-                <p className={styles.editorTitle}>
-                  {draft.index === null ? "Add a line" : `Correct line ${draft.index + 1}`}
-                </p>
-                <div className={styles.editorGrid}>
-                  <label className={styles.editorField}>
-                    <span className={styles.fieldLabel}>{oneLine ? "Description" : "Item"}</span>
-                    <input
-                      className={styles.textInput}
-                      value={draft.name}
-                      maxLength={work ? LIMITS.WORK_DESCRIPTION_MAX : office ? LIMITS.OFFICE_DESCRIPTION_MAX : LIMITS.LINE_NAME_MAX}
-                      onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                      disabled={busy}
-                      autoFocus
-                    />
-                  </label>
-                  <label className={styles.editorField}>
-                    <span className={styles.fieldLabel}>Qty (reference only)</span>
-                    <input
-                      className={styles.textInput}
-                      inputMode="decimal"
-                      value={draft.quantity}
-                      onChange={(e) => setDraft({ ...draft, quantity: e.target.value })}
-                      disabled={busy}
-                    />
-                  </label>
-                  <label className={styles.editorField}>
-                    <span className={styles.fieldLabel}>{office ? "Amount ($)" : work ? "Price ($)" : "Line total as printed ($)"}</span>
-                    <input
-                      className={styles.textInput}
-                      inputMode="decimal"
-                      placeholder="7.98, or -5.00 for money back"
-                      value={draft.amount}
-                      onChange={(e) => setDraft({ ...draft, amount: e.target.value })}
-                      disabled={busy}
-                    />
-                  </label>
-                </div>
-                <p className={styles.note}>
-                  The amount the receipt prints for this line — for all of it together, not for one.
-                </p>
-                <div className={styles.formRow}>
-                  <button type="submit" className={styles.btnApprove} disabled={busy}>
-                    {saving === "line" ? "Saving…" : draft.index === null ? "Add line" : "Save correction"}
+            {reviewable ? (
+              <div className={styles.actions}>
+                {unseen && (
+                  <button type="button" className={styles.btnApprove} disabled={busy} onClick={markSeen}>
+                    <Eye size={15} aria-hidden />
+                    <span>{saving === "seen" ? "Saving…" : "Seen"}</span>
                   </button>
-                  <button type="button" className={styles.btnGhost} disabled={busy} onClick={() => setDraft(null)}>
-                    Cancel
+                )}
+                {entry.status !== "approved" && (
+                  <button type="button" className={styles.btnApprove} disabled={busy} onClick={() => review("approved")}>
+                    <Check size={15} aria-hidden />
+                    <span>{saving === "approved" ? "Saving…" : "Approve"}</span>
                   </button>
-                </div>
-              </form>
-            ) : (
-              reviewable &&
-              !oneLine && (
-                <button type="button" className={styles.btnGhost} disabled={busy} onClick={add}>
-                  <Plus size={15} aria-hidden />
-                  <span>Add a line</span>
+                )}
+                {entry.status !== "rejected" && (
+                  <button
+                    type="button"
+                    className={styles.btnGhost}
+                    disabled={busy || rejecting}
+                    onClick={() => {
+                      clear();
+                      setRejecting(true);
+                    }}
+                  >
+                    <Ban size={15} aria-hidden />
+                    <span>Reject…</span>
+                  </button>
+                )}
+                {entry.status !== "removed" && (
+                  <button type="button" className={styles.btnGhost} disabled={busy} onClick={() => review("removed")}>
+                    <CircleMinus size={15} aria-hidden />
+                    <span>{saving === "removed" ? "Saving…" : "Remove…"}</span>
+                  </button>
+                )}
+                <button type="button" className={`${styles.btnGhost} ${styles.btnDanger}`} disabled={busy} onClick={remove}>
+                  <Trash2 size={15} aria-hidden />
+                  <span>{saving === "delete" ? "Deleting…" : "Delete…"}</span>
                 </button>
-              )
+              </div>
+            ) : (
+              <p className={styles.noteWarn}>
+                This entry’s history cannot be read, so it cannot be reviewed here. Nothing about it has been changed.
+              </p>
             )}
-          </>
-        )}
-      </section>
 
-      {/* ── The cleaner's last 90 days (dispatch 24) ── */}
-      {!oneLine && (
-        <section className={styles.section} aria-label="This cleaner's last 90 days">
-          <h3 className={styles.sectionTitle}>{cleanerLabel(entry)}, last 90 days</h3>
-          {pattern === null ? (
-            <p className={styles.note}>No receipts in the last 90 days.</p>
-          ) : (
-            <>
-              <p className={pattern.worthALook ? styles.noteWarn : styles.note}>{distributionText(pattern)}</p>
-              {pattern.splits.length > 0 && (
-                <ul className={styles.watchSplits}>
-                  {pattern.splits.map((split) => (
-                    <li key={`${split.day}-${split.propertyId ?? ""}`}>Same-day split: {splitText(split)}</li>
-                  ))}
-                </ul>
-              )}
-              {pattern.worthALook && <p className={styles.noteWarn}>Worth a look: {pattern.reasons.join("; ")}.</p>}
-            </>
-          )}
-        </section>
-      )}
-
-      {/* ── From the cleaner, when there is anything ── */}
-      {(entry.note !== null || entry.purchasedOn !== null) && (
-        <section className={styles.section}>
-          <h3 className={styles.sectionTitle}>From the cleaner</h3>
-          {entry.purchasedOn !== null && <p className={styles.fieldValue}>Bought on {entry.purchasedOn}</p>}
-          {entry.note !== null && <p className={styles.message}>{entry.note}</p>}
-        </section>
-      )}
-
-      {/* ── History ── */}
-      <section className={styles.section}>
-        <h3 className={styles.sectionTitle}>History</h3>
-        {entry.history === null ? (
-          <Absent label="No history on record" />
-        ) : (
-          <ol className={styles.history}>
-            {timeline(entry.history, pdf).map((item, i) =>
-              item.kind === "event" ? (
-                <li key={i}>
-                  <span className={styles.historyWhen}>
-                    <SentAt iso={item.event.at} />
-                  </span>
-                  <span className={styles.historyWhat}>{describe(item.event)}</span>
-                </li>
-              ) : (
-                /* Not an event of the entry's own: a PDF, set where it was made, so what came after it is plain. */
-                <li key={i} className={styles.historyPdf}>
-                  <span className={styles.historyWhen}>
-                    <SentAt iso={item.appearance.record.createdAt} seconds />
-                  </span>
-                  <span className={styles.historyWhat}>
-                    <span className={`${styles.badge} ${styles.badgePdfTag}`}>PDF</span> Went out in a PDF for{" "}
-                    {periodText(item.appearance.record)}, shown at {formatCents(item.appearance.printed.totalCents)}
-                  </span>
-                </li>
-              ),
+            {rejecting && (
+              <form
+                className={styles.inlineForm}
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  review("rejected");
+                }}
+              >
+                <label htmlFor="reject-reason" className={styles.fieldLabel}>
+                  Why is it rejected? The cleaner sees this.
+                </label>
+                {leavesPdf !== "" && <p className={styles.noteWarn}>{leavesPdf.trim()}</p>}
+                <textarea
+                  id="reject-reason"
+                  className={styles.textInput}
+                  rows={3}
+                  maxLength={LIMITS.REASON_MAX}
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  disabled={busy}
+                  autoFocus
+                />
+                <div className={styles.formRow}>
+                  <button type="submit" className={styles.btnReject} disabled={busy || reason.trim() === ""}>
+                    {saving === "rejected" ? "Saving…" : "Reject entry"}
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.btnGhost}
+                    disabled={busy}
+                    onClick={() => {
+                      setRejecting(false);
+                      setReason("");
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
             )}
-          </ol>
-        )}
-      </section>
+          </section>
 
-      <p className={styles.docId}>
-        Entry <span className={styles.mono}>{entry.id}</span>
-      </p>
+          {/* ── Items, then tax, then total — or the work done, or the office's cost ── */}
+          <section className={styles.section}>
+            <h3 className={styles.sectionTitle}>{office ? "Cost" : work ? "Work done" : "Items bought"}</h3>
+            {now.kind === "unreadable" ? (
+              <div>
+                <p className={styles.noteWarn}>
+                  {now.reason} This entry is not counted in any total or report, and its lines cannot be corrected here.
+                </p>
+                {entry.lines !== null && entry.lines.length > 0 && (
+                  <ul className={styles.rawLines}>
+                    {entry.lines.map((line, i) => (
+                      <li key={i}>
+                        {i + 1}. {lineText(line)}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ) : (
+              <>
+                <div className={styles.linesScroll}>
+                  <table className={styles.lines}>
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>{oneLine ? "Description" : "Item"}</th>
+                        <th>Qty (reference)</th>
+                        <th
+                          className={styles.num}
+                          title={
+                            office
+                              ? "As the office entered it, corrections applied. The total is the amount plus any tax."
+                              : work
+                                ? "As the handyman logged it, corrections applied. The total is the price plus any tax."
+                                : "What the receipt prints for the line, for all of that item together; quantities are never multiplied. The total is the items plus the tax."
+                          }
+                        >
+                          {office ? "Amount" : work ? "Price" : "Line total as printed"}
+                        </th>
+                        {reviewable && <th className={styles.lineActionCell} aria-label="Correct" />}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {now.lines.map((line) => (
+                        <tr key={line.index} className={draft?.index === line.index ? styles.lineEditing : undefined}>
+                          <td className={styles.lineNumber}>{line.index + 1}</td>
+                          <td className={styles.lineName}>
+                            <FieldText value={line.name} />
+                            {line.origin === "added" && (
+                              <span className={`${styles.badge} ${styles.badgeAdded}`}>Added by admin</span>
+                            )}
+                            {line.earlier.map((version, i) => (
+                              <span key={i} className={styles.earlier}>
+                                <s>
+                                  {version.name ?? "no name"} · {quantityText(version.quantity)} ·{" "}
+                                  {formatCents(version.lineTotalCents)}
+                                </s>{" "}
+                                <span className={styles.earlierWhen}>
+                                  {line.origin === "sent" && i === 0 ? "as sent" : "earlier"}, replaced{" "}
+                                  <SentAt iso={version.replacedAt} />
+                                </span>
+                              </span>
+                            ))}
+                          </td>
+                          <td>{quantityText(line.quantity)}</td>
+                          <td className={styles.num}>{formatCents(line.lineTotalCents)}</td>
+                          {reviewable && (
+                            <td className={styles.lineActionCell}>
+                              <button
+                                type="button"
+                                className={styles.lineAction}
+                                disabled={busy}
+                                onClick={() => correct(line)}
+                                aria-label={`Correct line ${line.index + 1}`}
+                              >
+                                Correct
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr>
+                        <td />
+                        <td colSpan={2}>Items</td>
+                        <td className={styles.num}>{formatCents(now.itemsCents)}</td>
+                        {reviewable && <td />}
+                      </tr>
+                      <tr className={styles.taxRow}>
+                        <td />
+                        <td colSpan={2}>
+                          Tax
+                          {now.taxShape === "in-lines" && (
+                            <span className={styles.note}> · sent before tax was its own field: any tax is a line among the items above</span>
+                          )}
+                        </td>
+                        <td className={styles.num}>
+                          {now.taxShape === "in-lines" ? "in items" : now.taxCents === null ? "none" : formatCents(now.taxCents)}
+                        </td>
+                        {reviewable && (
+                          <td className={styles.lineActionCell}>
+                            {now.taxShape === "field" && taxDraft === null && (
+                              <button
+                                type="button"
+                                className={styles.lineAction}
+                                disabled={busy}
+                                onClick={() => {
+                                  clear();
+                                  setTaxDraft(now.taxCents === null ? "" : amountField(now.taxCents));
+                                }}
+                                aria-label="Correct the tax"
+                              >
+                                Correct
+                              </button>
+                            )}
+                          </td>
+                        )}
+                      </tr>
+                      <tr className={styles.totalRow}>
+                        <td />
+                        <td colSpan={2}>Total</td>
+                        <td className={styles.num}>{formatCents(now.totalCents)}</td>
+                        {reviewable && <td />}
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+                {now.corrected && (
+                  <p className={styles.note}>
+                    {office ? "Entered" : "Sent"} by {who} as {formatCents(now.sentTotalCents)}; corrections are above.
+                  </p>
+                )}
+
+                {taxDraft !== null && (
+                  <form className={styles.inlineForm} onSubmit={saveTax} aria-label="Tax editor">
+                    <p className={styles.editorTitle}>Correct the tax</p>
+                    <label className={styles.editorField}>
+                      <span className={styles.fieldLabel}>Tax as printed ($)</span>
+                      <input
+                        className={styles.textInput}
+                        inputMode="decimal"
+                        placeholder="12.71, or empty for none"
+                        value={taxDraft}
+                        onChange={(e) => setTaxDraft(e.target.value)}
+                        disabled={busy}
+                        autoFocus
+                      />
+                    </label>
+                    <div className={styles.formRow}>
+                      <button type="submit" className={styles.btnApprove} disabled={busy}>
+                        {saving === "tax" ? "Saving…" : "Save tax"}
+                      </button>
+                      <button type="button" className={styles.btnGhost} disabled={busy} onClick={() => setTaxDraft(null)}>
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {draft ? (
+                  <form className={styles.inlineForm} onSubmit={saveLine} aria-label="Line editor">
+                    <p className={styles.editorTitle}>
+                      {draft.index === null ? "Add a line" : `Correct line ${draft.index + 1}`}
+                    </p>
+                    <div className={styles.editorGrid}>
+                      <label className={styles.editorField}>
+                        <span className={styles.fieldLabel}>{oneLine ? "Description" : "Item"}</span>
+                        <input
+                          className={styles.textInput}
+                          value={draft.name}
+                          maxLength={work ? LIMITS.WORK_DESCRIPTION_MAX : office ? LIMITS.OFFICE_DESCRIPTION_MAX : LIMITS.LINE_NAME_MAX}
+                          onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                          disabled={busy}
+                          autoFocus
+                        />
+                      </label>
+                      <label className={styles.editorField}>
+                        <span className={styles.fieldLabel}>Qty (reference only)</span>
+                        <input
+                          className={styles.textInput}
+                          inputMode="decimal"
+                          value={draft.quantity}
+                          onChange={(e) => setDraft({ ...draft, quantity: e.target.value })}
+                          disabled={busy}
+                        />
+                      </label>
+                      <label className={styles.editorField}>
+                        <span className={styles.fieldLabel}>{office ? "Amount ($)" : work ? "Price ($)" : "Line total as printed ($)"}</span>
+                        <input
+                          className={styles.textInput}
+                          inputMode="decimal"
+                          placeholder="7.98, or -5.00 for money back"
+                          value={draft.amount}
+                          onChange={(e) => setDraft({ ...draft, amount: e.target.value })}
+                          disabled={busy}
+                        />
+                      </label>
+                    </div>
+                    <p className={styles.note}>
+                      The amount the receipt prints for this line — for all of it together, not for one.
+                    </p>
+                    <div className={styles.formRow}>
+                      <button type="submit" className={styles.btnApprove} disabled={busy}>
+                        {saving === "line" ? "Saving…" : draft.index === null ? "Add line" : "Save correction"}
+                      </button>
+                      <button type="button" className={styles.btnGhost} disabled={busy} onClick={() => setDraft(null)}>
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  reviewable &&
+                  !oneLine && (
+                    <button type="button" className={styles.btnGhost} disabled={busy} onClick={add}>
+                      <Plus size={15} aria-hidden />
+                      <span>Add a line</span>
+                    </button>
+                  )
+                )}
+              </>
+            )}
+          </section>
+
+          {/* ── Its property and statement, the PDFs it went out in, and what else is known: side by side ── */}
+          <div className={styles.factsGrid}>
+            <StatementLinks entry={entry} statements={statements} />
+            {pdf !== null && <PdfSection entry={entry} pdf={pdf} />}
+            {/* ── From the cleaner, when there is anything ── */}
+            {(entry.note !== null || entry.purchasedOn !== null) && (
+              <section className={styles.section}>
+                <h3 className={styles.sectionTitle}>From the cleaner</h3>
+                {entry.purchasedOn !== null && <p className={styles.fieldValue}>Bought on {entry.purchasedOn}</p>}
+                {entry.note !== null && <p className={styles.message}>{entry.note}</p>}
+              </section>
+            )}
+
+            {/* ── The cleaner's last 90 days (dispatch 24) ── */}
+            {!oneLine && (
+              <section className={styles.section} aria-label="This cleaner's last 90 days">
+                <h3 className={styles.sectionTitle}>{cleanerLabel(entry)}, last 90 days</h3>
+                {pattern === null ? (
+                  <p className={styles.note}>No receipts in the last 90 days.</p>
+                ) : (
+                  <>
+                    <p className={pattern.worthALook ? styles.noteWarn : styles.note}>{distributionText(pattern)}</p>
+                    {pattern.splits.length > 0 && (
+                      <ul className={styles.watchSplits}>
+                        {pattern.splits.map((split) => (
+                          <li key={`${split.day}-${split.propertyId ?? ""}`}>Same-day split: {splitText(split)}</li>
+                        ))}
+                      </ul>
+                    )}
+                    {pattern.worthALook && <p className={styles.noteWarn}>Worth a look: {pattern.reasons.join("; ")}.</p>}
+                  </>
+                )}
+              </section>
+            )}
+          </div>
+
+          {/* ── History ── */}
+          <section className={styles.section}>
+            <h3 className={styles.sectionTitle}>History</h3>
+            {entry.history === null ? (
+              <Absent label="No history on record" />
+            ) : (
+              <ol className={styles.history}>
+                {timeline(entry.history, pdf).map((item, i) =>
+                  item.kind === "event" ? (
+                    <li key={i}>
+                      <span className={styles.historyWhen}>
+                        <SentAt iso={item.event.at} />
+                      </span>
+                      <span className={styles.historyWhat}>{describe(item.event)}</span>
+                    </li>
+                  ) : (
+                    /* Not an event of the entry's own: a PDF, set where it was made, so what came after it is plain. */
+                    <li key={i} className={styles.historyPdf}>
+                      <span className={styles.historyWhen}>
+                        <SentAt iso={item.appearance.record.createdAt} seconds />
+                      </span>
+                      <span className={styles.historyWhat}>
+                        <span className={`${styles.badge} ${styles.badgePdfTag}`}>PDF</span> Went out in a PDF for{" "}
+                        {periodText(item.appearance.record)}, shown at {formatCents(item.appearance.printed.totalCents)}
+                      </span>
+                    </li>
+                  ),
+                )}
+              </ol>
+            )}
+          </section>
+
+          <p className={styles.docId}>
+            Entry <span className={styles.mono}>{entry.id}</span>
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

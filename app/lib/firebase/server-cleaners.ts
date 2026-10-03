@@ -10,11 +10,14 @@
  * By Kian's ruling of 2026-09-28, an admin can read a cleaner's code at any
  * time and change it. A code is stored as itself: it is the ID of its
  * `cleaner_codes` document, and the cleaner's `code` field points at it.
- * `create()` of that document is what keeps codes unique — of two writes of
- * the same code, exactly one lands — and code documents are never deleted,
- * so a code that has been replaced stays reserved and is never given to
- * anyone else. Sign-in needs both: the code's document, not retired, and a
- * cleaner who still points at that code.
+ * The transaction that writes that document is what keeps codes unique — of
+ * two writes of the same code, exactly one lands. A code document is kept
+ * when its code is replaced or its account deleted (`retiredAt`), and by
+ * Kian's ruling of 2026-10-02 a code is free to reuse whenever no active
+ * account holds it: a replaced code, a deleted account's, or a deactivated
+ * account's (whose holder is then left with no code). Only a code an active
+ * account holds now is refused (codeAvailability). Sign-in needs both: the
+ * code's document, not retired, and a cleaner who still points at that code.
  *
  * ── What never leaves ──
  * `sessionEpoch` never reaches a response, nor does a version 1 cleaner's
@@ -27,9 +30,11 @@
  * ── Writes ──
  * New documents are written with `create()`, which fails if the document
  * already exists; a status or code change is a transactional `update()`.
- * Nothing here overwrites or removes a document. History is appended by
- * reading the array and writing it back inside the transaction — never with
- * arrayUnion, which drops an event identical to one already there.
+ * Nothing here overwrites a document, and the one delete is deleteCleaner
+ * (Kian's ruling of 2026-10-02): the account's document goes, its code
+ * documents stay and are retired. History is appended by reading the array
+ * and writing it back inside the transaction — never with arrayUnion, which
+ * drops an event identical to one already there.
  *
  * ── Roles (dispatch 24) ──
  * A handyman is a document here with `role: 'handyman'`, issued and managed
@@ -60,6 +65,7 @@ import {
   type CleanerStatus,
   type CleanerSummary,
   type HistoryEvent,
+  type Refusal,
 } from '@/app/lib/cleaners/model';
 
 /** gRPC status code Firestore reports when `create()` targets a document that exists. */
@@ -92,6 +98,65 @@ function isAlreadyExists(err: unknown): boolean {
 
 function isSessionEpoch(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1;
+}
+
+/** A deactivated account whose code was given to someone else: it holds no code now. */
+export interface Released {
+  id: string;
+  name: string | null;
+}
+
+/**
+ * Whether `code` can be given to `forId` now (Kian's ruling of 2026-10-02:
+ * a code is free whenever no active account holds it), from reads inside
+ * the caller's transaction. `taken` names the active holder; `free` says
+ * whether the document exists (then it is overwritten, not created) and
+ * which deactivated account, if any, still points at it and must let go.
+ */
+async function codeAvailability(
+  tx: FirebaseFirestore.Transaction,
+  db: ReturnType<typeof getAdminDb>,
+  code: string,
+  forId: string,
+): Promise<{ kind: 'taken'; holder: string | null } | { kind: 'free'; exists: boolean; holder: { ref: FirebaseFirestore.DocumentReference; fields: Record<string, unknown> } | null }> {
+  const issued = await tx.get(db.collection(CLEANER_CODES_COLLECTION).doc(code));
+  if (!issued.exists) return { kind: 'free', exists: false, holder: null };
+  if (issued.get('retiredAt') != null) return { kind: 'free', exists: true, holder: null };
+  const holderId: unknown = issued.get('cleanerId');
+  if (typeof holderId !== 'string' || !isDocumentId(holderId) || holderId === forId) return { kind: 'free', exists: true, holder: null };
+  const holderRef = db.collection(CLEANERS_COLLECTION).doc(holderId);
+  const holder = await tx.get(holderRef);
+  // Gone, or moved on to another code: nobody holds this one.
+  if (!holder.exists || holder.get('code') !== code) return { kind: 'free', exists: true, holder: null };
+  const name: unknown = holder.get('name');
+  if (holder.get('status') === 'active') return { kind: 'taken', holder: typeof name === 'string' ? name : null };
+  return { kind: 'free', exists: true, holder: { ref: holderRef, fields: holder.data() ?? {} } };
+}
+
+/**
+ * Give `code` to `toId` inside the caller's transaction, once codeAvailability
+ * said it is free: the code's document written (created, or overwritten when
+ * it exists), and a deactivated holder left with no code and a
+ * `code_released` event in their history. Returns who let go, for the notice.
+ */
+function takeCode(
+  tx: FirebaseFirestore.Transaction,
+  db: ReturnType<typeof getAdminDb>,
+  code: string,
+  toId: string,
+  now: string,
+  free: { exists: boolean; holder: { ref: FirebaseFirestore.DocumentReference; fields: Record<string, unknown> } | null },
+): Released | null {
+  const codeRef = db.collection(CLEANER_CODES_COLLECTION).doc(code);
+  if (free.exists) tx.set(codeRef, codeRecord(toId, now));
+  else tx.create(codeRef, codeRecord(toId, now));
+  if (!free.holder) return null;
+  const { ref, fields } = free.holder;
+  const history = Array.isArray(fields.history) ? fields.history : [];
+  const event: HistoryEvent = { at: now, action: 'code_released', from: code, to: null, actor: ADMIN_ACTOR, reason: 'Given to another team member' };
+  tx.update(ref, { code: null, history: [...history, event] });
+  const name: unknown = fields.name;
+  return { id: ref.id, name: typeof name === 'string' ? name : null };
 }
 
 /** A new `cleaner_codes` document. Its ID is the code. */
@@ -140,7 +205,7 @@ export async function listCleaners(): Promise<CleanerSummary[]> {
 
 export type IssueCleanerResult =
   /** Written. The cleaner's code is on `cleaner.code`. */
-  | { kind: 'created'; cleaner: CleanerSummary }
+  | { kind: 'created'; cleaner: CleanerSummary; released: Released | null }
   /** No admin PIN to keep codes clear of. Nothing was read or written. */
   | { kind: 'admin-pin-missing' }
   /** The database could not be reached. Nothing was written. */
@@ -149,8 +214,8 @@ export type IssueCleanerResult =
   | { kind: 'not-a-code' }
   /** The typed code is the admin PIN, or on the reserved list. Nothing was read or written. */
   | { kind: 'reserved'; reason: ReservedReason }
-  /** The typed code is issued already: someone's now, or anyone's before. Nothing was written. */
-  | { kind: 'taken'; retired: boolean }
+  /** The typed code is an active account's now (`holder` is their name). Nothing was written. */
+  | { kind: 'taken'; holder: string | null }
   /** Every candidate was reserved or already issued. Nothing was written. */
   | { kind: 'exhausted' }
   /** The write failed in a way that does not say whether it landed. Never retried. */
@@ -253,35 +318,39 @@ export async function issueCleaner(
       return { kind: 'unconfirmed' };
     }
 
-    return { kind: 'created', cleaner: readCleanerSummary(cleanerRef.id, cleaner) };
+    return { kind: 'created', cleaner: readCleanerSummary(cleanerRef.id, cleaner), released: null };
   }
 
   console.error(`[cleaners] no code issued: all ${MAX_CANDIDATES} candidates were reserved or taken`);
   return { kind: 'exhausted' };
 }
 
-/** Create a cleaner holding the code the admin typed, already checked against the PIN and the reserved list. */
+/**
+ * Create a cleaner holding the code the admin typed, already checked against
+ * the PIN and the reserved list. The code is refused only while an active
+ * account holds it (Kian's ruling of 2026-10-02); a replaced code, a deleted
+ * account's or a deactivated account's is taken over.
+ */
 async function issueTyped(
   db: ReturnType<typeof getAdminDb>,
   name: string,
   role: CleanerRole,
   code: string,
 ): Promise<IssueCleanerResult> {
-  const codeRef = db.collection(CLEANER_CODES_COLLECTION).doc(code);
   const cleanerRef = db.collection(CLEANERS_COLLECTION).doc();
   try {
     return await db.runTransaction(async (tx): Promise<IssueCleanerResult> => {
-      const issued = await tx.get(codeRef);
-      if (issued.exists) return { kind: 'taken', retired: issued.get('retiredAt') != null };
+      const available = await codeAvailability(tx, db, code, cleanerRef.id);
+      if (available.kind === 'taken') return available;
       const now = new Date().toISOString();
       const cleaner = newCleaner(name, role, code, now);
-      tx.create(codeRef, codeRecord(cleanerRef.id, now));
+      const released = takeCode(tx, db, code, cleanerRef.id, now, available);
       tx.create(cleanerRef, cleaner);
-      return { kind: 'created', cleaner: readCleanerSummary(cleanerRef.id, cleaner) };
+      return { kind: 'created', cleaner: readCleanerSummary(cleanerRef.id, cleaner), released };
     });
   } catch (err) {
     // The code's document appeared between the read and the commit: nothing was written.
-    if (isAlreadyExists(err)) return { kind: 'taken', retired: false };
+    if (isAlreadyExists(err)) return { kind: 'taken', holder: null };
     console.error(`[cleaners] create not confirmed: grpc code ${grpcCode(err)}`);
     return { kind: 'unconfirmed' };
   }
@@ -361,8 +430,8 @@ export async function setCleanerStatus(
 export type NewCode = { kind: 'typed'; code: string } | { kind: 'generate' };
 
 export type SetCleanerCodeResult =
-  /** `changed` is false when the typed code already was theirs: nothing was written. */
-  | { kind: 'done'; cleaner: CleanerSummary; changed: boolean }
+  /** `changed` is false when the typed code already was theirs: nothing was written. `released`: a deactivated account that held the code and let it go. */
+  | { kind: 'done'; cleaner: CleanerSummary; changed: boolean; released: Released | null }
   /** No cleaner has this ID. */
   | { kind: 'not-found' }
   /** The typed code is not four digits. Nothing was read or written. */
@@ -371,8 +440,8 @@ export type SetCleanerCodeResult =
   | { kind: 'admin-pin-missing' }
   /** The typed code is the admin PIN, or on the reserved list. Nothing was read or written. */
   | { kind: 'reserved'; reason: ReservedReason }
-  /** The typed code is issued already: another cleaner's now, or anyone's before. Nothing was written. */
-  | { kind: 'taken'; retired: boolean }
+  /** The typed code is an active account's now (`holder` is their name). Nothing was written. */
+  | { kind: 'taken'; holder: string | null }
   /** Every candidate drawn was reserved or taken. Nothing was written. */
   | { kind: 'exhausted' }
   /** The stored session epoch or history is not in a shape that can be advanced. Nothing was written. */
@@ -384,12 +453,12 @@ export type SetCleanerCodeResult =
  * Give a cleaner a new code, typed by the admin or drawn here.
  *
  * Refused before anything is read: a code that is the admin PIN or on the
- * reserved list. Refused by the transaction: a code already issued, whether
- * it is another cleaner's now or was anyone's before — replaced codes are
- * never given out again.
+ * reserved list. Refused by the transaction: a code an active account holds
+ * now (Kian's ruling of 2026-10-02: any other code is free — replaced, a
+ * deleted account's, or a deactivated account's, who then has none).
  *
- * One transaction, all or nothing: it creates the new code's document,
- * marks the old one retired (never deleting it, so it stays reserved), and
+ * One transaction, all or nothing: it writes the new code's document,
+ * marks the old one retired (kept, so the record says whose it was), and
  * points the cleaner at the new code. The cleaner keeps their ID, name,
  * status and history, and every entry keeps its attribution: entries name
  * the cleaner, never the code.
@@ -454,17 +523,16 @@ async function writeCode(
         // Typed: the admin asked for the code the cleaner already has.
         // Drawn: a new code was wanted, so this candidate counts as taken.
         return source === 'typed'
-          ? { kind: 'done', cleaner: readCleanerSummary(id, stored), changed: false }
-          : { kind: 'taken', retired: false };
+          ? { kind: 'done', cleaner: readCleanerSummary(id, stored), changed: false, released: null }
+          : { kind: 'taken', holder: null };
       }
 
       const epoch: unknown = stored.sessionEpoch;
       const history: unknown = stored.history;
       if (!isSessionEpoch(epoch) || !Array.isArray(history)) return { kind: 'unreadable' };
 
-      const newRef = codes.doc(code);
-      const issued = await tx.get(newRef);
-      if (issued.exists) return { kind: 'taken', retired: issued.get('retiredAt') != null };
+      const available = await codeAvailability(tx, db, code, id);
+      if (available.kind === 'taken') return available;
 
       // The document of the code being replaced: the current code's, or on a
       // version 1 cleaner the digest document their code was stored as.
@@ -492,18 +560,88 @@ async function writeCode(
         history: [...history, event],
       };
 
-      tx.create(newRef, codeRecord(id, now));
-      // Retired, never deleted: the old code stays reserved for ever.
+      const released = takeCode(tx, db, code, id, now, available);
+      // Retired, kept: the record says whose it was; it is free to reuse from now on.
       if (oldRef && old?.exists && old.get('cleanerId') === id && old.get('retiredAt') === null) {
         tx.update(oldRef, { retiredAt: now });
       }
       tx.update(cleanerRef, changes);
-      return { kind: 'done', cleaner: readCleanerSummary(id, { ...stored, ...changes }), changed: true };
+      return { kind: 'done', cleaner: readCleanerSummary(id, { ...stored, ...changes }), changed: true, released };
     });
   } catch (err) {
     // The new code's document appeared between the read and the commit.
-    if (isAlreadyExists(err)) return { kind: 'taken', retired: false };
+    if (isAlreadyExists(err)) return { kind: 'taken', holder: null };
     console.error(`[cleaners] code change failed: grpc code ${grpcCode(err)}`);
+    return { kind: 'failed' };
+  }
+}
+
+// ─── Delete ────────────────────────────────────────────────────
+
+export type DeleteCleanerResult =
+  /** The account is gone; `codes` is how many of its code documents were retired (current and replaced). */
+  | { kind: 'deleted'; cleaner: CleanerSummary; codes: number }
+  /** No cleaner has this ID. */
+  | { kind: 'not-found' }
+  /** The transaction failed: it may or may not have landed. */
+  | { kind: 'failed' };
+
+export const DELETE_CLEANER_REFUSALS: Record<Exclude<DeleteCleanerResult['kind'], 'deleted'>, Refusal> = {
+  'not-found': {
+    status: 404,
+    code: 'CLEANER_NOT_FOUND',
+    message: 'Team member not found',
+    hint: 'They may already have been deleted. Reload the list.',
+  },
+  failed: {
+    status: 502,
+    code: 'CLEANER_DELETE_FAILED',
+    message: 'Could not delete the team member.',
+    hint: 'They may or may not have been deleted. Reload the list to see.',
+  },
+};
+
+/**
+ * Delete a cleaner or a handyman for good (Kian's ruling of 2026-10-02): one
+ * transaction deletes the account's document and retires every `cleaner_codes`
+ * document pointing at it — the current code and any replaced before — so
+ * the record says whose they were; each is free to give out again (Kian's
+ * ruling of 2026-10-02: a code is free whenever no active account holds it).
+ * A session the person still holds names a document that no longer exists,
+ * so it ends on its next request (readSessionCleaner).
+ *
+ * Their cost entries are not touched: each keeps `cleanerId` and the name
+ * it was logged under, and stays in its ledger, its statements and the
+ * review queue. The readings and one-time-key records beside those entries
+ * belong to the entries and stay with them.
+ *
+ * Returns the account as it was, for the page's notice. The code documents
+ * are counted, never listed: a code never leaves this module but through the
+ * list and the create.
+ */
+export async function deleteCleaner(id: string): Promise<DeleteCleanerResult> {
+  if (!isDocumentId(id)) return { kind: 'not-found' };
+
+  try {
+    const db = getAdminDb();
+    const ref = db.collection(CLEANERS_COLLECTION).doc(id);
+    const codes = db.collection(CLEANER_CODES_COLLECTION).where('cleanerId', '==', id);
+
+    return await db.runTransaction(async (tx): Promise<DeleteCleanerResult> => {
+      const [snap, theirs] = await Promise.all([tx.get(ref), tx.get(codes)]);
+      if (!snap.exists) return { kind: 'not-found' };
+      const stored = snap.data() ?? {};
+      const now = new Date().toISOString();
+      // Only a code document that is theirs is touched, and only its retirement is written.
+      const mine = theirs.docs.filter((doc) => doc.get('cleanerId') === id);
+      for (const doc of mine) {
+        if (doc.get('retiredAt') == null) tx.update(doc.ref, { retiredAt: now });
+      }
+      tx.delete(ref);
+      return { kind: 'deleted', cleaner: readCleanerSummary(id, stored), codes: mine.length };
+    });
+  } catch (err) {
+    console.error(`[cleaners] delete failed: grpc code ${grpcCode(err)}`);
     return { kind: 'failed' };
   }
 }

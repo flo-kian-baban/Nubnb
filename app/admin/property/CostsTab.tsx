@@ -4,10 +4,11 @@
  * The Costs tab (dispatch 23F): log a cost, and see the month's approved
  * entries — the ledger of dispatch 21, bound to the month.
  *
- * One line at the top: how many approved entries the month holds and what
+ * The block's head: how many approved entries the month holds and what
  * they add up to, with the month's Excel and PDF beside it (Kian's ruling
  * of 2026-09-30: a property's costs come with both exports), and Log a cost
- * (dispatch 23D). Under it, a warning when entries sent in the month are
+ * (dispatch 23D), which opens its form under the head, as the Income tab's
+ * does (Kian, 2026-10-02). Under it, a warning when entries sent in the month are
  * still pending — they are in no statement until reviewed — then the
  * entries, newest first: when sent, who logged it, what was bought, the
  * total. Each is marked when it has changed since the newest cost PDF for
@@ -26,7 +27,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { FileSpreadsheet, FileText } from "lucide-react";
+import { FileSpreadsheet, FileText, Plus } from "lucide-react";
 import type { Notice } from "../components/Notice";
 import { recordPdfExport } from "@/app/lib/costs-client";
 import { formatCents, type CostEntryView, type ReportExportView } from "@/app/lib/cleaners/model";
@@ -70,6 +71,7 @@ interface Props {
 
 export function CostsTab({ propertyId, propertyName, month, today, entries, exports, statement, finishedReport, statements, openEntryId, onOpenEntry, onEntryChanged, onEntryDeleted, onEntryAdded, onExportRecorded, show }: Props) {
   const [recording, setRecording] = useState(false);
+  const [adding, setAdding] = useState(false);
   const range = monthRange(month);
   const inMonth = (entry: CostEntryView) => {
     const day = sentDay(entry.createdAt);
@@ -183,9 +185,10 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
 
   return (
     <section className={styles.block} aria-label="Costs">
-      <div className={styles.costsHead}>
-        <span className={styles.costsTotal}>
-          {approved.length === 0 ? `No approved costs in ${monthLabel(month)}.` : `${approved.length === 1 ? "1 approved entry" : `${approved.length} approved entries`} · ${formatCents(totalCents)}${taxCents > 0 ? ` · tax ${formatCents(taxCents)}` : ""}`}
+      <div className={styles.blockHead}>
+        <h3 className={styles.blockTitle}>Approved costs</h3>
+        <span className={styles.blockTotal}>
+          {approved.length === 0 ? "None" : `${approved.length === 1 ? "1 entry" : `${approved.length} entries`} · ${formatCents(totalCents)}${taxCents > 0 ? ` · tax ${formatCents(taxCents)}` : ""}`}
           {unreadable > 0 && <span className={styles.noteWarn}> · {unreadable} cannot be added up</span>}
         </span>
         <span className={styles.blockActions}>
@@ -197,9 +200,14 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
             <FileText size={14} aria-hidden />
             <span>{recording ? "Recording…" : "PDF"}</span>
           </button>
-          <AddCostForm propertyId={propertyId} propertyName={propertyName} onAdded={onEntryAdded} show={show} />
+          <button type="button" className={styles.btnPrimary} onClick={() => setAdding(true)} disabled={adding}>
+            <Plus size={15} aria-hidden />
+            <span>Log a cost</span>
+          </button>
         </span>
       </div>
+
+      {adding && <AddCostForm propertyId={propertyId} onAdded={onEntryAdded} onClose={() => setAdding(false)} show={show} />}
 
       {pending > 0 && (
         <p className={styles.noteWarn} role="status">
@@ -220,7 +228,7 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
       ))}
 
       {approved.length === 0 && alsoCarried.length === 0 ? null : (
-        <table className={styles.costTable}>
+        <table className={styles.listTable}>
           <thead>
             <tr>
               <th className={styles.costWhen}>Submitted</th>
@@ -235,7 +243,7 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
               const pdf = pdfStateOf(entry);
               const wasPrinted = printed?.get(entry.id);
               return (
-                <tr key={entry.id} className={styles.costRow} onClick={() => onOpenEntry(entry.id)}>
+                <tr key={entry.id} className={styles.rowClick} onClick={() => onOpenEntry(entry.id)}>
                   {/* The cost is named by the day it was submitted (Kian, 2026-10-01): what was bought is in the entry it opens. */}
                   <td className={styles.costWhen}>
                     <button
@@ -286,7 +294,7 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
               </tr>
             )}
             {alsoCarried.map((row) => (
-              <tr key={row.key} className={row.entryId ? styles.costRow : undefined} onClick={row.entryId ? () => onOpenEntry(row.entryId) : undefined}>
+              <tr key={row.key} className={row.entryId ? styles.rowClick : undefined} onClick={row.entryId ? () => onOpenEntry(row.entryId) : undefined}>
                 <td colSpan={2} className={styles.costWhat}>
                   {row.description}
                 </td>

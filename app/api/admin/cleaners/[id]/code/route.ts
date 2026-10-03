@@ -12,15 +12,17 @@
  *                                  both are four digits, so the cleaner
  *                                  would open /admin with it
  *   422 CLEANER_CODE_TOO_EASY      on the reserved list (1111, 1234, 9876 …)
- *   409 CLEANER_CODE_TAKEN         another cleaner's code, or anyone's before:
- *                                  a replaced code is never given out again
+ *   409 CLEANER_CODE_TAKEN         an active account's code now; any other
+ *                                  code is free (Kian's ruling of 2026-10-02),
+ *                                  a deactivated holder then having none
  *   409 CLEANER_CODE_UNAVAILABLE   generate only: no free code was drawn
  * Typing the code the cleaner already has writes nothing: `changed: false`.
  *
  * A change is one transaction (setCleanerCode): the new code's document is
- * created, the old one is marked retired and kept, and the cleaner points at
+ * written, the old one is marked retired and kept, and the cleaner points at
  * the new code. The old code stops working at once, and a phone signed in
- * with it is signed out on its next request. The cleaner keeps their ID,
+ * with it is signed out on its next request. The answer's `released` names
+ * the deactivated account that held the new code and now has none, or null. The cleaner keeps their ID,
  * name and status, and every entry keeps its attribution.
  *
  * Like the create route, this reads ADMIN_PIN to keep codes clear of it; the
@@ -107,14 +109,12 @@ const TOO_EASY_REFUSAL: Refusal = {
   hint: 'Four of the same digit and runs like 1234 or 9876 are never used. Nothing was changed.',
 };
 
-function takenRefusal(retired: boolean): Refusal {
+function takenRefusal(holder: string | null): Refusal {
   return {
     status: 409,
     code: 'CLEANER_CODE_TAKEN',
-    message: retired
-      ? 'That code was used before and is never given out again.'
-      : 'That code belongs to another cleaner.',
-    hint: 'Choose another, or generate one. Nothing was changed.',
+    message: holder ? `That code is ${holder}’s.` : 'That code belongs to someone else on the team.',
+    hint: 'Change their code or delete them to reuse it, or choose another. Nothing was changed.',
   };
 }
 
@@ -163,13 +163,13 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   switch (outcome.kind) {
     case 'done':
-      return noStore(apiSuccess({ cleaner: outcome.cleaner, changed: outcome.changed }));
+      return noStore(apiSuccess({ cleaner: outcome.cleaner, changed: outcome.changed, released: outcome.released }));
     case 'not-a-code':
       return noStore(apiValidationError([{ path: 'code', message: CODE_MESSAGE }]));
     case 'reserved':
       return noStore(apiFailure(outcome.reason === 'admin-pin' ? ADMIN_PIN_REFUSAL : TOO_EASY_REFUSAL));
     case 'taken':
-      return noStore(apiFailure(takenRefusal(outcome.retired)));
+      return noStore(apiFailure(takenRefusal(outcome.holder)));
     default:
       return noStore(apiFailure(CODE_REFUSALS[outcome.kind]));
   }

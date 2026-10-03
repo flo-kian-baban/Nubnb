@@ -1,21 +1,28 @@
 "use client";
 
 /**
- * The Income tab (dispatch 23F): the month's lines, as the statement editor
- * had them (dispatch 23E). A line is a description, its dates, a quantity
- * and a rate; the amount is quantity × rate (Kian's ruling of 2026-10-01),
- * computed and shown. A line with a negative rate is an expense. Lines are
- * ordered with ↑ ↓, removed with a confirm when they hold anything, and
- * added with Add line. Every change saves the draft 800 ms later, through
- * the page; the first change on a month with nothing stored creates it.
+ * The Income tab (dispatch 23F): the month's lines, as the statement prints
+ * them. A line is a description, its dates, a quantity and a rate; the
+ * amount is quantity × rate (Kian's ruling of 2026-10-01), computed and
+ * shown. A line with a negative rate is an expense.
  *
- * A finished month shows the frozen lines, disabled.
+ * Asked the way the Costs tab asks for a cost (Kian, 2026-10-02): the one
+ * action in the block's head, "Add a line", opens a labelled form under it;
+ * the lines are a table like the month's costs, and a click on a line opens
+ * the same form on it, with Save line and Remove line. A line goes into the
+ * draft when the form is submitted, and the draft saves itself 800 ms later
+ * through the page; the first line on a month with nothing stored creates
+ * it. ↑ ↓ on each row keep the admin's order.
+ *
+ * A finished month shows the frozen lines, with no form.
  */
 
-import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
+import { useState, type FormEvent } from "react";
+import { ArrowDown, ArrowUp, Plus } from "lucide-react";
+import type { Notice } from "../components/Notice";
 import { DateRangeField } from "../components/DateRangeField";
 import { formatCents } from "@/app/lib/cleaners/model";
-import { STATEMENT_LIMITS, lineAmount, rangeText } from "@/app/lib/reports/model";
+import { STATEMENT_LIMITS, isDayText, lineAmount, rangeText } from "@/app/lib/reports/model";
 import { lineDetailsText } from "@/app/lib/reports/statement";
 import { readAmount } from "../costs/cost-display";
 import { centsOf, newId, readQuantity, type LineDraft, type Typed } from "./statement-form";
@@ -27,108 +34,222 @@ interface Props {
   /** The revenue and the typed expenses, as the statement adds them up; null when it cannot be built. */
   sums: { incomeCents: number; expensesCents: number } | null;
   onChange: (next: Typed) => void;
+  show: (notice: Notice) => void;
 }
 
-export function IncomeTab({ typed, readOnly, sums, onChange }: Props) {
-  const setLine = (id: string, patch: Partial<LineDraft>) => onChange({ ...typed, lines: typed.lines.map((line) => (line.id === id ? { ...line, ...patch } : line)) });
+/** The form's fields: the line being added (id null) or corrected (its id), as typed so far. */
+interface Editing {
+  id: string | null;
+  description: string;
+  from: string;
+  to: string;
+  quantity: string;
+  rate: string;
+}
+
+/** A line's figures as typed: null where a field does not read. */
+function figuresOf(line: Pick<LineDraft, "quantity" | "rate">) {
+  const rate = readAmount(line.rate);
+  const quantity = readQuantity(line.quantity);
+  const rateCents = rate === null || rate === "0.00" ? null : centsOf(rate);
+  return { quantity, rateCents, amountCents: rateCents !== null && quantity !== null ? lineAmount(quantity, rateCents) : null };
+}
+
+export function IncomeTab({ typed, readOnly, sums, onChange, show }: Props) {
+  const [editing, setEditing] = useState<Editing | null>(null);
+  const full = typed.lines.length >= STATEMENT_LIMITS.LINES_MAX;
+
+  const openNew = () => setEditing({ id: null, description: "", from: "", to: "", quantity: "1", rate: "" });
+  const openLine = (line: LineDraft) => setEditing({ id: line.id, description: line.description, from: line.from, to: line.to, quantity: line.quantity, rate: line.rate });
   const move = (index: number, by: -1 | 1) => {
     const lines = [...typed.lines];
     const [line] = lines.splice(index, 1);
     lines.splice(index + by, 0, line);
     onChange({ ...typed, lines });
   };
-  const removeLine = (line: LineDraft) => {
-    if ((line.description.trim() || line.rate.trim()) && !window.confirm("Remove this line?")) return;
-    onChange({ ...typed, lines: typed.lines.filter((l) => l.id !== line.id) });
+  const removeLine = () => {
+    if (!editing || editing.id === null) return;
+    if (!window.confirm("Remove this line?")) return;
+    onChange({ ...typed, lines: typed.lines.filter((l) => l.id !== editing.id) });
+    setEditing(null);
   };
-  const addLine = () => onChange({ ...typed, lines: [...typed.lines, { id: newId(), description: "", from: "", to: "", quantity: "1", rate: "" }] });
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (!editing) return;
+    const description = editing.description.normalize("NFC").replace(/\s+/g, " ").trim();
+    const rate = readAmount(editing.rate);
+    const quantity = readQuantity(editing.quantity);
+    const from = editing.from.trim();
+    const to = editing.to.trim();
+    const problems = [
+      description === "" ? "Describe the line." : null,
+      quantity === null ? "Check the quantity: a whole number, 1 or more." : null,
+      rate === null || rate === "0.00" ? "Check the rate: dollars and cents other than 0.00, like 1200.00 (negative for an expense)." : null,
+      (from !== "" && !isDayText(from)) || (to !== "" && !isDayText(to)) || (from !== "" && to !== "" && to < from) ? "Check the dates." : null,
+    ].filter((problem): problem is string => problem !== null);
+    if (problems.length > 0 || rate === null) {
+      show({ tone: "error", title: editing.id === null ? "The line was not added." : "The line was not saved.", items: problems });
+      return;
+    }
+    const fields = { description, from, to, quantity: String(quantity), rate };
+    const lines =
+      editing.id === null ? [...typed.lines, { id: newId(), ...fields }] : typed.lines.map((line) => (line.id === editing.id ? { ...line, ...fields } : line));
+    onChange({ ...typed, lines });
+    setEditing(null);
+  };
+
+  const live = editing ? figuresOf(editing) : null;
+  const position = editing?.id === null ? null : typed.lines.findIndex((line) => line.id === editing?.id);
 
   return (
-    <section className={`${styles.block} ${styles.linesBlock}`} aria-label="Income lines">
+    <section className={styles.block} aria-label="Income">
       <div className={styles.blockHead}>
-        <h3 className={styles.blockTitle}>Lines</h3>
+        <h3 className={styles.blockTitle}>Income</h3>
         <span className={styles.blockTotal}>{sums ? `${formatCents(sums.incomeCents)} revenue · ${formatCents(-sums.expensesCents)} expenses` : "—"}</span>
-      </div>
-      {typed.lines.length > 0 && (
-        <div className={styles.lineHead} aria-hidden>
-          <span />
-          <span>Description</span>
-          <span className={styles.num}>Qty</span>
-          <span className={styles.num}>Rate</span>
-          <span className={styles.num}>Amount</span>
-          <span />
-        </div>
-      )}
-      {typed.lines.map((line, i) => {
-        const rate = readAmount(line.rate);
-        const quantity = readQuantity(line.quantity);
-        const amount = rate !== null && quantity !== null ? lineAmount(quantity, centsOf(rate)) : null;
-        const details = line.details ? lineDetailsText({ source: line.details.source, reference: line.details.reference ?? null }) : "";
-        return (
-          <div key={line.id} className={styles.lineRow}>
-            <div className={styles.orderButtons}>
-              <button type="button" aria-label="Move up" disabled={readOnly || i === 0} onClick={() => move(i, -1)}>
-                <ArrowUp size={12} aria-hidden />
-              </button>
-              <button type="button" aria-label="Move down" disabled={readOnly || i === typed.lines.length - 1} onClick={() => move(i, 1)}>
-                <ArrowDown size={12} aria-hidden />
-              </button>
-            </div>
-            <input
-              className={`${styles.textInput} ${!readOnly && line.description.trim() === "" ? styles.inputInvalid : ""}`}
-              placeholder="Revenue, or Expense - Cleaning"
-              value={line.description}
-              maxLength={STATEMENT_LIMITS.LINE_DESCRIPTION_MAX}
-              disabled={readOnly}
-              onChange={(e) => setLine(line.id, { description: e.target.value })}
-              aria-label={`Line ${i + 1} description`}
-            />
-            {readOnly ? (
-              <span className={styles.lineDates}>{line.from || line.to ? rangeText(line.from || null, line.to || null) : <span className={styles.muted}>No dates</span>}</span>
-            ) : (
-              <DateRangeField label={`Line ${i + 1} dates`} from={line.from} to={line.to} onChange={(range) => setLine(line.id, { from: range.from, to: range.to })} emptyText="Add dates" className={styles.lineDates} />
-            )}
-            <input
-              className={`${styles.textInput} ${styles.amountInput} ${!readOnly && quantity === null ? styles.inputInvalid : ""}`}
-              inputMode="numeric"
-              value={line.quantity}
-              disabled={readOnly}
-              onChange={(e) => setLine(line.id, { quantity: e.target.value })}
-              aria-label={`Line ${i + 1} quantity`}
-            />
-            <input
-              className={`${styles.textInput} ${styles.amountInput} ${!readOnly && (rate === null || rate === "0.00") ? styles.inputInvalid : ""}`}
-              placeholder="0.00"
-              inputMode="decimal"
-              value={line.rate}
-              disabled={readOnly}
-              onChange={(e) => setLine(line.id, { rate: e.target.value })}
-              onBlur={() => {
-                const read = readAmount(line.rate);
-                if (read && read !== line.rate) setLine(line.id, { rate: read });
-              }}
-              aria-label={`Line ${i + 1} rate`}
-            />
-            <span className={`${styles.num} ${styles.lineAmount}`} aria-label={`Line ${i + 1} amount`}>
-              {amount === null ? "—" : formatCents(amount)}
-            </span>
-            <button type="button" className={styles.removeBtn} aria-label={`Remove line ${i + 1}`} disabled={readOnly} onClick={() => removeLine(line)}>
-              <Trash2 size={14} aria-hidden />
+        {!readOnly && (
+          <span className={styles.blockActions}>
+            <button type="button" className={styles.btnPrimary} onClick={openNew} disabled={editing !== null || full} title={full ? `A statement holds at most ${STATEMENT_LIMITS.LINES_MAX} lines` : undefined}>
+              <Plus size={15} aria-hidden />
+              <span>Add a line</span>
             </button>
-            {details !== "" && (
-              <p className={styles.lineDetails} title="Recorded with this line before; kept as it is">
-                {details} <span className={styles.muted}>· recorded before</span>
-              </p>
+          </span>
+        )}
+      </div>
+
+      {/* ── The form: a new line, or the line clicked ── */}
+      {editing && !readOnly && (
+        <form className={styles.form} onSubmit={submit} aria-label={editing.id === null ? "Add a line" : "Line editor"}>
+          <p className={styles.formTitle}>{editing.id === null ? "Add a line" : `Line ${(position ?? 0) + 1}`}</p>
+          <div className={styles.fields}>
+            <label className={`${styles.field} ${styles.fieldGrow}`}>
+              <span className={styles.fieldLabel}>Description</span>
+              <input className={styles.textInput} value={editing.description} maxLength={STATEMENT_LIMITS.LINE_DESCRIPTION_MAX} placeholder="Revenue" onChange={(e) => setEditing({ ...editing, description: e.target.value })} autoFocus />
+            </label>
+            <div className={`${styles.field} ${styles.fieldDates}`}>
+              <span className={styles.fieldLabel}>Dates</span>
+              <DateRangeField label="Dates" from={editing.from} to={editing.to} onChange={(range) => setEditing({ ...editing, from: range.from, to: range.to })} emptyText="No dates" className={styles.datesField} />
+            </div>
+            <span className={styles.fieldBreak} aria-hidden />
+            <label className={`${styles.field} ${styles.fieldQty}`}>
+              <span className={styles.fieldLabel}>Quantity</span>
+              <input className={`${styles.textInput} ${styles.amountInput}`} inputMode="numeric" value={editing.quantity} onChange={(e) => setEditing({ ...editing, quantity: e.target.value })} />
+            </label>
+            <label className={`${styles.field} ${styles.fieldAmount}`}>
+              <span className={styles.fieldLabel}>Rate ($)</span>
+              <input
+                className={`${styles.textInput} ${styles.amountInput}`}
+                inputMode="decimal"
+                placeholder="1200.00"
+                value={editing.rate}
+                onChange={(e) => setEditing({ ...editing, rate: e.target.value })}
+                onBlur={() => {
+                  const read = readAmount(editing.rate);
+                  if (read && read !== editing.rate) setEditing({ ...editing, rate: read });
+                }}
+              />
+            </label>
+            <div className={styles.field}>
+              <span className={styles.fieldLabel}>Amount</span>
+              <span className={styles.fieldValue} aria-live="polite">
+                {live?.amountCents == null ? "—" : formatCents(live.amountCents)}
+              </span>
+            </div>
+          </div>
+          <div className={styles.formActions}>
+            <button type="submit" className={styles.btnPrimary}>
+              {editing.id === null ? "Add line" : "Save line"}
+            </button>
+            <button type="button" className={styles.btnGhost} onClick={() => setEditing(null)}>
+              Cancel
+            </button>
+            {editing.id !== null && (
+              <button type="button" className={`${styles.btnGhost} ${styles.btnDanger} ${styles.formActionEnd}`} onClick={removeLine}>
+                Remove line
+              </button>
             )}
           </div>
-        );
-      })}
-      {typed.lines.length === 0 && <p className={styles.note}>No lines yet.</p>}
-      {!readOnly && (
-        <button type="button" className={`${styles.btnGhost} ${styles.btnSmall} ${styles.addLine}`} onClick={addLine} disabled={typed.lines.length >= STATEMENT_LIMITS.LINES_MAX}>
-          <Plus size={13} aria-hidden />
-          <span>Add line</span>
-        </button>
+        </form>
+      )}
+
+      {/* ── The lines, in the admin's order ── */}
+      {typed.lines.length > 0 && (
+        <table className={styles.listTable}>
+          <thead>
+            <tr>
+              <th>Description</th>
+              <th className={styles.num}>Qty</th>
+              <th className={styles.num}>Rate</th>
+              <th className={styles.num}>Amount</th>
+              {!readOnly && <th className={styles.orderCell} aria-label="Order" />}
+            </tr>
+          </thead>
+          <tbody>
+            {typed.lines.map((line, i) => {
+              const { quantity, rateCents, amountCents } = figuresOf(line);
+              const dates = line.from || line.to ? rangeText(line.from || null, line.to || null) : "";
+              const details = line.details ? lineDetailsText({ source: line.details.source, reference: line.details.reference ?? null }) : "";
+              const open = editing?.id === line.id;
+              const unreadable = line.description.trim() === "" || amountCents === null;
+              return (
+                <tr key={line.id} className={`${readOnly ? "" : styles.rowClick} ${open ? styles.rowOpen : ""}`} onClick={readOnly ? undefined : () => openLine(line)} aria-current={open ? "true" : undefined}>
+                  <td className={styles.cellWhat}>
+                    {readOnly ? (
+                      line.description || <span className={styles.muted}>No description</span>
+                    ) : (
+                      <button
+                        type="button"
+                        className={styles.rowButton}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openLine(line);
+                        }}
+                      >
+                        {line.description || <span className={styles.muted}>No description</span>}
+                      </button>
+                    )}
+                    {(dates !== "" || details !== "" || unreadable) && (
+                      <span className={`${styles.rowSub} ${unreadable && !readOnly ? styles.rowSubWarn : ""}`}>
+                        {[dates, details ? `${details} · recorded before` : "", unreadable && !readOnly ? "Check this line" : ""].filter(Boolean).join(" · ")}
+                      </span>
+                    )}
+                  </td>
+                  <td className={styles.num}>{quantity ?? "—"}</td>
+                  <td className={styles.num}>{rateCents === null ? "—" : formatCents(rateCents)}</td>
+                  <td className={styles.num}>{amountCents === null ? "—" : formatCents(amountCents)}</td>
+                  {!readOnly && (
+                    <td className={styles.orderCell}>
+                      <button
+                        type="button"
+                        className={styles.orderBtn}
+                        aria-label={`Move line ${i + 1} up`}
+                        disabled={i === 0}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          move(i, -1);
+                        }}
+                      >
+                        <ArrowUp size={13} aria-hidden />
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.orderBtn}
+                        aria-label={`Move line ${i + 1} down`}
+                        disabled={i === typed.lines.length - 1}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          move(i, 1);
+                        }}
+                      >
+                        <ArrowDown size={13} aria-hidden />
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       )}
     </section>
   );

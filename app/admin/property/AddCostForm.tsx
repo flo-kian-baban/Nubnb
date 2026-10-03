@@ -9,10 +9,12 @@
  * only to what the server returns, and an answer that does not say whether
  * the write landed is reported as such, with Refresh rather than a second
  * send. On the property page since dispatch 23F.
+ *
+ * The form alone: the Costs tab opens it from the block's head, under it,
+ * the way the Income tab opens a line's form (Kian, 2026-10-02).
  */
 
 import { useState, type FormEvent } from "react";
-import { Plus } from "lucide-react";
 import type { Notice } from "../components/Notice";
 import { createOfficeEntry } from "@/app/lib/costs-client";
 import { LIMITS, formatCents, type CostEntryView } from "@/app/lib/cleaners/model";
@@ -21,25 +23,17 @@ import styles from "./page.module.css";
 
 interface Props {
   propertyId: string;
-  propertyName: string;
   /** The entry as the server stored it. */
   onAdded: (entry: CostEntryView) => void;
+  onClose: () => void;
   show: (notice: Notice) => void;
 }
 
-export function AddCostForm({ propertyId, propertyName, onAdded, show }: Props) {
-  const [open, setOpen] = useState(false);
+export function AddCostForm({ propertyId, onAdded, onClose, show }: Props) {
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
   const [tax, setTax] = useState("");
   const [saving, setSaving] = useState(false);
-
-  const close = () => {
-    setOpen(false);
-    setDescription("");
-    setAmount("");
-    setTax("");
-  };
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -62,7 +56,7 @@ export function AddCostForm({ propertyId, propertyName, onAdded, show }: Props) 
     if (result.ok) {
       const { entry } = result.data;
       onAdded(entry);
-      close();
+      onClose();
       const total = entry.linesNow.kind === "ok" ? formatCents(entry.linesNow.totalCents) : amountRead;
       show({ tone: "success", title: `Logged ${total}, approved.`, detail: "Marked as added by the office." });
       return;
@@ -74,45 +68,28 @@ export function AddCostForm({ propertyId, propertyName, onAdded, show }: Props) 
     );
   };
 
-  if (!open) {
-    return (
-      <button type="button" className={styles.btnPrimary} onClick={() => setOpen(true)}>
-        <Plus size={15} aria-hidden />
-        <span>Log a cost</span>
-      </button>
-    );
-  }
-
   return (
     <form className={styles.form} onSubmit={submit} aria-label="Log a cost">
-      <p className={styles.formTitle}>Log a cost · {propertyName}</p>
-      <div className={styles.formGrid}>
-        <label>
+      <p className={styles.formTitle}>Log a cost</p>
+      <div className={styles.fields}>
+        <label className={`${styles.field} ${styles.fieldGrow}`}>
           <span className={styles.fieldLabel}>Description</span>
-          <input
-            className={styles.textInput}
-            value={description}
-            maxLength={LIMITS.OFFICE_DESCRIPTION_MAX}
-            placeholder="e.g. Plumber call-out, kitchen sink"
-            onChange={(e) => setDescription(e.target.value)}
-            disabled={saving}
-            autoFocus
-          />
+          <input className={styles.textInput} value={description} maxLength={LIMITS.OFFICE_DESCRIPTION_MAX} placeholder="Plumber call-out, kitchen sink" onChange={(e) => setDescription(e.target.value)} disabled={saving} autoFocus />
         </label>
-        <label>
+        <label className={`${styles.field} ${styles.fieldAmount}`}>
           <span className={styles.fieldLabel}>Amount ($)</span>
-          <input className={styles.textInput} inputMode="decimal" placeholder="185.00" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={saving} />
+          <input className={`${styles.textInput} ${styles.amountInput}`} inputMode="decimal" placeholder="185.00" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={saving} />
         </label>
-        <label>
+        <label className={`${styles.field} ${styles.fieldAmount}`}>
           <span className={styles.fieldLabel}>Tax ($, optional)</span>
-          <input className={styles.textInput} inputMode="decimal" placeholder="none" value={tax} onChange={(e) => setTax(e.target.value)} disabled={saving} />
+          <input className={`${styles.textInput} ${styles.amountInput}`} inputMode="decimal" placeholder="0.00" value={tax} onChange={(e) => setTax(e.target.value)} disabled={saving} />
         </label>
       </div>
       <div className={styles.formActions}>
         <button type="submit" className={styles.btnPrimary} disabled={saving}>
           {saving ? "Logging…" : "Log and approve"}
         </button>
-        <button type="button" className={styles.btnGhost} disabled={saving} onClick={close}>
+        <button type="button" className={styles.btnGhost} disabled={saving} onClick={onClose}>
           Cancel
         </button>
       </div>

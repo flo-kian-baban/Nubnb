@@ -63,9 +63,11 @@ export type ReservedReason = 'admin-pin' | 'too-easy';
  * twenty-four too easy to guess: isTooEasyCode in model.ts). Issuance draws
  * again; a code an admin types is refused with the reason.
  *
- * Codes already issued — in use, or replaced and so retired — are reserved
- * too, but that is a fact about the database, not the digits: `create()` of
- * the code's `cleaner_codes` document refuses them (server-cleaners.ts).
+ * A code an active account holds now is refused too, but that is a fact
+ * about the database, not the digits: the transaction that writes the
+ * code's `cleaner_codes` document checks it (server-cleaners.ts). Any other
+ * code — replaced, a deleted account's, a deactivated account's — is free
+ * (Kian's ruling of 2026-10-02).
  */
 export function reservedReason(code: string, adminPin: string): ReservedReason | null {
   if (isAdminPin(code, adminPin)) return 'admin-pin';

@@ -36,12 +36,22 @@ export type CleanerResult<T> =
       unknown: boolean;
     };
 
+/** A deactivated account that held the code just given out, and now has none (Kian's ruling of 2026-10-02). */
+export interface CodeReleased {
+  id: string;
+  name: string | null;
+}
+
 /** The answer to a status or code change: the cleaner as now stored. */
 export interface CleanerChange {
   cleaner: CleanerSummary;
   /** False when the cleaner already had that status or code and nothing was written. */
   changed: boolean;
+  /** On a code change: who let the code go, or null. */
+  released?: CodeReleased | null;
 }
+
+const isReleased = (value: unknown): boolean => value === null || value === undefined || (isRecord(value) && typeof value.id === 'string' && isTextOrNull(value.name));
 
 /** A cleaner's new code: four digits the admin typed, or one the server draws. */
 export type CodeRequest = { code: string } | { generate: true };
@@ -144,7 +154,7 @@ export function fetchCleaners(): Promise<CleanerResult<CleanerSummary[]>> {
 
 /** Create a cleaner or a handyman (dispatch 24). The answer carries the new account, code included. Never retried. */
 /** Create a cleaner or a handyman holding the four digits the admin typed (dispatch 23H). */
-export function createCleaner(name: string, role: CleanerRole, code: string): Promise<CleanerResult<{ cleaner: CleanerSummary }>> {
+export function createCleaner(name: string, role: CleanerRole, code: string): Promise<CleanerResult<{ cleaner: CleanerSummary; released: CodeReleased | null }>> {
   return call(
     '/api/admin/cleaners',
     {
@@ -153,7 +163,7 @@ export function createCleaner(name: string, role: CleanerRole, code: string): Pr
       body: JSON.stringify({ name, role, code }),
     },
     'Creating the cleaner failed',
-    (data) => isRecord(data) && isCleanerSummary(data.cleaner) && data.cleaner.code === code,
+    (data) => isRecord(data) && isCleanerSummary(data.cleaner) && data.cleaner.code === code && isReleased(data.released),
     ['CLEANER_CREATE_UNCONFIRMED'],
   );
 }
@@ -218,7 +228,37 @@ export function changeCleanerCode(
       data.cleaner.id === id &&
       typeof data.cleaner.code === 'string' &&
       ('code' in request ? data.cleaner.code === request.code : true) &&
-      typeof data.changed === 'boolean',
+      typeof data.changed === 'boolean' &&
+      isReleased(data.released),
     ['CLEANER_CODE_CHANGE_FAILED'],
+  );
+}
+
+/** What a delete answers: the account as it was, and how many of its codes were retired. */
+export interface CleanerDeleted {
+  id: string;
+  name: string | null;
+  role: string;
+  codes: number;
+}
+
+/**
+ * Delete a cleaner or a handyman for good (Kian's ruling of 2026-10-02). The
+ * page confirms before calling; CLEANER_DELETE_FAILED means the answer does
+ * not say whether the account is gone.
+ */
+export function deleteCleaner(id: string): Promise<CleanerResult<{ deleted: CleanerDeleted }>> {
+  return call(
+    `/api/admin/cleaners/${encodeURIComponent(id)}`,
+    { method: 'DELETE' },
+    'Deleting the team member failed',
+    (data) =>
+      isRecord(data) &&
+      isRecord(data.deleted) &&
+      data.deleted.id === id &&
+      isTextOrNull(data.deleted.name) &&
+      typeof data.deleted.role === 'string' &&
+      typeof data.deleted.codes === 'number',
+    ['CLEANER_DELETE_FAILED'],
   );
 }

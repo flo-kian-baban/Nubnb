@@ -170,16 +170,19 @@
   background: rgba(255, 255, 255, 0.025);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
+/* Every block's head is the same three things, left to right: its name, its figure, its one action (the Costs
+   block's three buttons count as one). The name takes the room, so the figure and the action sit at the right
+   edge; a block with no action keeps its figure there. */
 .blockHead {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
   gap: 8px 12px;
+  min-height: 36px;
   margin: 0 0 12px;
 }
 .blockTitle {
-  margin: 0;
+  margin: 0 auto 0 0;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.12em;
@@ -239,6 +242,77 @@ textarea.addressInput {
   font-size: 11px;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.5);
+}
+
+/* ── Fields: one row that wraps, every field as wide as what it holds ──
+   The same widths on every tab: a description or a label takes the room left (240 px at least), dates 250 px
+   (a range across a new year, "Dec 28, 2026 – May 28, 2027", whole), a quantity or a rate in percent 96 px,
+   an amount 180 px ($999,999.99 with room), Report For's name and address half each. A note or a link under
+   a field sits 4 px below it. */
+.fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 10px 12px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.fieldGrow {
+  flex: 1 1 240px;
+}
+.fieldHalf {
+  flex: 1 1 calc(50% - 6px);
+}
+.fieldFull {
+  flex: 1 1 100%;
+}
+.fieldDates {
+  flex: 0 0 250px;
+  max-width: 100%;
+}
+.fieldQty {
+  flex: 0 0 96px;
+}
+.fieldAmount {
+  flex: 0 0 180px;
+}
+.field > .linkButton,
+.field > .note,
+.field > .noteWarn {
+  display: block;
+  margin-top: 4px;
+}
+/* A figure the form works out, shown where a field would be: the inputs' height, its text where theirs starts. */
+.fieldValue {
+  display: block;
+  height: 36px;
+  line-height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #e8edf3;
+  font-variant-numeric: tabular-nums;
+}
+/* A break in the row of fields, so the figures of a line sit on a row of their own under its description. */
+.fieldBreak {
+  flex-basis: 100%;
+  height: 0;
+  margin-top: -10px;
+}
+/* The dates field drawn like the inputs beside it: the same height, radius, border and background. */
+.datesField {
+  --ctl-h: 36px;
+  --ctl-radius: 10px;
+  --ctl-pad-l: 11px;
+  --ctl-pad-r: 10px;
+  --ctl-gap: 7px;
+  --ctl-font: 13px;
+  --ctl-bg: rgba(0, 0, 0, 0.25);
+  --ctl-border: rgba(255, 255, 255, 0.12);
+  width: 100%;
 }
 .num {
   text-align: right !important;
@@ -342,206 +416,6 @@ textarea.addressInput {
   cursor: default;
   text-decoration: none;
 }
-.removeBtn {
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border-radius: 8px;
-  border: 1px solid transparent;
-  background: none;
-  color: rgba(255, 255, 255, 0.4);
-  cursor: pointer;
-}
-.removeBtn:hover:not(:disabled) {
-  color: #ef5350;
-  border-color: rgba(239, 68, 68, 0.3);
-}
-.removeBtn:disabled {
-  opacity: 0.3;
-  cursor: default;
-}
-
-/* ── Lines: order, description, quantity, rate, the computed amount, remove; the dates under the description ──
-   One grid for the head and every line, 12 px apart: the description takes what the numbers leave (355 px of a
-   707 px block at 1,440 px). The dates are not a column: an optional detail of the line, as the statement prints
-   them after the description, they sit under it as a small field as wide as its range. Every label in the head
-   stands over the text of the field below it, 12 px in from the field's edge (1 px border, 11 px padding); the
-   amount is plain text, so its label is flush. Sized from the block's own width (a container query), not the
-   window's. */
-.linesBlock {
-  container: lines / inline-size;
-  --line-order: 20px;
-  --line-gap: 12px;
-}
-.lineHead,
-.lineRow {
-  display: grid;
-  grid-template-columns: var(--line-order) minmax(0, 1fr) 56px 96px 92px 28px;
-  column-gap: var(--line-gap);
-  align-items: center;
-}
-.lineHead {
-  padding: 0 0 8px;
-  font-size: 11px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.45);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-.lineHead > :nth-child(2) {
-  padding-left: 12px;
-}
-.lineHead > :nth-child(3),
-.lineHead > :nth-child(4) {
-  padding-right: 12px;
-}
-.lineRow {
-  grid-template-areas:
-    "order desc qty rate amount remove"
-    "order dates dates dates dates .";
-  row-gap: 8px;
-  padding: 12px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  /* The dates field, smaller than a filter's: 30 px, its icon 12 px in, under the description's text. */
-  --ctl-h: 30px;
-  --ctl-radius: 8px;
-  --ctl-pad-l: 11px;
-  --ctl-pad-r: 10px;
-  --ctl-gap: 7px;
-  --ctl-font: 12.5px;
-  --ctl-bg: transparent;
-}
-.lineRow:last-of-type {
-  border-bottom: none;
-}
-.lineRow > :nth-child(1) {
-  grid-area: order;
-}
-.lineRow > :nth-child(2) {
-  grid-area: desc;
-}
-.lineRow > :nth-child(3) {
-  grid-area: dates;
-  justify-self: start;
-}
-.lineRow > :nth-child(4) {
-  grid-area: qty;
-}
-.lineRow > :nth-child(5) {
-  grid-area: rate;
-}
-.lineRow > :nth-child(6) {
-  grid-area: amount;
-}
-.lineRow > :nth-child(7) {
-  grid-area: remove;
-  justify-self: end;
-}
-.lineDates {
-  min-width: 0;
-  max-width: 100%;
-  font-size: 12.5px;
-  color: #e8edf3;
-}
-span.lineDates {
-  padding-left: 12px;
-}
-.lineAmount {
-  font-size: 13px;
-  color: #e8edf3;
-  font-variant-numeric: tabular-nums;
-}
-/* What a line written before dispatch 23D also carries: shown, kept, not edited; a third row only when there is one. */
-.lineDetails {
-  grid-column: 2 / 6;
-  grid-row: 3;
-  margin: 0;
-  padding-left: 12px;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.5);
-}
-.addLine {
-  margin: 12px 0 0 calc(var(--line-order) + var(--line-gap));
-}
-/* A block too narrow to leave the description 140 px beside the numbers (352 px of them and the gaps): the
-   description on its own row, the numbers under it, the dates under those. */
-@container lines (max-width: 491px) {
-  .lineHead {
-    display: none;
-  }
-  .lineRow {
-    grid-template-columns: var(--line-order) 56px 96px minmax(0, 1fr) 28px;
-    grid-template-areas:
-      "order desc desc desc remove"
-      "order qty rate amount ."
-      "order dates dates dates .";
-  }
-  .lineDetails {
-    grid-column: 2 / 5;
-    grid-row: 4;
-  }
-}
-.orderButtons {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.orderButtons button {
-  width: 24px;
-  height: 16px;
-  padding: 0;
-  border: none;
-  background: none;
-  color: rgba(255, 255, 255, 0.5);
-  cursor: pointer;
-  line-height: 1;
-}
-.orderButtons button:hover:not(:disabled) {
-  color: #fff;
-}
-.orderButtons button:disabled {
-  opacity: 0.25;
-  cursor: default;
-}
-
-/* ── Details: Report For, the fee, the carried balance ── */
-.twoCols {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 10px 12px;
-}
-/* The fee: a rate, a base and an amount, each as wide as the number it holds (180 px fits $999,999.99 with room),
-   not stretched across the block; the label under them takes the full width. */
-.feeGrid {
-  display: grid;
-  grid-template-columns: 96px 180px 180px;
-  gap: 10px 12px;
-  justify-content: start;
-}
-.feeGrid .linkButton,
-.feeGrid .note,
-.feeGrid .noteWarn {
-  display: block;
-  margin-top: 4px;
-}
-.feeLabelCell {
-  grid-column: 1 / -1;
-}
-.carriedGrid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 180px;
-  gap: 10px 12px;
-  align-items: start;
-}
-.carriedGrid .note {
-  display: block;
-  margin-top: 4px;
-}
-.referenceGrid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 170px;
-  gap: 10px 12px;
-}
-
 /* ── Finish ── */
 /* The release status on the Finish tab: one row a month, the month, its badge, its reference or save time; the page's month shaded. */
 .releaseList {
@@ -620,34 +494,22 @@ span.lineDates {
   border-bottom: none;
 }
 
-/* ── Costs: the month's approved entries ── */
-.costsHead {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 12px;
-  margin: 0 0 12px;
-}
+/* ── The list: the month's lines on Income, its approved entries on Costs ──
+   One table for both: a row a line or an entry, named in its first column (the description; the day an entry
+   was submitted), its figures right-aligned, a click on the row opening it. The table keeps to the block's
+   content edges: its first and last columns have no outer padding, so the first column stands under the
+   block's name and the last under the head's right edge. A column of figures keeps to one line and to its own
+   width; the first column takes the rest. */
 .costsFoot {
   margin: 12px 0 0;
 }
-.costsTotal {
-  font-size: 13px;
-  color: #c9d2dc;
-  font-variant-numeric: tabular-nums;
-}
-/* The month's approved entries: the day each was submitted (the entry's name here), who logged it, its total.
-   The table keeps to the block's content edges, as the income lines do: its first and last columns have no
-   outer padding, so the day stands under the line above it and the total under the buttons' right edge. The
-   day and the total keep to one line and to their own width; who logged it takes the rest. */
-.costTable {
+.listTable {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
   line-height: 1.45;
 }
-.costTable th {
+.listTable th {
   text-align: left;
   padding: 0 12px 8px;
   font-size: 11px;
@@ -656,40 +518,94 @@ span.lineDates {
   color: rgba(255, 255, 255, 0.45);
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
-.costTable td {
+.listTable td {
   padding: 10px 12px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   vertical-align: top;
   color: #e8edf3;
 }
-.costTable th:first-child,
-.costTable td:first-child {
+.listTable th:first-child,
+.listTable td:first-child {
   padding-left: 0;
 }
-.costTable th:last-child,
-.costTable td:last-child {
+.listTable th:last-child,
+.listTable td:last-child {
   padding-right: 0;
 }
-.costTable tbody tr:last-child td {
+.listTable tbody tr:last-child td {
   border-bottom: none;
 }
 .costWhen {
   width: 1%;
   white-space: nowrap;
 }
-.costTable th.num,
-.costTable td.num {
+.listTable th.num,
+.listTable td.num {
   width: 1%;
 }
-.costRow {
+.rowClick {
   cursor: pointer;
 }
-.costRow:hover td {
+.rowClick:hover td {
   color: #ffffff;
 }
-.costRow:hover .rowButton {
+.rowClick:hover .rowButton {
   text-decoration: underline;
   text-underline-offset: 3px;
+}
+/* The line the form is open on. */
+.rowOpen td {
+  background: rgba(255, 255, 255, 0.04);
+}
+.rowOpen td:first-child {
+  box-shadow: inset 2px 0 0 #7fb0e0;
+  padding-left: 10px;
+}
+.cellWhat {
+  overflow-wrap: anywhere;
+}
+/* What else a row says, under its name: a line's dates, what a line written before carried, a check to make. */
+.rowSub {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.42);
+}
+.rowSubWarn {
+  color: #f0a63a;
+}
+/* ↑ ↓ at the end of a line's row: quiet until the row is under the pointer. */
+.listTable th.orderCell,
+.listTable td.orderCell {
+  width: 1%;
+  white-space: nowrap;
+  padding-top: 7px;
+  padding-bottom: 7px;
+  vertical-align: top;
+}
+.orderBtn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: none;
+  color: rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+  vertical-align: top;
+}
+.rowClick:hover .orderBtn:not(:disabled) {
+  color: rgba(255, 255, 255, 0.7);
+}
+.orderBtn:hover:not(:disabled) {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+}
+.orderBtn:disabled {
+  opacity: 0.25;
+  cursor: default;
 }
 .costGroup td {
   padding-top: 12px;
@@ -726,7 +642,7 @@ span.lineDates {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
-/* The log-a-cost form, under the head when open. */
+/* ── The form: a line on Income, a cost on Costs, under the block's head when open ── */
 .form {
   display: flex;
   flex-direction: column;
@@ -744,15 +660,15 @@ span.lineDates {
   font-weight: 600;
   color: #ffffff;
 }
-.formGrid {
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
-  gap: 10px 12px;
-}
 .formActions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
+}
+/* The one destructive action of a form, at its far right. */
+.formActionEnd {
+  margin-left: auto;
 }
 /* The open entry, in place of the list: the costs page's pane, on this page. */
 .entryDrill {

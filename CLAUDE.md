@@ -243,3 +243,10 @@ no checkout. Do not build toward one unless asked.
 - **The delete is refused when the entry is printed in a finished
   statement, and says which.** A statement already sent cannot reference an
   entry that no longer exists.
+
+## Team — Kian's ruling of 2026-10-02 (afternoon)
+
+- **A team member — a cleaner or a handyman — can be fully deleted.**
+  **Consequence: the account is gone for good and cannot be reactivated.**
+- **A code can be reused when no active account holds it.** This replaces
+  the earlier rule that a replaced code is never given out again.

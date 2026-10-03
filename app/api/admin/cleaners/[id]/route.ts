@@ -1,6 +1,18 @@
 /**
- * PATCH /api/admin/cleaners/[id] — Deactivate or reactivate a cleaner (admin-only).
+ * PATCH  /api/admin/cleaners/[id] — Deactivate or reactivate a cleaner (admin-only).
+ * DELETE /api/admin/cleaners/[id] — Delete a cleaner or a handyman for good (admin-only).
  *
+ * ── DELETE (Kian's ruling of 2026-10-02) ──
+ * No body. One transaction (deleteCleaner) deletes the account and retires
+ * every code it ever had, so none is given out again; a phone signed in as
+ * them is signed out on its next request; their entries stay on the ledger
+ * under the name they were logged with. Answers 200
+ * `{ deleted: { id, codes } }` — `codes` is how many code documents were
+ * retired. Refusals: 404 CLEANER_NOT_FOUND (nothing deleted); 502
+ * CLEANER_DELETE_FAILED (may or may not have been deleted). The page confirms
+ * first, naming what is lost; the server does not ask again.
+ *
+ * ── PATCH ──
  * Accepts `{ status }` and nothing else. A change is one transaction: it sets
  * the status, appends a history event with the admin as its actor, and bumps
  * the cleaner's session epoch, so every session they hold ends on its next
@@ -30,7 +42,7 @@ import {
 } from '@/app/lib/api/safe-response';
 import { CLEANER_STATUSES, type Refusal } from '@/app/lib/cleaners/model';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
-import { setCleanerStatus, type SetCleanerStatusResult } from '@/app/lib/firebase/server-cleaners';
+import { DELETE_CLEANER_REFUSALS, deleteCleaner, setCleanerStatus, type SetCleanerStatusResult } from '@/app/lib/firebase/server-cleaners';
 import { isDocumentId } from '@/app/lib/firebase/server-leads';
 
 interface RouteContext {
@@ -103,4 +115,22 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   if (outcome.kind !== 'done') return noStore(apiFailure(STATUS_REFUSALS[outcome.kind]));
 
   return noStore(apiSuccess({ cleaner: outcome.cleaner, changed: outcome.changed }));
+}
+
+export async function DELETE(request: NextRequest, context: RouteContext) {
+  // ── Auth ──
+  const auth = verifyAdminSession(request);
+  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
+
+  // ── Cross-site ── (no body, so no media type to check)
+  const crossSite = refuseCrossSite(request);
+  if (crossSite) return crossSite;
+
+  const { id } = await context.params;
+  if (!isDocumentId(id)) return noStore(apiError('Invalid cleaner ID', 400));
+
+  const outcome = await deleteCleaner(id);
+  if (outcome.kind !== 'deleted') return noStore(apiFailure(DELETE_CLEANER_REFUSALS[outcome.kind]));
+  // The account as it was, without its code: the list is the only place a code is shown.
+  return noStore(apiSuccess({ deleted: { id: outcome.cleaner.id, name: outcome.cleaner.name, role: outcome.cleaner.role, codes: outcome.codes } }));
 }

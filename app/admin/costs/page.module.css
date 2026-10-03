@@ -240,21 +240,9 @@
   color: #0a0a0c;
 }
 
-/* ── Layout: list beside the open entry ── */
-.layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(380px, 440px);
-  gap: 20px;
-  align-items: start;
-}
-
+/* ── The list: the whole width; an entry opens under its own row (2026-10-02) ── */
 .listPane {
   min-width: 0;
-}
-
-/* No entry open: the list has the whole width (2026-10-02). */
-.layoutWide {
-  grid-template-columns: minmax(0, 1fr);
 }
 
 /* ── The entry table (2026-10-02): one line per entry ──
@@ -292,54 +280,16 @@
 .who .oneLine {
   flex: 0 1 auto;
 }
-/* An entry open beside the list: the table tightens to keep one line per entry without scrolling sideways —
-   closer columns, a long name cut like the property, and neither the Receipt column nor the kind badge (the
-   pane shows both for the open entry). */
-.layoutOpen .entryTable th,
-.layoutOpen .entryTable td {
-  padding-left: 12px;
-  padding-right: 12px;
-}
-.layoutOpen .entryTable .colReceipt,
-.layoutOpen .kindSlot {
-  display: none;
-}
 .kindSlot {
   display: inline-flex;
   flex: none;
-}
-.layoutOpen .who {
-  max-width: 140px;
-}
-
-.detailPane {
-  position: sticky;
-  top: 88px;
-  max-height: calc(100vh - 108px);
-  overflow-y: auto;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 16px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
-  scroll-margin-top: 88px;
-}
-
-.detailState {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 56px 28px;
-  text-align: center;
-  color: rgba(255, 255, 255, 0.35);
-  font-size: 13.5px;
-  line-height: 1.5;
 }
 
 /* ── Table rows ── */
 .row {
   cursor: pointer;
+  /* Under the sticky header when a row is brought to the top. */
+  scroll-margin-top: 88px;
 }
 
 .rowOpen,
@@ -354,7 +304,9 @@
 }
 
 .rowButton {
-  display: block;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   padding: 0;
   border: none;
   background: none;
@@ -374,6 +326,29 @@
   outline: 2px solid #7fb0e0;
   outline-offset: 3px;
   border-radius: 3px;
+}
+
+/* The row's chevron: right when closed, down when its entry is open under it. */
+.chevron {
+  flex: none;
+  color: rgba(255, 255, 255, 0.4);
+  transition: transform 0.15s ease;
+}
+.chevronOpen {
+  color: #7fb0e0;
+  transform: rotate(90deg);
+}
+
+/* ── The open entry, under its row: one cell the table's width, joined to the row by its accent ── */
+.detailRow,
+.detailRow:hover {
+  background: rgba(101, 153, 205, 0.035) !important;
+  cursor: default;
+}
+.detailRow > td {
+  padding: 0 !important;
+  box-shadow: inset 3px 0 0 #7fb0e0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
 }
 
 .whenCell {
@@ -457,9 +432,53 @@
   border-color: rgba(245, 158, 11, 0.22);
 }
 
-/* ── The entry pane ── */
+/* ── The entry: under its row on the costs page, in place of the list on the property's page ──
+   Its width is its container's, never its content's (so it never widens the table), and the receipt
+   takes its own column beside everything else once there is room for both. */
 .detail {
   padding: 22px 24px 20px;
+  container-type: inline-size;
+}
+
+.detailGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px 32px;
+  align-items: start;
+}
+
+.receiptColumn {
+  min-width: 0;
+}
+/* Stacked over the details (the property's page, a narrow window): no taller than the old pane's, so the review stays near. */
+.receiptColumn .receiptButton img {
+  max-height: 340px;
+}
+
+@container (min-width: 760px) {
+  .detailGrid {
+    /* A third of the width, at most 380 px, so the details keep room on a narrower window. */
+    grid-template-columns: minmax(240px, min(380px, 34%)) minmax(0, 1fr);
+  }
+  /* Beside the details: the column's width, up to a long receipt's height; Full size for more. */
+  .receiptColumn .receiptButton img {
+    max-height: 860px;
+  }
+}
+
+.detailMain {
+  min-width: 0;
+}
+
+/* Its property and statement, its PDFs, the cleaner's note and their last 90 days: side by side when they fit. */
+.factsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  column-gap: 32px;
+}
+
+.statusClose {
+  margin-left: auto;
 }
 
 .detailHead {
@@ -508,12 +527,12 @@
   margin-bottom: 14px;
 }
 
+/* The sections under it carry their own dividers, so it has none of its own. */
 .statusBlock {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding-bottom: 18px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding-bottom: 2px;
 }
 
 .statusRow {
@@ -679,6 +698,47 @@
   color: #ffffff;
   border-bottom: none;
   border-top: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+/* Under its row on the costs page, this table sits inside the entry table, whose cell, header and hover
+   rules would otherwise reach it: its own spacing, no header band, no hover, one compact line per item. */
+.detail .lines th,
+.detail .lines td {
+  padding: 8px 10px;
+  vertical-align: middle;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.detail .lines th {
+  background: none;
+  padding-top: 0;
+  vertical-align: bottom;
+}
+.detail .lines tbody tr:hover {
+  background: none;
+}
+.detail .lines tfoot td {
+  border-bottom: none;
+}
+
+/* Correct, at the end of its line rather than under the name. */
+.lineActionCell {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right !important;
+}
+.lineActionCell .lineAction {
+  display: inline-flex;
+  margin-top: 0;
+  color: rgba(255, 255, 255, 0.4);
+  background: none;
+  border-color: transparent;
+}
+/* Quiet on every line; plain on the line under the pointer, or in focus. */
+.lines tr:hover .lineActionCell .lineAction:not(:disabled),
+.lineActionCell .lineAction:focus-visible {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.14);
 }
 
 .lineNumber {
@@ -900,16 +960,6 @@
 }
 
 /* ── Responsive ── */
-@media (max-width: 1100px) {
-  .layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .detailPane {
-    position: static;
-    max-height: none;
-  }
-}
-
 @media (max-width: 640px) {
   .detail {
     padding: 18px 16px;

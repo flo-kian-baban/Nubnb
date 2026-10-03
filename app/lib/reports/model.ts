@@ -153,6 +153,13 @@ export function monthLabel(month: string): string {
   return `${MONTHS_LONG[Number(match[2]) - 1]} ${match[1]}`;
 }
 
+/** "September": the month alone, for a place where the year goes without saying (the property list's column, Kian 2026-10-02). */
+export function monthName(month: string): string {
+  const match = MONTH.exec(month);
+  if (!match) return month;
+  return MONTHS_LONG[Number(match[2]) - 1];
+}
+
 /** The word a reference uses for a month: "Aug", "July", "June", "Sept". */
 export function monthReferenceWord(month: string): string {
   const match = MONTH.exec(month);
@@ -378,7 +385,7 @@ export interface StatementCost {
   /** The Toronto day it was sent. */
   day: string;
   kind: string;
-  /** What was bought or the work done, as the ledger PDF prints it. */
+  /** As printed: the entry's reference and the day it was sent (Kian, 2026-10-02); on a report finished before, what was bought. */
   description: string;
   itemsCents: number;
   taxCents: number | null;

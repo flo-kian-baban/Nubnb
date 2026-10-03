@@ -124,13 +124,15 @@ export function ReceiptImage({ entryId }: { entryId: string }) {
           </button>
         ) : (
           <figcaption className={styles.receiptCaption}>
-            <button type="button" className={styles.linkButton} onClick={() => setLarge(true)}>
+            <button
+              type="button"
+              className={styles.linkButton}
+              onClick={() => setLarge(true)}
+              title={`Shown through a link that stops working ${link.seconds} seconds after it was made. It is not kept.`}
+            >
               <Maximize2 size={13} aria-hidden />
               <span>Full size</span>
             </button>
-            <span>
-              Shown through a link that stops working {link.seconds} seconds after it was made. It is not kept.
-            </span>
           </figcaption>
         )}
       </figure>

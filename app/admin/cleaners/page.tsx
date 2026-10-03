@@ -19,13 +19,20 @@
  * By Kian's ruling of 2026-09-28 a cleaner's code is visible to admins at any
  * time and can be changed: each row shows the current code, and "Change
  * code" takes four typed digits or draws a random code. The server refuses
- * the admin PIN, the reserved list and any code issued before; the old code
- * stops working at once and is never given out again.
+ * the admin PIN, the reserved list and a code an active account holds; any
+ * other code is free (Kian's ruling of 2026-10-02), a deactivated account
+ * that held it then having none. The old code stops working at once.
  *
  * A create whose outcome is unknown — no answer, or an answer that does not
  * say — is reported as such and never retried: a retry could create the same
  * person twice. Status and code changes are not optimistic either: a row
  * changes only to what the server says it stored.
+ *
+ * "Delete…" (Kian's ruling of 2026-10-02) deletes a cleaner or a handyman
+ * for good: the confirmation names what is lost — the account, its code, any
+ * signed-in phone — and how many entries they logged, which stay on the
+ * ledger under the name they were logged with. A row leaves the list only
+ * once the server says the account is gone.
  *
  * No pagination. The whole collection is one response.
  */
@@ -37,11 +44,13 @@ import { PinGate } from "../components/PinGate";
 import { NoticeBanner, useNotice, type Notice } from "../components/Notice";
 import { fetchCosts } from "@/app/lib/costs-client";
 import { distributionText, watchList, type CleanerPattern } from "@/app/lib/costs/patterns";
+import type { CostEntryView } from "@/app/lib/cleaners/model";
 import { torontoDayOf } from "@/app/lib/costs/report";
 import {
   changeCleanerCode,
   changeCleanerStatus,
   createCleaner,
+  deleteCleaner,
   fetchCleaners,
   suggestCode,
   type CleanerResult,
@@ -69,8 +78,8 @@ type ListState =
   | { kind: "ready"; cleaners: CleanerSummary[] }
   | { kind: "error"; title: string; detail?: string; status: number };
 
-/** The cost list's read, for the 90-day distributions: never shown as "nothing" when it failed. */
-type PatternsState = { kind: "loading" } | { kind: "ready"; patterns: CleanerPattern[] } | { kind: "error"; title: string };
+/** The cost list's read, for the 90-day distributions and for how many entries each member logged: never shown as "nothing" when it failed. */
+type PatternsState = { kind: "loading" } | { kind: "ready"; patterns: CleanerPattern[]; entries: CostEntryView[] } | { kind: "error"; title: string };
 
 /** The cleaner whose code is being changed, as the row showed them. */
 interface CodeEditor {
@@ -81,8 +90,7 @@ interface CodeEditor {
 
 const SESSION_HINT = "Your admin session may have expired — reload and sign in again.";
 
-const CODE_CHANGE_EFFECT =
-  "The old code stops working at once and is never given out again. Any phone signed in with it is signed out.";
+const CODE_CHANGE_EFFECT = "The old code stops working at once. Any phone signed in with it is signed out.";
 
 export default function CleanersPage() {
   return (
@@ -106,8 +114,8 @@ function Cleaners() {
   const [patterns, setPatterns] = useState<PatternsState>({ kind: "loading" });
   /** The name of a create whose outcome is unknown. */
   const [unconfirmed, setUnconfirmed] = useState<string | null>(null);
-  /** The one save in flight: a status or a code change, for one cleaner. */
-  const [saving, setSaving] = useState<{ id: string; what: "status" | "code" } | null>(null);
+  /** The one save in flight: a status, code change or delete, for one cleaner. */
+  const [saving, setSaving] = useState<{ id: string; what: "status" | "code" | "delete" } | null>(null);
   const [editor, setEditor] = useState<CodeEditor | null>(null);
   const [codeDraft, setCodeDraft] = useState("");
   const codeInputRef = useRef<HTMLInputElement>(null);
@@ -135,7 +143,7 @@ function Cleaners() {
       if (cancelled) return;
       setPatterns(
         result.ok
-          ? { kind: "ready", patterns: watchList(result.data.entries, torontoDayOf(new Date())) }
+          ? { kind: "ready", patterns: watchList(result.data.entries, torontoDayOf(new Date())), entries: result.data.entries }
           : { kind: "error", title: result.title },
       );
     });
@@ -201,7 +209,7 @@ function Cleaners() {
       showNotice({
         tone: "success",
         title: `Created ${displayName(created.name ?? name)} as a ${CLEANER_ROLE_LABELS[role].toLowerCase()}.`,
-        detail: created.code ? `Their code is ${created.code}.` : undefined,
+        detail: [created.code ? `Their code is ${created.code}.` : null, releasedWords(result.data.released)].filter(Boolean).join(" ") || undefined,
       });
       reload();
       return;
@@ -273,7 +281,7 @@ function Cleaners() {
     const question =
       "code" in request
         ? `Change ${target.name}'s code${target.current ? ` from ${target.current}` : ""} to ${request.code}? ${CODE_CHANGE_EFFECT}`
-        : `Give ${target.name} a new code, chosen at random? The old code${was} stops working at once and is never given out again. Any phone signed in with it is signed out.`;
+        : `Give ${target.name} a new code, chosen at random? The old code${was} stops working at once. Any phone signed in with it is signed out.`;
     if (!window.confirm(question)) return;
 
     clearNotice();
@@ -302,10 +310,54 @@ function Cleaners() {
         ? {
             tone: "success",
             title: `${target.name}'s code is now ${stored.code}.`,
-            detail: target.current ? `${target.current} no longer works.` : undefined,
+            detail: [target.current ? `${target.current} no longer works.` : null, releasedWords(result.data.released ?? null)].filter(Boolean).join(" ") || undefined,
           }
         : { tone: "info", title: `Nothing was changed: ${stored.code} is already ${target.name}'s code.` },
     );
+  };
+
+  /** Delete for good (Kian, 2026-10-02): the confirmation names what is lost; the row leaves only on the server's word. */
+  const remove = async (cleaner: CleanerSummary) => {
+    if (busy) return;
+    const who = displayName(cleaner.name);
+    const role = isCleanerRole(cleaner.role) ? CLEANER_ROLE_LABELS[cleaner.role] : cleaner.role;
+    const theirs = patterns.kind === "ready" ? patterns.entries.filter((entry) => entry.cleaner.id === cleaner.id) : null;
+    const pending = theirs?.filter((entry) => entry.status === "pending").length ?? 0;
+    const entriesLine =
+      theirs === null
+        ? "Their entries could not be counted; any they logged stay on the ledger under their name."
+        : theirs.length === 0
+          ? "They logged no entries."
+          : `They logged ${theirs.length === 1 ? "1 entry" : `${theirs.length} entries`}${pending > 0 ? ` (${pending} pending review)` : ""}; those stay on the ledger under the name “${cleaner.name ?? who}”.`;
+    const question = [
+      `Delete ${who} for good?`,
+      "",
+      `${role}${cleaner.code ? `, code ${cleaner.code}` : ", no code on record"}. The code stops working at once; any signed-in phone is signed out.`,
+      entriesLine,
+      "",
+      "The account cannot be reactivated. This cannot be undone.",
+    ].join("\n");
+    if (!window.confirm(question)) return;
+
+    clearNotice();
+    setSaving({ id: cleaner.id, what: "delete" });
+    const result = await deleteCleaner(cleaner.id);
+    setSaving(null);
+
+    if (!result.ok) {
+      showNotice(
+        result.unknown
+          ? { tone: "warning", title: "The team member may or may not have been deleted. Reload the list to see.", detail: result.title }
+          : { tone: "error", title: result.title, detail: describeFailure(result, "Nothing was deleted.") },
+      );
+      return;
+    }
+    setList((prev) => (prev.kind === "ready" ? { kind: "ready", cleaners: prev.cleaners.filter((c) => c.id !== cleaner.id) } : prev));
+    showNotice({
+      tone: "success",
+      title: `Deleted ${who}.`,
+      detail: `Their code no longer works.${theirs && theirs.length > 0 ? ` ${theirs.length === 1 ? "1 entry stays" : `${theirs.length} entries stay`} on the ledger under their name.` : ""}`,
+    });
   };
 
   const submitTypedCode = (event: FormEvent<HTMLFormElement>) => {
@@ -505,6 +557,14 @@ function Cleaners() {
                                     : "Reactivate"}
                               </button>
                             )}
+                            <button
+                              type="button"
+                              className={`${styles.rowAction} ${styles.rowActionDanger}`}
+                              disabled={busy}
+                              onClick={() => remove(cleaner)}
+                            >
+                              {saving?.id === cleaner.id && saving.what === "delete" ? "Deleting…" : "Delete…"}
+                            </button>
                           </td>
                         </tr>
                       );
@@ -611,6 +671,12 @@ function nextStatus(status: string | null): CleanerStatus | null {
   if (status === "active") return "deactivated";
   if (status === "deactivated") return "active";
   return null;
+}
+
+/** The deactivated account that held the code just given out: said once, in the notice. */
+function releasedWords(released: { id: string; name: string | null } | null): string | null {
+  if (!released) return null;
+  return `It was ${displayName(released.name)}'s (deactivated); they now have no code.`;
 }
 
 /** A name to put in a sentence. */

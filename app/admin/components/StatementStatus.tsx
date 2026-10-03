@@ -10,7 +10,7 @@
  */
 
 import Link from "next/link";
-import { monthLabel } from "@/app/lib/reports/model";
+import { monthLabel, monthName } from "@/app/lib/reports/model";
 import { STANDING_LABELS, type ReportingStatus, type Standing } from "@/app/lib/reports/statement";
 import shared from "../page.module.css";
 import styles from "./StatementStatus.module.css";
@@ -32,8 +32,9 @@ export function StandingBadge({ standing, label }: { standing: Standing; label?:
 
 /**
  * The property list's cell: the property's status as one badge and the
- * month in question, the whole cell a link to the property's page at that
- * month. Nothing due yet is the quiet words alone (the month in the
+ * month in question, by name alone (Kian, 2026-10-02: "month is enough"),
+ * the whole cell a link to the property's page at that month. The tooltip
+ * keeps the year. Nothing due yet is the quiet words alone (the month in the
  * tooltip), so the rows that need work are the ones with colour.
  */
 export function ReportingStatusCell({ propertyId, status }: { propertyId: string; status: ReportingStatus }) {
@@ -55,7 +56,7 @@ export function ReportingStatusCell({ propertyId, status }: { propertyId: string
             <StandingBadge standing={status.standing} />
           </span>
           <span className={styles.month}>
-            {monthLabel(status.month)}
+            {monthName(status.month)}
             {more > 0 && <span className={styles.more}> +{more}</span>}
           </span>
         </>

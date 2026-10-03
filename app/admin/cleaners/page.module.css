@@ -187,6 +187,16 @@
   outline: 2px solid #7fb0e0;
   outline-offset: 2px;
 }
+/* Delete… (Kian, 2026-10-02): the one destructive action on a row, in the past-due red. */
+.rowActionDanger {
+  color: #ef5350;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+.rowActionDanger:hover:not(:disabled) {
+  color: #ff6b68;
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.4);
+}
 
 /* ── Badges ── */
 .badge {

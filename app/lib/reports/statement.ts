@@ -14,8 +14,10 @@
  * current, so its entries come back into the one replacing it. Each change
  * is carried once: the comparison is with the most recent current statement
  * that printed the entry, in its costs or its adjustments (Kian's decision 5).
- * On the Payment Summary each of these is a line like any other: "Expense -
- * …", "Expense - … (from June 2026)", "Adjustment - …".
+ * On the Payment Summary each of these is a line like any other, named by
+ * the entry's reference and the day it was sent, never by its items
+ * (Kian, 2026-10-02): "Expense - ref ykHRE5 · Oct 1, 2026", "Expense - ref
+ * … · Sep 28, 2026 (from September 2026)", "Adjustment - ref … · …".
  *
  * ── Money ──
  * A line's amount is quantity × rate (Kian's ruling of 2026-10-01, the one
@@ -30,7 +32,7 @@
  */
 
 import { formatCents, type CostEntryView } from '@/app/lib/cleaners/model';
-import { entryRef, sentDay, whatWasBoughtText } from '@/app/lib/costs/report';
+import { entryRef, sentDay } from '@/app/lib/costs/report';
 import {
   INCOME_SOURCE_LABELS,
   addMonths,
@@ -147,6 +149,16 @@ export type StatementBuild =
 
 const byDay = (a: CostEntryView, b: CostEntryView) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '') || a.id.localeCompare(b.id);
 
+/**
+ * What a recorded cost is called on the statement (Kian, 2026-10-02): its
+ * reference and the day it was sent — "ref ykHRE5 · Oct 1, 2026" — never
+ * what was bought; the items are in the ledger and its PDF. A statement
+ * finished before prints the description it stored.
+ */
+export function costLineName(entryId: string, day: string): string {
+  return `ref ${entryRef(entryId)} · ${rangeText(day, day)}`;
+}
+
 /** One approved, readable entry as a statement cost row. */
 function costRow(entry: CostEntryView, group: StatementCost['group']): StatementCost | null {
   const day = sentDay(entry.createdAt);
@@ -156,7 +168,7 @@ function costRow(entry: CostEntryView, group: StatementCost['group']): Statement
     ref: entryRef(entry.id),
     day,
     kind: entry.kind,
-    description: whatWasBoughtText(entry.linesNow.lines) || '—',
+    description: costLineName(entry.id, day),
     itemsCents: entry.linesNow.itemsCents,
     taxCents: entry.linesNow.taxCents,
     totalCents: entry.linesNow.totalCents,
@@ -264,7 +276,8 @@ export function buildStatement(input: StatementInputs): StatementBuild {
       historyLength = entry.history?.length ?? 0;
     }
     if (nowCents !== cents) {
-      const description = entry && entry.linesNow.kind === 'ok' ? whatWasBoughtText(entry.linesNow.lines) || null : null;
+      const day = entry ? sentDay(entry.createdAt) : null;
+      const description = entry && day !== null ? costLineName(entry.id, day) : null;
       adjustments.push({ entryId, statementId: reportId, printedCents: cents, nowCents, deltaCents: nowCents - cents, historyLength, description, printedMonth: reportById.get(reportId)?.month ?? null });
     }
   }

@@ -768,7 +768,7 @@ function MonthWork(props: MonthWorkProps) {
               show={show}
             />
           )}
-          {tab === "income" && <IncomeTab typed={typed} readOnly={readOnly} sums={sums} onChange={change} />}
+          {tab === "income" && <IncomeTab typed={typed} readOnly={readOnly} sums={sums} onChange={change} show={show} />}
           {tab === "details" && (
             <DetailsTab
               typed={typed}

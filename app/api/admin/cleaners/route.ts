@@ -11,13 +11,15 @@
  * written, exactly as on a code change:
  *   422 CLEANER_CODE_IS_ADMIN_PIN  the admin PIN
  *   422 CLEANER_CODE_TOO_EASY      on the reserved list (1111, 1234, 9876 …)
- *   409 CLEANER_CODE_TAKEN         someone's code now, or anyone's before
+ *   409 CLEANER_CODE_TAKEN         an active account's code now (any other
+ *                                  code is free: Kian's ruling of 2026-10-02)
  *
  * A cleaner signs in at their own door, /api/cleaner, with a four-digit code;
  * this is where the admin makes one. By Kian's ruling of 2026-09-28 codes are
  * stored readably and an admin can see them at any time: every list row
  * carries the cleaner's current code, and the POST's 201 carries the new
- * cleaner with theirs. A row never carries the session epoch.
+ * cleaner with theirs, and `released`: the deactivated account that held the
+ * typed code and now has none, or null. A row never carries the session epoch.
  *
  * The POST is one of the few readers of ADMIN_PIN besides the admin session
  * module. It hands the PIN to issueCleaner, which never issues it as a code —
@@ -122,14 +124,12 @@ const TOO_EASY_REFUSAL: Refusal = {
   hint: 'Four of the same digit and runs like 1234 or 9876 are never used. Nothing was created.',
 };
 
-function takenRefusal(retired: boolean): Refusal {
+function takenRefusal(holder: string | null): Refusal {
   return {
     status: 409,
     code: 'CLEANER_CODE_TAKEN',
-    message: retired
-      ? 'That code was used before and is never given out again.'
-      : 'That code belongs to someone else on the team.',
-    hint: 'Choose another, or generate one. Nothing was created.',
+    message: holder ? `That code is ${holder}’s.` : 'That code belongs to someone else on the team.',
+    hint: 'Change their code or delete them to reuse it, or choose another. Nothing was created.',
   };
 }
 
@@ -201,13 +201,13 @@ export async function POST(request: NextRequest) {
   switch (outcome.kind) {
     case 'created':
       // The new cleaner, their code included. Nothing logs it.
-      return noStore(apiSuccess({ cleaner: outcome.cleaner }, 201));
+      return noStore(apiSuccess({ cleaner: outcome.cleaner, released: outcome.released }, 201));
     case 'not-a-code':
       return noStore(apiValidationError([{ path: 'code', message: CODE_MESSAGE }]));
     case 'reserved':
       return noStore(apiFailure(outcome.reason === 'admin-pin' ? ADMIN_PIN_REFUSAL : TOO_EASY_REFUSAL));
     case 'taken':
-      return noStore(apiFailure(takenRefusal(outcome.retired)));
+      return noStore(apiFailure(takenRefusal(outcome.holder)));
     default:
       return noStore(apiFailure(ISSUE_REFUSALS[outcome.kind]));
   }

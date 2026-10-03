@@ -105,8 +105,8 @@ export function FinishTab({ month, monthOpen, typed, readOnly, onChange, finishe
         <div className={styles.blockHead}>
           <h3 className={styles.blockTitle}>Reference and date</h3>
         </div>
-        <div className={styles.referenceGrid}>
-          <div>
+        <div className={styles.fields}>
+          <div className={`${styles.field} ${styles.fieldGrow}`}>
             <label className={styles.fieldLabel} htmlFor="reference">Reference</label>
             <input
               id="reference"
@@ -118,7 +118,7 @@ export function FinishTab({ month, monthOpen, typed, readOnly, onChange, finishe
               onChange={(e) => onChange({ ...typed, reference: e.target.value })}
             />
           </div>
-          <div>
+          <div className={`${styles.field} ${styles.fieldAmount}`}>
             <label className={styles.fieldLabel} htmlFor="report-date">Date</label>
             <input id="report-date" type="date" className={`${styles.textInput} ${!readOnly && !isDayText(typed.reportDate) ? styles.inputInvalid : ""}`} value={legacyView ? "" : typed.reportDate} disabled={readOnly} onChange={(e) => onChange({ ...typed, reportDate: e.target.value })} />
           </div>

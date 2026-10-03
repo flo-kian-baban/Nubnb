@@ -87,8 +87,15 @@
  * waiting for a decision, then — last — the rejected and removed ones, which
  * are decided and only kept on record. The table is one line per entry:
  * Sent · Property · Logged by · Total (items and tax in its tooltip) ·
- * Status · Receipt; the property takes the width that is left, and the entry
- * pane opens beside it only when an entry is opened.
+ * Status · Receipt; the property takes the width that is left.
+ *
+ * ── An entry opens under its own row (Kian, 2026-10-02) ──
+ * A click on a row opens the entry beneath it, as an accordion: one open at
+ * a time, the receipt photo in its own column beside the review, the items,
+ * its statement and PDFs, and its history. A click on the row again closes
+ * it. An action that takes the open entry out of the list shown (approving
+ * it in the queue, say) closes it and says so above the table. In "Items
+ * bought", a line opens its entry in the entries view.
  *
  * The filters, the view and the open entry are mirrored into the URL
  * (?property=, ?status=, ?kind=, ?cleaner=, ?from=, ?to=, ?view=, ?entry=),
@@ -98,7 +105,7 @@
 import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { AlertTriangle, Eye, FileSpreadsheet, FileText, ImageIcon, Pencil, Receipt, RefreshCw, Search } from "lucide-react";
+import { AlertTriangle, ChevronRight, Eye, FileSpreadsheet, FileText, ImageIcon, Pencil, Receipt, RefreshCw, Search } from "lucide-react";
 import { AdminHeader } from "../components/AdminHeader";
 import { AdminSelect } from "../components/AdminSelect";
 import { DateRangeField } from "../components/DateRangeField";
@@ -201,7 +208,8 @@ function Costs() {
   });
   const [view, setView] = useState<View>(() => (params.get("view") === "items" ? "items" : "entries"));
   const [selectedId, setSelectedId] = useState<string | null>(() => params.get("entry"));
-  const detailRef = useRef<HTMLElement>(null);
+  /** An entry named in the address is brought into view once the list has loaded. */
+  const linkedEntry = useRef<string | null>(params.get("entry"));
   const { notice, show, clear } = useNotice();
   /** True while a PDF is being recorded, before it is downloaded. */
   const [recording, setRecording] = useState(false);
@@ -260,10 +268,30 @@ function Costs() {
     setAttempt((n) => n + 1);
   };
 
-  const open = (id: string) => {
+  /**
+   * Open an entry under its row, closing any other; or close it when it is
+   * the one open. The row is brought to the top when it is out of view or low
+   * on the screen, so what opens under it can be read.
+   */
+  const toggle = (id: string) => {
+    if (selectedId === id) {
+      setSelectedId(null);
+      return;
+    }
     setSelectedId(id);
-    // On a narrow screen the pane sits below the list; bring it into view.
-    requestAnimationFrame(() => detailRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
+    requestAnimationFrame(() => {
+      const row = document.getElementById(`entry-${id}`);
+      if (!row) return;
+      const top = row.getBoundingClientRect().top;
+      if (top < 80 || top > window.innerHeight * 0.4) row.scrollIntoView({ block: "start", behavior: "smooth" });
+    });
+  };
+
+  /** A line in "Items bought" opens its entry, in the entries view. */
+  const openFromItems = (id: string) => {
+    setView("entries");
+    setSelectedId(id);
+    requestAnimationFrame(() => document.getElementById(`entry-${id}`)?.scrollIntoView({ block: "start", behavior: "smooth" }));
   };
 
   const replaceEntry = useCallback((stored: CostEntryView) => {
@@ -275,6 +303,22 @@ function Costs() {
   }, []);
 
   const closePane = useCallback(() => setSelectedId(null), []);
+
+  /**
+   * After a review: the entry as stored. When it no longer belongs to the list
+   * shown — approved or seen in the queue, say — its row goes, so it closes
+   * and the page says what was done.
+   */
+  const changed = useCallback(
+    (stored: CostEntryView, told: Notice) => {
+      replaceEntry(stored);
+      if (!matchesFilters(stored, filters)) {
+        setSelectedId(null);
+        show({ ...told, detail: [told.detail, "It has left this list."].filter(Boolean).join(" ") });
+      }
+    },
+    [replaceEntry, filters, show],
+  );
 
   /** An entry deleted outright (dispatch 23H): it leaves the list, the pane closes, and the page says what went. */
   const dropEntry = useCallback(
@@ -379,6 +423,10 @@ function Costs() {
     ? entries.filter((entry) => entry.property.id === filters.propertyId && entry.status === "pending").length
     : 0;
   const selected = selectedId === null ? null : (entries.find((entry) => entry.id === selectedId) ?? null);
+  /** The open entry is shown only when it is in the list shown; an address can name one that is not. */
+  const openInList = selectedId !== null && visible.some((entry) => entry.id === selectedId);
+  /** Columns of the entry table: the property's is left out when one property is chosen. */
+  const columns = oneProperty ? 5 : 6;
   const today = torontoDayOf(new Date());
 
   /** The open entry's property has its statements read once (dispatch 23D). */
@@ -386,6 +434,13 @@ function Costs() {
   useEffect(() => {
     if (selectedPropertyId !== null && selectedPropertyId !== "" && !requestedStatements.current.has(selectedPropertyId)) loadStatements(selectedPropertyId);
   }, [selectedPropertyId, loadStatements, attempt]);
+  // An entry named in the address, once the list is there: its row at the top, open under it.
+  useEffect(() => {
+    const id = linkedEntry.current;
+    if (id === null || list.kind !== "ready") return;
+    linkedEntry.current = null;
+    requestAnimationFrame(() => document.getElementById(`entry-${id}`)?.scrollIntoView({ block: "start" }));
+  }, [list.kind]);
   /** Every cleaner's last 90 days, read from the entries (dispatch 24); the ones worth a look head the queue. */
   const patterns = useMemo(() => watchList(entries, today), [entries, today]);
   const worthALook = useMemo(() => patterns.filter((pattern) => pattern.worthALook), [patterns]);
@@ -777,9 +832,18 @@ function Costs() {
               </div>
             )}
 
-            <div className={`${styles.layout} ${selectedId === null ? styles.layoutWide : styles.layoutOpen}`}>
-              {/* ── List ── */}
-              <section className={styles.listPane} aria-label={showing === "items" ? "Items bought" : "Entries"}>
+            {/* An address can name an entry these filters leave out: said once, not opened. */}
+            {selectedId !== null && !openInList && showing === "entries" && list.kind === "ready" && (
+              <p className={styles.note} role="status">
+                The entry in this address is not in the list shown.{" "}
+                <button type="button" className={styles.linkButton} onClick={closePane}>
+                  Dismiss
+                </button>
+              </p>
+            )}
+
+            {/* ── List ── */}
+            <section className={styles.listPane} aria-label={showing === "items" ? "Items bought" : "Entries"}>
                 {visible.length === 0 && ledger ? (
                   <div className={shared.empty}>
                     <Receipt size={48} strokeWidth={1} />
@@ -799,7 +863,7 @@ function Costs() {
                     <p>Try another property, status or dates.</p>
                   </div>
                 ) : showing === "items" ? (
-                  <ItemsTable rows={items} selectedId={selectedId} onOpen={open} />
+                  <ItemsTable rows={items} selectedId={selectedId} onOpen={openFromItems} />
                 ) : (
                   <div className={`${shared.tableContainer} ${styles.tableScroll}`}>
                     {/* One line per entry: every column as wide as its widest entry, the property — or, for one
@@ -822,7 +886,7 @@ function Costs() {
                             {/* In the queue, each group under its heading: what needs review first, the decided last. */}
                             {group.key !== "all" && (
                               <tr className={styles.groupRow}>
-                                <td colSpan={oneProperty ? 5 : 6}>
+                                <td colSpan={columns}>
                                   <span className={styles.groupTitle}>
                                     {group.key === "unseen" ? "Approved automatically, not yet looked at" : group.key === "decide" ? "Needs a decision" : "Rejected or removed"} ({group.entries.length})
                                   </span>
@@ -843,15 +907,34 @@ function Costs() {
                               </tr>
                             )}
                             {group.entries.map((entry) => (
-                              <EntryRow
-                                key={entry.id}
-                                entry={entry}
-                                isOpen={entry.id === selectedId}
-                                showProperty={!oneProperty}
-                                pdf={pdfStates.get(entry.id) ?? null}
-                                seen={group.key === "unseen" ? { marking: marking !== null, busy: marking === entry.id, onSeen: () => markSeen([entry]) } : null}
-                                onOpen={open}
-                              />
+                              <Fragment key={entry.id}>
+                                <EntryRow
+                                  entry={entry}
+                                  isOpen={entry.id === selectedId}
+                                  showProperty={!oneProperty}
+                                  pdf={pdfStates.get(entry.id) ?? null}
+                                  seen={group.key === "unseen" ? { marking: marking !== null, busy: marking === entry.id, onSeen: () => markSeen([entry]) } : null}
+                                  onToggle={toggle}
+                                />
+                                {/* ── The open entry, under its own row (Kian, 2026-10-02) ── */}
+                                {entry.id === selectedId && (
+                                  <tr className={styles.detailRow} id={`entry-detail-${entry.id}`}>
+                                    <td colSpan={columns}>
+                                      <EntryPane
+                                        key={entry.id}
+                                        entry={entry}
+                                        pdf={pdfStates.get(entry.id) ?? null}
+                                        pattern={entry.cleaner.id === null ? null : (patterns.find((pattern) => pattern.cleanerId === entry.cleaner.id) ?? null)}
+                                        statements={entry.property.id === null ? null : (statementsByProperty[entry.property.id] ?? { kind: "loading" })}
+                                        onChanged={changed}
+                                        onDeleted={dropEntry}
+                                        onClose={closePane}
+                                        showHeading={false}
+                                      />
+                                    </td>
+                                  </tr>
+                                )}
+                              </Fragment>
                             ))}
                           </Fragment>
                         ))}
@@ -859,33 +942,7 @@ function Costs() {
                     </table>
                   </div>
                 )}
-              </section>
-
-              {/* ── The open entry: beside the list only when one is open, so the table has the width otherwise ── */}
-              {selectedId !== null && (
-                <aside ref={detailRef} className={styles.detailPane} aria-label="Entry">
-                  {selected ? (
-                    <EntryPane
-                      key={selected.id}
-                      entry={selected}
-                      pdf={pdfStates.get(selected.id) ?? null}
-                      pattern={selected.cleaner.id === null ? null : (patterns.find((pattern) => pattern.cleanerId === selected.cleaner.id) ?? null)}
-                      statements={selected.property.id === null ? null : (statementsByProperty[selected.property.id] ?? { kind: "loading" })}
-                      onChanged={replaceEntry}
-                      onDeleted={dropEntry}
-                      onClose={closePane}
-                    />
-                  ) : (
-                    <div className={styles.detailState}>
-                      <p>This entry is not in the list. It may have been opened from an old link.</p>
-                      <button type="button" className={styles.btnGhost} onClick={closePane}>
-                        Close
-                      </button>
-                    </div>
-                  )}
-                </aside>
-              )}
-            </div>
+            </section>
 
             {/* ── Totals for what is shown, and the reports: at the bottom, under the entries (Kian, 2026-10-02) ── */}
             {!ledger && (
@@ -959,7 +1016,8 @@ function Costs() {
  * One entry, one line (2026-10-02): when it was sent, the property (cut to
  * the column, its whole name on hover), who logged it with a one-word kind,
  * the total with its PDF mark under it, the status, and whether a receipt
- * photo came with it. A click anywhere opens it in the pane.
+ * photo came with it. A click anywhere opens it under the row, or closes it;
+ * the chevron says which.
  */
 function EntryRow({
   entry,
@@ -967,7 +1025,7 @@ function EntryRow({
   showProperty,
   pdf,
   seen,
-  onOpen,
+  onToggle,
 }: {
   entry: CostEntryView;
   isOpen: boolean;
@@ -975,22 +1033,28 @@ function EntryRow({
   pdf: EntryPdfState | null;
   /** In the queue's first group: the Seen button, and whether a mark is under way. */
   seen: { marking: boolean; busy: boolean; onSeen: () => void } | null;
-  onOpen: (id: string) => void;
+  onToggle: (id: string) => void;
 }) {
   const property = propertyLabel(entry);
   const who = cleanerLabel(entry);
   return (
-    <tr className={`${styles.row} ${isOpen ? styles.rowOpen : ""} ${countsInTotals(entry.status) ? "" : styles.rowOut}`} onClick={() => onOpen(entry.id)}>
+    <tr
+      id={`entry-${entry.id}`}
+      className={`${styles.row} ${isOpen ? styles.rowOpen : ""} ${countsInTotals(entry.status) ? "" : styles.rowOut}`}
+      onClick={() => onToggle(entry.id)}
+    >
       <td className={`${styles.whenCell} ${styles.colFit}`}>
         <button
           type="button"
           className={styles.rowButton}
-          aria-current={isOpen ? "true" : undefined}
+          aria-expanded={isOpen}
+          aria-controls={isOpen ? `entry-detail-${entry.id}` : undefined}
           onClick={(e) => {
             e.stopPropagation();
-            onOpen(entry.id);
+            onToggle(entry.id);
           }}
         >
+          <ChevronRight size={14} aria-hidden className={`${styles.chevron} ${isOpen ? styles.chevronOpen : ""}`} />
           <SentAt iso={entry.createdAt} />
         </button>
       </td>
