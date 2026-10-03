@@ -1,9 +1,23 @@
+/**
+ * POST /api/check-availability — are these dates free for this property?
+ *
+ * Body: `{ propertyId, startDate, endDate }` (dates as yyyy-mm-dd).
+ *
+ * Dispatch 26: the browser used to send the property's calendar link here.
+ * The link no longer reaches any public page (it carries a secret key, and
+ * its feed carries guests' details), so the browser sends the property's ID
+ * and the link is read on the server. A link sent by a browser is ignored,
+ * which also means this route can no longer be pointed at a calendar of the
+ * caller's choosing.
+ */
+
 import { startOfDay, endOfDay, parseISO } from 'date-fns';
 import { createRateLimiter } from '@/app/lib/api/rate-limit';
-import { validateIcalUrl, validateDateString } from '@/app/lib/api/validate';
+import { validateDateString } from '@/app/lib/api/validate';
 import { getIcalFeed, IcalFetchError } from '@/app/lib/api/ical-cache';
-import { apiSuccess, apiError, apiRateLimited } from '@/app/lib/api/safe-response';
+import { apiSuccess, apiError, apiFailure, apiRateLimited } from '@/app/lib/api/safe-response';
 import { parseIcalEvents } from '@/app/lib/api/ical-parser';
+import { isPropertyId, readCalendarLink, type CalendarLink } from '@/app/lib/firebase/server-calendar';
 
 // 30 requests per minute per IP
 const limiter = createRateLimiter({ windowMs: 60_000, maxRequests: 30 });
@@ -22,11 +36,10 @@ export async function POST(request: Request) {
       return apiError('Invalid JSON body', 400);
     }
 
-    const { icalUrl, startDate, endDate } = body;
+    const { propertyId, startDate, endDate } = body;
 
     // ── Validate inputs ────────────────────────────────────
-    const urlCheck = validateIcalUrl(icalUrl);
-    if (!urlCheck.valid) return apiError(urlCheck.error!, 400);
+    if (!isPropertyId(propertyId)) return apiError('propertyId is required', 400);
 
     const startCheck = validateDateString(startDate, 'startDate');
     if (!startCheck.valid) return apiError(startCheck.error!, 400);
@@ -41,10 +54,22 @@ export async function POST(request: Request) {
       return apiError('startDate must be before endDate', 400);
     }
 
+    // ── The property's calendar link, read on the server ───
+    let link: CalendarLink;
+    try {
+      link = await readCalendarLink(propertyId);
+    } catch (err) {
+      return apiError('Could not read this property', 502, err);
+    }
+    if (link.kind === 'not-found') return apiError('Property not found', 404);
+    if (link.kind === 'none') {
+      return apiFailure({ message: 'No calendar is connected to this property', status: 422, code: 'NO_CALENDAR' });
+    }
+
     // ── Fetch iCal (SSRF-safe, cached for 10 minutes) ──────
     let icalData: string;
     try {
-      icalData = await getIcalFeed(urlCheck.value!);
+      icalData = await getIcalFeed(link.url);
     } catch (err) {
       if (err instanceof IcalFetchError) return apiError(err.message, err.status);
       return apiError('Failed to fetch the calendar feed', 502, err);

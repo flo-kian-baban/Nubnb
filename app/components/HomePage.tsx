@@ -337,7 +337,7 @@ export default function HomePage({ properties, initialSlug, initialProperty }: H
 
     if (!availStart || !availEnd) return;
 
-    const propsWithICal = properties.filter(p => p.icalUrl && !bookedCache[p.id]);
+    const propsWithICal = properties.filter(p => p.hasCalendar && !bookedCache[p.id]);
     if (propsWithICal.length === 0) return;
 
     // Debounce: wait for user to stop changing dates

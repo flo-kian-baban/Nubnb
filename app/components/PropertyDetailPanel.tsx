@@ -194,18 +194,20 @@ export function PropertyDetailPanel({
   // iCal booked dates
   const [bookedDates, setBookedDates] = useState<Date[]>([]);
   const [calendarLoading, setCalendarLoading] = useState(false);
-  const lastFetchedIcalUrl = useRef<string | null | undefined>(null);
+  const lastFetchedFor = useRef<string | null | undefined>(null);
 
-  // Fetch booked dates from iCal when property changes
+  // Fetch booked dates from iCal when property changes. The calendar link
+  // itself never reaches the browser (dispatch 26): the dates are asked for
+  // by property ID and the server reads the link.
   useEffect(() => {
-    if (!property?.icalUrl) {
+    if (!property?.hasCalendar) {
       setBookedDates([]);
-      lastFetchedIcalUrl.current = null;
+      lastFetchedFor.current = null;
       return;
     }
 
-    // Skip if we already fetched for this exact icalUrl
-    if (lastFetchedIcalUrl.current === property.icalUrl) return;
+    // Skip if we already fetched for this property
+    if (lastFetchedFor.current === property.id) return;
 
     const fetchBookedDates = async () => {
       setCalendarLoading(true);
@@ -223,7 +225,7 @@ export function PropertyDetailPanel({
 
         const result = await res.json();
         setBookedDates(expandBookedRanges(result.data.bookedRanges));
-        lastFetchedIcalUrl.current = property.icalUrl;
+        lastFetchedFor.current = property.id;
       } catch (err) {
         console.error('Error fetching booked dates:', err);
         setBookedDates([]);
@@ -233,7 +235,7 @@ export function PropertyDetailPanel({
     };
 
     fetchBookedDates();
-  }, [property?.icalUrl]);
+  }, [property?.id, property?.hasCalendar]);
 
   // ── Nothing selected ──
   if (!property && !summary) return null;
@@ -345,7 +347,7 @@ export function PropertyDetailPanel({
     const startDate = selection.checkIn;
     const endDate = selection.checkOut;
 
-    if (!property.icalUrl) {
+    if (!property.hasCalendar) {
       setAvailabilityStatus('no-calendar');
       return;
     }
@@ -357,7 +359,7 @@ export function PropertyDetailPanel({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          icalUrl: property.icalUrl,
+          propertyId: property.id,
           startDate,
           endDate
         })
@@ -367,6 +369,8 @@ export function PropertyDetailPanel({
 
       if (res.ok && result.success) {
         setAvailabilityStatus(result.data.available ? 'available' : 'booked');
+      } else if (result?.code === 'NO_CALENDAR') {
+        setAvailabilityStatus('no-calendar');
       } else {
         setAvailabilityStatus('error');
       }

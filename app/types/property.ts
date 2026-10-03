@@ -72,7 +72,7 @@ export interface AddressDetails {
  *   - the card    — name, coverImage, addressDetails, location, guests,
  *                   bedrooms, bathrooms, priceInfo.nightly, price
  *   - the map     — id, coordinates, price
- *   - the filters — name, location, addressDetails.city, guests, icalUrl
+ *   - the filters — name, location, addressDetails.city, guests, hasCalendar
  *   - slug resolution — name, slug
  *
  * Everything else arrives with the full document when a property is opened.
@@ -93,7 +93,14 @@ export interface PropertySummary {
   coverImage: string;
   type: string;
   propertyTypeTag: string;    // "Entire home", "Private room", "Guest suite"
-  icalUrl?: string;
+  /**
+   * Whether the property has a calendar link, worked out on the server. The
+   * link itself never reaches a public page (dispatch 26): Airbnb's export
+   * link carries a secret key, and its feed carries each reservation's link
+   * and the last digits of the guest's phone. Absent on a document read
+   * through the admin routes, which carry `icalUrl` itself.
+   */
+  hasCalendar?: boolean;
   priceInfo: PriceInfo;
   addressDetails: AddressDetails;
 }
@@ -101,6 +108,12 @@ export interface PropertySummary {
 /** A complete stored property document. */
 export interface Property extends PropertySummary {
   images?: string[];
+
+  /**
+   * The Airbnb calendar export link, as stored. Admin-only: present on what
+   * the admin routes return, stripped from every public page and response.
+   */
+  icalUrl?: string;
 
   // External links
   airbnbUrl?: string;

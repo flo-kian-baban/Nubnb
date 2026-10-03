@@ -41,6 +41,11 @@ const COLLECTION = 'properties';
  *
  * None of those is read by anything on the homepage. They arrive with
  * `getPropertyById` when a visitor opens a property.
+ *
+ * `icalUrl` IS read, but only to work out `hasCalendar`: the link itself never
+ * leaves the server (dispatch 26). It is Airbnb's export link with its secret
+ * key, and the feed behind it carries each reservation's link and the last
+ * digits of the guest's phone.
  */
 const SUMMARY_FIELDS = [
   'slug',
@@ -112,9 +117,10 @@ export function toSummary(id: string, data: Record<string, unknown>): PropertySu
     coverImage: str(data.coverImageStored) || str(data.coverImage),
     type: str(data.type),
     propertyTypeTag: str(data.propertyTypeTag),
-    // Omitted rather than empty-stringed: the availability filter and the
-    // detail calendar both branch on its presence.
-    ...(icalUrl ? { icalUrl } : {}),
+    // The availability filter and the detail calendar branch on this. The
+    // link stays here: the browser asks for a property's booked dates by its
+    // ID, and the server reads the link itself.
+    hasCalendar: icalUrl.trim() !== '',
     priceInfo: {
       nightly: num(price.nightly),
       weekly: num(price.weekly),
@@ -160,9 +166,16 @@ export async function getPropertySummaries(): Promise<PropertySummary[]> {
  * the caller is public — both real answers, and both different from a read
  * that failed, which throws. Only an admin read passes `includeUnlisted`.
  *
+ * The calendar link (`icalUrl`) is left out unless `includeCalendarLink` is
+ * passed, which only an admin read does (dispatch 26): every public page and
+ * response is built from this function or from `toSummary`.
+ *
  * @throws if the read fails.
  */
-export async function getPropertyById(id: string, options: { includeUnlisted?: boolean } = {}): Promise<Property | null> {
+export async function getPropertyById(
+  id: string,
+  options: { includeUnlisted?: boolean; includeCalendarLink?: boolean } = {},
+): Promise<Property | null> {
   const db = getAdminDb();
   const [doc, mark] = await db.getAll(db.collection(COLLECTION).doc(id), db.collection(PROPERTY_VISIBILITY_COLLECTION).doc(id));
   if (!doc.exists) return null;
@@ -187,9 +200,10 @@ export async function getPropertyById(id: string, options: { includeUnlisted?: b
   // them would put a second copy of every image URL in the page payload —
   // 173 KB of `imagesStored` across the catalogue — for no reader: nothing
   // downstream consults them, and the resolution has already happened.
-  const { imagesStored: _stored, coverImageStored: _cover, ...rest } = data;
+  const { imagesStored: _stored, coverImageStored: _cover, icalUrl, ...rest } = data;
   void _stored;
   void _cover;
+  const link = options.includeCalendarLink && typeof icalUrl === 'string' && icalUrl !== '' ? { icalUrl } : {};
 
-  return { ...rest, ...toSummary(doc.id, data), images: resolvedImages } as Property;
+  return { ...rest, ...toSummary(doc.id, data), images: resolvedImages, ...link } as Property;
 }

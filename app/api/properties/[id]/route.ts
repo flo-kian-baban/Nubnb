@@ -5,10 +5,11 @@
  * DELETE /api/properties/[id] — Delete a property (admin-only).
  *
  * Writes are authenticated via HTTP-only session cookie and go through the
- * Admin SDK. The GET is public because the documents are: firestore.rules
- * grants `allow read: if true` on this collection, so every field here was
- * already readable by any browser. Serving it from a route handler instead
- * means the homepage no longer has to ship the Firestore client SDK.
+ * Admin SDK. The GET answers anyone, but the public gets a listed property
+ * without its calendar link; an admin session gets the whole document,
+ * unlisted or not, link included (dispatch 26: the link carries a secret key
+ * and its feed carries guests' details). Browsers cannot read the collection
+ * directly at all: firestore.rules refuses every read.
  *
  * Both write handlers revalidate the renter-facing pages after a successful
  * write, so an edit is visible without waiting for the ISR timer.
@@ -67,7 +68,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
   try {
     // An unlisted property (Kian's ruling of 2026-10-03) is 404 to the public, exactly like one that does not
     // exist; the admin form reads through this route too, and with its session it gets the document.
-    const property = await getPropertyById(id, { includeUnlisted: verifyAdminSession(request).valid });
+    const admin = verifyAdminSession(request).valid;
+    const property = await getPropertyById(id, { includeUnlisted: admin, includeCalendarLink: admin });
     if (!property) return apiError('Property not found', 404);
     return apiSuccess(property);
   } catch (err) {
