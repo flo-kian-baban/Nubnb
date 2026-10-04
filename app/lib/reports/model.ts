@@ -66,7 +66,8 @@ export const PROPERTY_MANAGEMENT_SCHEMA_VERSION = 3;
  * later ones. Nubnb's statements begin with September 2026, the first month
  * of its costs; with no first month at all, every month before would read
  * past due. (Decision 4 had October 2026.) Since 2026-10-03 a property added
- * later owes from the month it was added (`statementMonths`).
+ * later owes from the month it was added, and since 2026-10-04 also any month
+ * with money in it (`statementMonths`).
  */
 export const STATEMENTS_FROM_DEFAULT = '2026-09';
 
@@ -832,29 +833,49 @@ export function isExcludedFromReporting(management: Pick<PropertyManagementView,
 }
 
 /**
+ * Where a property's statement months lie, months with money in them aside:
+ * `floor`, the later of STATEMENTS_FROM_DEFAULT (September 2026) and a
+ * management record's start month; `added`, the later of the floor and the
+ * month the property's document was created, by Firestore's own create time;
+ * `until`, the record's end month.
+ */
+function statementBounds(management: PropertyManagementView | null, createdMonth: string | null): { floor: string; added: string; until: string | null } {
+  const recordFrom = management?.statementsFrom ?? null;
+  const floor = recordFrom !== null && recordFrom > STATEMENTS_FROM_DEFAULT ? recordFrom : STATEMENTS_FROM_DEFAULT;
+  return { floor, added: createdMonth !== null && createdMonth > floor ? createdMonth : floor, until: management?.statementsUntil ?? null };
+}
+
+/**
  * The months a property's statements run (Kian's rulings): from the later of
  * STATEMENTS_FROM_DEFAULT (September 2026) and the month the property's
  * document was created, by Firestore's own create time (2026-10-03: a
  * property added in October owes nothing for September); a management
  * record's start month narrows that further, never widens it; its end month
- * ends them. `createdMonth` is null where the create time is not known, which
- * leaves the default.
+ * ends them. A month with accepted income or approved costs in it is owed
+ * whenever the property was added (2026-10-04), so `from` reaches back to
+ * the earliest of `moneyMonths` (`moneyMonthsByProperty` in statement.ts)
+ * that is not before the default or the record's start, nor after its end;
+ * which months between it and the created month are owed is
+ * `inStatementScope`'s to say. `createdMonth` is null where the create time
+ * is not known, which leaves the default.
  */
-export function statementMonths(management: PropertyManagementView | null, createdMonth: string | null = null): { from: string; until: string | null } {
-  const base = createdMonth !== null && createdMonth > STATEMENTS_FROM_DEFAULT ? createdMonth : STATEMENTS_FROM_DEFAULT;
-  const recordFrom = management?.statementsFrom ?? null;
-  return { from: recordFrom !== null && recordFrom > base ? recordFrom : base, until: management?.statementsUntil ?? null };
+export function statementMonths(management: PropertyManagementView | null, createdMonth: string | null = null, moneyMonths: readonly string[] = []): { from: string; until: string | null } {
+  const { floor, added, until } = statementBounds(management, createdMonth);
+  const earliest = moneyMonths.filter((month) => month >= floor && month < added && (until === null || month <= until)).sort()[0];
+  return { from: earliest ?? added, until };
 }
 
 /**
  * Whether a property expects a statement for `month`: inside its statement
  * months, and not excluded from reporting (Kian's ruling of 2026-10-03: an
- * excluded property owes no statements).
+ * excluded property owes no statements). Before the month the property was
+ * added, only a month in `moneyMonths` is owed (Kian's ruling of 2026-10-04).
  */
-export function inStatementScope(management: PropertyManagementView | null, month: string, createdMonth: string | null = null): boolean {
+export function inStatementScope(management: PropertyManagementView | null, month: string, createdMonth: string | null = null, moneyMonths: readonly string[] = []): boolean {
   if (isExcludedFromReporting(management)) return false;
-  const { from, until } = statementMonths(management, createdMonth);
-  return month >= from && (until === null || month <= until);
+  const { floor, added, until } = statementBounds(management, createdMonth);
+  if (month < floor || (until !== null && month > until)) return false;
+  return month >= added || moneyMonths.includes(month);
 }
 
 /** A report's internal reference: the first six characters of its ID, as an entry's ref. Printed on legacy statements; shown in the admin for any. */

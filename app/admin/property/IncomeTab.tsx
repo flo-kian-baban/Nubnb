@@ -15,9 +15,15 @@
  * it. ↑ ↓ on each row keep the admin's order.
  *
  * A finished month shows the frozen lines, with no form.
+ *
+ * Lines from the platforms' files (dispatch 27): a line an admin accepted on
+ * the Income page is an ordinary line of the draft, marked here with its file
+ * and row; the month's lines still waiting there are counted, with the way
+ * to them. The Income page reads the same draft.
  */
 
 import { useState, type FormEvent } from "react";
+import Link from "next/link";
 import { ArrowDown, ArrowUp, Plus } from "lucide-react";
 import type { Notice } from "../components/Notice";
 import { DateRangeField } from "../components/DateRangeField";
@@ -35,6 +41,8 @@ interface Props {
   sums: { incomeCents: number; expensesCents: number } | null;
   onChange: (next: Typed) => void;
   show: (notice: Notice) => void;
+  /** The month's lines from the platforms' files: each accepted line's file and row, by line id; how many wait on the Income page; whether they could be read. */
+  files?: { marks: Map<string, string>; pending: number; failed: boolean; month: string };
 }
 
 /** The form's fields: the line being added (id null) or corrected (its id), as typed so far. */
@@ -55,7 +63,7 @@ function figuresOf(line: Pick<LineDraft, "quantity" | "rate">) {
   return { quantity, rateCents, amountCents: rateCents !== null && quantity !== null ? lineAmount(quantity, rateCents) : null };
 }
 
-export function IncomeTab({ typed, readOnly, sums, onChange, show }: Props) {
+export function IncomeTab({ typed, readOnly, sums, onChange, show, files }: Props) {
   const [editing, setEditing] = useState<Editing | null>(null);
   const full = typed.lines.length >= STATEMENT_LIMITS.LINES_MAX;
 
@@ -106,7 +114,7 @@ export function IncomeTab({ typed, readOnly, sums, onChange, show }: Props) {
     <section className={styles.block} aria-label="Income">
       <div className={styles.blockHead}>
         <h3 className={styles.blockTitle}>Income</h3>
-        <span className={styles.blockTotal}>{sums ? `${formatCents(sums.incomeCents)} revenue · ${formatCents(-sums.expensesCents)} expenses` : "—"}</span>
+        <span className={styles.blockTotal}>{sums ? `${formatCents(sums.incomeCents)} revenue · ${formatCents(sums.expensesCents)} expenses` : "—"}</span>
         {!readOnly && (
           <span className={styles.blockActions}>
             <button type="button" className={styles.btnPrimary} onClick={openNew} disabled={editing !== null || full} title={full ? `A statement holds at most ${STATEMENT_LIMITS.LINES_MAX} lines` : undefined}>
@@ -116,6 +124,17 @@ export function IncomeTab({ typed, readOnly, sums, onChange, show }: Props) {
           </span>
         )}
       </div>
+
+      {/* ── The month's lines from the files that wait on the Income page (dispatch 27) ── */}
+      {files && files.pending > 0 && (
+        <p className={styles.note}>
+          {files.pending === 1 ? "1 line" : `${files.pending} lines`} from the Airbnb file to review ·{" "}
+          <Link href={`/admin/income?month=${files.month}`} prefetch={false} className={styles.linkButton}>
+            Income page
+          </Link>
+        </p>
+      )}
+      {files?.failed && <p className={styles.noteWarn}>The lines from the files could not be read: which lines came from a file is not shown.</p>}
 
       {/* ── The form: a new line, or the line clicked ── */}
       {editing && !readOnly && (
@@ -189,6 +208,7 @@ export function IncomeTab({ typed, readOnly, sums, onChange, show }: Props) {
               const { quantity, rateCents, amountCents } = figuresOf(line);
               const dates = line.from || line.to ? rangeText(line.from || null, line.to || null) : "";
               const details = line.details ? lineDetailsText({ source: line.details.source, reference: line.details.reference ?? null }) : "";
+              const fromFile = files?.marks.get(line.id) ?? "";
               const open = editing?.id === line.id;
               const unreadable = line.description.trim() === "" || amountCents === null;
               return (
@@ -208,9 +228,9 @@ export function IncomeTab({ typed, readOnly, sums, onChange, show }: Props) {
                         {line.description || <span className={styles.muted}>No description</span>}
                       </button>
                     )}
-                    {(dates !== "" || details !== "" || unreadable) && (
+                    {(dates !== "" || details !== "" || fromFile !== "" || unreadable) && (
                       <span className={`${styles.rowSub} ${unreadable && !readOnly ? styles.rowSubWarn : ""}`}>
-                        {[dates, details ? `${details} · recorded before` : "", unreadable && !readOnly ? "Check this line" : ""].filter(Boolean).join(" · ")}
+                        {[dates, details ? `${details} · recorded before` : "", fromFile ? `From ${fromFile}` : "", unreadable && !readOnly ? "Check this line" : ""].filter(Boolean).join(" · ")}
                       </span>
                     )}
                   </td>

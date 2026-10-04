@@ -144,7 +144,9 @@ function AdminHome() {
     // added since either read still has a status, with the month it was created from whichever read has it.
     const created = new Map(read.data.properties.map((p) => [p.id, p.createdMonth ?? null]));
     for (const [id, month] of createdMonths) if (month !== null) created.set(id, month);
-    const ids = new Map([...read.data.properties, ...properties].map((p) => [p.id, { id: p.id, createdMonth: created.get(p.id) ?? null }]));
+    // The months with money in them (Kian's ruling of 2026-10-04) come from the tracker's read alone.
+    const money = new Map(read.data.properties.map((p) => [p.id, p.moneyMonths ?? []]));
+    const ids = new Map([...read.data.properties, ...properties].map((p) => [p.id, { id: p.id, createdMonth: created.get(p.id) ?? null, moneyMonths: money.get(p.id) ?? [] }]));
     return reportingStatuses({ today, properties: [...ids.values()], management: read.data.management, reports: read.data.reports });
   }, [statementsRead.statements, properties, createdMonths, today]);
 

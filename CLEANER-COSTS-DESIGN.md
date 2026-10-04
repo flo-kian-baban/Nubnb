@@ -1868,3 +1868,105 @@ Production builds on 127.0.0.1:4500 reading production data, with a throwaway ad
 - **Production's properties by created month**: 39 in March, 2 in May, 2 in August, 3 in September (21 and 26 September), 4 on 3 October (18:05, 18:37, 18:45 and 18:51 Z).
 - **Before**: tile "September 2026: 50 due · 0 finished"; panel "September 2026 · 0 of 50 statements finished · 50 due · 2 drafts in progress", 50 rows; the list's Statement column 50 × "Due September".
 - **After**: tile "September 2026: 46 due · 0 finished"; panel "0 of 46 … 46 due · 2 drafts in progress", 46 rows, none of the four added on 3 October; the list 46 × "Due September" and 4 × "Open, not yet due" (Lower Penthouse Corner Unit, 2 Bedroom Condo Quiet Neighborhood Free Parking, Queen Bachelor Fully Private, Queen Bed Studio Fully Private; tooltip "Open, not yet due: October 2026"). CN Tower Boutique Suite, created 26 September, still reads "Due September". Lower Penthouse Corner Unit's page: head "Open, not yet due · October 2026", its months only "October 2026 · open, not yet due".
+
+## 33. Income from the platforms: the Income page (dispatch 27, 2026-10-04)
+
+Kian's dispatch 27, its amendment and his rulings on the report (all 2026-10-04): admins upload Airbnb's monthly transaction CSV on an Income page beside Costs; each row proposes a line to the property its listing title is linked to; an admin accepts (as it is or edited) or rejects it, and an accepted line becomes an ordinary line of the property's statement draft. The rulings are in `CLAUDE.md` under *Income*. The file it was built from is `~/Downloads/airbnb_09_2026-09_2026.csv` (SHA-256 `68093638…46400`): the co-host account's September 2026 report, 71 rows × 21 columns, every row dated by its payout day; it stays out of the repo (guest names).
+
+### 33.1 What is stored
+
+Three root collections and a Storage prefix, all server-only (firestore.rules' catch-all and storage.rules' deny-all cover them; neither file changed, so nothing needs deploying):
+
+- `earnings_uploads/{autoId}` — `platform`, `month`, `file { name, kind: "csv", bytes, sha256 (the original), storagePath, storedBytes, storedSha256 (the kept copy), blanked: ["Guest","Details"] }`, `read { by: "csv", rows, payoutRows, lineRows, amountCents, paidOutCents, balanced, unbalanced[] }`, `titles [{ title, rows, amountCents }]` (the month's rows), `added`, `duplicates`, `outsideMonth [{ month, rows, amountCents }]`, `notRead [{ row, type, amountCents, why }]`, `uploadedAt`, `actor`.
+- `earnings_lines/{sha256("airbnb|code|payoutDate|type|amountCents")}` — `uploadId`, `fileRow` (spreadsheet numbering, header = 1), `payoutDate`, `month`, `type`, `confirmationCode`, `listingTitle` (NFC, spaces collapsed, trimmed), `stay { start, end, nights }`, `amountCents`, `currency`, `evidence { grossCents, serviceFeeCents, cleaningFeeCents }`, `remittedTaxCents`, `status` (proposed · accepted · rejected), `decided` (accepted: `{ at, actor, propertyId, draftId, lineId, description, amountCents, edited }`; rejected: `{ at, actor }`), `history [{ at, actor, action, propertyId? }]`. The document ID is Kian's duplicate rule: a row already stored is never written again.
+- `earnings_title_links/{sha256("airbnb|title")}` — `title`, `propertyId`, `linkedAt`, `actor`, `history [{ propertyId, linkedAt, actor }]` (earlier links).
+- `earnings-uploads/<uploadId>/<uuid>.csv` — the file with Guest and Details emptied, every other cell as uploaded, BOM and line endings kept; create-only, no download token, metadata `{ uploadId, platform, month, originalName, sha256, storedSha256, blanked, uploadedAt }`. Read through a 60-second signed link (`GET /api/admin/income/uploads/[id]/file`).
+
+**How this differs from the shapes reported before building** (Kian: "Your stored shapes and matching rule stand"): `instalment` is gone (ruling 3 dropped the label); a line has no top-level `propertyId` — the property is its title's link, read live, and `decided.propertyId` records where an accepted line went; a link has no `lastSeen` — the Income page works it out from the uploads' titles; an upload's titles carry no `propertyId` for the same reason; the kept copy's size and SHA-256 sit beside the original's (ruling 1); a line keeps a `history`, which "propose again" needs.
+
+### 33.2 Reading the file (`app/lib/income/airbnb.ts`, `csv.ts`)
+
+RFC 4180, strict. Needed columns by Airbnb's names: Date, Type, Confirmation Code, Start date, End date, Nights, Listing, Currency, Amount, Paid out; Gross earnings, Service fee, Cleaning fee and Airbnb remitted tax are kept when present. Dates are MM/DD/YYYY; amounts are read by their digits, never through a float. Each Payout row starts a batch and the rows after it until the next payout are its rows. A file with a missing column, a field count that differs from the header, or a date or amount not in Airbnb's form is refused whole, with the rows named.
+
+### 33.3 My decisions, not rulings
+
+- **The whole label is the line's description, with no dates on the line.** The statement prints a description and then " - " and its dates; Kian's "(paid Sep 30)" comes after the dates, so a line with dates could not print it. Every line from a file is "description, quantity 1, rate = amount": "Revenue - Apr 29–Dec 31, 2026 (paid Sep 30)" prints exactly. "Runs outside the month" is judged on the two printed days (check-in, checkout).
+- **The month is the upload's, chosen on the page; rows paid in another month are counted on the upload, never stored**, so that month's own file proposes them (a row stored from the wrong month's upload would later read as a duplicate). A file with no row in the month is refused, naming the months it covers.
+- **The same file twice is refused** by its SHA-256 (409, nothing stored); a different file holding the same rows stores nothing new and counts them as duplicates, and a row repeated within one file is one line.
+- **A file that does not add up is taken and flagged**, not refused: the upload names each payout that differs from its rows, and rows under no payout. Rows of a type that is not a line, with no amount, no confirmation code, no listing, or a currency other than CAD are listed as not read, with why; they still count in their payout's check.
+- **Accepting into a month with no draft starts one as the property page starts one** (`suggestedTyped`): the reference offered from the previous statement, today's date, the fee rate offered with no base (dispatch 26), no balance, no notes. A month whose draft was finished — or, with no draft, which has a current statement — refuses (409 STATEMENT_FINISHED); during a correction the draft is a draft and takes lines. The draft is written in its own revision-checked shape, so a property page open on it gets DRAFT_CHANGED on its next save and reloads.
+- **Propose again**: a rejected line, or an accepted line whose statement line has since been removed from its draft (the page lists those apart). A line still in its draft is never proposed again, so it cannot print twice.
+- **A link can be moved, never removed**; lines already accepted stay where they went, proposed ones follow it. The link form offers the property whose name is the title when exactly one is; nothing is linked until an admin presses Link.
+- **The check-in gap** reads the daily calendar copies (`availability_days`) of the month and the week after it, and counts a `reserved` event that starts in the month as a check-in. "No income" is no line in the property's statement for the month and none proposed under its titles. The page says how many daily copies it read: September 2026 has 4 (30 Sep, 2–4 Oct), so most of September's short stays are not visible to it.
+- **By property** lists every statement of the month with lines, as the Income tab adds them up (revenue the positive lines, expenses the negative ones), with how many came from a file; a negative line from Airbnb therefore shows as an expense there, as on the statement. Expenses print as a positive amount ("$50.00 expenses"), here and on the Income tab (Kian, 2026-10-04).
+- **The property page** reads the property's lines from the files beside its two reads, never holding the page up: an accepted line is marked "From <file> · row n" in the Income tab, and the month's lines still waiting are counted with a link to the Income page.
+- **Limits**: 2 MiB a file, 400 rows for the month per upload (everything an upload writes is one transaction).
+- **Not built**: deleting an upload; removing a link; the PDF/image/AI path (ruling 2); mobile layout.
+
+### 33.4 Verification (2026-10-04)
+
+A first pass (21:05 Z) checked the reader, the labels and the upload; it stopped before any decision, and its test data was deleted by ID at 21:44 Z (export `backups/2026-10-04T21-45-14Z` byte-identical to its opening `21-04-56Z`, Storage back to 5,265 objects). The second pass, 21:56–22:03 Z, used a production build of this tree (with §34's rule) on 127.0.0.1:4610, reading production, with a throwaway admin PIN and session secrets, and fresh test data: Kian's September file uploaded as `__TEST__airbnb_09_2026-09_2026.csv`.
+
+- **Upload**: 201, 71 rows, 50 lines added, 21 payouts adding up to $37,721.37.
+- **Links**: three titles linked by `PUT /api/admin/income/links` (Sunlit House With Southern Charm, 2 Bedroom Condo Quiet Neighborhood Free Parking, New Build Cottage By River l Hot Tub). A stale `expected` was refused with 409 LINK_CHANGED, and an unknown property with 404. Kian's three titles stayed unlinked.
+- **Decisions on Sunlit House**:
+  - Row 6 was accepted as it was.
+  - Row 16 was accepted edited ("… __TEST__ edited", $300.00), and stored with `edited: true`.
+  - Row 70 was rejected, proposed again and rejected again (its history reads rejected > proposed-again > rejected).
+  - Proposing row 6 again was refused with 409 STILL_IN_STATEMENT.
+  - The draft holds exactly the two accepted lines ($219.95 and $300.00). The 10 proposed lines and the rejected one are not in it.
+- **2 Bedroom Condo** (created 3 October): its one line was accepted. Under §34's rule, September became owed:
+  - the tile went from "36 due" to "37 due";
+  - the panel went from 36 rows to 37;
+  - the list's Statement column reads "Due September";
+  - the property page's head reads "Due · September 2026";
+  - the month ZIP route lists it as due, with a draft folder of 1 line.
+- **New Build Cottage**:
+  - Rows 15, 29, 41, 60 and 62 were accepted in one call; rows 68 and 72 were left proposed.
+  - Finishing with no reference was refused with 422 STATEMENT_INCOMPLETE `missing: reference`. With a `__TEST__` reference it finished (201): 5 lines, payable $2,017.58.
+  - Accepting row 68 was then refused with 409 STATEMENT_FINISHED, and the row stayed proposed.
+  - The PDF fetched through its 60-second link matched the record's size and SHA-256 (25,598 bytes). Its text prints the 5 accepted lines and none of rows 68 or 72.
+  - Deleting the statement through the app was refused with 409 DOWNLOADED_SINCE while it named 0 downloads. Naming 1, it deleted the report, the PDF and the download record, wrote no management record, and reopened the draft with its 5 lines, which then took row 68.
+- **The same file again** was refused with 409 FILE_ALREADY_UPLOADED, naming the first upload. The same rows with CRLF line endings were taken as a new upload: 0 added, 50 duplicates, and every decision kept.
+- **Guest data**: 0 of 43 guest names, 0 of 7 Details values and 0 of 1 payout destination were found anywhere searched after the decisions:
+  - every file of the export `backups/2026-10-04T21-59-31Z`;
+  - both kept CSVs, each matching its `storedSha256`;
+  - the statement PDF's text;
+  - the Income page's API answer.
+  The same search over the original file finds all 43, 7 and 1.
+- **In a browser**: `/admin/income?month=2026-09`; New Build Cottage's page, where every line is marked "From … · row n", "1 line from the Airbnb file to review" is shown, and the live preview holds the 6 lines; 2 Bedroom Condo's page; and the home list.
+- **Cleanup**: 59 documents and 2 objects were deleted by ID from the ledger. The closing export `22-03-25Z` is byte-identical to the opening `21-56-06Z` in 10 of 10 files, and Storage holds 5,265 objects, the same names as before.
+
+## 34. A month with money in it is owed whenever the property was added (2026-10-04)
+
+Kian's ruling of 2026-10-04 replaces the created-month part of the owed-months rule for months with money: "a property owes a statement for any month in which it has accepted income or approved costs, regardless of when it was added. A management record's end month still stops it." It is in `CLAUDE.md` under *Statements*.
+
+- **The rule** lives in `app/lib/reports/model.ts`:
+  - `statementMonths(management, createdMonth, moneyMonths)` and `inStatementScope(…, moneyMonths)`.
+  - A month before the created month is owed when it is in `moneyMonths`.
+  - `from` reaches back to the earliest such month.
+- **The months with money** come from `moneyMonthsByProperty(drafts, entries)` in `statement.ts`, which every caller uses:
+  - the tracker's read (`readTracker` puts `moneyMonths` on each property), and with it the list's column, the tile, the panel and the home page's join;
+  - the property page, from its own drafts and costs reads, so it follows a line added or removed without a reload;
+  - the month ZIP (`selectMonthPackage`), from the month's drafts and every entry.
+- **Unchanged**: with no money anywhere, old and new answer identically in 350 cases (pure). `buildStatement` and `looseEnds` still bound earlier costs by the first month alone (§32.1).
+
+### 34.1 My decisions, then Kian's confirmation
+
+Kian confirmed the first and third readings on 2026-10-04: "September 2026 and a record's start month still apply to money months; accepted income is any line on the month's draft, typed or accepted, negatives included." Both are now in `CLAUDE.md` under *Statements*. The rest are still my decisions.
+
+- **Accepted income is a line on the month's statement draft.** It may be typed by an admin or accepted from a platform's file. A line proposed from a file is on no draft and counts for nothing. Any line counts, negative ones included: an expense typed on the Income tab, or an Airbnb adjustment.
+- **Approved costs are entries whose status is `approved`**, auto-approved ones included, counted in the Toronto month they were sent (`sentDay`), the month the ledger and the statement put them in. Pending, rejected and removed entries do not count.
+- **September 2026 and a record's start month still bound it.** The ruling replaced only the created-month part, so a month with money before September 2026, or before a record's start month, is still not owed. *Confirmed by Kian, 2026-10-04.*
+- **Excluded from reporting still wins**: an excluded property owes nothing, money or not.
+- **The status of a property whose record has ended** names the last month that was owed. Before, it named the end month, which can now be a month that is not owed (after the money, before the property was added).
+
+### 34.2 Verification (2026-10-04)
+
+- **Pure**: 24 checks of the new rule pass:
+  - money months from drafts and entries, with the Toronto boundary: 2026-10-01T03:30Z counts for September;
+  - the rule month by month, including a month between money and the created month, money before September 2026, a record's end and start, and exclusion;
+  - the status, the panel's rows, the tile's counts, the property page's months and the month ZIP's standings;
+  - 350 cases with no money, identical to the code before.
+- **Checks**: `tsc` exit 0; `eslint` 0 errors (the two warnings in `app/admin/page.tsx` are older); `next build` passed (`Kj6O_mSqvgHoZcvH0ikFe`).
+- **On production data**: §33.4. Before any test write, 45 properties gave "September 2026: 36 due · 0 finished", and the only property with money was Corner Penthouse (created in March), so the rule changed nothing. Accepting September income for 2 Bedroom Condo, created 3 October, made it due: "37 due".

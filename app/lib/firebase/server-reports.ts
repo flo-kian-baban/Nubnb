@@ -93,7 +93,7 @@ import {
   type StatementDraftSummary,
   type StatementDraftView,
 } from '@/app/lib/reports/model';
-import { buildStatement, printedBy, sameClaim, type FinishClaim, type Statement } from '@/app/lib/reports/statement';
+import { buildStatement, moneyMonthsByProperty, printedBy, sameClaim, type FinishClaim, type Statement } from '@/app/lib/reports/statement';
 import { statementPdf } from '@/app/lib/reports/statement-pdf';
 
 const CONTROL_CHARACTER = /\p{Cc}/u;
@@ -756,8 +756,8 @@ export interface TrackerData {
   drafts: StatementDraftSummary[];
   downloads: ReportDownloadView[];
   management: PropertyManagementView[];
-  /** Every property, with the Toronto month its document was created (the owed-months rule needs it). */
-  properties: { id: string; name: string | null; createdMonth?: string | null }[];
+  /** Every property, with the Toronto month its document was created and the months it has money in (the owed-months rule needs both). */
+  properties: { id: string; name: string | null; createdMonth?: string | null; moneyMonths?: string[] }[];
   entries: CostEntryView[];
   /** Documents left out because they are not in the written shape. */
   unreadable: { reports: number; drafts: number; downloads: number };
@@ -792,10 +792,14 @@ export async function readTracker(): Promise<TrackerData> {
     else unreadable.reports += 1;
   }
   const drafts: StatementDraftSummary[] = [];
+  /** Which drafts hold lines, for the months with money in them; the summaries carry no lines. */
+  const withLines: { propertyId: string; month: string; lines: unknown[] }[] = [];
   for (const doc of draftsSnap.docs) {
     const draft = readStatementDraft(doc.id, doc.data());
-    if (draft) drafts.push({ id: draft.id, propertyId: draft.propertyId, month: draft.month, revision: draft.revision, updatedAt: draft.updatedAt, finishedAs: draft.finishedAs, superseding: draft.supersedes !== null });
-    else unreadable.drafts += 1;
+    if (draft) {
+      drafts.push({ id: draft.id, propertyId: draft.propertyId, month: draft.month, revision: draft.revision, updatedAt: draft.updatedAt, finishedAs: draft.finishedAs, superseding: draft.supersedes !== null });
+      withLines.push({ propertyId: draft.propertyId, month: draft.month, lines: draft.lines });
+    } else unreadable.drafts += 1;
   }
   const downloads: ReportDownloadView[] = [];
   for (const doc of downloadsSnap.docs) {
@@ -804,5 +808,8 @@ export async function readTracker(): Promise<TrackerData> {
     else unreadable.downloads += 1;
   }
   if (costs.properties === null) throw new Error('The property names could not be read');
-  return { reports, drafts, downloads, management, properties: costs.properties, entries: costs.entries, unreadable };
+  // A month with accepted income or approved costs is owed whenever the property was added (Kian's ruling of 2026-10-04).
+  const money = moneyMonthsByProperty(withLines, costs.entries);
+  const properties = costs.properties.map((property) => ({ ...property, moneyMonths: money.get(property.id) ?? [] }));
+  return { reports, drafts, downloads, management, properties, entries: costs.entries, unreadable };
 }

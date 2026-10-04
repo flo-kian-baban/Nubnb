@@ -33,7 +33,7 @@ import {
   type ReportDownloadView,
   type StatementDraftView,
 } from '@/app/lib/reports/model';
-import { buildStatement, monthStanding, statementOf, type AnyStatement, type Standing, type Statement } from '@/app/lib/reports/statement';
+import { buildStatement, moneyMonthsByProperty, monthStanding, statementOf, type AnyStatement, type Standing, type Statement } from '@/app/lib/reports/statement';
 
 export const MONTH_PACKAGE_SCHEMA_VERSION = 1;
 
@@ -230,6 +230,8 @@ export function selectMonthPackage(input: SelectInputs): Selection {
     const day = sentDay(entry.createdAt);
     return day !== null && day >= range.from && day <= range.to;
   };
+  // A month with accepted income or approved costs in it is owed whenever the property was added (Kian's ruling of 2026-10-04).
+  const money = moneyMonthsByProperty(input.drafts.map((d) => d.view), [...views.values()]);
 
   const folders: PackageFolder[] = [];
   const properties: PackageProperty[] = [];
@@ -245,7 +247,7 @@ export function selectMonthPackage(input: SelectInputs): Selection {
     const reportsOfProperty = allReports.filter((report) => report.propertyId === property.id);
     const live = current.find((report) => report.propertyId === property.id && report.month === month) ?? null;
     const draft = input.drafts.find((d) => d.view.propertyId === property.id && d.view.month === month && d.view.finishedAs === null)?.view ?? null;
-    const standing = monthStanding({ month, today, owed: inStatementScope(record, month, property.createdMonth ?? null), finished: live !== null, excluded: isExcludedFromReporting(record) });
+    const standing = monthStanding({ month, today, owed: inStatementScope(record, month, property.createdMonth ?? null, money.get(property.id) ?? []), finished: live !== null, excluded: isExcludedFromReporting(record) });
 
     let statement: Statement | null = null;
     let unreadable: string[] = [];

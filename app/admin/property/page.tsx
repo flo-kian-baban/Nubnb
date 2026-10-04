@@ -28,7 +28,10 @@
  * statements — its reports whole, its drafts whole, its downloads and its
  * record (GET /api/admin/properties/[id]/statements). Every month is then
  * worked out here from those two answers; moving between months costs no
- * call. A save, a finish, a download and a review each change the page only
+ * call. Beside them, never holding the page up, the property's lines from
+ * the platforms' files (GET /api/admin/properties/[id]/income, dispatch 27):
+ * the Income tab marks a line accepted from a file with its file and row,
+ * and counts the month's lines still waiting on the Income page. A save, a finish, a download and a review each change the page only
  * to what the server returns.
  *
  * ── Where things went ──
@@ -67,6 +70,8 @@ import { NoticeBanner, useNotice, type Notice } from "../components/Notice";
 import { ReportingStatusLine, StandingBadge } from "../components/StatementStatus";
 import { fetchCosts } from "@/app/lib/costs-client";
 import { deleteStatement, fetchPropertyStatements, fetchStatementLink, finishStatement, saveDraft, setReportFor as saveReportFor, type PropertyStatements, type StatementDeleted } from "@/app/lib/reports-client";
+import { fetchPropertyIncome } from "@/app/lib/income-client";
+import type { EarningsLineView } from "@/app/lib/income/model";
 import { formatCents, type CostEntryView, type CostsView, type ReportExportView } from "@/app/lib/cleaners/model";
 import { torontoDayOf } from "@/app/lib/costs/report";
 import {
@@ -86,7 +91,7 @@ import {
   type ReportFor,
   type StatementDraftView,
 } from "@/app/lib/reports/model";
-import { STANDING_LABELS, buildStatement, previousStatement, propertyMonthState, propertyMonths, reportingStatus, statementOf, type AnyStatement, type FinishClaim, type PropertyMonthRow } from "@/app/lib/reports/statement";
+import { STANDING_LABELS, buildStatement, moneyMonthsByProperty, previousStatement, propertyMonthState, propertyMonths, reportingStatus, statementOf, type AnyStatement, type FinishClaim, type PropertyMonthRow } from "@/app/lib/reports/statement";
 import { statementPdf } from "@/app/lib/reports/statement-pdf";
 import type { PropertyStatementsState } from "../costs/EntryPane";
 import { CostsTab } from "./CostsTab";
@@ -99,6 +104,8 @@ import shared from "../page.module.css";
 import styles from "./page.module.css";
 
 type Read<T> = { kind: "loading" } | { kind: "ready"; data: T } | { kind: "error"; title: string; detail?: string; status: number };
+/** What GET /api/admin/properties/[id]/income answers (dispatch 27): the property's lines from the platforms' files, and their files' names. */
+type FromFiles = { lines: EarningsLineView[]; uploads: { id: string; name: string; month: string }[] };
 type Tab = "costs" | "income" | "details" | "finish";
 const TABS: { key: Tab; label: string }[] = [
   { key: "income", label: "Income" },
@@ -152,6 +159,8 @@ function PropertyPageInner() {
   const [entryId, setEntryId] = useState<string | null>(() => params.get("entry"));
   const [costs, setCosts] = useState<Read<CostsView>>({ kind: "loading" });
   const [statements, setStatements] = useState<Read<PropertyStatements>>({ kind: "loading" });
+  /** The lines from the platforms' files under this property (dispatch 27): read beside the two, never in their way. */
+  const [fromFiles, setFromFiles] = useState<Read<FromFiles>>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
   const { notice, show, clear } = useNotice();
 
@@ -166,6 +175,10 @@ function PropertyPageInner() {
     fetchPropertyStatements(propertyId).then((result) => {
       if (cancelled) return;
       setStatements(result.ok ? { kind: "ready", data: result.data } : { kind: "error", title: result.title, detail: result.detail, status: result.status });
+    });
+    fetchPropertyIncome(propertyId).then((result) => {
+      if (cancelled) return;
+      setFromFiles(result.ok ? { kind: "ready", data: result.data } : { kind: "error", title: result.title, detail: result.detail, status: result.status });
     });
     return () => {
       cancelled = true;
@@ -186,6 +199,7 @@ function PropertyPageInner() {
     clear();
     setCosts({ kind: "loading" });
     setStatements({ kind: "loading" });
+    setFromFiles({ kind: "loading" });
     setAttempt((n) => n + 1);
   }, [clear]);
 
@@ -251,12 +265,14 @@ function PropertyPageInner() {
   const costData = costs.kind === "ready" ? costs.data : null;
 
   // ── The months ──
+  /** The months this property has accepted income or approved costs in: owed whenever it was added (Kian's ruling of 2026-10-04). */
+  const moneyMonths = useMemo(() => (data ? (moneyMonthsByProperty(data.drafts, costData?.entries ?? []).get(propertyId) ?? []) : []), [data, costData, propertyId]);
   const draftLikes = useMemo(() => (data ? data.drafts.map((d) => ({ propertyId: d.propertyId, month: d.month, updatedAt: d.updatedAt, finishedAs: d.finishedAs, superseding: d.supersedes !== null })) : []), [data]);
-  const months = useMemo(() => (data ? propertyMonths({ propertyId, today, management: data.management, createdMonth: data.createdMonth ?? null, reports: data.reports, drafts: draftLikes }) : null), [data, draftLikes, propertyId, today]);
-  const inScope = data ? inStatementScope(data.management, month, data.createdMonth ?? null) : true;
+  const months = useMemo(() => (data ? propertyMonths({ propertyId, today, management: data.management, createdMonth: data.createdMonth ?? null, moneyMonths, reports: data.reports, drafts: draftLikes }) : null), [data, draftLikes, moneyMonths, propertyId, today]);
+  const inScope = data ? inStatementScope(data.management, month, data.createdMonth ?? null, moneyMonths) : true;
   const monthNow = useMemo(() => (data ? propertyMonthState({ propertyId, month, today, inScope, excluded: isExcludedFromReporting(data.management), reports: data.reports, drafts: draftLikes }) : null), [data, draftLikes, propertyId, month, today, inScope]);
   /** The property's status in the cycle (dispatch 23G): the head's line, by the rule the list, the panel and the tile use. */
-  const status = useMemo(() => (data ? reportingStatus({ propertyId, today, management: data.management, createdMonth: data.createdMonth ?? null, reports: data.reports }) : null), [data, propertyId, today]);
+  const status = useMemo(() => (data ? reportingStatus({ propertyId, today, management: data.management, createdMonth: data.createdMonth ?? null, moneyMonths, reports: data.reports }) : null), [data, moneyMonths, propertyId, today]);
   /** The months the control lists: the property's, and the chosen one when it is earlier than any of them. */
   const monthOptions = useMemo(() => {
     if (!months || !monthNow) return [];
@@ -269,10 +285,10 @@ function PropertyPageInner() {
     if (!data) return [];
     return [-4, -3, -2, -1, 0, 1, 2].map((offset) => {
       const m = addMonths(thisMonth, offset);
-      const one = propertyMonthState({ propertyId, month: m, today, inScope: inStatementScope(data.management, m, data.createdMonth ?? null), excluded: isExcludedFromReporting(data.management), reports: data.reports, drafts: draftLikes });
+      const one = propertyMonthState({ propertyId, month: m, today, inScope: inStatementScope(data.management, m, data.createdMonth ?? null, moneyMonths), excluded: isExcludedFromReporting(data.management), reports: data.reports, drafts: draftLikes });
       return { month: m, state: one.state, standing: one.standing, live: one.reports.find((r) => r.replacedBy === null)?.report ?? null, upcoming: m > thisMonth };
     });
-  }, [data, draftLikes, propertyId, today, thisMonth]);
+  }, [data, draftLikes, moneyMonths, propertyId, today, thisMonth]);
 
   const propertyName = data?.propertyName ?? costData?.properties?.find((p) => p.id === propertyId)?.name ?? null;
 
@@ -387,6 +403,7 @@ function PropertyPageInner() {
                 onStatementDeleted={onStatementDeleted}
                 releases={releases}
                 onMonth={setMonth}
+                fromFiles={fromFiles}
               />
             </div>
           </>
@@ -430,6 +447,8 @@ interface MonthWorkProps {
   releases: ReleaseRow[];
   /** Opens another month: the page owns the month. */
   onMonth: (month: string) => void;
+  /** The property's lines from the platforms' files (dispatch 27), for the Income tab's marks and its count to review. */
+  fromFiles: Read<FromFiles>;
 }
 
 /**
@@ -491,6 +510,22 @@ function MonthWork(props: MonthWorkProps) {
   }, [finishedReport, reports, built]);
   /** The figures the tabs show: the frozen statement's once finished, else the live build's. */
   const sums = finishedReport ? (finishedReport.legacy ? null : finishedReport) : built.kind === "ok" ? built.statement : null;
+
+  /**
+   * The lines from the platforms' files (dispatch 27): which of the month's lines an admin accepted from a
+   * file, and its file and row; and how many of the month's lines wait on the Income page. Read from the
+   * same earnings lines the Income page reads; the lines themselves are the draft's.
+   */
+  const files = useMemo(() => {
+    const read = props.fromFiles;
+    if (read.kind !== "ready") return { marks: new Map<string, string>(), pending: 0, failed: read.kind === "error", month };
+    const names = new Map(read.data.uploads.map((u) => [u.id, u.name]));
+    const marks = new Map<string, string>();
+    for (const line of read.data.lines) {
+      if (line.decided?.status === "accepted" && line.decided.propertyId === propertyId) marks.set(line.decided.lineId, `${names.get(line.uploadId) ?? "a file"} · row ${line.fileRow}`);
+    }
+    return { marks, pending: read.data.lines.filter((line) => line.status === "proposed" && line.month === month).length, failed: false, month };
+  }, [props.fromFiles, propertyId, month]);
 
   // ── Save, 800 ms after the last change; the first save on a month with nothing stored creates the draft ──
   const doSave = useCallback(async () => {
@@ -767,7 +802,7 @@ function MonthWork(props: MonthWorkProps) {
               show={show}
             />
           )}
-          {tab === "income" && <IncomeTab typed={typed} readOnly={readOnly} sums={sums} onChange={change} show={show} />}
+          {tab === "income" && <IncomeTab typed={typed} readOnly={readOnly} sums={sums} onChange={change} show={show} files={files} />}
           {tab === "details" && (
             <DetailsTab
               typed={typed}

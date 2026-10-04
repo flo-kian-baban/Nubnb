@@ -591,21 +591,46 @@ export interface ReportingInputs {
   management: PropertyManagementView | null;
   /** The Toronto month the property's document was created (Kian's ruling of 2026-10-03); null when not known. */
   createdMonth?: string | null;
+  /** The months the property has accepted income or approved costs in (Kian's ruling of 2026-10-04; `moneyMonthsByProperty`). */
+  moneyMonths?: readonly string[];
   /** Finished reports — of this property or of every property; only this property's are read. */
   reports: { id: string; propertyId: string; month: string; supersedes: Supersedes | null }[];
 }
 
 const TONE_OF: Record<Standing, ReportingTone> = { finished: 'done', due: 'warning', pastDue: 'problem', open: 'none', notExpected: 'none', excluded: 'none' };
 
+/**
+ * The months each property has money in, by property ID, oldest first (Kian's
+ * ruling of 2026-10-04: a property owes a statement for any month in which it
+ * has accepted income or approved costs, regardless of when it was added).
+ * Income: a line on the month's statement draft, typed by an admin or
+ * accepted from a platform's file; a proposed line is on no draft. Costs: an
+ * approved entry, in the Toronto month it was sent (`sentDay`), the month
+ * its ledger and its statement put it in.
+ */
+export function moneyMonthsByProperty(drafts: { propertyId: string; month: string; lines: readonly unknown[] }[], entries: Pick<CostEntryView, 'property' | 'status' | 'createdAt'>[]): Map<string, string[]> {
+  const months = new Map<string, Set<string>>();
+  const add = (propertyId: string, month: string) => months.set(propertyId, (months.get(propertyId) ?? new Set<string>()).add(month));
+  for (const draft of drafts) if (draft.lines.length > 0) add(draft.propertyId, draft.month);
+  for (const entry of entries) {
+    if (entry.status !== 'approved' || entry.property.id === null) continue;
+    const day = sentDay(entry.createdAt);
+    if (day !== null) add(entry.property.id, monthOfDay(day));
+  }
+  return new Map([...months].map(([propertyId, set]) => [propertyId, [...set].sort()]));
+}
+
 /** The rule, for one property: the worst of its months up to the previous one. */
 export function reportingStatus(input: ReportingInputs): ReportingStatus {
   const createdMonth = input.createdMonth ?? null;
-  const { from, until } = statementMonths(input.management, createdMonth);
+  const moneyMonths = input.moneyMonths ?? [];
+  const { from, until } = statementMonths(input.management, createdMonth, moneyMonths);
   const previous = lastClosedMonth(input.today);
   // Excluded from reporting (Kian's ruling of 2026-10-03): it owes no statements, so nothing of it is due, past due or counted as finished.
   if (isExcludedFromReporting(input.management)) return { tone: 'none', standing: 'excluded', month: previous, pastDue: [], previous: { month: previous, standing: 'excluded' } };
   const finished = new Set(currentReports(input.reports.filter((report) => report.propertyId === input.propertyId)).map((report) => report.month));
-  const standingOf = (month: string) => monthStanding({ month, today: input.today, owed: inStatementScope(input.management, month, createdMonth), finished: finished.has(month) });
+  const owed = (month: string) => inStatementScope(input.management, month, createdMonth, moneyMonths);
+  const standingOf = (month: string) => monthStanding({ month, today: input.today, owed: owed(month), finished: finished.has(month) });
   const last = until !== null && until < previous ? until : previous;
   const pastDue = monthsBetween(from, last).filter((month) => standingOf(month) === 'pastDue');
   const before = { month: previous, standing: standingOf(previous) };
@@ -613,15 +638,16 @@ export function reportingStatus(input: ReportingInputs): ReportingStatus {
   if (pastDue.length > 0) return at(pastDue[0], 'pastDue');
   if (before.standing === 'due' || before.standing === 'finished') return at(previous, before.standing);
   // The previous month is not owed: the record ends the statements before it (every one finished, or a month would be past due), or starts them later.
-  if (until !== null && until < previous && from <= until) return at(until, 'finished');
+  // The month named is the last one owed: a month before the property was added with no money in it is not.
+  if (until !== null && until < previous && from <= until) return at(monthsBetween(from, until).filter(owed).pop() ?? until, 'finished');
   const first = from > monthOfDay(input.today) ? from : monthOfDay(input.today);
   return at(first, standingOf(first));
 }
 
 /** Every property's status, by property ID, from the tracker's one read (the list, the panel and the tile share it). */
-export function reportingStatuses(input: { today: string; properties: { id: string; createdMonth?: string | null }[]; management: PropertyManagementView[]; reports: ReportingInputs['reports'] }): Map<string, ReportingStatus> {
+export function reportingStatuses(input: { today: string; properties: { id: string; createdMonth?: string | null; moneyMonths?: readonly string[] }[]; management: PropertyManagementView[]; reports: ReportingInputs['reports'] }): Map<string, ReportingStatus> {
   const records = new Map(input.management.map((record) => [record.propertyId, record]));
-  return new Map(input.properties.map((property) => [property.id, reportingStatus({ propertyId: property.id, today: input.today, management: records.get(property.id) ?? null, createdMonth: property.createdMonth ?? null, reports: input.reports })]));
+  return new Map(input.properties.map((property) => [property.id, reportingStatus({ propertyId: property.id, today: input.today, management: records.get(property.id) ?? null, createdMonth: property.createdMonth ?? null, moneyMonths: property.moneyMonths ?? [], reports: input.reports })]));
 }
 
 /** What the Statements tile counts, over every property's status: statements past due, the previous month's due and finished. */
@@ -686,8 +712,8 @@ export interface TrackerInputs {
   month: string;
   /** Today, yyyy-mm-dd in Toronto: a month that has not ended is open, never outstanding (dispatch 23D). */
   today: string;
-  /** Each property with the Toronto month its document was created, when known (Kian's ruling of 2026-10-03). */
-  properties: { id: string; name: string | null; createdMonth?: string | null }[];
+  /** Each property with the Toronto month its document was created, when known (Kian's ruling of 2026-10-03), and the months it has money in (2026-10-04). */
+  properties: { id: string; name: string | null; createdMonth?: string | null; moneyMonths?: readonly string[] }[];
   reports: MonthlyReportSummaryLike[];
   drafts: DraftLike[];
   downloads: { reportId: string; at: string }[];
@@ -727,7 +753,7 @@ export function trackerRows(input: TrackerInputs): TrackerRow[] {
     // An excluded property leaves the panel (Kian's ruling of 2026-10-03), statements and drafts included: it owes nothing.
     if (isExcludedFromReporting(record)) continue;
     const found = propertyMonth(property.id, input.month, input.reports, input.drafts, current);
-    const inScope = inStatementScope(record, input.month, property.createdMonth ?? null);
+    const inScope = inStatementScope(record, input.month, property.createdMonth ?? null, property.moneyMonths ?? []);
     if (!inScope && found.reports.length === 0 && found.draft === null) continue;
     const state = stateOf(input.month, input.today, found);
     const { live, reports } = found;
@@ -770,6 +796,8 @@ export interface PropertyMonthsInputs {
   management: PropertyManagementView | null;
   /** The Toronto month the property's document was created, when known (Kian's ruling of 2026-10-03). */
   createdMonth?: string | null;
+  /** The months the property has accepted income or approved costs in (Kian's ruling of 2026-10-04). */
+  moneyMonths?: readonly string[];
   /** The property's reports and drafts only. */
   reports: MonthlyReportSummaryLike[];
   drafts: DraftLike[];
@@ -785,7 +813,8 @@ export interface PropertyMonthsInputs {
  */
 export function propertyMonths(input: PropertyMonthsInputs): { rows: PropertyMonthRow[] } {
   const createdMonth = input.createdMonth ?? null;
-  const { from } = statementMonths(input.management, createdMonth);
+  const moneyMonths = input.moneyMonths ?? [];
+  const { from } = statementMonths(input.management, createdMonth, moneyMonths);
   const thisMonth = monthOfDay(input.today);
   const touched = [...input.reports.map((report) => report.month), ...input.drafts.map((draft) => draft.month)].sort();
   const first = [from, thisMonth, ...(touched[0] !== undefined ? [touched[0]] : [])].sort()[0];
@@ -793,7 +822,7 @@ export function propertyMonths(input: PropertyMonthsInputs): { rows: PropertyMon
   const last = lastTouched !== undefined && lastTouched > thisMonth ? lastTouched : thisMonth;
   const rows: PropertyMonthRow[] = [];
   for (const month of monthsBetween(first, last)) {
-    const inScope = inStatementScope(input.management, month, createdMonth);
+    const inScope = inStatementScope(input.management, month, createdMonth, moneyMonths);
     const one = propertyMonthState({ ...input, month, inScope, excluded: isExcludedFromReporting(input.management) });
     if (!inScope && month !== thisMonth && one.reports.length === 0 && one.state.kind !== 'draft') continue;
     rows.push({ month, inScope, ...one });

@@ -201,6 +201,13 @@ no checkout. Do not build toward one unless asked.
   it was added, and its record's start month.** Kian's ruling of 2026-10-03,
   superseding the earlier one that a property with no record owes every
   closed month.
+- **A property owes a statement for any month in which it has accepted
+  income or approved costs, regardless of when it was added. A management
+  record's end month still stops it.** Kian's ruling of 2026-10-04,
+  replacing the created-month part of the owed-months rule for months with
+  money. **September 2026 and a record's start month still apply to money
+  months. Accepted income is any line on the month's draft, typed or
+  accepted, negatives included.** Kian's confirmation of 2026-10-04.
 - **A property's status is based on the previous month — what is due now:**
   finished is done; not finished, from the 1st to the 10th, is a warning;
   not finished after the 10th is a warning, unchanged; any month two or more
@@ -302,3 +309,50 @@ no checkout. Do not build toward one unless asked.
 - **When a permission check blocks an action, it is retried only after Kian
   explicitly approves that action.** "Continue" after an error is not
   approval.
+
+## Income — Kian's rulings of 2026-10-04 (dispatch 27)
+
+- **An Income page in the admin, beside Costs: the one place income comes in
+  for all properties.** Upload: the monthly Airbnb CSV, built so other
+  channels can be added later as other upload types. To review: proposed
+  lines, accepted, edited or rejected by an admin, one at a time or a
+  property's together. By property: each property's accepted income for the
+  month, linking to its property page. No charts in this version.
+- **Gaps, shown without anyone looking for them:** titles not linked to a
+  property; properties with check-ins in the month on their calendar but no
+  income; linked titles missing from the month's file.
+- **The Income page and the property page's Income tab read the same lines.
+  Nothing is copied between them.**
+- **The reading proposes; an admin confirms.** Nothing reaches an owner's
+  statement until an admin accepts it, as with a cleaner's receipt. Accepted
+  lines become ordinary income lines. A finished statement is never touched.
+- **CSV only, read exactly with no AI.** No PDF, image or AI path.
+- **Income belongs to the month Airbnb paid it out — the row's Date, Toronto
+  calendar.** Not the stay's start: long stays are paid in monthly
+  instalments, each row carrying the whole stay's dates.
+- **The amount on a line is the Amount column, what Airbnb paid.** Gross,
+  service fee and cleaning fee are stored as evidence, not printed. An amount
+  is never filled from the property's nightly price.
+- **Lines:** a reservation reads "Revenue - Sep 9–13, 2026". A line whose
+  stay runs outside the upload's month shows its payout date: "Revenue - Apr
+  29–Dec 31, 2026 (paid Sep 30)"; stays inside the month print without it.
+  Adjustment, Resolution Adjustment and Resolution Payout are their own
+  lines, signed, labelled with their type and the stay's dates. Payout rows
+  are never lines: they are used only to check the file adds up, and the
+  destination in their Details column is never stored.
+- **Matching:** each Airbnb title is linked to one Nubnb property by an
+  admin, once, and remembered. An unlinked title is listed with its rows and
+  total, never dropped. A title whose link exists but which no longer appears
+  in a new file is shown, so a renamed listing is noticed. Twin Bed Studio,
+  Private Lakeside Cottage and Spacious 3 Bedroom Suite Bayview & Sheppard
+  stay unlinked until an admin links them.
+- **Duplicates:** a booking's confirmation code is not unique — instalments
+  share it. A line is the same line only if confirmation code, payout date,
+  type and amount all match. The same stay uploaded twice is caught and not
+  proposed twice.
+- **Stored:** dates, amount, type, confirmation code, listing title, the file
+  it came from. Never the guest's name, never a payout destination, no phone
+  numbers, no reservation links. Airbnb remitted tax is stored per row for a
+  later tax rule; it is not a line. No tax lines, no fee, no cleaning counts.
+- **The uploaded CSV is kept privately as evidence, like a receipt, with its
+  Guest and Details columns blanked, plus the original file's SHA-256.**

@@ -30,8 +30,8 @@ export interface TrackerData {
   drafts: StatementDraftSummary[];
   downloads: ReportDownloadView[];
   management: PropertyManagementView[];
-  /** Every property, with the Toronto month its document was created (the owed-months rule needs it). */
-  properties: { id: string; name: string | null; createdMonth?: string | null }[];
+  /** Every property, with the Toronto month its document was created and the months it has money in (the owed-months rule needs both). */
+  properties: { id: string; name: string | null; createdMonth?: string | null; moneyMonths?: string[] }[];
   entries: CostEntryView[];
   unreadable: { reports: number; drafts: number; downloads: number };
 }

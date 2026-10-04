@@ -1,0 +1,419 @@
+/* ══════════════════════════════════════════════
+   Income (dispatch 27) — the month bar, the upload,
+   the gaps, the review table, income by property and
+   the titles. Container, header, table, loading,
+   empty and error styles come from ../page.module.css;
+   buttons, notes, group rows and the summary line are
+   copied from ../costs/page.module.css, which is left
+   as it is, so the two pages read as one.
+   ══════════════════════════════════════════════ */
+
+.tableScroll {
+  overflow-x: auto;
+}
+
+.num {
+  text-align: right !important;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.muted {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.noteWarn {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #f0a63a;
+}
+
+/* ── Buttons ── */
+.btnGhost,
+.btnApprove,
+.btnReject {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  font-family: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.btnGhost {
+  color: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.btnGhost:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.btnApprove {
+  color: #0a0a0c;
+  background: #ffffff;
+  border: 1px solid #ffffff;
+}
+.btnApprove:hover:not(:disabled) {
+  background: #e8e8ea;
+}
+.btnReject {
+  color: #ef5350;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+.btnReject:hover:not(:disabled) {
+  color: #ff6b68;
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.45);
+}
+.btnGhost:disabled,
+.btnApprove:disabled,
+.btnReject:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.btnGhost:focus-visible,
+.btnApprove:focus-visible,
+.btnReject:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 2px;
+}
+
+.linkButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #8dbbe8;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+}
+.linkButton:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.linkButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+  text-decoration: none;
+}
+
+/* ── The month, and the upload ── */
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  margin: 0 0 16px;
+}
+.monthRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.monthStep {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ctl-h);
+  height: var(--ctl-h);
+  border-radius: var(--ctl-radius);
+  border: 1px solid var(--ctl-border);
+  background: var(--ctl-bg);
+  color: var(--ctl-fg);
+  cursor: pointer;
+}
+.monthStep:hover:not(:disabled) {
+  background: var(--ctl-bg-hover);
+  border-color: var(--ctl-border-hover);
+}
+.monthStep:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.monthSelect {
+  min-width: 210px;
+}
+.barEnd {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.fileInput {
+  display: none;
+}
+
+/* ── Blocks: a head (title · figure · action) over their content ── */
+.block {
+  margin: 0 0 22px;
+}
+.blockHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 14px;
+  margin: 0 0 10px;
+}
+.blockTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #e8edf3;
+}
+.blockFigure {
+  font-size: 13px;
+  color: #a9b4c2;
+  font-variant-numeric: tabular-nums;
+}
+.blockAction {
+  margin-left: auto;
+}
+
+/* ── The month's files: one line each ── */
+.uploads {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 18px;
+}
+.uploadRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 13px;
+  color: #c9d2dc;
+  font-variant-numeric: tabular-nums;
+}
+.uploadName {
+  font-weight: 600;
+  color: #e8edf3;
+  overflow-wrap: anywhere;
+}
+.uploadNotes {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ok {
+  color: #8fe3b4;
+}
+
+/* ── Gaps: the panel the costs page's "Worth a look" uses ── */
+.gapPanel {
+  margin: 0 0 22px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgba(245, 158, 11, 0.06);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.gapTitle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #f0a63a;
+}
+.gapGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.gapHead {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #e8edf3;
+}
+.gapList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.gapItem {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  font-size: 13px;
+  color: #e8edf3;
+}
+.gapWhat {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.gapFigures {
+  color: #a9b4c2;
+  font-variant-numeric: tabular-nums;
+}
+.linkForm {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.propertySelect {
+  width: 300px;
+  max-width: 100%;
+}
+
+/* ── Tables ── */
+.colFit {
+  width: 1%;
+  white-space: nowrap;
+}
+.colFlex {
+  min-width: 260px;
+}
+.cellWhat {
+  font-size: 13.5px;
+  color: rgba(255, 255, 255, 0.88);
+  overflow-wrap: anywhere;
+}
+.cellSub {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.42);
+}
+.cellWhen {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+  white-space: nowrap;
+}
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.groupRow td {
+  padding: 12px 14px 8px !important;
+  background: rgba(255, 255, 255, 0.025);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.groupInner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+}
+.groupTitle {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #e8edf3;
+  letter-spacing: 0.01em;
+}
+.groupFigure {
+  font-size: 12px;
+  color: #a9b4c2;
+  font-variant-numeric: tabular-nums;
+}
+.groupAction {
+  margin-left: auto;
+}
+.editRow td {
+  background: rgba(101, 153, 205, 0.06);
+}
+.editFields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.textInput {
+  height: 34px;
+  padding: 0 10px;
+  background: var(--ctl-bg);
+  border: 1px solid var(--ctl-border);
+  border-radius: 10px;
+  color: var(--ctl-fg);
+  font: inherit;
+  font-size: 13px;
+}
+.textInput:focus {
+  outline: none;
+  border-color: var(--ctl-focus);
+  box-shadow: var(--ctl-ring);
+}
+.descriptionInput {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+.amountInput {
+  width: 120px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.7);
+  white-space: nowrap;
+}
+.badgeDone {
+  color: #8fe3b4;
+  border-color: rgba(110, 231, 160, 0.3);
+  background: rgba(110, 231, 160, 0.08);
+}
+.badgeWarn {
+  color: #f0a63a;
+  border-color: rgba(245, 158, 11, 0.3);
+  background: rgba(245, 158, 11, 0.08);
+}
+.totalRow td {
+  font-weight: 700;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+.titles summary {
+  cursor: pointer;
+  list-style: none;
+}
+.titles summary::-webkit-details-marker {
+  display: none;
+}
+.empty {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.5);
+}

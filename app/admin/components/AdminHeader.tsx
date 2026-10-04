@@ -3,9 +3,11 @@
 /**
  * The one admin header (2026-09-30), the same on every admin page:
  *
- *   NUBNB  Admin   Properties · Leads · Costs · Team · Availability   View Site ↗  [page action]
+ *   NUBNB  Admin   Properties · Leads · Costs · Income · Team · Availability   View Site ↗  [page action]
  *
  * "Team" (dispatch 24) is the cleaners page, which now holds handymen too.
+ * "Income" (dispatch 27, Kian's ruling of 2026-10-04) sits beside Costs: the
+ * one place income comes in for all properties.
  * "Reports" (dispatch 23B) was a section from 2026-09-30 to dispatch 23F
  * (2026-10-01): the statements are written on each property's page now, and
  * the cross-property view is a panel on the admin home, under the
@@ -31,15 +33,17 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { CalendarSearch, ExternalLink, Inbox, LayoutGrid, Receipt, Users } from "lucide-react";
+import { Banknote, CalendarSearch, ExternalLink, Inbox, LayoutGrid, Receipt, Users } from "lucide-react";
 import styles from "../page.module.css";
 
-export type AdminSection = "properties" | "leads" | "costs" | "cleaners" | "availability";
+export type AdminSection = "properties" | "leads" | "costs" | "income" | "cleaners" | "availability";
 
 const SECTIONS: { key: AdminSection; label: string; href: string; Icon: typeof Inbox }[] = [
   { key: "properties", label: "Properties", href: "/admin", Icon: LayoutGrid },
   { key: "leads", label: "Leads", href: "/admin/leads", Icon: Inbox },
   { key: "costs", label: "Costs", href: "/admin/costs", Icon: Receipt },
+  // Dispatch 27 (2026-10-04): the platforms' files, the lines they propose, and each property's income for the month.
+  { key: "income", label: "Income", href: "/admin/income", Icon: Banknote },
   { key: "cleaners", label: "Team", href: "/admin/cleaners", Icon: Users },
   // Dispatch 22 (2026-09-30): the search for a caller's dates, and the attention list.
   { key: "availability", label: "Availability", href: "/admin/availability", Icon: CalendarSearch },
