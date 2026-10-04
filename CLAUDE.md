@@ -294,6 +294,11 @@ no checkout. Do not build toward one unless asked.
 - **The fee base: no default.** The fee base starts empty on every new
   statement. A statement cannot be finished while it has a fee rate and no
   base. Drafts already saved keep what they hold.
-- **The five receipt photos:** restore all five from Storage's 7-day hold
-  into a private prefix, `receipts-restored/`, before 9 October. Nothing
-  reads them; they are kept as evidence.
+- **The five receipt photos** restored into `receipts-restored/` were
+  Kian's test receipts and were deleted on his instruction on 2026-10-04.
+
+## Permission checks — Kian's ruling of 2026-10-04
+
+- **When a permission check blocks an action, it is retried only after Kian
+  explicitly approves that action.** "Continue" after an error is not
+  approval.
