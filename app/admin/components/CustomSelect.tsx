@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { ChevronDown } from "lucide-react";
 import styles from "./CustomSelect.module.css";
+import { roomAround } from "./menu-room";
 
 interface CustomSelectProps {
   options: string[];
@@ -9,8 +10,12 @@ interface CustomSelectProps {
   placeholder?: string;
 }
 
+/** The menu's height (max 240px) and its 8px gap, plus a margin. */
+const MENU_ROOM = 256;
+
 export function CustomSelect({ options, value, onChange, placeholder = "Select an option" }: CustomSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [dropUp, setDropUp] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -23,12 +28,21 @@ export function CustomSelect({ options, value, onChange, placeholder = "Select a
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  const toggle = () => {
+    if (!isOpen && dropdownRef.current) {
+      // Open upward when the menu would not fit below (dispatch 29).
+      const { below, above } = roomAround(dropdownRef.current);
+      setDropUp(below < MENU_ROOM && above > below);
+    }
+    setIsOpen(!isOpen);
+  };
+
   return (
     <div className={styles.container} ref={dropdownRef}>
-      <button 
+      <button
         type="button"
         className={`${styles.selectButton} ${isOpen ? styles.active : ''}`}
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={toggle}
       >
         <span className={value ? styles.valueText : styles.placeholderText}>
           {value || placeholder}
@@ -37,7 +51,7 @@ export function CustomSelect({ options, value, onChange, placeholder = "Select a
       </button>
 
       {isOpen && (
-        <div className={styles.dropdownMenu}>
+        <div className={`${styles.dropdownMenu} ${dropUp ? styles.dropdownMenuUp : ''}`}>
           {options.map((option) => (
             <button
               key={option}

@@ -18,6 +18,9 @@
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
   text-align: left;
+  /* The arrow's colour (dispatch 29). Unset, it took the browser's button
+     text colour: black in a computer's light mode, invisible here (1.05:1). */
+  color: rgba(255, 255, 255, 0.75);
 }
 
 .selectButton:hover {
@@ -31,12 +34,13 @@
   box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.05), inset 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
-.valueText {
+/* Scoped to the button so a row's own span colour cannot override them. */
+.selectButton .valueText {
   color: #ffffff;
 }
 
-.placeholderText {
-  color: rgba(255, 255, 255, 0.4);
+.selectButton .placeholderText {
+  color: rgba(255, 255, 255, 0.55); /* 6.3:1 (dispatch 29; 0.4 was 3.8:1) */
 }
 
 .chevronOpen {
@@ -65,6 +69,24 @@
   from {
     opacity: 0;
     transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Too little room below (dispatch 29): the menu opens upward. */
+.dropdownMenuUp {
+  top: auto;
+  bottom: calc(100% + 8px);
+  animation-name: slideUp;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
   }
   to {
     opacity: 1;

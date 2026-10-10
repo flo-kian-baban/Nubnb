@@ -3,6 +3,10 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import DOMPurify from "dompurify";
 import { AMENITY_ICONS, findBestIcons, getIconCategories, AmenityIcon } from "../../data/amenityIcons";
 import styles from "./IconPicker.module.css";
+import { roomAround } from "./menu-room";
+
+/** The popover's height (max 460px) and its 6px gap, plus a margin. */
+const POPOVER_ROOM = 476;
 
 interface IconPickerProps {
   /** The current SVG markup (or empty string) */
@@ -15,6 +19,7 @@ interface IconPickerProps {
 
 export function IconPicker({ currentIcon, amenityName, onSelect }: IconPickerProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [openUp, setOpenUp] = useState(false);
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -81,7 +86,14 @@ export function IconPicker({ currentIcon, amenityName, onSelect }: IconPickerPro
       <button
         type="button"
         className={`${styles.trigger} ${currentIcon ? styles.triggerHasIcon : ''}`}
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => {
+          if (!isOpen && containerRef.current) {
+            // Open upward when the popover would not fit below (dispatch 29).
+            const { below, above } = roomAround(containerRef.current);
+            setOpenUp(below < POPOVER_ROOM && above > below);
+          }
+          setIsOpen(!isOpen);
+        }}
         title="Change icon"
       >
         {currentIcon ? (
@@ -93,7 +105,7 @@ export function IconPicker({ currentIcon, amenityName, onSelect }: IconPickerPro
 
       {/* Popover */}
       {isOpen && (
-        <div className={styles.popover}>
+        <div className={`${styles.popover} ${openUp ? styles.popoverUp : ''}`}>
           {/* Search */}
           <div className={styles.searchWrap}>
             <input

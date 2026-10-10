@@ -105,7 +105,7 @@
 .section h3 {
   font-size: 11px;
   font-weight: 700;
-  color: #666;
+  color: #8a8a8a; /* 5.6:1 on the modal (dispatch 29; #666 was 3.4:1) */
   margin: 0;
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -184,13 +184,13 @@
 
 .accordionChevron {
   transition: transform 0.25s ease;
-  color: #555;
+  color: #8a8a8a;
   flex-shrink: 0;
 }
 
 .accordionChevronOpen {
   transition: transform 0.25s ease;
-  color: #555;
+  color: #8a8a8a;
   flex-shrink: 0;
   transform: rotate(180deg);
 }
@@ -210,6 +210,14 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+/* Open and done animating (dispatch 29): nothing inside is clipped, so the
+   category dropdown and the icon picker can open past the section's edge,
+   and no section is capped at 5000px. */
+.accordionBodySettled {
+  overflow: visible;
+  max-height: none;
 }
 
 /* ── Grid ── */
@@ -313,7 +321,7 @@
 
 .sectionHint {
   font-size: 13px;
-  color: #555;
+  color: #8a8a8a; /* 5.6:1 (dispatch 29; #555 was 2.6:1) */
   margin-bottom: 16px;
   margin-top: -4px;
   line-height: 1.5;
@@ -542,7 +550,7 @@
 
 .uploadCard span {
   font-size: 12px;
-  color: #666;
+  color: #8a8a8a; /* dispatch 29; #666 was 3.3:1 */
   margin-top: 6px;
   font-weight: 500;
 }
@@ -626,9 +634,92 @@
   border-color: rgba(239, 68, 68, 0.25);
 }
 
+/* ── Rows edited in place (dispatch 29): offers, highlights, house rules ── */
+.rowText {
+  flex: 1;
+  min-width: 0;
+}
+
+.rowActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  flex-shrink: 0;
+}
+
+/* Edit and Cancel: the delete button's shape, without its red. */
+.rowPlainBtn,
+.rowConfirmBtn {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  color: #8a8a8a;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px;
+  border-radius: 6px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.rowPlainBtn:hover {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.rowConfirmBtn {
+  color: #66bb6a;
+  border-color: rgba(76, 175, 80, 0.3);
+}
+
+.rowConfirmBtn:hover {
+  background: rgba(76, 175, 80, 0.12);
+  border-color: rgba(76, 175, 80, 0.5);
+}
+
+.rowEditInput {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 12px;
+}
+
+/* The category beside a name being edited: a fixed width, the name the rest. */
+.rowEditCategory {
+  flex: 0 0 220px;
+  min-width: 0;
+  margin-left: 10px;
+}
+
+.rowFixedCategory {
+  flex-shrink: 0;
+  margin-left: 10px;
+}
+
+/* Not included: faded and struck through, still 4.8:1 (dispatch 29; it was 0.4, 2.8:1). */
+.listItemUnavailable {
+  opacity: 0.6;
+}
+
+.offerNameUnavailable {
+  text-decoration: line-through;
+}
+
 .addInputGroup {
   display: flex;
   gap: 10px;
+}
+
+/* The name input takes what the row has left (dispatch 29: the offers row's category took it all). */
+.addInputGroup > input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The offers add row's category: a fixed width beside the name. */
+.offerAddCategory {
+  flex: 0 0 240px;
+  min-width: 0;
 }
 
 .addBtnSmall {
@@ -1201,7 +1292,7 @@
 .emptyReviews {
   padding: 24px;
   text-align: center;
-  color: #444;
+  color: #8a8a8a; /* dispatch 29; #444 was 2.0:1 */
   font-size: 0.85rem;
 }
 
@@ -1209,7 +1300,7 @@
 .offerCategoryLabel {
   font-size: 11px;
   font-weight: 700;
-  color: #555;
+  color: #8a8a8a; /* 5.6:1 (dispatch 29; #555 was 2.6:1) */
   text-transform: uppercase;
   letter-spacing: 0.06em;
   display: block;
@@ -1290,4 +1381,22 @@
 }
 .managementAdd {
   align-self: flex-start;
+}
+
+/* ── Placeholders (dispatch 29) ──
+   The browser's own placeholder grey was 4.0:1 on these inputs; this is
+   5.3:1 in both computer modes. `opacity: 1` because Firefox fades
+   placeholders by default. */
+.form input::placeholder,
+.form textarea::placeholder {
+  color: #8a8a8a;
+  opacity: 1;
+}
+
+/* After a save was tried, a required field still empty shows as such
+   (dispatch 29); the first one is also opened and pointed at. */
+.attempted input:invalid,
+.attempted textarea:invalid {
+  border-color: rgba(239, 68, 68, 0.6) !important;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.12) !important;
 }

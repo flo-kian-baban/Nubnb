@@ -5,9 +5,10 @@ import { addProperty, updateProperty, MutationIssue, getCleanerFacingName, setCl
 import { STATEMENTS_FROM_DEFAULT, STATEMENT_LIMITS, isMonth, rateText } from "@/app/lib/reports/model";
 import { amountField } from "../costs/cost-display";
 import { hasPriceDivergence, nightlyPrice } from "@/app/lib/price";
-import { useMemo, useState, useEffect } from "react";
+import { Fragment, useMemo, useState, useEffect, useRef } from "react";
 import styles from "./PropertyForm.module.css";
-import { Plus, Trash2, X, ImageIcon, ImagePlus, Link2, Star, ChevronDown, Check, AlertTriangle, XCircle } from "lucide-react";
+import { Plus, Trash2, X, ImageIcon, ImagePlus, Link2, Star, ChevronDown, Check, AlertTriangle, XCircle, Pencil } from "lucide-react";
+import { NOT_INCLUDED, addOffer, editOffer, excludeOffer, includeOffer, offerCategoryOptions, offerNameTaken, removeOffer, type OffersAndStars } from "./offers";
 
 import { CustomSelect } from "./CustomSelect";
 import { IconPicker } from "./IconPicker";
@@ -38,11 +39,15 @@ const ACCEPTED_IMAGE_TYPES = "image/jpeg,image/png,image/webp,image/avif";
 
 const PROPERTY_TYPES = ["House", "Apartment", "Villa", "Penthouse", "Estate", "Residence", "Ranch", "Condo", "Basement"];
 const PROPERTY_TYPE_TAGS = ["Entire home", "Entire condo", "Entire guest suite", "Private room", "Shared room"];
-const OFFER_CATEGORIES = [
-  "Scenic views", "Bathroom", "Bedroom and laundry", "Entertainment",
-  "Heating and cooling", "Kitchen and dining", "Parking and facilities",
-  "Internet and office", "Location features", "Outdoor", "Services", "Safety"
-];
+
+/**
+ * The one list row being edited in place (dispatch 29): an offer, a highlight
+ * or a house rule. `include` is an offer in "Not included" being ticked whose
+ * category is not known: it is offered again only once the admin picks one.
+ */
+type RowEdit =
+  | { kind: "offer"; target: Offer; name: string; category: string; include: boolean }
+  | { kind: "highlight" | "rule"; index: number; value: string };
 
 /**
  * Which accordion each scraped field lives in, so a field that failed to
@@ -210,7 +215,16 @@ export function PropertyForm({ initialData, initialUnlisted = false, onClose, on
   const [newRule, setNewRule] = useState("");
   const [newHighlight, setNewHighlight] = useState("");
   const [newOfferName, setNewOfferName] = useState("");
-  const [newOfferCategory, setNewOfferCategory] = useState("Bathroom");
+  // No default category (dispatch 29): a new item goes where the admin puts it, never quietly into Bathroom.
+  const [newOfferCategory, setNewOfferCategory] = useState("");
+  const [offerAddError, setOfferAddError] = useState<string | null>(null);
+  const [rowEdit, setRowEdit] = useState<RowEdit | null>(null);
+  const [rowEditError, setRowEditError] = useState<string | null>(null);
+  /**
+   * The category an item had before it was unticked, by name, for this
+   * editing session only — so ticking it moves it back. Never saved.
+   */
+  const formerCategories = useRef(new Map<string, string>());
   const [airbnbUrl, setAirbnbUrl] = useState(initialData?.airbnbUrl || "");
   const [isScraping, setIsScraping] = useState(false);
   const [scrapeNotice, setScrapeNotice] = useState<Notice | null>(null);
@@ -221,6 +235,10 @@ export function PropertyForm({ initialData, initialUnlisted = false, onClose, on
   const [isParsingMaps, setIsParsingMaps] = useState(false);
   const [mapsNotice, setMapsNotice] = useState<Notice | null>(null);
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
+  /** Sections whose opening animation has finished: only these let a menu reach past their edge. */
+  const [settledSections, setSettledSections] = useState<Record<string, boolean>>({});
+  /** A save was tried: required fields still missing are now marked. */
+  const [submitAttempted, setSubmitAttempted] = useState(false);
 
   // Save failures. The modal stays open and every entered value is kept.
   const [saveError, setSaveError] = useState<{ title: string; detail?: string } | null>(null);
@@ -309,8 +327,27 @@ export function PropertyForm({ initialData, initialUnlisted = false, onClose, on
   }, [initialData?.id]);
 
   const toggleSection = (key: string) => {
-    setOpenSections(prev => ({ ...prev, [key]: !prev[key] }));
+    if (!openSections[key]) {
+      setOpenSections(prev => ({ ...prev, [key]: true }));
+      return;
+    }
+    // Clip again first, then collapse two frames later, so the close animates as it always has.
+    setSettledSections(prev => ({ ...prev, [key]: false }));
+    requestAnimationFrame(() => requestAnimationFrame(() => setOpenSections(prev => ({ ...prev, [key]: false }))));
   };
+
+  // A section clips its contents only while it opens (dispatch 29). Clipping an
+  // open one cut off the category dropdown and the icon picker, which open past
+  // its bottom edge — the "categories cannot be changed" report.
+  useEffect(() => {
+    const opening = Object.keys(openSections).filter((key) => openSections[key] && !settledSections[key]);
+    if (opening.length === 0) return;
+    const timer = window.setTimeout(
+      () => setSettledSections((prev) => ({ ...prev, ...Object.fromEntries(opening.map((key) => [key, true])) })),
+      400, // the open transition is 350 ms
+    );
+    return () => window.clearTimeout(timer);
+  }, [openSections, settledSections]);
 
   // Count unfilled required fields per section
   const getUnfilledCount = (sectionKey: string): number => {
@@ -395,7 +432,7 @@ export function PropertyForm({ initialData, initialUnlisted = false, onClose, on
     const scrapeProblems = sectionScrapeProblems(sectionKey);
     const rejected = sectionSaveIssues(sectionKey);
     return (
-      <div className={styles.section} key={sectionKey}>
+      <div className={styles.section} key={sectionKey} data-section={sectionKey}>
         <div className={styles.accordionHeader} onClick={() => toggleSection(sectionKey)}>
           <div className={styles.accordionHeaderLeft}>
             <h3>{title}</h3>
@@ -417,7 +454,7 @@ export function PropertyForm({ initialData, initialUnlisted = false, onClose, on
           </div>
           <ChevronDown size={20} className={isOpen ? styles.accordionChevronOpen : styles.accordionChevron} />
         </div>
-        <div className={`${styles.accordionBody} ${isOpen ? styles.accordionBodyOpen : ''}`}>
+        <div className={`${styles.accordionBody} ${isOpen ? styles.accordionBodyOpen : ''} ${isOpen && settledSections[sectionKey] ? styles.accordionBodySettled : ''}`}>
           {children}
         </div>
       </div>
@@ -487,7 +524,7 @@ export function PropertyForm({ initialData, initialUnlisted = false, onClose, on
     const issues = issuesFor(path);
     if (issues.length === 0) return null;
     return (
-      <span className={styles.fieldIssue} role="alert">
+      <span className={styles.fieldIssue} role="alert" data-issue>
         {issues.map((i) => i.message).join('. ')}
       </span>
     );
@@ -543,6 +580,9 @@ export function PropertyForm({ initialData, initialUnlisted = false, onClose, on
       const summary: ExtractionSummary | null = data.extractionSummary || null;
       setFieldStatus(status);
       setExtractionSummary(summary);
+      // The import replaces the lists a row edit points into.
+      setRowEdit(null);
+      setRowEditError(null);
 
       // Map scraped data into form fields
       setFormData(prev => ({
@@ -880,6 +920,7 @@ export function PropertyForm({ initialData, initialUnlisted = false, onClose, on
     setNewRule("");
   };
   const removeRule = (index: number) => {
+    shiftRowEditAfterRemoval("rule", index);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     setFormData((prev: any) => ({
       ...prev,
@@ -909,43 +950,223 @@ export function PropertyForm({ initialData, initialUnlisted = false, onClose, on
     setNewHighlight("");
   };
   const removeHighlight = (index: number) => {
+    shiftRowEditAfterRemoval("highlight", index);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     setFormData((prev: any) => ({ ...prev, highlights: currentHighlights.filter((_, i) => i !== index) }));
   };
 
-  const addOffer = () => {
-    if (!newOfferName.trim()) return;
-    const offer: Offer = { name: newOfferName.trim(), category: newOfferCategory, available: true };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    setFormData((prev: any) => ({ ...prev, offers: [...currentOffers, offer] }));
+  // ── Offers (dispatch 29) ──
+  // Offers and stars change together, through app/admin/components/offers.ts:
+  // a rename carries its star, a delete drops it, and nothing else is touched.
+
+  /** The property's own stored categories, then the standard ones — never "Not included" (Kian's ruling). */
+  const categoryOptions = offerCategoryOptions(initialData?.offers, currentOffers);
+
+  const applyOffers = (update: (state: OffersAndStars) => OffersAndStars) =>
+    setFormData((prev) => {
+      const before: OffersAndStars = { offers: prev.offers || [], amenities: prev.amenities || [] };
+      const after = update(before);
+      if (after === before) return prev;
+      return { ...prev, offers: after.offers, ...(after.amenities !== before.amenities ? { amenities: after.amenities } : {}) };
+    });
+
+  const addOfferRow = () => {
+    const name = newOfferName.trim();
+    if (!name || !newOfferCategory) return;
+    if (offerNameTaken(currentOffers, name)) {
+      setOfferAddError(`"${name}" is already in the list.`);
+      return;
+    }
+    applyOffers((state) => addOffer(state, name, newOfferCategory));
     setNewOfferName("");
-  };
-  const removeOffer = (index: number) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    setFormData((prev: any) => ({ ...prev, offers: currentOffers.filter((_, i) => i !== index) }));
-  };
-  const toggleOfferAvailable = (index: number) => {
-    const newOffers = [...currentOffers];
-    newOffers[index] = { ...newOffers[index], available: !newOffers[index].available };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    setFormData((prev: any) => ({ ...prev, offers: newOffers }));
+    setOfferAddError(null);
   };
 
-  const updateOfferIcon = (index: number, svg: string) => {
-    const newOffers = [...currentOffers];
-    newOffers[index] = { ...newOffers[index], icon: svg };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    setFormData((prev: any) => ({ ...prev, offers: newOffers }));
+  const deleteOffer = (offer: Offer) => {
+    if (rowEdit?.kind === "offer" && rowEdit.target === offer) cancelRowEdit();
+    formerCategories.current.delete(offer.name);
+    applyOffers((state) => removeOffer(state, offer));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  /** Unticking moves an item to "Not included"; ticking moves it back (Kian's ruling of 2026-10-10). */
+  const toggleOfferAvailable = (offer: Offer) => {
+    if (offer.available) {
+      if (offer.category !== NOT_INCLUDED) formerCategories.current.set(offer.name, offer.category);
+      applyOffers((state) => excludeOffer(state, offer));
+      return;
+    }
+    const former = formerCategories.current.get(offer.name);
+    if (offer.category !== NOT_INCLUDED || former) {
+      formerCategories.current.delete(offer.name);
+      applyOffers((state) => includeOffer(state, offer, former));
+      return;
+    }
+    // Where it goes back to is not known (it was imported as not included): the admin picks it.
+    startOfferEdit(offer, true);
+  };
+
+  const updateOfferIcon = (offer: Offer, svg: string) => {
+    const replaced: Offer = { ...offer, icon: svg };
+    setFormData((prev) => {
+      const offers = prev.offers || [];
+      const index = offers.indexOf(offer);
+      if (index === -1) return prev;
+      const next = offers.slice();
+      next[index] = replaced;
+      return { ...prev, offers: next };
+    });
+    setRowEdit((edit) => (edit?.kind === "offer" && edit.target === offer ? { ...edit, target: replaced } : edit));
+  };
+
+  // ── Rows edited in place: offers, highlights, house rules (dispatch 29) ──
+
+  /** `data` with the open row edit applied, or what is wrong with the edit. */
+  const applyRowEdit = (data: Partial<Property>, edit: RowEdit): { data: Partial<Property> } | { problem: string } => {
+    if (edit.kind === "offer") {
+      const name = edit.name.trim();
+      if (!name) return { problem: "Give it a name." };
+      const offers = data.offers || [];
+      if (offerNameTaken(offers, name, edit.target)) return { problem: `"${name}" is already in the list.` };
+      // An item in "Not included" keeps that category unless it is being included: it follows availability.
+      const offered = edit.include || edit.target.category !== NOT_INCLUDED;
+      if (offered && (!edit.category || edit.category === NOT_INCLUDED)) return { problem: "Pick a category." };
+      const before: OffersAndStars = { offers, amenities: data.amenities || [] };
+      const after = editOffer(before, edit.target, {
+        name,
+        category: offered ? edit.category : edit.target.category,
+        available: edit.include ? true : edit.target.available,
+      });
+      if (after === before) return { data };
+      return { data: { ...data, offers: after.offers, ...(after.amenities !== before.amenities ? { amenities: after.amenities } : {}) } };
+    }
+    const value = edit.value.trim();
+    if (!value) return { problem: "Empty — delete it instead." };
+    if (edit.kind === "highlight") {
+      const highlights = data.highlights || [];
+      if (highlights[edit.index] === value) return { data };
+      return { data: { ...data, highlights: highlights.map((h, i) => (i === edit.index ? value : h)) } };
+    }
+    const rules = data.terms?.rules || [];
+    if (rules[edit.index] === value) return { data };
+    return { data: { ...data, terms: { ...(data.terms as Property["terms"]), rules: rules.map((r, i) => (i === edit.index ? value : r)) } } };
+  };
+
+  /** A renamed item keeps the category it is remembered by. */
+  const carryFormerCategory = (edit: RowEdit) => {
+    if (edit.kind !== "offer") return;
+    const former = formerCategories.current.get(edit.target.name);
+    if (former === undefined || edit.name.trim() === edit.target.name) return;
+    formerCategories.current.delete(edit.target.name);
+    if (!edit.include) formerCategories.current.set(edit.name.trim(), former);
+  };
+
+  /** Apply the open row edit. False, with the reason shown on the row, when it cannot be applied. */
+  const commitRowEdit = (): boolean => {
+    if (!rowEdit) return true;
+    const result = applyRowEdit(formData, rowEdit);
+    if ("problem" in result) {
+      setRowEditError(result.problem);
+      return false;
+    }
+    carryFormerCategory(rowEdit);
+    if (result.data !== formData) setFormData(result.data);
+    setRowEdit(null);
+    setRowEditError(null);
+    return true;
+  };
+
+  function cancelRowEdit() {
+    setRowEdit(null);
+    setRowEditError(null);
+  }
+
+  function startOfferEdit(offer: Offer, include = false) {
+    if (!commitRowEdit()) return;
+    setRowEdit({ kind: "offer", target: offer, name: offer.name, category: include ? "" : offer.category, include });
+  }
+
+  const startListEdit = (kind: "highlight" | "rule", index: number) => {
+    if (!commitRowEdit()) return;
+    setRowEdit({ kind, index, value: (kind === "highlight" ? currentHighlights : currentRules)[index] ?? "" });
+  };
+
+  /** A highlight or rule above the one being edited went: the edit follows its row. */
+  function shiftRowEditAfterRemoval(kind: "highlight" | "rule", removed: number) {
+    if (rowEdit?.kind !== kind) return;
+    if (rowEdit.index === removed) cancelRowEdit();
+    else if (rowEdit.index > removed) setRowEdit({ ...rowEdit, index: rowEdit.index - 1 });
+  }
+
+  const rowEditKeys = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commitRowEdit();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      cancelRowEdit();
+    }
+  };
+
+  /**
+   * Open the section holding `el`, then bring it into view and focus it (dispatch 29).
+   * `report` shows the browser's own message beside a missing required field.
+   */
+  const pointAt = (el: HTMLElement, report = false) => {
+    const key = el.closest<HTMLElement>("[data-section]")?.dataset.section;
+    const ready = !key || (openSections[key] && settledSections[key]);
+    if (key && !openSections[key]) setOpenSections((prev) => ({ ...prev, [key]: true }));
+    window.setTimeout(() => {
+      el.scrollIntoView({ block: "center" });
+      const target = el.matches("input, textarea, select, button")
+        ? el
+        : el.closest(`.${styles.field}`)?.querySelector<HTMLElement>("input, textarea, button") ?? null;
+      target?.focus({ preventScroll: true });
+      if (report && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) el.reportValidity();
+    }, ready ? 0 : 450);
+  };
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    const form = e.currentTarget;
+
+    // An open row edit is part of what the admin is saving: apply it, or
+    // point at what is wrong with it and save nothing.
+    let data = formData;
+    if (rowEdit) {
+      const applied = applyRowEdit(data, rowEdit);
+      if ("problem" in applied) {
+        setRowEditError(applied.problem);
+        const input = form.querySelector<HTMLElement>("[data-row-edit] input[type=text]");
+        if (input) pointAt(input);
+        return;
+      }
+      carryFormerCategory(rowEdit);
+      data = applied.data;
+      if (data !== formData) setFormData(data);
+      setRowEdit(null);
+      setRowEditError(null);
+    }
+
+    // The form is `noValidate` (dispatch 29): the browser used to put its
+    // message over a closed section, where the field could not be seen.
+    // Open the section holding the first missing field and point at it.
+    setSubmitAttempted(true);
+    const missing = Array.from(form.elements).find(
+      (el): el is HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement =>
+        (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) &&
+        el.willValidate &&
+        !el.checkValidity(),
+    );
+    if (missing) {
+      pointAt(missing, true);
+      return;
+    }
 
     setIsSaving(true);
     setSaveError(null);
     setSaveIssues([]);
 
-    const finalData = { ...formData };
+    const finalData = { ...data };
     const isEdit = !!initialData?.id;
 
 
@@ -1141,7 +1362,49 @@ export function PropertyForm({ initialData, initialUnlisted = false, onClose, on
         }
         return next;
       });
+      // Then point at the first field the server refused (dispatch 29), once its section has opened.
+      window.setTimeout(() => {
+        const first = form.querySelector<HTMLElement>("[data-issue]");
+        if (first) pointAt(first);
+      }, 450);
     }
+  };
+
+  /** One highlight or house rule: its text with Edit and Delete, or, while edited, an input with Save and Cancel. */
+  const renderListRow = (kind: "highlight" | "rule", text: string, index: number, onRemove: () => void) => {
+    const editing = rowEdit && rowEdit.kind !== "offer" && rowEdit.kind === kind && rowEdit.index === index ? rowEdit : null;
+    const noun = kind === "highlight" ? "highlight" : "rule";
+    if (editing) {
+      return (
+        <Fragment key={index}>
+          <div className={styles.listItem} data-row-edit>
+            <input
+              type="text"
+              className={`${styles.dataSourceInput} ${styles.rowEditInput}`}
+              value={editing.value}
+              autoFocus
+              aria-label={`Edit ${noun}`}
+              onChange={(e) => { setRowEdit({ ...editing, value: e.target.value }); setRowEditError(null); }}
+              onKeyDown={rowEditKeys}
+            />
+            <div className={styles.rowActions}>
+              <button type="button" className={styles.rowConfirmBtn} title="Save" aria-label={`Save ${noun}`} onClick={commitRowEdit}><Check size={14} /></button>
+              <button type="button" className={styles.rowPlainBtn} title="Cancel" aria-label="Cancel" onClick={cancelRowEdit}><X size={14} /></button>
+            </div>
+          </div>
+          {rowEditError && <span className={styles.fieldIssue} role="alert">{rowEditError}</span>}
+        </Fragment>
+      );
+    }
+    return (
+      <div key={index} className={styles.listItem}>
+        <span className={styles.rowText}>{text}</span>
+        <div className={styles.rowActions}>
+          <button type="button" className={styles.rowPlainBtn} title="Edit" aria-label={`Edit ${noun}: ${text}`} onClick={() => startListEdit(kind, index)}><Pencil size={14} /></button>
+          <button type="button" className={styles.iconBtn} title="Delete" aria-label={`Delete ${noun}: ${text}`} onClick={onRemove}><Trash2 size={16} /></button>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -1154,7 +1417,7 @@ export function PropertyForm({ initialData, initialUnlisted = false, onClose, on
           </button>
         </div>
         
-        <form onSubmit={handleSubmit} className={styles.form}>
+        <form onSubmit={handleSubmit} className={`${styles.form} ${submitAttempted ? styles.attempted : ''}`} noValidate>
 
           {/* ── Two stored prices, one of them invisible to renters ──
               Informational. It does not block saving and asks for no
@@ -1556,7 +1819,8 @@ export function PropertyForm({ initialData, initialUnlisted = false, onClose, on
               </div>
               <div className={styles.field}>
                 <label>State/Province *</label>
-                <CustomSelect 
+                {fieldIssue('addressDetails.state')}
+                <CustomSelect
                   options={CANADIAN_PROVINCES} 
                   value={formData.addressDetails?.state || ""} 
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1665,14 +1929,7 @@ export function PropertyForm({ initialData, initialUnlisted = false, onClose, on
             </p>
             {fieldIssue('highlights')}
             <div className={styles.listContainer}>
-              {currentHighlights.map((hl, i) => (
-                <div key={i} className={styles.listItem}>
-                  <span>{hl}</span>
-                  <button type="button" className={styles.iconBtn} onClick={() => removeHighlight(i)}>
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              ))}
+              {currentHighlights.map((hl, i) => renderListRow("highlight", hl, i, () => removeHighlight(i)))}
               {currentHighlights.length < 3 && (
                 <div className={styles.addInputGroup}>
                   <input 
@@ -1713,58 +1970,121 @@ export function PropertyForm({ initialData, initialUnlisted = false, onClose, on
                   <label className={styles.offerCategoryLabel}>{cat}</label>
                   {currentOffers.filter(o => o.category === cat).map((offer) => {
                     const realIdx = currentOffers.indexOf(offer);
+                    const editing = rowEdit?.kind === "offer" && rowEdit.target === offer ? rowEdit : null;
+                    const starred = currentAmenities.includes(offer.name);
+                    // An item in "Not included" keeps that category unless it is being included (Kian's ruling).
+                    const picksCategory = !!editing && (editing.include || offer.category !== NOT_INCLUDED);
                     return (
-                      <div key={realIdx} className={styles.listItem} style={{ opacity: offer.available ? 1 : 0.4 }}>
-                        <input 
-                          type="checkbox" 
-                          checked={offer.available} 
-                          onChange={() => toggleOfferAvailable(realIdx)}
-                          className={styles.offerCheckbox}
-                        />
-                        <IconPicker
-                          currentIcon={offer.icon || ''}
-                          amenityName={offer.name}
-                          onSelect={(svg) => updateOfferIcon(realIdx, svg)}
-                        />
-                        <span style={{ flex: 1, textDecoration: offer.available ? 'none' : 'line-through' }}>{offer.name}</span>
-                        <button 
-                          type="button" 
-                          className={`${styles.starBtn} ${currentAmenities.includes(offer.name) ? styles.starBtnActive : ''}`}
-                          onClick={() => toggleOfferStarred(offer.name)}
-                          title={currentAmenities.includes(offer.name) ? 'Remove from top amenities' : (currentAmenities.length >= 6 ? 'Max 6 starred' : 'Add to top amenities')}
-                          disabled={!currentAmenities.includes(offer.name) && currentAmenities.length >= 6}
-                        >
-                          <Star size={14} fill={currentAmenities.includes(offer.name) ? '#ffb400' : 'none'} />
-                        </button>
-                        <button type="button" className={styles.iconBtn} onClick={() => removeOffer(realIdx)} style={{ marginLeft: '6px' }}>
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
+                      <Fragment key={`${realIdx}:${offer.name}`}>
+                        <div className={`${styles.listItem} ${offer.available || editing ? '' : styles.listItemUnavailable}`} data-row-edit={editing ? '' : undefined}>
+                          <input
+                            type="checkbox"
+                            checked={offer.available}
+                            disabled={!!editing}
+                            onChange={() => toggleOfferAvailable(offer)}
+                            className={styles.offerCheckbox}
+                            title={offer.available ? 'Offered — untick to move it to Not included' : 'Not included — tick to offer it'}
+                            aria-label={offer.available ? `${offer.name}: offered` : `${offer.name}: not included`}
+                          />
+                          <IconPicker
+                            currentIcon={offer.icon || ''}
+                            amenityName={offer.name}
+                            onSelect={(svg) => updateOfferIcon(offer, svg)}
+                          />
+                          {editing ? (
+                            <>
+                              <input
+                                type="text"
+                                className={`${styles.dataSourceInput} ${styles.rowEditInput}`}
+                                value={editing.name}
+                                autoFocus
+                                aria-label="Item name"
+                                onChange={(e) => { setRowEdit({ ...editing, name: e.target.value }); setRowEditError(null); }}
+                                onKeyDown={rowEditKeys}
+                              />
+                              {picksCategory ? (
+                                <div className={styles.rowEditCategory}>
+                                  <CustomSelect
+                                    options={categoryOptions}
+                                    value={editing.category}
+                                    onChange={(category) => { setRowEdit({ ...editing, category }); setRowEditError(null); }}
+                                    placeholder="Pick a category"
+                                  />
+                                </div>
+                              ) : (
+                                <span className={styles.rowFixedCategory}>{NOT_INCLUDED}</span>
+                              )}
+                              <div className={styles.rowActions}>
+                                <button type="button" className={styles.rowConfirmBtn} title={editing.include ? 'Include' : 'Save'} aria-label={`${editing.include ? 'Include' : 'Save'} ${offer.name}`} onClick={commitRowEdit}>
+                                  <Check size={14} />
+                                </button>
+                                <button type="button" className={styles.rowPlainBtn} title="Cancel" aria-label="Cancel" onClick={cancelRowEdit}>
+                                  <X size={14} />
+                                </button>
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <span className={`${styles.rowText} ${offer.available ? '' : styles.offerNameUnavailable}`} data-offer-name>{offer.name}</span>
+                              <div className={styles.rowActions}>
+                                <button
+                                  type="button"
+                                  className={`${styles.starBtn} ${starred ? styles.starBtnActive : ''}`}
+                                  onClick={() => toggleOfferStarred(offer.name)}
+                                  title={starred ? 'Remove from top amenities' : !offer.available ? 'Not included — tick it to star it' : (currentAmenities.length >= 6 ? 'Max 6 starred' : 'Add to top amenities')}
+                                  disabled={!starred && (!offer.available || currentAmenities.length >= 6)}
+                                >
+                                  <Star size={14} fill={starred ? '#ffb400' : 'none'} />
+                                </button>
+                                <button type="button" className={styles.rowPlainBtn} title="Edit" aria-label={`Edit ${offer.name}`} onClick={() => startOfferEdit(offer)}>
+                                  <Pencil size={14} />
+                                </button>
+                                <button type="button" className={styles.iconBtn} title="Delete" aria-label={`Delete ${offer.name}`} onClick={() => deleteOffer(offer)}>
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                        {editing && rowEditError && <span className={styles.fieldIssue} role="alert">{rowEditError}</span>}
+                      </Fragment>
                     );
                   })}
                 </div>
               ));
             })()}
 
+            {/* The name takes the row; the category a fixed width beside it (dispatch 29: it took
+                the row and left the name 2 px, so what was typed could not be seen). */}
             <div className={styles.addInputGroup}>
-              <input 
-                type="text" 
-                value={newOfferName} 
-                onChange={(e) => setNewOfferName(e.target.value)}
+              <input
+                type="text"
+                value={newOfferName}
+                onChange={(e) => { setNewOfferName(e.target.value); setOfferAddError(null); }}
                 placeholder="e.g. Free parking on premises"
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addOffer(); } }}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addOfferRow(); } }}
                 className={styles.dataSourceInput}
-                style={{ flex: 1 }}
+                aria-label="New item"
               />
-              <CustomSelect 
-                options={OFFER_CATEGORIES} 
-                value={newOfferCategory} 
-                onChange={(val) => setNewOfferCategory(val)} 
-              />
-              <button type="button" className={styles.addBtnSmall} onClick={addOffer} disabled={!newOfferName.trim()}>
+              <div className={styles.offerAddCategory}>
+                <CustomSelect
+                  options={categoryOptions}
+                  value={newOfferCategory}
+                  onChange={(val) => setNewOfferCategory(val)}
+                  placeholder="Category"
+                />
+              </div>
+              <button
+                type="button"
+                className={styles.addBtnSmall}
+                onClick={addOfferRow}
+                disabled={!newOfferName.trim() || !newOfferCategory}
+                title={newOfferCategory ? undefined : 'Pick a category'}
+              >
                 <Plus size={16} /> Add
               </button>
             </div>
+            {offerAddError && <span className={styles.fieldIssue} role="alert">{offerAddError}</span>}
           </>))}
 
           {/* --- Terms & Rules (Accordion) --- */}
@@ -1797,14 +2117,7 @@ export function PropertyForm({ initialData, initialUnlisted = false, onClose, on
             <label className={styles.dataSourceLabel} style={{ marginTop: '12px' }}>House Rules {scrapeBadge('rules')}</label>
             {fieldIssue('terms.rules')}
             <div className={styles.listContainer}>
-              {currentRules.map((rule, i) => (
-                <div key={i} className={styles.listItem}>
-                  <span style={{flex: 1}}>{rule}</span>
-                  <button type="button" className={styles.iconBtn} onClick={() => removeRule(i)}>
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              ))}
+              {currentRules.map((rule, i) => renderListRow("rule", rule, i, () => removeRule(i)))}
               <div className={styles.addInputGroup}>
                 <input 
                   type="text" 

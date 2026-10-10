@@ -2,7 +2,7 @@
  * GET    /api/properties/[id] — Read one complete property (public; an
  *                               unlisted one only with an admin session).
  * PUT    /api/properties/[id] — Update a property (admin-only).
- * DELETE /api/properties/[id] — Delete a property (admin-only).
+ * DELETE /api/properties/[id] — Delete a property and its unlisted mark (admin-only).
  *
  * Writes are authenticated via HTTP-only session cookie and go through the
  * Admin SDK. The GET answers anyone, but the public gets a listed property
@@ -23,6 +23,7 @@ import { createRateLimiter } from '@/app/lib/api/rate-limit';
 import { apiSuccess, apiError, apiValidationError, apiRateLimited } from '@/app/lib/api/safe-response';
 import { UpdatePropertySchema } from '@/app/lib/api/schemas';
 import { revalidateListingPages } from '@/app/lib/revalidate-listings';
+import { PROPERTY_VISIBILITY_COLLECTION } from '@/app/lib/firebase/server-visibility';
 
 const COLLECTION = 'properties';
 
@@ -174,7 +175,14 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
       return apiError('Property not found', 404);
     }
 
-    await docRef.delete();
+    // Its unlisted mark (dispatch 24) goes with it, in one batch (dispatch 29).
+    // The mark means nothing without the property, and once the property is
+    // gone the visibility route refuses to touch it, so nothing else could
+    // remove it. Deleting a mark that does not exist is a no-op.
+    const batch = db.batch();
+    batch.delete(docRef);
+    batch.delete(db.collection(PROPERTY_VISIBILITY_COLLECTION).doc(id));
+    await batch.commit();
     revalidateListingPages(`delete ${id}`, id);
 
     return apiSuccess({ id, deleted: true });

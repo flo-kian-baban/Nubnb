@@ -356,3 +356,12 @@ no checkout. Do not build toward one unless asked.
   later tax rule; it is not a line. No tax lines, no fee, no cleaning counts.
 - **The uploaded CSV is kept privately as evidence, like a receipt, with its
   Guest and Details columns blanked, plus the original file's SHA-256.**
+
+## Property form — Kian's rulings of 2026-10-10 (dispatch 29)
+
+- **The offers editor lists the property's own stored categories plus the
+  standard ones. "Home safety" replaces "Safety" in the standard list.**
+- **"Not included" is not picked; it follows availability. Unticking an item
+  moves it there; ticking moves it back.**
+- **Counts such as parking spaces stay in the item's name.**
+- **Unticking an offer drops its star, as deleting does.**

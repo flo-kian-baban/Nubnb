@@ -75,6 +75,14 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* Too little room below (dispatch 29): the popover opens upward. */
+.popoverUp {
+  top: auto;
+  bottom: 100%;
+  margin-top: 0;
+  margin-bottom: 6px;
+}
+
 /* --- Search --- */
 .searchWrap {
   padding: 10px 12px 6px;
@@ -97,7 +105,7 @@
 }
 
 .searchInput::placeholder {
-  color: #666;
+  color: #8a8a8a; /* 5.5:1 on #111 (dispatch 29; #666 was 3.3:1) */
 }
 
 /* --- Category bar --- */
