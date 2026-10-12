@@ -365,3 +365,17 @@ no checkout. Do not build toward one unless asked.
   moves it there; ticking moves it back.**
 - **Counts such as parking spaces stay in the item's name.**
 - **Unticking an offer drops its star, as deleting does.**
+
+## Property pages — Kian's rulings of 2026-10-10 (dispatch 30)
+
+- **Creating and editing a property happen on their own pages, not in a
+  pop-up.**
+- **The admin uses no native browser controls on these pages: no native
+  selects, date or file pickers, checkboxes, validation bubbles or confirm
+  dialogs. Every control is Nubnb's own, in the admin's design language.**
+
+## Production reset — Kian's ruling of 2026-10-12 (dispatch 32)
+
+- **Production reset of 2026-10-12: all cost, income and statement data
+  recorded before this date was test data and was cleared. Properties and
+  their settings were kept.**

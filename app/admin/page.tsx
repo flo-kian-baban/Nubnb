@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { Property } from "@/app/types/property";
 import { getPropertiesResult, deleteProperty, addProperty } from "@/app/lib/firebase/properties";
 import { nightlyPrice } from "@/app/lib/price";
-import { PropertyForm } from "./components/PropertyForm";
 import { PinGate } from "./components/PinGate";
 import { NoticeBanner, useNotice } from "./components/Notice";
 import { AdminHeader } from "./components/AdminHeader";
@@ -104,6 +103,13 @@ function filtersFromUrl() {
  */
 const propertyHref = (id: string) => `/admin/property?id=${encodeURIComponent(id)}`;
 
+/**
+ * A property's edit page, and the page a new one is made on (dispatch 30,
+ * Kian's ruling of 2026-10-10): their own pages, not a pop-up.
+ */
+const editHref = (id: string) => `/admin/property/edit?id=${encodeURIComponent(id)}`;
+const NEW_HREF = "/admin/property/new";
+
 export default function AdminPage() {
   // Everything under the PIN gate (as the property page): the statements read is admin-only, and the page's
   // reads start once the session exists (dispatch 23G moved that read up from the tiles into the page).
@@ -130,8 +136,6 @@ function AdminHome() {
   // is not cancelled.
   const [isSlowLoad, setIsSlowLoad] = useState(false);
   const { notice, show: showNotice, clear: clearNotice } = useNotice();
-  const [editingProperty, setEditingProperty] = useState<Property | null>(null);
-  const [isFormOpen, setIsFormOpen] = useState(false);
 
   // The statements read (GET /api/admin/monthly-reports), shared by the Statements tile, its panel and
   // the list's Statement column (dispatch 23G): every property's status by the one rule, `reportingStatus`.
@@ -176,7 +180,7 @@ function AdminHome() {
   // "/" puts the cursor in the search, as long as nothing else is being typed into.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey || isFormOpen) return;
+      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
       if (!searchRef.current) return;
@@ -186,7 +190,7 @@ function AdminHome() {
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [isFormOpen]);
+  }, []);
 
   useEffect(() => {
     fetchProperties();
@@ -294,11 +298,6 @@ function AdminHome() {
     fetchProperties();
   };
 
-  const handleEdit = (property: Property) => {
-    setEditingProperty(property);
-    setIsFormOpen(true);
-  };
-
   /**
    * Clicking a property opens its page. The name and the Open control are
    * real links, for the keyboard and for opening in a new tab; a click
@@ -309,16 +308,6 @@ function AdminHome() {
     if ((event.target as HTMLElement).closest("a, button")) return;
     if (window.getSelection()?.toString()) return;
     router.push(propertyHref(id));
-  };
-
-  const handleAddNew = () => {
-    setEditingProperty(null);
-    setIsFormOpen(true);
-  };
-
-  const handleSaveContent = () => {
-    setIsFormOpen(false);
-    fetchProperties();
   };
 
   const handleSeedDatabase = async () => {
@@ -356,12 +345,12 @@ function AdminHome() {
 
   return (
     <div className={styles.container}>
-      {/* ── Header ── the shared one; this page's action is Add Property */}
+      {/* ── Header ── the shared one; this page's action is Add Property, which opens its own page (dispatch 30) */}
       <AdminHeader current="properties">
-        <button type="button" className={styles.btnPrimary} onClick={handleAddNew}>
+        <Link href={NEW_HREF} prefetch={false} className={styles.btnPrimary}>
           <Plus size={16} aria-hidden />
           <span>Add Property</span>
-        </button>
+        </Link>
       </AdminHeader>
 
       <main className={styles.main}>
@@ -506,10 +495,10 @@ function AdminHome() {
             <LayoutGrid size={48} strokeWidth={1} />
             <h2>No properties yet</h2>
             <p>Get started by creating your first listing or seeding sample data.</p>
-            <button className={styles.btnPrimary} onClick={handleAddNew}>
+            <Link href={NEW_HREF} prefetch={false} className={styles.btnPrimary}>
               <Plus size={18} />
               <span>Create Property</span>
-            </button>
+            </Link>
           </div>
         ) : filteredProperties.length === 0 ? (
           <div className={styles.empty}>
@@ -590,10 +579,10 @@ function AdminHome() {
                           <FileText size={14} aria-hidden />
                           <span>Open</span>
                         </Link>
-                        <button type="button" className={styles.rowAction} onClick={() => handleEdit(p)} title={`Edit ${p.name}`}>
+                        <Link href={editHref(p.id)} prefetch={false} className={styles.rowAction} title={`Edit ${p.name}`}>
                           <Edit2 size={14} aria-hidden />
                           <span>Edit</span>
-                        </button>
+                        </Link>
                         <button
                           type="button"
                           className={styles.iconBtnDelete}
@@ -612,15 +601,6 @@ function AdminHome() {
           </div>
         )}
       </main>
-
-      {isFormOpen && (
-        <PropertyForm
-          initialData={editingProperty || undefined}
-          initialUnlisted={editingProperty ? unlistedIds.has(editingProperty.id) : false}
-          onClose={() => setIsFormOpen(false)}
-          onSave={handleSaveContent}
-        />
-      )}
     </div>
   );
 }

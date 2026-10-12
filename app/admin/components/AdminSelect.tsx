@@ -42,6 +42,11 @@ interface AdminSelectProps {
   /** A search box in the list. Defaults to on from nine options. */
   searchable?: boolean;
   className?: string;
+  /** Shown, muted, while the value matches no option (dispatch 30: a field nothing is chosen for yet). */
+  placeholder?: string;
+  /** Marks the field as refused or missing: the admin's red ring. */
+  invalid?: boolean;
+  disabled?: boolean;
 }
 
 const SEARCH_FROM = 9;
@@ -50,7 +55,7 @@ const TYPE_AHEAD_MS = 700;
 
 const fold = (text: string) => text.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
-export function AdminSelect({ label, value, onChange, groups, icon, searchable, className }: AdminSelectProps) {
+export function AdminSelect({ label, value, onChange, groups, icon, searchable, className, placeholder, invalid, disabled }: AdminSelectProps) {
   const id = useId();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -70,7 +75,10 @@ export function AdminSelect({ label, value, onChange, groups, icon, searchable, 
     const q = fold(query.trim());
     return q === "" ? all : all.filter((option) => fold(option.label).includes(q));
   }, [all, query]);
-  const selected = all.find((option) => option.value === value) ?? all[0];
+  // With a placeholder: an empty value shows the placeholder, and a value that matches no option is shown as it is
+  // (a stored "ON" where the list says "Ontario" must not look unset). Without one, the first option stands in.
+  const matched = all.find((option) => option.value === value);
+  const selected = matched ?? (placeholder === undefined ? all[0] : value === "" ? undefined : { value, label: value });
   // The list can shrink under the search: the highlight stays on a row that exists.
   const active = Math.min(activeRaw, Math.max(0, shown.length - 1));
 
@@ -172,12 +180,14 @@ export function AdminSelect({ label, value, onChange, groups, icon, searchable, 
       <button
         ref={triggerRef}
         type="button"
-        className={`${styles.trigger} ${open ? styles.triggerOpen : ""}`}
+        className={`${styles.trigger} ${open ? styles.triggerOpen : ""} ${invalid ? styles.triggerInvalid : ""}`}
         role="combobox"
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={`${id}-list`}
         aria-label={label}
+        aria-invalid={invalid || undefined}
+        disabled={disabled}
         onClick={() => (open ? close() : show())}
         onKeyDown={onTriggerKey}
       >
@@ -186,7 +196,7 @@ export function AdminSelect({ label, value, onChange, groups, icon, searchable, 
             {icon}
           </span>
         )}
-        <span className={styles.value}>{selected?.label ?? ""}</span>
+        <span className={`${styles.value} ${selected ? "" : styles.placeholder}`}>{selected?.label ?? placeholder ?? ""}</span>
         <ChevronDown size={15} className={styles.chevron} aria-hidden />
       </button>
 

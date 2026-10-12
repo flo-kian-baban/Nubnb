@@ -118,6 +118,32 @@ export async function getPropertiesResult(): Promise<ReadResult<AdminProperties>
   };
 }
 
+/** One property exactly as stored, with whether it is unlisted beside it (dispatch 30: what the edit page sends back must be what it was given). */
+export interface AdminProperty {
+  property: Property;
+  unlisted: boolean;
+  createdMonth: string | null;
+}
+
+export type AdminPropertyRead = { ok: true; data: AdminProperty } | { ok: false; status: number; error: string };
+
+/** Read one property through the admin route: the stored document itself, never the public read's folded copy. */
+export async function getAdminProperty(id: string): Promise<AdminPropertyRead> {
+  let res: Response;
+  try {
+    res = await fetch(`/api/admin/properties/${encodeURIComponent(id)}`, { cache: 'no-store' });
+  } catch (error) {
+    return { ok: false, status: 0, error: error instanceof Error ? error.message : 'Could not reach the server.' };
+  }
+  const body = await res.json().catch(() => ({}));
+  const data = body && typeof body === 'object' ? (body as { data?: { property?: unknown; unlisted?: unknown; createdMonth?: unknown } }).data : undefined;
+  if (!res.ok || !data || !data.property || typeof data.property !== 'object' || typeof data.unlisted !== 'boolean') {
+    const said = body && typeof body === 'object' && typeof (body as { error?: unknown }).error === 'string' ? (body as { error: string }).error : null;
+    return { ok: false, status: res.status, error: said ?? `Could not load the property (HTTP ${res.status}).` };
+  }
+  return { ok: true, data: { property: data.property as Property, unlisted: data.unlisted, createdMonth: typeof data.createdMonth === 'string' ? data.createdMonth : null } };
+}
+
 // ─── WRITE (server-side API routes via Admin SDK) ──────────────
 // Session cookie is sent automatically with same-origin fetch requests.
 

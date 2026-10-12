@@ -262,7 +262,8 @@
 }
 
 /* ── New team member dialog (NewMemberDialog.tsx) ──
-   The overlay and panel follow PropertyForm's modal, narrower. */
+   The overlay and panel follow the old property form's modal (gone in
+   dispatch 30; the property editor's dialog keeps this look), narrower. */
 .overlay {
   position: fixed;
   inset: 0;

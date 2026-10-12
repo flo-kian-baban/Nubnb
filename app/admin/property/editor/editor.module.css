@@ -1,0 +1,1426 @@
+/* The property editor (dispatch 30): the head, the rail of sections on the
+   left, one section's panel on the right, the save state in the header, and
+   the dialog. The container, the header, its pills and the state badges come
+   from ../../page.module.css; the look of fields follows the property page
+   (../page.module.css): 36 px inputs, 10 px corners, the admin's focus ring. */
+
+/* ── The head: back, the title, where else to go ── */
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 22px;
+}
+.backLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: max-content;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.55);
+  text-decoration: none;
+  border-radius: 6px;
+}
+.backLink:hover {
+  color: #ffffff;
+}
+.backLink:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 2px;
+}
+.titleRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+}
+.title {
+  margin: 0 auto 0 0;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 28px;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+  overflow-wrap: anywhere;
+}
+.titleEmpty {
+  color: rgba(255, 255, 255, 0.45);
+  font-weight: 600;
+}
+.headLinks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── Two columns: the rail in its own card on the left, the section's tiles filling the rest ── */
+.layout {
+  display: grid;
+  grid-template-columns: 252px minmax(0, 1fr);
+  column-gap: 20px;
+  align-items: start;
+}
+.rail {
+  position: sticky;
+  top: 84px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px 10px 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.railGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.railGroup + .railGroup {
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.railGroupLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  padding: 2px 12px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.38);
+}
+.railGroupInternal {
+  color: #a9c4e2;
+}
+.railItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 38px;
+  padding: 0 10px 0 12px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.68);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.railItem:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.05);
+}
+.railItem:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: -2px;
+}
+.railItemActive,
+.railItemActive:hover {
+  color: #ffffff;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.railIcon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.4);
+}
+.railItemActive .railIcon {
+  color: #ffffff;
+}
+.railLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── The mark at the right of a row: complete, missing, to check, refused ── */
+.mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.markOk {
+  color: #6ee7a0;
+  background: rgba(74, 222, 128, 0.1);
+}
+.markMissing {
+  color: #f0a63a;
+  background: rgba(245, 158, 11, 0.12);
+}
+.markCheck {
+  color: #f0a63a;
+  background: rgba(245, 158, 11, 0.12);
+}
+.markRefused {
+  color: #ef5350;
+  background: rgba(239, 68, 68, 0.14);
+}
+
+/* ── The panel: one section, as tiles on the page ── */
+.panel {
+  min-width: 0;
+}
+.panelHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 16px;
+  min-height: 30px;
+  margin: 0 0 12px;
+  padding: 0 4px;
+}
+.panelTitle {
+  margin: 0 auto 0 0;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: #ffffff;
+}
+.panelMissing {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #f0a63a;
+}
+.panelRefused {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #ef5350;
+}
+.panelNote {
+  margin: -4px 0 14px;
+  padding: 0 4px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.5);
+}
+/* The internal sections say so, once, in the brand blue. */
+.internalNote {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: -4px 0 14px;
+  padding: 0 4px;
+  font-size: 12.5px;
+  color: #a9c4e2;
+}
+
+/* ── The bento: twelve columns, tiles of different widths ── */
+.bento {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-auto-flow: dense;
+  gap: 14px;
+}
+.span3 { grid-column: span 3; }
+.span4 { grid-column: span 4; }
+.span5 { grid-column: span 5; }
+.span6 { grid-column: span 6; }
+.span7 { grid-column: span 7; }
+.span8 { grid-column: span 8; }
+.span9 { grid-column: span 9; }
+.span12 { grid-column: span 12; }
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  padding: 18px 20px 20px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.tileHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 20px;
+}
+.tileTitle {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+}
+.tileAside {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.5);
+  white-space: nowrap;
+}
+/* The fields inside a tile: one column, or two, three or four of equal width. */
+.fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px 12px;
+}
+.cols2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.cols3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.cols4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+/* The one figure the page is about: the nightly price, large. (`.input.heroInput`: it must outrank `.input`, which comes later.) */
+.input.heroInput {
+  height: 56px;
+  padding: 0 16px;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.heroPrefix {
+  position: relative;
+}
+.heroPrefix > span {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 18px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.4);
+  pointer-events: none;
+}
+.heroPrefix > input.input {
+  padding-left: 36px;
+}
+.panelBody {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.divider {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  margin: 2px 0;
+}
+
+/* ── Fields ── */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 14px;
+}
+.span2 {
+  grid-column: 1 / -1;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  /* Any AdminSelect inside takes the inputs' recipe. */
+  --ctl-h: 36px;
+  --ctl-radius: 10px;
+  --ctl-bg: rgba(0, 0, 0, 0.25);
+  --ctl-border: rgba(255, 255, 255, 0.12);
+  --ctl-fg: #ffffff;
+}
+.fieldLabelRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 10px;
+  min-height: 16px;
+}
+.fieldLabel {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.5);
+}
+.input {
+  width: 100%;
+  height: 36px;
+  padding: 0 11px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.25);
+  color: #ffffff;
+  font: inherit;
+  font-size: 13px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.input::placeholder {
+  color: rgba(255, 255, 255, 0.35);
+  opacity: 1;
+}
+.input:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+.input:focus {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 1px;
+}
+.input:disabled {
+  opacity: 0.55;
+}
+.textarea {
+  height: auto;
+  min-height: 120px;
+  padding: 9px 11px;
+  line-height: 1.55;
+  resize: vertical;
+}
+.number {
+  font-variant-numeric: tabular-nums;
+}
+.inputInvalid,
+.inputInvalid:hover:not(:disabled) {
+  border-color: rgba(239, 68, 68, 0.6) !important;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.12);
+}
+.issue {
+  display: block;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #ef5350;
+}
+.hint {
+  display: block;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.45);
+}
+/* A select the width of its field. */
+.selectFull {
+  width: 100%;
+}
+.selectFull > button {
+  flex: 1 1 auto;
+  justify-content: space-between;
+}
+/* A row of a field and a button after it: the link inputs. */
+.inputRow {
+  display: flex;
+  gap: 8px;
+}
+.inputRow > input,
+.inputRow > .inputWrap {
+  flex: 1;
+  min-width: 0;
+}
+.inputWrap {
+  position: relative;
+}
+.inputWrap > svg {
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: rgba(255, 255, 255, 0.4);
+  pointer-events: none;
+}
+.inputWrap > input {
+  padding-left: 32px;
+}
+
+/* ── The import's provenance: a tint on the border, a badge where there is no border ── */
+.scrapeExtracted {
+  border-color: rgba(76, 175, 80, 0.5) !important;
+}
+.scrapeDefaulted {
+  border-color: rgba(245, 158, 11, 0.6) !important;
+}
+.scrapeFailed {
+  border-color: rgba(239, 68, 68, 0.55) !important;
+}
+.scrapeBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.5;
+  white-space: nowrap;
+  text-transform: none;
+  color: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.06);
+  cursor: help;
+}
+.scrapeBadgeExtracted {
+  color: #6ee7a0;
+  background: rgba(74, 222, 128, 0.1);
+}
+.scrapeBadgeDefaulted {
+  color: #f0a63a;
+  background: rgba(245, 158, 11, 0.12);
+}
+.scrapeBadgeFailed {
+  color: #ef5350;
+  background: rgba(239, 68, 68, 0.12);
+}
+
+/* ── Buttons inside the panels: the property page's ── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+.btnGhost {
+  color: rgba(255, 255, 255, 0.78);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.btnGhost:hover:not(:disabled) {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.btnPrimary {
+  color: #0a0a0c;
+  background: #ffffff;
+  border: 1px solid #ffffff;
+}
+.btnPrimary:hover:not(:disabled) {
+  background: #e8e8ea;
+}
+.btnDanger {
+  color: #ef5350;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+.btnDanger:hover:not(:disabled) {
+  color: #ff6b68;
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+.btnSmall {
+  height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.btn:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 2px;
+}
+.linkBtn {
+  padding: 0;
+  border: none;
+  background: none;
+  color: #8dbbe8;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.linkBtn:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.spin {
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── Switch and tick ── */
+.switchRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+}
+.switchRowDisabled {
+  opacity: 0.6;
+}
+.switchBare {
+  padding: 0;
+  border: none;
+  background: none;
+}
+.switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 38px;
+  height: 22px;
+  margin-top: 1px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+.switch:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 2px;
+}
+.switch:disabled {
+  cursor: default;
+}
+.switchKnob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.7);
+  transition: transform 0.2s ease, background-color 0.2s ease;
+}
+.switchOn {
+  background: #6599cd;
+  border-color: #6599cd;
+}
+.switchOn .switchKnob {
+  background: #ffffff;
+  transform: translateX(16px);
+}
+.switchText {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  cursor: pointer;
+}
+.switchRowDisabled .switchText {
+  cursor: default;
+}
+.switchName {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #ffffff;
+}
+.switchDesc {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.5);
+}
+.switchGroup {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.tick {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.25);
+  color: #0a0a0c;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.tick:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.5);
+}
+.tick:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 2px;
+}
+.tick:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.tickOn {
+  background: #6ee7a0;
+  border-color: #6ee7a0;
+}
+
+/* ── Lists: highlights, rules, offers ── */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 6px 10px 6px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.02);
+}
+.row:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+.rowText {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: #e8edf3;
+  overflow-wrap: anywhere;
+}
+.rowUnavailable {
+  opacity: 0.6;
+}
+.rowNameUnavailable {
+  text-decoration: line-through;
+}
+.rowActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.rowBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+}
+.rowBtn:hover:not(:disabled) {
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+.rowBtn:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 1px;
+}
+.rowBtn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.rowBtnConfirm {
+  color: #6ee7a0;
+  border-color: rgba(76, 175, 80, 0.3);
+}
+.rowBtnConfirm:hover:not(:disabled) {
+  color: #6ee7a0;
+  background: rgba(76, 175, 80, 0.12);
+  border-color: rgba(76, 175, 80, 0.5);
+}
+.rowBtnDanger:hover:not(:disabled) {
+  color: #ef5350;
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+.starBtn {
+  color: rgba(255, 255, 255, 0.35);
+}
+.starBtn:hover:not(:disabled) {
+  color: #ffb400;
+  border-color: rgba(255, 180, 0, 0.3);
+}
+.starBtnOn,
+.starBtnOn:hover:not(:disabled) {
+  color: #ffb400;
+  background: rgba(255, 180, 0, 0.1);
+  border-color: rgba(255, 180, 0, 0.3);
+}
+.rowEditInput {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px;
+}
+.rowEditCategory {
+  flex: 1 1 160px;
+  max-width: 220px;
+  min-width: 0;
+  --ctl-h: 30px;
+  --ctl-radius: 8px;
+  --ctl-bg: rgba(0, 0, 0, 0.25);
+  --ctl-border: rgba(255, 255, 255, 0.12);
+}
+.rowFixedCategory {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+.rowIssue {
+  margin: -2px 0 2px 12px;
+}
+.addRow {
+  display: flex;
+  gap: 8px;
+}
+.addRow > input {
+  flex: 1;
+  min-width: 0;
+}
+.addCategory {
+  flex: 0 0 240px;
+  max-width: 40%;
+  min-width: 0;
+  --ctl-h: 36px;
+  --ctl-radius: 10px;
+  --ctl-bg: rgba(0, 0, 0, 0.25);
+  --ctl-border: rgba(255, 255, 255, 0.12);
+}
+.categoryGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.categoryLabel {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+}
+.categoryCount {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.4);
+  font-variant-numeric: tabular-nums;
+}
+.countLine {
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.5);
+}
+.countLine b {
+  color: #ffb400;
+  font-weight: 600;
+}
+
+/* ── Photos ── */
+.cover {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+/* Grows with the tile (beside a tall gallery), never below 260 px or above 520 px. */
+.coverFrame {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 260px;
+  max-height: 520px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.coverFrameEmpty {
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.coverImg {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.coverEmpty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 13px;
+}
+.coverTag {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  backdrop-filter: blur(4px);
+}
+.coverActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.gallery {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.galleryHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 30px;
+}
+/* The box the photos sit in: it is the drop zone, and a long gallery scrolls inside it. The grid itself is
+   never height-constrained (a constrained grid squashes its rows). */
+.galleryScroll {
+  max-height: 540px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.galleryScrollActive {
+  border-color: #6599cd;
+  background: rgba(101, 153, 205, 0.08);
+}
+.galleryGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 10px;
+}
+.photo {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.photoImg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.photoIndex {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 20px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.photoActions {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 6px;
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.photo:hover .photoActions,
+.photo:focus-within .photoActions {
+  opacity: 1;
+}
+.photoBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  min-width: 24px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.7);
+  color: #ffffff;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+}
+.photoBtn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.9);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+.photoBtn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.photoBtn:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 1px;
+}
+.photoBtnDanger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.85);
+  border-color: #ef4444;
+}
+.addPhotos {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  aspect-ratio: 1;
+  border-radius: 10px;
+  border: 1px dashed rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.02);
+  color: rgba(255, 255, 255, 0.6);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+.addPhotos:hover:not(:disabled) {
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.04);
+}
+.addPhotos:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 2px;
+}
+.addPhotos:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.galleryEmpty {
+  grid-column: 1 / -1;
+  padding: 18px 8px 6px;
+  text-align: center;
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.45);
+}
+/* The file control is the system's; nothing of the browser's is drawn. */
+.fileInput {
+  display: none;
+}
+
+/* ── The import report ── */
+.report {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.reportCounts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.reportTotal {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+}
+.reportList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.reportList li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.6);
+}
+.reportList strong {
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 600;
+}
+.reportReason {
+  flex: 1 1 260px;
+  min-width: 0;
+  color: rgba(255, 255, 255, 0.45);
+  line-height: 1.45;
+}
+.reportSections {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* ── The price conflict (two stored prices), above every section ── */
+.priceWarning {
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  border: 1px solid rgba(217, 119, 6, 0.6);
+  border-left-width: 5px;
+  border-radius: 12px;
+  background: rgba(217, 119, 6, 0.1);
+}
+.priceWarningHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #f59e0b;
+}
+.priceWarningBody {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #e8e8e8;
+}
+.priceWarningBody b {
+  color: #ffffff;
+}
+
+/* ── Reviews ── */
+.reviewCard {
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.reviewHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.reviewAvatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.reviewAvatarFallback {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #6599cd;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.reviewMeta {
+  flex: 1;
+  min-width: 0;
+}
+.reviewName {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e8edf3;
+}
+.reviewDate {
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.45);
+}
+.reviewStars {
+  color: #6599cd;
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+.reviewText {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.65);
+}
+.reviewSummary {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
+}
+.figure {
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+}
+.figureLabel {
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.5);
+}
+.empty {
+  padding: 22px 12px;
+  text-align: center;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.45);
+  border-radius: 12px;
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+}
+
+/* ── Statements: owners ── */
+.ownerRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.ownerRow > input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── The save state, in the header beside Save ── */
+.saveState {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.5);
+  white-space: nowrap;
+}
+.saveStateUnsaved {
+  color: #f0a63a;
+}
+.saveDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* ── The restored-changes bar ── */
+.actionBar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 18px;
+  padding: 10px 12px 10px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(101, 153, 205, 0.35);
+  background: rgba(101, 153, 205, 0.1);
+  color: #cfe0f5;
+  font-size: 13px;
+}
+.actionBarText {
+  flex: 1;
+  min-width: 0;
+}
+.actionBarClose {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+}
+.actionBarClose:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+/* ── The dialog: the one way a question is asked ── */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.dialog {
+  width: 100%;
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 20px;
+  background: #0e0e0e;
+  color: #ffffff;
+  box-shadow: 0 48px 96px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  animation: rise 0.18s ease-out;
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dialog {
+    animation: none;
+  }
+}
+.dialogHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.dialogTitle {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.dialogClose {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+}
+.dialogClose:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+}
+.dialogClose:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 2px;
+}
+.dialogBody {
+  padding: 20px 24px 4px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.75);
+}
+.dialogBody p {
+  margin: 0;
+}
+.dialogBody b {
+  color: #ffffff;
+}
+.dialogFoot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 20px 24px 24px;
+}
+
+/* ── Loading and failure, this page's own words ── */
+.centered {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 80px 24px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* ── Narrow windows (mobile is out of scope; this keeps the page usable) ── */
+@media (max-width: 1100px) {
+  .span3, .span4, .span5, .span6, .span7, .span8, .span9 {
+    grid-column: span 12;
+  }
+  .cols4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 960px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 16px;
+  }
+  .rail {
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 10px 18px;
+  }
+  .railGroup {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+  }
+  .railGroup + .railGroup {
+    padding-top: 0;
+    border-top: none;
+  }
+  .railGroupLabel {
+    margin: 0 4px 0 0;
+    padding: 0;
+  }
+  .railItem {
+    width: auto;
+  }
+}
+@media (max-width: 680px) {
+  .grid,
+  .switchGroup,
+  .cols2,
+  .cols3,
+  .cols4 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

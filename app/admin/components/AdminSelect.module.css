@@ -166,3 +166,21 @@
     animation: none;
   }
 }
+
+/* Nothing chosen yet (dispatch 30): the placeholder, muted. */
+.placeholder {
+  color: var(--ctl-placeholder, rgba(255, 255, 255, 0.35));
+  font-weight: 500;
+}
+
+/* Refused by the server, or required and empty: the admin's red ring. */
+.triggerInvalid,
+.triggerInvalid:hover {
+  border-color: rgba(239, 68, 68, 0.6);
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.12);
+}
+
+.trigger:disabled {
+  opacity: 0.55;
+  cursor: default;
+}

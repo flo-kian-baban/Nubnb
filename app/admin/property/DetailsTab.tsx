@@ -70,7 +70,7 @@ export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForStat
           </div>
           <div className={`${styles.field} ${styles.fieldHalf}`}>
             <label className={styles.fieldLabel} htmlFor="report-for-address">Address</label>
-            <textarea id="report-for-address" className={`${styles.textInput} ${styles.addressInput}`} value={legacyView ? "" : shownAddress} maxLength={STATEMENT_LIMITS.REPORT_FOR_ADDRESS_MAX} disabled={readOnly} placeholder={"321-20 John St.\nToronto, ON, M5V 0G5"} rows={2} onChange={(e) => onReportFor({ ...reportFor, address: e.target.value })} />
+            <textarea id="report-for-address" className={`${styles.textInput} ${styles.addressInput}`} value={legacyView ? "" : shownAddress} maxLength={STATEMENT_LIMITS.REPORT_FOR_ADDRESS_MAX} disabled={readOnly} placeholder={"123-45 Example St.\nToronto, ON, A1B 2C3"} rows={2} onChange={(e) => onReportFor({ ...reportFor, address: e.target.value })} />
           </div>
         </div>
       </section>

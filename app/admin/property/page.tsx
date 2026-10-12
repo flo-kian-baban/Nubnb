@@ -62,7 +62,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { AlertTriangle, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
+import { AlertTriangle, ChevronLeft, ChevronRight, Pencil, RefreshCw } from "lucide-react";
 import { AdminHeader } from "../components/AdminHeader";
 import { AdminSelect } from "../components/AdminSelect";
 import { PinGate } from "../components/PinGate";
@@ -320,6 +320,11 @@ function PropertyPageInner() {
           <RefreshCw size={15} aria-hidden />
           <span>Refresh</span>
         </button>
+        {/* The property's edit page (dispatch 30): its listing, photos and internal fields. */}
+        <Link href={`/admin/property/edit?id=${encodeURIComponent(propertyId)}`} prefetch={false} className={shared.btnGhost} title="Edit the listing, its photos and its internal fields">
+          <Pencil size={14} aria-hidden />
+          <span>Edit property</span>
+        </Link>
       </AdminHeader>
 
       <main className={shared.main}>
