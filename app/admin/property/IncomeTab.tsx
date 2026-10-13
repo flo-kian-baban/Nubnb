@@ -26,6 +26,7 @@ import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { ArrowDown, ArrowUp, Plus } from "lucide-react";
 import type { Notice } from "../components/Notice";
+import { useAsk } from "../components/AskDialog";
 import { DateRangeField } from "../components/DateRangeField";
 import { formatCents } from "@/app/lib/cleaners/model";
 import { STATEMENT_LIMITS, isDayText, lineAmount, rangeText } from "@/app/lib/reports/model";
@@ -65,6 +66,8 @@ function figuresOf(line: Pick<LineDraft, "quantity" | "rate">) {
 
 export function IncomeTab({ typed, readOnly, sums, onChange, show, files }: Props) {
   const [editing, setEditing] = useState<Editing | null>(null);
+  /** Questions in Nubnb's own dialog (Kian's ruling of 2026-10-12: no native browser dialogs in the admin). */
+  const { ask, dialog } = useAsk();
   const full = typed.lines.length >= STATEMENT_LIMITS.LINES_MAX;
 
   const openNew = () => setEditing({ id: null, description: "", from: "", to: "", quantity: "1", rate: "" });
@@ -75,10 +78,11 @@ export function IncomeTab({ typed, readOnly, sums, onChange, show, files }: Prop
     lines.splice(index + by, 0, line);
     onChange({ ...typed, lines });
   };
-  const removeLine = () => {
+  const removeLine = async () => {
     if (!editing || editing.id === null) return;
-    if (!window.confirm("Remove this line?")) return;
-    onChange({ ...typed, lines: typed.lines.filter((l) => l.id !== editing.id) });
+    const id = editing.id;
+    if (!(await ask({ title: "Remove this line?", lines: [editing.description.trim() ? `“${editing.description.trim()}” leaves the statement.` : null], confirm: "Remove line", danger: true }))) return;
+    onChange({ ...typed, lines: typed.lines.filter((l) => l.id !== id) });
     setEditing(null);
   };
 
@@ -183,7 +187,7 @@ export function IncomeTab({ typed, readOnly, sums, onChange, show, files }: Prop
               Cancel
             </button>
             {editing.id !== null && (
-              <button type="button" className={`${styles.btnGhost} ${styles.btnDanger} ${styles.formActionEnd}`} onClick={removeLine}>
+              <button type="button" className={`${styles.btnGhost} ${styles.btnDanger} ${styles.formActionEnd}`} onClick={() => void removeLine()}>
                 Remove line
               </button>
             )}
@@ -271,6 +275,7 @@ export function IncomeTab({ typed, readOnly, sums, onChange, show, files }: Prop
           </tbody>
         </table>
       )}
+      {dialog}
     </section>
   );
 }

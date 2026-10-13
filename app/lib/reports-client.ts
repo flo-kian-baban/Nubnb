@@ -75,6 +75,8 @@ export interface CarriedPayload {
   label: string;
   amount: string;
   fromReportId: string | null;
+  /** The month of the statement it came from (dispatch 35): sent with a balance taken from a statement. */
+  fromMonth?: string | null;
 }
 
 /** The draft as the page saves it, whole (version 3). */

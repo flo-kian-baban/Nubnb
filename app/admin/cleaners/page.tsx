@@ -68,6 +68,7 @@ import {
 } from "@/app/lib/cleaners/model";
 import { Absent, FieldText } from "../leads/lead-display";
 import { NewMemberDialog } from "./NewMemberDialog";
+import { useAsk } from "../components/AskDialog";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
 
@@ -120,6 +121,8 @@ function Cleaners() {
   const [codeDraft, setCodeDraft] = useState("");
   const codeInputRef = useRef<HTMLInputElement>(null);
   const { notice, show: showNotice, clear: clearNotice } = useNotice();
+  /** Every question asked in Nubnb's own dialog (Kian's ruling of 2026-10-12: no native browser dialogs in the admin). */
+  const { ask, dialog } = useAsk();
 
   useEffect(() => {
     let cancelled = false;
@@ -226,11 +229,11 @@ function Cleaners() {
   const changeStatus = async (cleaner: CleanerSummary, target: CleanerStatus) => {
     if (busy) return;
     const who = displayName(cleaner.name);
-    const question =
+    const yes =
       target === "deactivated"
-        ? `Deactivate ${who}? Their code stops working at once and any signed-in phone is signed out. Their entries keep their name.`
-        : `Reactivate ${who}? Their existing code works again. Phones signed in before are still signed out.`;
-    if (!window.confirm(question)) return;
+        ? await ask({ title: `Deactivate ${who}?`, lines: ["Their code stops working at once and any signed-in phone is signed out. Their entries keep their name."], confirm: "Deactivate", danger: true })
+        : await ask({ title: `Reactivate ${who}?`, lines: ["Their existing code works again. Phones signed in before are still signed out."], confirm: "Reactivate" });
+    if (!yes) return;
 
     clearNotice();
     setSaving({ id: cleaner.id, what: "status" });
@@ -278,11 +281,11 @@ function Cleaners() {
   const saveCode = async (target: CodeEditor, request: CodeRequest) => {
     if (busy) return;
     const was = target.current ? ` (${target.current})` : "";
-    const question =
+    const yes =
       "code" in request
-        ? `Change ${target.name}'s code${target.current ? ` from ${target.current}` : ""} to ${request.code}? ${CODE_CHANGE_EFFECT}`
-        : `Give ${target.name} a new code, chosen at random? The old code${was} stops working at once. Any phone signed in with it is signed out.`;
-    if (!window.confirm(question)) return;
+        ? await ask({ title: `Change ${target.name}'s code${target.current ? ` from ${target.current}` : ""} to ${request.code}?`, lines: [CODE_CHANGE_EFFECT], confirm: "Change code" })
+        : await ask({ title: `Give ${target.name} a new code, chosen at random?`, lines: [`The old code${was} stops working at once. Any phone signed in with it is signed out.`], confirm: "Give a new code" });
+    if (!yes) return;
 
     clearNotice();
     setSaving({ id: target.id, what: "code" });
@@ -329,15 +332,13 @@ function Cleaners() {
         : theirs.length === 0
           ? "They logged no entries."
           : `They logged ${theirs.length === 1 ? "1 entry" : `${theirs.length} entries`}${pending > 0 ? ` (${pending} pending review)` : ""}; those stay on the ledger under the name “${cleaner.name ?? who}”.`;
-    const question = [
-      `Delete ${who} for good?`,
-      "",
-      `${role}${cleaner.code ? `, code ${cleaner.code}` : ", no code on record"}. The code stops working at once; any signed-in phone is signed out.`,
-      entriesLine,
-      "",
-      "The account cannot be reactivated. This cannot be undone.",
-    ].join("\n");
-    if (!window.confirm(question)) return;
+    const yes = await ask({
+      title: `Delete ${who} for good?`,
+      lines: [`${role}${cleaner.code ? `, code ${cleaner.code}` : ", no code on record"}. The code stops working at once; any signed-in phone is signed out.`, entriesLine, "The account cannot be reactivated. This cannot be undone."],
+      confirm: "Delete for good",
+      danger: true,
+    });
+    if (!yes) return;
 
     clearNotice();
     setSaving({ id: cleaner.id, what: "delete" });
@@ -592,6 +593,7 @@ function Cleaners() {
           onClose={closeAdding}
         />
       )}
+      {dialog}
     </div>
   );
 }

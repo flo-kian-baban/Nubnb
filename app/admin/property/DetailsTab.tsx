@@ -29,8 +29,8 @@
  */
 
 import { formatCents } from "@/app/lib/cleaners/model";
-import { STATEMENT_LIMITS, monthLabel, type MonthlyReportView, type PropertyManagementView } from "@/app/lib/reports/model";
-import { carriedSuggestion, feeRateSuggestion } from "@/app/lib/reports/statement";
+import { STATEMENT_LIMITS, monthLabel, type MonthlyReportView, type PropertyManagementView, type StatementCarriedAdjustment } from "@/app/lib/reports/model";
+import { carriedFromMonth, feeRateSuggestion, uncarriedDebts } from "@/app/lib/reports/statement";
 import { reportForCut } from "@/app/lib/reports/statement-pdf";
 import { amountField, readAmount } from "../costs/cost-display";
 import { feeNow, rateField, type FeeDraft, type HeldPart, type ReportForDraft, type Typed } from "./statement-form";
@@ -48,18 +48,27 @@ interface Props {
   /** The previous month's current statement, for the suggestions. */
   previous: MonthlyReportView | null;
   management: PropertyManagementView | null;
-  /** The carried balance as parsed; null when none or unreadable. */
+  /** The carried balance as the statement deducts it (a link resolved); null when none or unreadable. */
   carriedCents: number | null;
+  /** Every finished report of the property, and the month on screen: the debts offered, and where a link leads (dispatch 35). */
+  reports: MonthlyReportView[];
+  month: string;
+  /** Carried balances this statement settles (dispatch 35). */
+  carriedAdjustments: StatementCarriedAdjustment[];
   /** The month's revenue, the positive lines, as the statement adds it up; null when it cannot be built. */
   revenueCents: number | null;
   /** Parts not saved because they do not read yet (dispatch 34, S10). */
   heldBack: HeldPart[];
 }
 
-export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForState, onReportFor, finishedReport, previous, management, carriedCents, revenueCents, heldBack }: Props) {
+export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForState, onReportFor, finishedReport, previous, management, carriedCents, reports, month, carriedAdjustments, revenueCents, heldBack }: Props) {
   const fee = typed.fee ? feeNow(typed.fee) : null;
   const setFee = (patch: Partial<FeeDraft>) => typed.fee && onChange({ ...typed, fee: { ...typed.fee, ...patch } });
-  const suggestedCarried = carriedSuggestion(previous);
+  /** The earlier months that closed owing NuBNB and that no statement carries (Kian's ruling: offered until one does). */
+  const debts = readOnly ? [] : uncarriedDebts(reports, month);
+  /** Whether the carried balance is a link to a statement, and the month it follows. */
+  const linked = typed.carried !== null && typed.carried.fromReportId !== null;
+  const linkedMonth = typed.carried ? carriedFromMonth(typed.carried, reports) : null;
   /** A statement finished before the Payment Summary has no Report For of its own: the block is blank. */
   const legacyView = readOnly && finishedReport?.legacy === true;
   const shownName = readOnly ? (finishedReport?.reportFor?.name ?? "") : reportFor.name;
@@ -180,7 +189,7 @@ export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForStat
         )}
       </section>
 
-      {/* ── Carried balance ── */}
+      {/* ── Carried balance: a link to the month it came from (Kian's ruling of 2026-10-12, dispatch 35) ── */}
       <section className={styles.block} aria-label="Carried balance">
         <div className={styles.blockHead}>
           <h3 className={styles.blockTitle}>Carried balance</h3>
@@ -195,11 +204,18 @@ export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForStat
                 </button>
               ) : (
                 <>
-                  {suggestedCarried && previous && (
-                    <button type="button" className={`${styles.btnGhost} ${styles.btnSmall}`} onClick={() => onChange({ ...typed, carried: { label: suggestedCarried.label, amount: amountField(suggestedCarried.amountCents), fromReportId: suggestedCarried.fromReportId } })} title={`${monthLabel(previous.month)} closed at ${formatCents(previous.payableCents)}`}>
-                      Carry {formatCents(suggestedCarried.amountCents)} from {monthLabel(previous.month)}
+                  {/* Every earlier month that closed owing NuBNB and that no statement carries: offered until one does. */}
+                  {debts.map((debt) => (
+                    <button
+                      key={debt.fromMonth}
+                      type="button"
+                      className={`${styles.btnGhost} ${styles.btnSmall}`}
+                      onClick={() => onChange({ ...typed, carried: { label: debt.label, amount: amountField(debt.amountCents), fromReportId: debt.fromReportId, fromMonth: debt.fromMonth } })}
+                      title={`${monthLabel(debt.fromMonth)} closed at ${formatCents(-debt.amountCents)}`}
+                    >
+                      Carry {formatCents(debt.amountCents)} from {monthLabel(debt.fromMonth)}
                     </button>
-                  )}
+                  ))}
                   <button type="button" className={`${styles.btnGhost} ${styles.btnSmall}`} onClick={() => onChange({ ...typed, carried: { label: "", amount: "", fromReportId: null } })}>
                     Type a balance
                   </button>
@@ -220,18 +236,32 @@ export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForStat
                 id="carried-amount"
                 className={`${styles.textInput} ${styles.amountInput} ${!readOnly && readAmount(typed.carried.amount) === null ? styles.inputInvalid : ""}`}
                 inputMode="decimal"
-                value={typed.carried.amount}
+                // A link shows what its month's statement says now; typing over it makes the balance typed.
+                value={linked && !readOnly && carriedCents !== null ? amountField(carriedCents) : typed.carried.amount}
                 disabled={readOnly}
                 placeholder="359.96"
-                onChange={(e) => onChange({ ...typed, carried: { ...typed.carried!, amount: e.target.value, fromReportId: null } })}
+                onChange={(e) => onChange({ ...typed, carried: { label: typed.carried!.label, amount: e.target.value, fromReportId: null } })}
                 onBlur={() => {
                   const read = readAmount(typed.carried?.amount ?? "");
-                  if (read && typed.carried && read !== typed.carried.amount) onChange({ ...typed, carried: { ...typed.carried, amount: read } });
+                  if (read && typed.carried && !linked && read !== typed.carried.amount) onChange({ ...typed, carried: { ...typed.carried, amount: read } });
                 }}
               />
-              <span className={styles.note}>{typed.carried.fromReportId ? "from the previous statement" : "typed"}</span>
+              <span className={styles.note}>{linked ? `follows ${linkedMonth ? `${monthLabel(linkedMonth)}'s statement` : "its statement"}` : "typed"}</span>
             </div>
           </div>
+        )}
+        {/* Carried balances settled here: an earlier carry whose month was since corrected or deleted (dispatch 35). */}
+        {carriedAdjustments.length > 0 && (
+          <ul className={styles.checkList}>
+            {carriedAdjustments.map((row) => (
+              <li key={row.fromMonth} className={`${styles.checkItem} ${styles.checkWarned}`}>
+                <span>
+                  Adjustment · {row.label}: carried in {monthLabel(row.carriedMonth)} as {formatCents(row.chargedCents)}, now {formatCents(row.nowCents)}
+                </span>
+                <span className={styles.num}>{formatCents(-row.deltaCents)}</span>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
 

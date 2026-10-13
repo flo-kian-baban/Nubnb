@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useRef, type MouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Property } from "@/app/types/property";
-import { getPropertiesResult, deleteProperty, addProperty } from "@/app/lib/firebase/properties";
+import { getPropertiesResult, deleteProperty } from "@/app/lib/firebase/properties";
 import { nightlyPrice } from "@/app/lib/price";
 import { PinGate } from "./components/PinGate";
 import { NoticeBanner, useNotice } from "./components/Notice";
@@ -317,29 +317,6 @@ function AdminHome() {
     router.push(propertyHref(id));
   };
 
-  const handleSeedDatabase = async () => {
-    if (confirm("Are you sure you want to seed the database with mock properties? This will add them to Firestore.")) {
-      setIsLoading(true);
-      const { properties: staticProps } = await import("@/app/data/properties");
-      const failures: string[] = [];
-      for (const p of staticProps) {
-        const { id: _id, ...dataToSave } = p;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const result = await addProperty(dataToSave as any);
-        if (!result.ok) {
-          failures.push(`${p.name}: ${result.error}`);
-        }
-      }
-      if (failures.length > 0) {
-        showNotice({
-          tone: "error",
-          title: `${failures.length} of ${staticProps.length} seed properties failed to save.`,
-          items: failures.slice(0, 5),
-        });
-      }
-      await fetchProperties();
-    }
-  };
 
   const getTypeBadgeClass = (type: string) => {
     switch (type.toLowerCase()) {

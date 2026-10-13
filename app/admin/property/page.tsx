@@ -92,7 +92,7 @@ import {
   type ReportFor,
   type StatementDraftView,
 } from "@/app/lib/reports/model";
-import { STANDING_LABELS, buildStatement, moneyMonthsByProperty, previousStatement, propertyMonthState, propertyMonths, reportingStatus, statementOf, type AnyStatement, type FinishClaim, type PropertyMonthRow } from "@/app/lib/reports/statement";
+import { STANDING_LABELS, buildStatement, laterReferences, moneyMonthsByProperty, previousStatement, propertyMonthState, propertyMonths, reportingStatus, statementOf, type AnyStatement, type FinishClaim, type PropertyMonthRow } from "@/app/lib/reports/statement";
 import { statementPdf } from "@/app/lib/reports/statement-pdf";
 import { checkoutsInMonth, finishChecks, type IncomeFacts } from "@/app/lib/reports/checks";
 import type { PropertyStatementsState } from "../costs/EntryPane";
@@ -582,7 +582,10 @@ function MonthWork(props: MonthWorkProps) {
   }, [props.fromFiles, files.pending, month]);
 
   /** What Finish checks (dispatch 34, Kian's rulings of 2026-10-12): refused only without a Report For name; everything else warns. */
-  const checks = useMemo(() => (built.kind === "ok" && !readOnly ? finishChecks({ statement: built.statement, previous, reports, entries, income: incomeFacts, today }) : null), [built, readOnly, previous, reports, entries, incomeFacts, today]);
+  const checks = useMemo(() => (built.kind === "ok" && !readOnly ? finishChecks({ statement: built.statement, reports, entries, income: incomeFacts, today }) : null), [built, readOnly, reports, entries, incomeFacts, today]);
+  /** The later statements that adjusted or carried from the month's finished one: the Delete and Correct dialogs name them (Kian's ruling of 2026-10-12). */
+  const later = useMemo(() => (finishedReport ? laterReferences(finishedReport, reports) : []), [finishedReport, reports]);
+  const laterWords = later.map(({ report, adjusted, carried }) => `${displayRef(report)} (${monthLabel(report.month)}) ${[adjusted ? "adjusted its costs" : null, carried ? "carried its balance" : null].filter(Boolean).join(" and ")}`);
 
   // ── Save, 800 ms after the last change; the first save on a month with nothing stored creates the draft ──
   // What reads is saved; a fee, balance or date that does not read yet is sent as last saved and stays typed here (S10).
@@ -914,7 +917,10 @@ function MonthWork(props: MonthWorkProps) {
               finishedReport={finishedReport}
               previous={previous}
               management={management}
-              carriedCents={parsed.carried?.amountCents ?? null}
+              carriedCents={finishedReport ? (finishedReport.legacy ? null : finishedReport.carried ? finishedReport.carriedCents : null) : built.kind === "ok" && built.statement.carried ? built.statement.carried.amountCents : (parsed.carried?.amountCents ?? null)}
+              reports={reports}
+              month={month}
+              carriedAdjustments={statement && !statement.legacy ? statement.carriedAdjustments : []}
               revenueCents={sums ? sums.incomeCents : null}
               heldBack={save.kind === "saved" || save.kind === "none" ? (save.heldBack ?? []) : []}
             />
@@ -1014,6 +1020,11 @@ function MonthWork(props: MonthWorkProps) {
           }
         >
           <p>It stays on record, marked replaced; a corrected statement is made beside it.</p>
+          {laterWords.length > 0 && (
+            <p>
+              Later statements: {laterWords.join("; ")}. The correction prints only what is left after their adjustments{later.some((row) => row.carried) ? ", and the next open statement settles any change to the balance they carried" : ""}.
+            </p>
+          )}
           <label className={styles.fieldLabel} htmlFor="correct-reason">
             Why is it corrected? The owner reads this in full.
           </label>
@@ -1049,6 +1060,11 @@ function MonthWork(props: MonthWorkProps) {
               : `This statement was downloaded ${seenDownloads.length === 1 ? dayWords(seenDownloads[0], today) : `${seenDownloads.length} times, last ${dayWords(seenDownloads[seenDownloads.length - 1], today)}`}. Deleting it removes the record of what was sent.`}
           </p>
           {replacedByThis && <p>{displayRef(replacedByThis)}, which it replaced, becomes the month&apos;s statement again; the draft continues the correction.</p>}
+          {laterWords.length > 0 && (
+            <p>
+              Later statements: {laterWords.join("; ")}. They stay as they are. Finished again, this month prints only what is left after their adjustments{later.some((row) => row.carried) ? "; the next open statement settles any change to the balance they carried" : ""}.
+            </p>
+          )}
           <p>Its PDF is deleted too. The month reopens as a draft holding everything the statement had.</p>
         </Dialog>
       )}

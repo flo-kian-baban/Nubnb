@@ -154,6 +154,7 @@ import { workbookFor } from "@/app/lib/costs/xlsx";
 import { Absent, FieldText } from "../leads/lead-display";
 import { EntryStatusBadge, KindBadge, SentAt, quantityText, whenText } from "./cost-display";
 import { EntryPane, type PropertyStatementsState } from "./EntryPane";
+import { useAsk } from "../components/AskDialog";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
 
@@ -211,6 +212,8 @@ function Costs() {
   /** An entry named in the address is brought into view once the list has loaded. */
   const linkedEntry = useRef<string | null>(params.get("entry"));
   const { notice, show, clear } = useNotice();
+  /** Questions in Nubnb's own dialog (Kian's ruling of 2026-10-12: no native browser dialogs in the admin). */
+  const { ask, dialog } = useAsk();
   /** True while a PDF is being recorded, before it is downloaded. */
   const [recording, setRecording] = useState(false);
   /** The entry being marked seen, or "all" while the group is; null otherwise. */
@@ -487,9 +490,11 @@ function Costs() {
     const { report, pendingLeftOut } = built;
     if (
       pendingLeftOut > 0 &&
-      !window.confirm(
-        `${pendingLeftOut === 1 ? "1 entry" : `${pendingLeftOut} entries`} in this period ${pendingLeftOut === 1 ? "is" : "are"} still pending review and ${pendingLeftOut === 1 ? "is" : "are"} not in the report, which holds approved entries only. Download it anyway?`,
-      )
+      !(await ask({
+        title: "Download it anyway?",
+        lines: [`${pendingLeftOut === 1 ? "1 entry" : `${pendingLeftOut} entries`} in this period ${pendingLeftOut === 1 ? "is" : "are"} still pending review and ${pendingLeftOut === 1 ? "is" : "are"} not in the report, which holds approved entries only.`],
+        confirm: "Download anyway",
+      }))
     ) {
       return;
     }
@@ -1008,6 +1013,7 @@ function Costs() {
           </>
         )}
       </main>
+      {dialog}
     </div>
   );
 }

@@ -29,6 +29,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { FileSpreadsheet, FileText, Plus } from "lucide-react";
 import type { Notice } from "../components/Notice";
+import { useAsk } from "../components/AskDialog";
 import { recordPdfExport } from "@/app/lib/costs-client";
 import { formatCents, type CostEntryView, type ReportExportView } from "@/app/lib/cleaners/model";
 import { buildReport, cleanerLabel, deletedSincePdf, entryPdfState, periodLabel, readPdfRecords, reportFileName, sentDay, shortDay, type EntryPdfState } from "@/app/lib/costs/report";
@@ -72,6 +73,8 @@ interface Props {
 export function CostsTab({ propertyId, propertyName, month, today, entries, exports, statement, finishedReport, statements, openEntryId, onOpenEntry, onEntryChanged, onEntryDeleted, onEntryAdded, onExportRecorded, show }: Props) {
   const [recording, setRecording] = useState(false);
   const [adding, setAdding] = useState(false);
+  /** Questions in Nubnb's own dialog (Kian's ruling of 2026-10-12: no native browser dialogs in the admin). */
+  const { ask, dialog } = useAsk();
   const range = monthRange(month);
   const inMonth = (entry: CostEntryView) => {
     const day = sentDay(entry.createdAt);
@@ -108,7 +111,15 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
       return;
     }
     const { report, pendingLeftOut } = built;
-    if (pendingLeftOut > 0 && !window.confirm(`${pendingLeftOut === 1 ? "1 entry" : `${pendingLeftOut} entries`} in ${monthLabel(month)} ${pendingLeftOut === 1 ? "is" : "are"} still pending review and ${pendingLeftOut === 1 ? "is" : "are"} not in the report, which holds approved entries only. Download it anyway?`)) return;
+    if (
+      pendingLeftOut > 0 &&
+      !(await ask({
+        title: "Download it anyway?",
+        lines: [`${pendingLeftOut === 1 ? "1 entry" : `${pendingLeftOut} entries`} in ${monthLabel(month)} ${pendingLeftOut === 1 ? "is" : "are"} still pending review and ${pendingLeftOut === 1 ? "is" : "are"} not in the report, which holds approved entries only.`],
+        confirm: "Download anyway",
+      }))
+    )
+      return;
     // A PDF goes to the owner, so it is recorded first (dispatch 21) and downloaded only once the record is stored.
     let printedReport = report;
     if (kind === "pdf") {
@@ -310,6 +321,7 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
           Ledger: all dates, Excel and PDF
         </Link>
       </p>
+      {dialog}
     </section>
   );
 }

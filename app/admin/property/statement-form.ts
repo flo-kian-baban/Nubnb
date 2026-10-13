@@ -44,6 +44,8 @@ export interface CarriedDraft {
   label: string;
   amount: string;
   fromReportId: string | null;
+  /** The month of the statement it came from (dispatch 35): the link. Absent on a balance carried before or typed by hand. */
+  fromMonth?: string | null;
 }
 export interface Typed {
   reference: string;
@@ -115,7 +117,7 @@ export function fromStored(draft: Pick<StatementDraftView, "reference" | "report
     reportDate: draft.reportDate || today,
     lines: draft.lines.map(lineDraftOf),
     fee: draft.fee ? feeDraftOf(draft.fee) : null,
-    carried: draft.carried ? { label: draft.carried.label, amount: amountField(draft.carried.amountCents), fromReportId: draft.carried.fromReportId } : null,
+    carried: draft.carried ? { label: draft.carried.label, amount: amountField(draft.carried.amountCents), fromReportId: draft.carried.fromReportId, ...(draft.carried.fromMonth !== undefined ? { fromMonth: draft.carried.fromMonth } : {}) } : null,
     notes: draft.notes ?? "",
   };
 }
@@ -199,7 +201,7 @@ export function toDraft(typed: Typed): { lines: Line[]; fee: Fee | null; carried
   if (typed.carried) {
     const amount = readAmount(typed.carried.amount);
     if (amount === null || typed.carried.label.trim() === "") problems.push("Carried balance: a label and an amount");
-    else carried = { label: typed.carried.label.trim(), amountCents: centsOf(amount), fromReportId: typed.carried.fromReportId };
+    else carried = { label: typed.carried.label.trim(), amountCents: centsOf(amount), fromReportId: typed.carried.fromReportId, ...(typed.carried.fromMonth !== undefined ? { fromMonth: typed.carried.fromMonth } : {}) };
   }
   return { lines, fee, carried, problems };
 }
@@ -230,7 +232,7 @@ export function toPayload(propertyId: string, month: string, revision: number, t
             ...(typed.fee.baseRevenue !== undefined ? { baseRevenueCents: typed.fee.baseRevenue } : {}),
           }
         : null,
-    carried: typed.carried ? { label: typed.carried.label.trim(), amount: readAmount(typed.carried.amount) ?? typed.carried.amount, fromReportId: typed.carried.fromReportId } : null,
+    carried: typed.carried ? { label: typed.carried.label.trim(), amount: readAmount(typed.carried.amount) ?? typed.carried.amount, fromReportId: typed.carried.fromReportId, ...(typed.carried.fromMonth !== undefined ? { fromMonth: typed.carried.fromMonth } : {}) } : null,
     notes: typed.notes.trim() || null,
     supersedes,
   };

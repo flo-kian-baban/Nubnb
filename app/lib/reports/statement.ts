@@ -59,6 +59,7 @@ import {
   type PropertyManagementView,
   type ReportFor,
   type StatementAdjustment,
+  type StatementCarriedAdjustment,
   type StatementCost,
   type StatementDraftView,
   type Supersedes,
@@ -81,11 +82,15 @@ export interface Statement {
   adjustments: StatementAdjustment[];
   fee: Fee | null;
   carried: Carried | null;
+  /** Carried balances settled on this statement (dispatch 35): a month's balance carried earlier, since corrected or deleted. */
+  carriedAdjustments: StatementCarriedAdjustment[];
   incomeCents: number;
   expensesCents: number;
   recordedCents: number;
   costsCents: number;
   feeCents: number;
+  /** The carried adjustments' differences, added up: deducted in the Total (dispatch 35). */
+  carriedAdjustmentCents: number;
   totalCents: number;
   carriedCents: number;
   payableCents: number;
@@ -129,6 +134,9 @@ export interface FinishClaim {
   entries: { id: string; seen: number }[];
   earlier: { id: string; seen: number }[];
   adjustments: { entryId: string; statementId: string; deltaCents: number }[];
+  /** The carried balance as the page built it, and the carried balances it settles (dispatch 35): absent from a page built before. */
+  carried?: { fromMonth: string | null; amountCents: number } | null;
+  carriedAdjustments?: { fromMonth: string; deltaCents: number }[];
 }
 
 export interface StatementInputs {
@@ -166,19 +174,25 @@ export function costLineName(entryId: string, day: string): string {
   return `ref ${entryRef(entryId)} · ${rangeText(day, day)}`;
 }
 
-/** One approved, readable entry as a statement cost row. */
-function costRow(entry: CostEntryView, group: StatementCost['group']): StatementCost | null {
+/**
+ * One readable entry as a statement cost row. `amountCents`, when given, is what the row charges instead of the
+ * entry's total now: a month redone after a later statement adjusted the entry prints only what is left after
+ * that adjustment (Kian's ruling of 2026-10-12, dispatch 35). The row then carries that amount alone, the items
+ * and tax split being the entry's of its first printing, which no longer exists apart.
+ */
+function costRow(entry: CostEntryView, group: StatementCost['group'], amountCents: number | null = null): StatementCost | null {
   const day = sentDay(entry.createdAt);
   if (entry.linesNow.kind !== 'ok' || day === null || entry.history === null) return null;
+  const left = amountCents !== null && amountCents !== entry.linesNow.totalCents;
   return {
     entryId: entry.id,
     ref: entryRef(entry.id),
     day,
     kind: entry.kind,
     description: costLineName(entry.id, day),
-    itemsCents: entry.linesNow.itemsCents,
-    taxCents: entry.linesNow.taxCents,
-    totalCents: entry.linesNow.totalCents,
+    itemsCents: left ? (amountCents as number) : entry.linesNow.itemsCents,
+    taxCents: left ? null : entry.linesNow.taxCents,
+    totalCents: left ? (amountCents as number) : entry.linesNow.totalCents,
     corrected: entry.linesNow.corrected,
     historyLength: entry.history.length,
     receiptSha256: entry.receipts?.[0]?.sha256 ?? null,
@@ -195,6 +209,15 @@ export interface PrintedEntry {
 /** Everything a finished report printed, entry by entry. A full report gives it; a summary carries it (dispatch 23D). */
 export function printedBy(report: Pick<MonthlyReportView, 'costs' | 'adjustments'>): PrintedEntry[] {
   return [...report.costs.map((cost) => ({ entryId: cost.entryId, cents: cost.totalCents })), ...report.adjustments.map((adjustment) => ({ entryId: adjustment.entryId, cents: adjustment.nowCents }))];
+}
+
+/**
+ * What a finished report charged the owner for each entry (dispatch 35): a cost row's total, or an adjustment's
+ * difference. Added up over the current statements, it is what the owner has been charged for the entry in all;
+ * every statement charges only what that leaves, so a correction is counted once.
+ */
+export function chargedBy(report: Pick<MonthlyReportView, 'costs' | 'adjustments'>): PrintedEntry[] {
+  return [...report.costs.map((cost) => ({ entryId: cost.entryId, cents: cost.totalCents })), ...report.adjustments.map((adjustment) => ({ entryId: adjustment.entryId, cents: adjustment.deltaCents }))];
 }
 
 /** A finished report as the printed-entry lookup needs it: a full view, or the tracker's summary. */
@@ -219,16 +242,145 @@ export function lastPrinted(current: PrintedReport[]): Map<string, { reportId: s
   return printed;
 }
 
-/** The sums a set of lines, cost rows, adjustments, a fee and a carried balance add up to. */
-export function statementSums(lines: Line[], costs: StatementCost[], adjustments: StatementAdjustment[], fee: Fee | null, carried: Carried | null) {
+/** The sums a set of lines, cost rows, adjustments, a fee, a carried balance and settled carried balances add up to. */
+export function statementSums(lines: Line[], costs: StatementCost[], adjustments: StatementAdjustment[], fee: Fee | null, carried: Carried | null, carriedAdjustments: StatementCarriedAdjustment[] = []) {
   const incomeCents = lines.filter((line) => line.amountCents > 0).reduce((sum, line) => sum + line.amountCents, 0);
   const expensesCents = -lines.filter((line) => line.amountCents < 0).reduce((sum, line) => sum + line.amountCents, 0);
   const recordedCents = costs.reduce((sum, row) => sum + row.totalCents, 0) + adjustments.reduce((sum, row) => sum + row.deltaCents, 0);
   const costsCents = expensesCents + recordedCents;
   const feeCents = fee?.amountCents ?? 0;
-  const totalCents = incomeCents - costsCents - feeCents;
+  // A carried adjustment is a line of the table: deducted (or, negative, given back) in the Total.
+  const carriedAdjustmentCents = carriedAdjustments.reduce((sum, row) => sum + row.deltaCents, 0);
+  const totalCents = incomeCents - costsCents - feeCents - carriedAdjustmentCents;
   const carriedCents = carried?.amountCents ?? 0;
-  return { incomeCents, expensesCents, recordedCents, costsCents, feeCents, totalCents, carriedCents, payableCents: totalCents - carriedCents };
+  return { incomeCents, expensesCents, recordedCents, costsCents, feeCents, carriedAdjustmentCents, totalCents, carriedCents, payableCents: totalCents - carriedCents };
+}
+
+// ─── Corrections that add up (dispatch 35, Kian's rulings of 2026-10-12) ───
+//
+// The current statements are a ledger. For each cost entry they have charged
+// the owner something in all (cost rows and adjustments' differences); for
+// each month whose closing balance was carried, they have deducted something
+// in all (carried balances and their adjustments). A statement charges only
+// what that leaves:
+//   - a month redone (corrected, or deleted and finished again) after a later
+//     statement printed an adjustment prints only what is left after that
+//     adjustment, so a correction is counted once;
+//   - a change after a statement was finished shows on the next month's
+//     statement, never on an earlier month finished later: the first month
+//     after the latest one that charged it which has no current statement;
+//   - a carried balance is a link to the month it came from: while open it
+//     carries what that month's current statement says is still owed; once
+//     finished, a correction or delete of that month is settled by an
+//     adjustment line on the next open statement;
+//   - an uncarried debt keeps being offered until a statement carries it.
+
+/** What the current statements charged for one entry, and the latest of them that did (by month, then by finishing). */
+interface EntryCharge {
+  cents: number;
+  latest: { reportId: string; month: string; finishedAt: string; printedCents: number };
+}
+
+const isLater = (a: { month: string; finishedAt: string }, b: { month: string; finishedAt: string }) => a.month > b.month || (a.month === b.month && a.finishedAt > b.finishedAt);
+
+function entryCharges(current: MonthlyReportView[]): Map<string, EntryCharge> {
+  const charges = new Map<string, EntryCharge>();
+  const add = (report: MonthlyReportView, entryId: string, cents: number, printedCents: number) => {
+    const was = charges.get(entryId);
+    const here = { reportId: report.id, month: report.month, finishedAt: report.finishedAt, printedCents };
+    charges.set(entryId, { cents: (was?.cents ?? 0) + cents, latest: !was || isLater(here, was.latest) ? here : was.latest });
+  };
+  for (const report of current) {
+    for (const cost of report.costs) add(report, cost.entryId, cost.totalCents, cost.totalCents);
+    for (const adjustment of report.adjustments) add(report, adjustment.entryId, adjustment.deltaCents, adjustment.nowCents);
+  }
+  return charges;
+}
+
+/**
+ * The month a change to something last charged in `latestMonth` shows on (Kian's ruling): the first month after
+ * it with no current statement — the next month's, or, when that one is already finished, the next open one.
+ */
+export function nextOpenMonth(latestMonth: string, finishedMonths: ReadonlySet<string>): string {
+  let month = addMonths(latestMonth, 1);
+  for (let i = 0; i < 1_200 && finishedMonths.has(month); i += 1) month = addMonths(month, 1);
+  return month;
+}
+
+/** The current statement of a month, if any: the latest finished of the current ones. */
+function currentOf(current: MonthlyReportView[], month: string): MonthlyReportView | null {
+  return current.filter((report) => report.month === month).sort((a, b) => b.finishedAt.localeCompare(a.finishedAt))[0] ?? null;
+}
+
+/** What a month's current statement says is owed to NuBNB: its closing figure below zero, as an amount; 0 when it closes at or above zero, or has none. */
+function owedBy(current: MonthlyReportView[], month: string): number {
+  const report = currentOf(current, month);
+  return report && report.payableCents < 0 ? -report.payableCents : 0;
+}
+
+/** The month a carried balance came from, when it is a link: its stored month, else its statement's; null for a balance typed by hand, or one whose statement and month are both gone. */
+export function carriedFromMonth(carried: Pick<Carried, 'fromReportId' | 'fromMonth'> | null | undefined, reports: Pick<MonthlyReportView, 'id' | 'month'>[]): string | null {
+  if (!carried || carried.fromReportId === null) return null;
+  return carried.fromMonth ?? reports.find((report) => report.id === carried.fromReportId)?.month ?? null;
+}
+
+/** What the current statements deducted for each month's carried balance, the latest that did, and its label. */
+interface CarryCharge {
+  cents: number;
+  label: string;
+  latest: { reportId: string; month: string; finishedAt: string };
+}
+
+function carryCharges(current: MonthlyReportView[], all: MonthlyReportView[]): Map<string, CarryCharge> {
+  const charges = new Map<string, CarryCharge>();
+  const add = (report: MonthlyReportView, fromMonth: string, cents: number, label: string) => {
+    const was = charges.get(fromMonth);
+    const here = { reportId: report.id, month: report.month, finishedAt: report.finishedAt };
+    const later = !was || isLater(here, was.latest);
+    charges.set(fromMonth, { cents: (was?.cents ?? 0) + cents, label: later ? label : was!.label, latest: later ? here : was!.latest });
+  };
+  for (const report of current) {
+    const fromMonth = carriedFromMonth(report.carried, all);
+    if (report.carried && fromMonth !== null) add(report, fromMonth, report.carried.amountCents, report.carried.label);
+    for (const row of report.carriedAdjustments ?? []) add(report, row.fromMonth, row.deltaCents, row.label);
+  }
+  return charges;
+}
+
+/**
+ * A draft's carried balance as it stands (Kian's ruling: a link to the statement it came from). A balance typed
+ * by hand is as typed; one taken from a statement carries what its month's current statement says is owed, less
+ * what other current statements already deducted for that month, and names that statement and its month.
+ */
+function linkedCarried(carried: Carried | null, current: MonthlyReportView[], all: MonthlyReportView[]): Carried | null {
+  const fromMonth = carriedFromMonth(carried, all);
+  if (!carried || fromMonth === null) return carried;
+  const charged = carryCharges(current, all).get(fromMonth)?.cents ?? 0;
+  const source = currentOf(current, fromMonth);
+  return { label: carried.label, amountCents: owedBy(current, fromMonth) - charged, fromReportId: source?.id ?? carried.fromReportId, fromMonth };
+}
+
+/** A month that closed owing NuBNB and that no current statement has carried: offered until one does. */
+export interface UncarriedDebt {
+  fromMonth: string;
+  fromReportId: string;
+  amountCents: number;
+  label: string;
+}
+
+/**
+ * Every earlier month that closed owing NuBNB and whose balance no current statement has carried, most recent
+ * first (Kian's ruling: an uncarried debt keeps being offered until a statement carries it). A statement being
+ * corrected still counts as carrying what it carried.
+ */
+export function uncarriedDebts(reports: MonthlyReportView[], month: string): UncarriedDebt[] {
+  const current = currentReports(reports);
+  const referenced = new Set(carryCharges(current, reports).keys());
+  return current
+    .filter((report) => report.month < month && report.payableCents < 0 && !referenced.has(report.month))
+    .sort((a, b) => b.month.localeCompare(a.month))
+    .filter((report, i, all) => all.findIndex((other) => other.month === report.month) === i)
+    .map((report) => ({ fromMonth: report.month, fromReportId: report.id, amountCents: -report.payableCents, label: `Balance From ${monthLabel(report.month).split(' ')[0]}` }));
 }
 
 /**
@@ -245,12 +397,16 @@ export function buildStatement(input: StatementInputs): StatementBuild {
   const supersedingId = draft?.supersedes?.reportId ?? null;
   const current = currentReports(input.reports).filter((report) => report.id !== supersedingId);
   const listed = new Set(current.flatMap((report) => report.entryIds));
+  const finishedMonths = new Set(current.map((report) => report.month));
+  const charges = entryCharges(current);
 
-  const approved = mine.filter((entry) => entry.status === 'approved').sort(byDay);
   const unreadable: string[] = [];
   const costs: StatementCost[] = [];
   const reportedElsewhere: string[] = [];
-  for (const entry of approved) {
+  for (const entry of [...mine].sort(byDay)) {
+    // An entry another current statement charged only through adjustments is the redone month's to print, whatever it is now (dispatch 35).
+    const charge = listed.has(entry.id) ? undefined : charges.get(entry.id);
+    if (entry.status !== 'approved' && !charge) continue;
     const day = sentDay(entry.createdAt);
     if (day === null) continue;
     const inMonth = day >= range.from && day <= range.to;
@@ -260,15 +416,19 @@ export function buildStatement(input: StatementInputs): StatementBuild {
       if (inMonth) reportedElsewhere.push(entry.id);
       continue;
     }
-    const row = costRow(entry, inMonth ? 'month' : 'earlier');
+    // What is left after the later statements' adjustments: what the latest of them printed it as, less what they charged.
+    const left = charge ? charge.latest.printedCents - charge.cents : null;
+    if (left === 0) continue;
+    const row = costRow(entry, inMonth ? 'month' : 'earlier', left);
     if (row === null) unreadable.push(entry.id);
     else costs.push(row);
   }
 
+  const rowIds = new Set(costs.map((row) => row.entryId));
   const byId = new Map(mine.map((entry) => [entry.id, entry]));
-  const reportById = new Map(input.reports.map((report) => [report.id, report]));
   const adjustments: StatementAdjustment[] = [];
-  for (const [entryId, { reportId, cents }] of lastPrinted(current.map((report) => ({ id: report.id, finishedAt: report.finishedAt, printed: printedBy(report) })))) {
+  for (const [entryId, charge] of charges) {
+    if (rowIds.has(entryId)) continue;
     const entry = byId.get(entryId);
     let nowCents = 0;
     let historyLength = 0;
@@ -282,19 +442,32 @@ export function buildStatement(input: StatementInputs): StatementBuild {
       }
       historyLength = entry.history?.length ?? 0;
     }
-    if (nowCents !== cents) {
-      const day = entry ? sentDay(entry.createdAt) : null;
-      const description = entry && day !== null ? costLineName(entry.id, day) : null;
-      adjustments.push({ entryId, statementId: reportId, printedCents: cents, nowCents, deltaCents: nowCents - cents, historyLength, description, printedMonth: reportById.get(reportId)?.month ?? null });
-    }
+    if (nowCents === charge.cents) continue;
+    // On the next month's statement, never on an earlier month finished later (Kian's ruling of 2026-10-12).
+    if (month !== nextOpenMonth(charge.latest.month, finishedMonths)) continue;
+    const day = entry ? sentDay(entry.createdAt) : null;
+    const description = entry && day !== null ? costLineName(entry.id, day) : null;
+    adjustments.push({ entryId, statementId: charge.latest.reportId, printedCents: charge.cents, nowCents, deltaCents: nowCents - charge.cents, historyLength, description, printedMonth: charge.latest.month });
   }
   adjustments.sort((a, b) => a.entryId.localeCompare(b.entryId));
   if (unreadable.length > 0) return { kind: 'unreadable', entryIds: [...new Set(unreadable)] };
 
+  // ── The carried balance: a link, and the carried balances settled here ──
+  const carried = linkedCarried(draft?.carried ?? null, current, input.reports);
+  const carriedHere = carriedFromMonth(carried, input.reports);
+  const carriedAdjustments: StatementCarriedAdjustment[] = [];
+  for (const [fromMonth, charge] of carryCharges(current, input.reports)) {
+    if (fromMonth === carriedHere) continue;
+    const nowCents = owedBy(current, fromMonth);
+    if (nowCents === charge.cents || month !== nextOpenMonth(charge.latest.month, finishedMonths)) continue;
+    carriedAdjustments.push({ fromMonth, label: charge.label, statementId: charge.latest.reportId, carriedMonth: charge.latest.month, chargedCents: charge.cents, nowCents, deltaCents: nowCents - charge.cents });
+  }
+  carriedAdjustments.sort((a, b) => a.fromMonth.localeCompare(b.fromMonth));
+
   const lines = draft?.lines ?? [];
   const fee = draft?.fee ?? null;
-  const carried = draft?.carried ?? null;
-  const sums = statementSums(lines, costs, adjustments, fee, carried);
+  const sums = statementSums(lines, costs, adjustments, fee, carried, carriedAdjustments);
+  const reportById = new Map(input.reports.map((report) => [report.id, report]));
   const superseded = supersedingId === null ? null : (reportById.get(supersedingId) ?? null);
   const supersedes: Statement['supersedes'] =
     draft?.supersedes && supersedingId !== null
@@ -316,6 +489,7 @@ export function buildStatement(input: StatementInputs): StatementBuild {
       adjustments,
       fee,
       carried,
+      carriedAdjustments,
       ...sums,
       pendingLeftOut: mine.filter((entry) => entry.status === 'pending' && (sentDay(entry.createdAt) ?? '') >= range.from && (sentDay(entry.createdAt) ?? '') <= range.to).length,
       notes: draft?.notes ?? null,
@@ -326,6 +500,8 @@ export function buildStatement(input: StatementInputs): StatementBuild {
       entries: costs.filter((row) => row.group === 'month').map((row) => ({ id: row.entryId, seen: row.historyLength })),
       earlier: costs.filter((row) => row.group === 'earlier').map((row) => ({ id: row.entryId, seen: row.historyLength })),
       adjustments: adjustments.map((row) => ({ entryId: row.entryId, statementId: row.statementId, deltaCents: row.deltaCents })),
+      carried: carried ? { fromMonth: carriedHere, amountCents: carried.amountCents } : null,
+      carriedAdjustments: carriedAdjustments.map((row) => ({ fromMonth: row.fromMonth, deltaCents: row.deltaCents })),
     },
     reportedElsewhere,
   };
@@ -336,15 +512,38 @@ function displayName(report: Pick<MonthlyReportView, 'id' | 'reference'>): strin
   return report.reference?.trim() ? report.reference.trim() : reportRef(report.id);
 }
 
-/** Whether two claims say the same thing, in any order. */
+/**
+ * Whether two claims say the same thing, in any order. The carried balance and the carried balances settled
+ * (dispatch 35) are compared when the page sent them; a page built before sends neither.
+ */
 export function sameClaim(a: FinishClaim, b: FinishClaim): boolean {
-  const key = (claim: FinishClaim) =>
+  const key = (claim: FinishClaim, withCarried: boolean) =>
     JSON.stringify({
       entries: [...claim.entries].sort((x, y) => x.id.localeCompare(y.id)),
       earlier: [...claim.earlier].sort((x, y) => x.id.localeCompare(y.id)),
       adjustments: [...claim.adjustments].sort((x, y) => x.entryId.localeCompare(y.entryId)),
+      ...(withCarried ? { carried: claim.carried ?? null, carriedAdjustments: [...(claim.carriedAdjustments ?? [])].sort((x, y) => x.fromMonth.localeCompare(y.fromMonth)) } : {}),
     });
-  return key(a) === key(b);
+  const withCarried = b.carried !== undefined || b.carriedAdjustments !== undefined;
+  return key(a, withCarried) === key(b, withCarried);
+}
+
+/**
+ * The later statements that adjusted or carried from a finished one (Kian's ruling of 2026-10-12: the delete and
+ * correct confirmations name them): current statements of later months that printed an adjustment for an entry it
+ * charged, carried its closing balance, or settled a carried balance from its month.
+ */
+export function laterReferences(report: MonthlyReportView, reports: MonthlyReportView[]): { report: MonthlyReportView; adjusted: boolean; carried: boolean }[] {
+  const charged = new Set(chargedBy(report).map((row) => row.entryId));
+  return currentReports(reports)
+    .filter((other) => other.id !== report.id && other.month > report.month)
+    .map((other) => ({
+      report: other,
+      adjusted: other.adjustments.some((row) => charged.has(row.entryId) || row.statementId === report.id),
+      carried: carriedFromMonth(other.carried, reports) === report.month || (other.carriedAdjustments ?? []).some((row) => row.fromMonth === report.month),
+    }))
+    .filter((row) => row.adjusted || row.carried)
+    .sort((a, b) => a.report.month.localeCompare(b.report.month));
 }
 
 /** A finished report as its writer lays it out: the Payment Summary for version 3, the earlier layout for a legacy report. */
@@ -384,11 +583,13 @@ export function statementOf(report: MonthlyReportView, all: MonthlyReportView[])
     adjustments: report.adjustments,
     fee: report.fee,
     carried: report.carried,
+    carriedAdjustments: report.carriedAdjustments ?? [],
     incomeCents: report.incomeCents,
     expensesCents: report.expensesCents,
     recordedCents: report.recordedCents,
     costsCents: report.costsCents,
     feeCents: report.feeCents,
+    carriedAdjustmentCents: (report.carriedAdjustments ?? []).reduce((sum, row) => sum + row.deltaCents, 0),
     totalCents: report.totalCents,
     carriedCents: report.carriedCents,
     payableCents: report.payableCents,
@@ -404,7 +605,7 @@ export function statementOf(report: MonthlyReportView, all: MonthlyReportView[])
 
 // ─── The printed lines ─────────────────────────────────────────
 
-export type PrintedLineKind = 'line' | 'cost' | 'earlier' | 'adjustment' | 'fee';
+export type PrintedLineKind = 'line' | 'cost' | 'earlier' | 'adjustment' | 'carriedAdjustment' | 'fee';
 
 /** One row of the Payment Summary's table, in print order. */
 export interface PrintedLine {
@@ -433,7 +634,7 @@ export function lineText(line: Pick<Line, 'description' | 'from' | 'to'>): strin
  * 34) on a statement of the dispatch 34 layout (`heading`); a report of
  * version 3 is drawn as it was stored.
  */
-export function printedLines(statement: Pick<Statement, 'lines' | 'costs' | 'adjustments' | 'fee'> & { heading?: boolean }): PrintedLine[] {
+export function printedLines(statement: Pick<Statement, 'lines' | 'costs' | 'adjustments' | 'fee'> & { heading?: boolean; carriedAdjustments?: StatementCarriedAdjustment[] }): PrintedLine[] {
   const rows: PrintedLine[] = statement.lines.map((line) => ({ key: line.id, kind: 'line', description: lineText(line), quantity: line.quantity, rateCents: line.rateCents, amountCents: line.amountCents, entryId: null }));
   for (const row of statement.costs.filter((cost) => cost.group === 'month')) {
     rows.push({ key: `cost-${row.entryId}`, kind: 'cost', description: `Expense - ${row.description}`, quantity: 1, rateCents: -row.totalCents, amountCents: -row.totalCents, entryId: row.entryId });
@@ -446,6 +647,10 @@ export function printedLines(statement: Pick<Statement, 'lines' | 'costs' | 'adj
     const where = row.printedMonth ? `in ${monthLabel(row.printedMonth)}` : 'earlier';
     const now = row.nowCents === 0 ? 'no longer in the ledger' : `now ${formatCents(-row.nowCents)}`;
     rows.push({ key: `adj-${row.entryId}`, kind: 'adjustment', description: `Adjustment - ${what} (reported ${where} as ${formatCents(-row.printedCents)}, ${now})`, quantity: 1, rateCents: -row.deltaCents, amountCents: -row.deltaCents, entryId: row.entryId });
+  }
+  // A carried balance settled after its month was corrected or deleted (dispatch 35): what the owner gains, or, negative, owes.
+  for (const row of statement.carriedAdjustments ?? []) {
+    rows.push({ key: `carried-${row.fromMonth}`, kind: 'carriedAdjustment', description: `Adjustment - ${row.label} (carried in ${monthLabel(row.carriedMonth)} as ${formatCents(row.chargedCents)}, now ${formatCents(row.nowCents)})`, quantity: 1, rateCents: -row.deltaCents, amountCents: -row.deltaCents, entryId: null });
   }
   if (statement.fee && !(statement.heading && statement.fee.amountCents === 0)) rows.push({ key: 'fee', kind: 'fee', description: statement.fee.label, quantity: 1, rateCents: -statement.fee.amountCents, amountCents: -statement.fee.amountCents, entryId: null });
   return rows;
@@ -476,8 +681,8 @@ export function lineDetailsText(line: Pick<Line, 'source' | 'reference'>): strin
 }
 
 /** Whether a statement has anything in it: no line, no cost, no adjustment and no fee is "Nothing to report". */
-export function nothingToReport(statement: { income?: IncomeRow[]; lines?: Line[]; costs: StatementCost[]; adjustments: StatementAdjustment[]; fee: { amountCents: number } | null }): boolean {
-  return (statement.income?.length ?? 0) === 0 && (statement.lines?.length ?? 0) === 0 && statement.costs.length === 0 && statement.adjustments.length === 0 && (statement.fee === null || statement.fee.amountCents === 0);
+export function nothingToReport(statement: { income?: IncomeRow[]; lines?: Line[]; costs: StatementCost[]; adjustments: StatementAdjustment[]; carriedAdjustments?: StatementCarriedAdjustment[]; fee: { amountCents: number } | null }): boolean {
+  return (statement.income?.length ?? 0) === 0 && (statement.lines?.length ?? 0) === 0 && statement.costs.length === 0 && statement.adjustments.length === 0 && (statement.carriedAdjustments?.length ?? 0) === 0 && (statement.fee === null || statement.fee.amountCents === 0);
 }
 
 // ─── Suggestions from the previous month ───────────────────────
@@ -496,7 +701,7 @@ export function previousStatement(reports: MonthlyReportView[], month: string): 
  */
 export function carriedSuggestion(previous: MonthlyReportView | null): Carried | null {
   if (!previous || previous.payableCents >= 0) return null;
-  return { label: `Balance From ${monthLabel(previous.month).split(' ')[0]}`, amountCents: -previous.payableCents, fromReportId: previous.id };
+  return { label: `Balance From ${monthLabel(previous.month).split(' ')[0]}`, amountCents: -previous.payableCents, fromReportId: previous.id, fromMonth: previous.month };
 }
 
 /**
@@ -878,6 +1083,8 @@ export interface LooseEndsReport extends PrintedReport {
   propertyId: string;
   supersedes: Supersedes | null;
   entryIds: string[];
+  /** What it charged for each entry (dispatch 35): cost rows' totals and adjustments' differences. Absent on a summary made before. */
+  charged?: PrintedEntry[];
 }
 
 export function looseEnds(
@@ -910,8 +1117,16 @@ export function looseEnds(
     }).length;
     if (late > 0) out.late.push({ propertyId, propertyName: nameOf(propertyId), count: late });
     const byId = new Map(list.map((entry) => [entry.id, entry]));
+    // What the current statements charged for each entry in all (dispatch 35): a month redone after a later adjustment
+    // charges only what is left, so its last printing alone is no longer the amount charged.
+    const charged = new Map<string, number>();
+    if (mine.every((report) => report.charged !== undefined)) {
+      for (const report of mine) for (const { entryId, cents } of report.charged ?? []) charged.set(entryId, (charged.get(entryId) ?? 0) + cents);
+    } else {
+      for (const [entryId, { cents }] of lastPrinted(mine)) charged.set(entryId, cents);
+    }
     let changed = 0;
-    for (const [entryId, { cents }] of lastPrinted(mine)) {
+    for (const [entryId, cents] of charged) {
       const entry = byId.get(entryId);
       const now = entry && entry.status === 'approved' && entry.linesNow.kind === 'ok' ? entry.linesNow.totalCents : 0;
       if (now !== cents) changed += 1;

@@ -112,6 +112,7 @@ import {
   whenText,
 } from "./cost-display";
 import { ReceiptImage } from "./ReceiptImage";
+import { useAsk } from "../components/AskDialog";
 import styles from "./page.module.css";
 
 /** What a page knows about one property's statements (dispatch 23D): read once per property, handed to the pane. */
@@ -159,6 +160,8 @@ export function EntryPane({ entry, pdf, pattern, statements, onChanged, onDelete
   /** The tax being corrected, as typed; null when it is not. */
   const [taxDraft, setTaxDraft] = useState<string | null>(null);
   const { notice, show, clear } = useNotice();
+  /** Questions in Nubnb's own dialog (Kian's ruling of 2026-10-12: no native browser dialogs in the admin). */
+  const { ask, dialog } = useAsk();
 
   /** The history length this pane shows; null when there is no history to add to. */
   const seen = entry.history?.length ?? null;
@@ -207,9 +210,7 @@ export function EntryPane({ entry, pdf, pattern, statements, onChanged, onDelete
     if (busy || seen === null) return;
     if (
       status === "removed" &&
-      !window.confirm(
-        `Remove this entry? It stays in the record, marked removed, and stops counting in totals and reports. Approving it later counts it again.${leavesPdf}`,
-      )
+      !(await ask({ title: "Remove this entry?", lines: [`It stays in the record, marked removed, and stops counting in totals and reports. Approving it later counts it again.${leavesPdf}`], confirm: "Remove entry", danger: true }))
     ) {
       return;
     }
@@ -251,20 +252,20 @@ export function EntryPane({ entry, pdf, pattern, statements, onChanged, onDelete
     const logger = office ? "the office" : `${cleanerLabel(entry)} (${work ? "handyman" : "cleaner"})`;
     const amount = now.kind === "ok" ? formatCents(now.totalCents) : "an amount that cannot be added up";
     const photo = entry.receipts !== null && entry.receipts.length > 0;
-    const question = [
-      "Delete this entry for good?",
-      "",
-      `Logged by ${logger} on ${whenText(entry.createdAt)}`,
-      `Amount: ${amount}, for ${propertyLabel(entry)}.`,
-      photo ? "The receipt photo is deleted with it." : "It has no receipt photo.",
-      pdf !== null ? `It went out in a PDF exported ${whenText(pdf.lastListed.record.createdAt)}; that PDF will no longer match the ledger.` : null,
-      "",
-      "Nothing is kept: there will be no record of what was claimed or who logged it. This cannot be undone.",
-      "To take it out of totals and keep it on record, use Remove instead.",
-    ]
-      .filter((line) => line !== null)
-      .join("\n");
-    if (!window.confirm(question)) return;
+    const yes = await ask({
+      title: "Delete this entry for good?",
+      lines: [
+        `Logged by ${logger} on ${whenText(entry.createdAt)}`,
+        `Amount: ${amount}, for ${propertyLabel(entry)}.`,
+        photo ? "The receipt photo is deleted with it." : "It has no receipt photo.",
+        pdf !== null ? `It went out in a PDF exported ${whenText(pdf.lastListed.record.createdAt)}; that PDF will no longer match the ledger.` : null,
+        "Nothing is kept: there will be no record of what was claimed or who logged it. This cannot be undone.",
+        "To take it out of totals and keep it on record, use Remove instead.",
+      ],
+      confirm: "Delete for good",
+      danger: true,
+    });
+    if (!yes) return;
 
     clear();
     setSaving("delete");
@@ -815,6 +816,7 @@ export function EntryPane({ entry, pdf, pattern, statements, onChanged, onDelete
           </p>
         </div>
       </div>
+      {dialog}
     </div>
   );
 }

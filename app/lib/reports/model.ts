@@ -367,13 +367,44 @@ export interface Fee {
   baseRevenueCents?: number | null;
 }
 
-/** The carried balance (dispatch 23E): deducted from the total; "Balance From June: $359.96" is 35996. */
+/**
+ * The carried balance (dispatch 23E): deducted from the total; "Balance From June: $359.96" is 35996.
+ *
+ * Since dispatch 35 a carried balance taken from a statement is a link to it (Kian's ruling of 2026-10-12): while
+ * the statement carrying it is open, its amount is what that month's current statement says is still owed; once
+ * finished, a later correction or delete of the source is settled by an adjustment line on the next open
+ * statement (`StatementCarriedAdjustment`). A balance typed by hand (`fromReportId` null) is no link.
+ */
 export interface Carried {
   label: string;
   /** Either sign: positive is a balance the owner carried over, deducted from the total. */
   amountCents: number;
-  /** The previous month's statement the suggestion came from; null when typed by hand. */
+  /** The statement the balance came from; null when typed by hand. */
   fromReportId: string | null;
+  /** The month of the statement it came from (dispatch 35): the link's key, kept when that statement is replaced or deleted. Absent on a balance carried before. */
+  fromMonth?: string | null;
+}
+
+/**
+ * A carried balance settled after the fact (dispatch 35, S2; Kian's ruling of 2026-10-12): a month's closing
+ * balance was carried by a finished statement, and that month's statement was since corrected or deleted, so
+ * what was deducted for it no longer matches what it says is owed. The difference is deducted (or, negative,
+ * given back) on the next open statement, and prints there as an adjustment line.
+ */
+export interface StatementCarriedAdjustment {
+  /** The month whose closing balance was carried. */
+  fromMonth: string;
+  /** The carried balance's label, as the statement that carried it printed it: "Balance From September". */
+  label: string;
+  /** The latest statement that carried or adjusted this month's balance, and its month. */
+  statementId: string;
+  carriedMonth: string;
+  /** What the current statements have deducted for this month's balance so far. */
+  chargedCents: number;
+  /** What its current statement now says is owed; 0 when it has none or closes at or above zero. */
+  nowCents: number;
+  /** nowCents − chargedCents: deducted on this statement, given back when negative. */
+  deltaCents: number;
 }
 
 /** "Report For": the name and postal address a statement prints. */
@@ -461,6 +492,8 @@ export interface MonthlyReport {
   adjustments: StatementAdjustment[];
   fee: Fee | null;
   carried: Carried | null;
+  /** Carried balances settled here (dispatch 35); written only when there are any. */
+  carriedAdjustments?: StatementCarriedAdjustment[];
   /** The revenue: the lines with a positive amount. */
   incomeCents: number;
   /** The typed expenses: the lines with a negative amount, negated. */
@@ -470,7 +503,7 @@ export interface MonthlyReport {
   /** expensesCents + recordedCents. */
   costsCents: number;
   feeCents: number;
-  /** incomeCents − costsCents − feeCents: the printed Total. */
+  /** incomeCents − costsCents − feeCents, less any carried adjustments' differences (dispatch 35): the printed Total. */
   totalCents: number;
   carriedCents: number;
   /** totalCents − carriedCents: "Your Revenue Share". Negative is owed to NuBNB. */
@@ -563,6 +596,8 @@ export type MonthlyReportSummary = Omit<MonthlyReportView, 'income' | 'lines' | 
   adjustmentRows: number;
   /** What the report printed for each entry (a cost row's total, an adjustment's "now"), so the loose ends can compare without the rows (dispatch 23D). */
   printed: { entryId: string; cents: number }[];
+  /** What it charged for each entry (a cost row's total, an adjustment's difference): the loose ends add these up (dispatch 35). */
+  charged: { entryId: string; cents: number }[];
 };
 
 /** A draft's summary, for the tracker. */
@@ -652,7 +687,21 @@ export function readFee(value: unknown): Fee | null | undefined {
 export function readCarried(value: unknown): Carried | null | undefined {
   if (value === null || value === undefined) return null;
   if (!isRecord(value) || !isText(value.label) || !isCents(value.amountCents) || !isTextOrNull(value.fromReportId ?? null)) return undefined;
-  return { label: value.label, amountCents: value.amountCents, fromReportId: (value.fromReportId as string | null | undefined) ?? null };
+  const carried: Carried = { label: value.label, amountCents: value.amountCents, fromReportId: (value.fromReportId as string | null | undefined) ?? null };
+  // Kept exactly when stored (dispatch 35): a balance carried before has no month and keeps its shape.
+  if ('fromMonth' in value) {
+    if (!(value.fromMonth === null || isMonth(value.fromMonth))) return undefined;
+    carried.fromMonth = value.fromMonth as string | null;
+  }
+  return carried;
+}
+
+function readCarriedAdjustment(value: unknown): StatementCarriedAdjustment | null {
+  if (!isRecord(value)) return null;
+  const { fromMonth, label, statementId, carriedMonth, chargedCents, nowCents, deltaCents } = value;
+  if (!isMonth(fromMonth) || !isText(label) || !isText(statementId) || !isMonth(carriedMonth)) return null;
+  if (!isCents(chargedCents) || !isCents(nowCents) || !isCents(deltaCents) || nowCents - chargedCents !== deltaCents) return null;
+  return { fromMonth, label, statementId, carriedMonth, chargedCents, nowCents, deltaCents };
 }
 
 export function readReportFor(value: unknown): ReportFor | null | undefined {
@@ -795,6 +844,7 @@ export function readMonthlyReport(id: string, fields: Record<string, unknown>): 
       reportFor: null,
       lines: [],
       carried: null,
+      carriedAdjustments: [],
       expensesCents: 0,
       recordedCents: costsCents,
       totalCents: payableCents,
@@ -806,7 +856,9 @@ export function readMonthlyReport(id: string, fields: Record<string, unknown>): 
   const lines = readRows(fields.lines, readLine);
   const reportFor = readReportFor(fields.reportFor);
   const carried = readCarried(fields.carried);
-  if (lines === null || reportFor === undefined || carried === undefined || !isText(reference) || !isDayText(reportDate)) return null;
+  // Written only when a statement settled a carried balance (dispatch 35); absent on every report before.
+  const carriedAdjustments = fields.carriedAdjustments === undefined ? [] : readRows(fields.carriedAdjustments, readCarriedAdjustment);
+  if (lines === null || reportFor === undefined || carried === undefined || carriedAdjustments === null || !isText(reference) || !isDayText(reportDate)) return null;
   if (!isCents(expensesCents) || !isCents(recordedCents) || !isCents(totalCents) || !isCents(carriedCents)) return null;
   return {
     ...base,
@@ -817,6 +869,7 @@ export function readMonthlyReport(id: string, fields: Record<string, unknown>): 
     reportFor,
     lines,
     carried,
+    carriedAdjustments,
     expensesCents,
     recordedCents,
     totalCents,

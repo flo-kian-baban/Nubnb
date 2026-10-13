@@ -13,8 +13,8 @@
  *   warned   S4   no NuBNB fee            S15  a $0.00 fee (which does not print, Kian's ruling of 2026-10-12)
  *            S7   a fee label that does not work out to its amount
  *            S6   lines changed since the fee's base was typed
- *            S3   last month closed owing NuBNB and nothing is carried
- *            S2   a carried balance whose statement was since corrected or deleted
+ *            S3   an earlier month closed owing NuBNB and no statement carries it (dispatch 35: every such month, not only the last)
+ *            S2   a carried balance whose month's statement was deleted and not finished again (dispatch 35: a corrected one is followed by the link)
  *            I1   Airbnb lines waiting, or titles in the month's file linked to no property
  *            N4   no cleaning line while the month's Airbnb file shows checkouts
  *            C2   costs approved automatically that nobody has looked at
@@ -32,8 +32,8 @@
  */
 
 import { awaitingLook, formatCents, type CostEntryView } from '@/app/lib/cleaners/model';
-import { currentReports, dateText, displayRef, feeComputed, isDayText, monthLabel, monthName, monthRange, type Fee, type MonthlyReportView } from './model';
-import type { Statement } from './statement';
+import { currentReports, dateText, feeComputed, isDayText, monthLabel, monthName, monthRange, type Fee, type MonthlyReportView } from './model';
+import { carriedFromMonth, uncarriedDebts, type Statement } from './statement';
 import { reportForCut } from './statement-pdf';
 
 /** The tab where a check is put right. */
@@ -64,11 +64,9 @@ export interface IncomeFacts {
 }
 
 export interface CheckInputs {
-  /** The statement as built for the month: the draft, its costs, Report For as it will print. */
+  /** The statement as built for the month: the draft, its costs, Report For as it will print, its carried balance as linked. */
   statement: Statement;
-  /** The previous month's current finished statement, if any. */
-  previous: MonthlyReportView | null;
-  /** Every finished report of the property: where a carried balance came from. */
+  /** Every finished report of the property: the months that closed owing NuBNB, and where a carried balance came from. */
   reports: MonthlyReportView[];
   /** The property's cost entries: which of the statement's costs were approved automatically and not looked at. */
   entries: CostEntryView[];
@@ -113,7 +111,7 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 
 /** Every check, for one statement as it stands. */
 export function finishChecks(input: CheckInputs): FinishChecks {
-  const { statement: s, previous, income, today } = input;
+  const { statement: s, income, today } = input;
   const month = monthLabel(s.month);
   const refusals: FinishCheck[] = [];
   const warnings: FinishCheck[] = [];
@@ -131,12 +129,16 @@ export function finishChecks(input: CheckInputs): FinishChecks {
   }
 
   // ── The carried balance (S3, S2) ──
-  if (previous && previous.payableCents < 0 && !s.carried) warnings.push({ key: 'debt', text: `${monthLabel(previous.month)} closed owing NuBNB ${formatCents(-previous.payableCents)}; nothing is carried.`, tab: 'details' });
+  // Every earlier month that closed owing NuBNB and that no statement carries (Kian's ruling: offered until one does).
+  const carriedHere = carriedFromMonth(s.carried, input.reports);
+  for (const debt of uncarriedDebts(input.reports, s.month).filter((row) => row.fromMonth !== carriedHere)) {
+    warnings.push({ key: `debt-${debt.fromMonth}`, text: `${monthLabel(debt.fromMonth)} closed owing NuBNB ${formatCents(debt.amountCents)}; this statement does not carry it.`, tab: 'details' });
+  }
+  // A carried balance is a link (dispatch 35): a corrected statement is followed; a deleted one, not finished again, leaves nothing to follow.
   if (s.carried?.fromReportId) {
-    const id = s.carried.fromReportId;
-    const source = input.reports.find((report) => report.id === id) ?? null;
-    if (source === null) warnings.push({ key: 'carried-source', text: 'The carried balance came from a statement that has since been deleted.', tab: 'details' });
-    else if (!currentReports(input.reports).some((report) => report.id === id)) warnings.push({ key: 'carried-source', text: `The carried balance came from ${displayRef(source)}, which has since been corrected.`, tab: 'details' });
+    const current = currentReports(input.reports);
+    if (carriedHere === null) warnings.push({ key: 'carried-source', text: 'The carried balance came from a statement that has since been deleted.', tab: 'details' });
+    else if (!current.some((report) => report.month === carriedHere)) warnings.push({ key: 'carried-source', text: `The carried balance came from ${monthLabel(carriedHere)}'s statement, since deleted: it carries ${formatCents(s.carried.amountCents)} until that month is finished again.`, tab: 'details' });
   }
 
   // ── Airbnb (I1, N4) ──

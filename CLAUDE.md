@@ -403,3 +403,20 @@ no checkout. Do not build toward one unless asked.
 - **A $0.00 fee does not print on the statement PDF.**
 - **Records the admin cannot delete may be deleted by exact document ID
   after an export, never by pattern.** (K13)
+
+## Corrections — Kian's rulings of 2026-10-12 (dispatch 35)
+
+- **When an older statement is redone after a later one printed an
+  adjustment for a change, the redone statement prints only what is left
+  after that adjustment. A correction is counted once.**
+- **A change made after a statement was finished shows on the next month's
+  statement, never on an earlier month finished later.**
+- **A carried balance is a link to the statement it came from. If that
+  statement is corrected or deleted, the difference appears as an
+  adjustment line on the next open statement. An uncarried debt keeps
+  being offered until a statement carries it.**
+- **The delete and correct confirmations name any later statement that
+  adjusted or carried from this one.**
+- **A redone month prints what it first charged; any change after the
+  later statement goes to the next month.** Kian's confirmation of
+  2026-10-12.

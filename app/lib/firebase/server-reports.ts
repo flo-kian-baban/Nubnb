@@ -94,7 +94,7 @@ import {
   type StatementDraftSummary,
   type StatementDraftView,
 } from '@/app/lib/reports/model';
-import { buildStatement, moneyMonthsByProperty, printedBy, sameClaim, type FinishClaim, type Statement } from '@/app/lib/reports/statement';
+import { buildStatement, chargedBy, moneyMonthsByProperty, printedBy, sameClaim, type FinishClaim, type Statement } from '@/app/lib/reports/statement';
 import { statementPdf } from '@/app/lib/reports/statement-pdf';
 
 const CONTROL_CHARACTER = /\p{Cc}/u;
@@ -196,8 +196,10 @@ export const CarriedInputSchema = z
     label: line(STATEMENT_LIMITS.CARRIED_LABEL_MAX, 'Label the balance'),
     amount: z.string().regex(SIGNED_AMOUNT, 'An amount with two decimals, like 359.96').transform(toCents),
     fromReportId: z.string().refine((id) => isDocumentId(id), 'Not a report ID').nullable(),
+    /** The month of the statement it came from (dispatch 35): the link's key. */
+    fromMonth: z.string().refine(isMonth, 'A month, like 2026-09').nullable().optional(),
   })
-  .transform((value): Carried => ({ label: value.label, amountCents: value.amount, fromReportId: value.fromReportId }));
+  .transform((value): Carried => ({ label: value.label, amountCents: value.amount, fromReportId: value.fromReportId, ...(value.fromMonth !== undefined ? { fromMonth: value.fromMonth } : {}) }));
 
 const NotesSchema = z
   .string()
@@ -243,6 +245,9 @@ export const FinishInputSchema = z.strictObject({
   adjustments: z
     .array(z.strictObject({ entryId: z.string().refine((id) => isDocumentId(id), 'Not an entry ID'), statementId: z.string().refine((id) => isDocumentId(id), 'Not a report ID'), deltaCents: z.number().int() }))
     .max(5_000),
+  /** The carried balance and the carried balances settled, as the page built them (dispatch 35); a page built before sends neither. */
+  carried: z.strictObject({ fromMonth: z.string().refine(isMonth, 'A month').nullable(), amountCents: z.number().int() }).nullable().optional(),
+  carriedAdjustments: z.array(z.strictObject({ fromMonth: z.string().refine(isMonth, 'A month'), deltaCents: z.number().int() })).max(1_200).optional(),
 });
 export type FinishInput = z.output<typeof FinishInputSchema>;
 
@@ -478,6 +483,8 @@ function freeze(bundle: StatementBundle, draft: StatementDraftView, propertyId: 
     adjustments: statement.adjustments,
     fee: statement.fee,
     carried: statement.carried,
+    // Written only when a carried balance is settled here (dispatch 35), so every other report keeps its shape.
+    ...(statement.carriedAdjustments.length > 0 ? { carriedAdjustments: statement.carriedAdjustments } : {}),
     incomeCents: statement.incomeCents,
     expensesCents: statement.expensesCents,
     recordedCents: statement.recordedCents,
@@ -505,7 +512,13 @@ function freeze(bundle: StatementBundle, draft: StatementDraftView, propertyId: 
  */
 export async function finishStatement(input: FinishInput): Promise<FinishResult> {
   const { propertyId, month } = input;
-  const claim: FinishClaim = { entries: input.entries, earlier: input.earlier, adjustments: input.adjustments };
+  const claim: FinishClaim = {
+    entries: input.entries,
+    earlier: input.earlier,
+    adjustments: input.adjustments,
+    ...(input.carried !== undefined ? { carried: input.carried } : {}),
+    ...(input.carriedAdjustments !== undefined ? { carriedAdjustments: input.carriedAdjustments } : {}),
+  };
   const bundle = await readStatementBundle(propertyId, month);
   if (bundle === null) return { kind: 'no-such-property' };
   const { draft } = bundle;
@@ -775,7 +788,7 @@ export interface TrackerData {
 export function summarise(report: MonthlyReportView): MonthlyReportSummary {
   const { income, lines, costs, adjustments, notes, ...rest } = report;
   void notes;
-  return { ...rest, lineRows: income.length + lines.length, costRows: costs.length, adjustmentRows: adjustments.length, printed: printedBy(report) };
+  return { ...rest, lineRows: income.length + lines.length, costRows: costs.length, adjustmentRows: adjustments.length, printed: printedBy(report), charged: chargedBy(report) };
 }
 
 /**
