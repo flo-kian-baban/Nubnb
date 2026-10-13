@@ -18,7 +18,7 @@
 
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiSuccess, apiError, apiFailure, apiValidationError, noStore } from '@/app/lib/api/safe-response';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { REVIEW_REFUSALS, TaxInputSchema, changeEntryTax } from '@/app/lib/firebase/server-cost-entries';
@@ -34,11 +34,7 @@ const TaxChangeSchema = z.strictObject({
   seen: z.number().int().min(0).max(1_000_000),
 });
 
-export async function POST(request: NextRequest, context: RouteContext) {
-  // ── Auth ──
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
-
+export const POST = adminRoute(async function POST(request: NextRequest, context: RouteContext, { actor }) {
   // ── Cross-site and media type ──
   const crossSite = refuseCrossSite(request);
   if (crossSite) return crossSite;
@@ -64,8 +60,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
   }
 
   const { tax, seen } = result.data;
-  const outcome = await changeEntryTax(id, tax, seen);
+  const outcome = await changeEntryTax(actor, id, tax, seen);
   if (outcome.kind !== 'done') return noStore(apiFailure(REVIEW_REFUSALS[outcome.kind]));
 
   return noStore(apiSuccess({ entry: outcome.entry, changed: outcome.changed }));
-}
+});

@@ -15,7 +15,7 @@
  */
 
 import { NextRequest } from 'next/server';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiError, apiFailure, apiSuccess, apiValidationError, noStore } from '@/app/lib/api/safe-response';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { DECIDE_REFUSALS, EDIT_REFUSALS, decideLine, editAcceptedLine, isEarningsLineId, lockedRefusal } from '@/app/lib/firebase/server-income';
@@ -25,9 +25,7 @@ interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
-export async function PATCH(request: NextRequest, context: RouteContext) {
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
+export const PATCH = adminRoute(async function PATCH(request: NextRequest, context: RouteContext, { actor }) {
   const crossSite = refuseCrossSite(request);
   if (crossSite) return crossSite;
   const wrongType = requireMediaType(request, 'application/json');
@@ -44,13 +42,13 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   if (!parsed.success) return noStore(apiValidationError(parsed.error.issues.map((i) => ({ path: i.path.map(String).join('.'), message: i.message }))));
   const input = parsed.data;
   if (input.action === 'edit') {
-    const outcome = await editAcceptedLine(id, { ...(input.description !== undefined ? { description: input.description } : {}), ...(input.amount !== undefined ? { amountCents: input.amount } : {}) }, input.seen);
+    const outcome = await editAcceptedLine(actor, id, { ...(input.description !== undefined ? { description: input.description } : {}), ...(input.amount !== undefined ? { amountCents: input.amount } : {}) }, input.seen);
     if (outcome.kind === 'edited') return noStore(apiSuccess({ line: outcome.line }));
     if (outcome.kind === 'locked') return noStore(apiFailure(lockedRefusal(outcome, 'changed')));
     return noStore(apiFailure(EDIT_REFUSALS[outcome.kind]));
   }
-  const outcome = await decideLine(id, input.action);
+  const outcome = await decideLine(actor, id, input.action);
   if (outcome.kind === 'decided') return noStore(apiSuccess({ line: outcome.line }));
   if (outcome.kind === 'locked') return noStore(apiFailure(lockedRefusal(outcome, 'sent back')));
   return noStore(apiFailure(DECIDE_REFUSALS[outcome.kind]));
-}
+});

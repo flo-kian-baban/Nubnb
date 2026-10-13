@@ -17,7 +17,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiError, apiFailure, apiSuccess, apiValidationError, noStore } from '@/app/lib/api/safe-response';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { EmptyFinishInputSchema, finishEmptyMonth, readEmptyMonth } from '@/app/lib/firebase/server-empty-months';
@@ -32,9 +32,7 @@ function grpcCode(err: unknown): string {
 
 const NOT_CLOSED = { status: 422, code: 'MONTH_NOT_CLOSED', message: 'That month has not ended: its statements are not due yet.' };
 
-export async function GET(request: NextRequest) {
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
+export const GET = adminRoute(async function GET(request: NextRequest) {
   const month = request.nextUrl.searchParams.get('month') ?? '';
   if (!isMonth(month)) return noStore(apiError('Invalid month: write it as yyyy-mm', 400));
   try {
@@ -45,11 +43,9 @@ export async function GET(request: NextRequest) {
     console.error(`[reports] empty month ${month} read failed: grpc code ${grpcCode(err)}`);
     return noStore(apiFailure({ status: 500, code: 'EMPTY_MONTH_READ_FAILED', message: 'Failed to read the month.' }));
   }
-}
+});
 
-export async function POST(request: NextRequest) {
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
+export const POST = adminRoute(async function POST(request: NextRequest, _context: unknown, { actor }) {
   const crossSite = refuseCrossSite(request);
   if (crossSite) return crossSite;
   const wrongType = requireMediaType(request, 'application/json');
@@ -63,7 +59,7 @@ export async function POST(request: NextRequest) {
   const parsed = EmptyFinishInputSchema.safeParse(body);
   if (!parsed.success) return noStore(apiValidationError(parsed.error.issues.map((i) => ({ path: i.path.map(String).join('.'), message: i.message }))));
   try {
-    const outcome = await finishEmptyMonth(parsed.data);
+    const outcome = await finishEmptyMonth(actor, parsed.data);
     if (outcome.kind === 'not-closed') return noStore(apiFailure(NOT_CLOSED));
     if (outcome.kind === 'unsettled') {
       return noStore(
@@ -78,4 +74,4 @@ export async function POST(request: NextRequest) {
     console.error(`[reports] empty month ${parsed.data.month} finish failed before or between statements: grpc code ${grpcCode(err)}`);
     return noStore(apiFailure({ status: 502, code: 'EMPTY_MONTH_FINISH_FAILED', message: 'The empty statements could not all be finished.', hint: 'Some may have been. Refresh to see what is on record.' }));
   }
-}
+});

@@ -60,6 +60,10 @@ const EXPECTED_COLLECTIONS = [
   'month_downloads',
   // Dispatch 37B (2026-10-13): cleanings, logged by admins.
   'cleanings',
+  // Dispatch 38 (2026-10-13): admin accounts (PINs only as keyed hashes), their name index, and the activity log.
+  'admins',
+  'admin_names',
+  'admin_actions',
 ];
 
 /** Cap on the per-document subcollection probe, so a huge collection can't blow up the run. */

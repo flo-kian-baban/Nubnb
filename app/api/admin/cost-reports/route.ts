@@ -31,7 +31,7 @@
 
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiSuccess, apiError, apiFailure, apiValidationError, noStore } from '@/app/lib/api/safe-response';
 import { LIMITS } from '@/app/lib/cleaners/model';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
@@ -65,11 +65,7 @@ const ReportSchema = z
     }
   });
 
-export async function POST(request: NextRequest) {
-  // ── Auth ──
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
-
+export const POST = adminRoute(async function POST(request: NextRequest, _context: unknown, { actor }) {
   // ── Cross-site and media type ──
   const crossSite = refuseCrossSite(request);
   if (crossSite) return crossSite;
@@ -91,8 +87,8 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const outcome = await recordReportExport(result.data);
+  const outcome = await recordReportExport(actor, result.data);
   if (outcome.kind !== 'recorded') return noStore(apiFailure(REPORT_REFUSALS[outcome.kind]));
 
   return noStore(apiSuccess({ export: outcome.export }, 201));
-}
+});

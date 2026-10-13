@@ -26,7 +26,7 @@
 
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiSuccess, apiError, apiFailure, apiValidationError, noStore } from '@/app/lib/api/safe-response';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { longDay, torontoDayOf } from '@/app/lib/costs/report';
@@ -52,11 +52,7 @@ function statementWords(statement: PrintedIn): string {
   return `the statement for ${month} (${displayRef(statement)})${finished}${statement.replaced ? ', since replaced' : ''}`;
 }
 
-export async function DELETE(request: NextRequest, context: RouteContext) {
-  // ── Auth ──
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
-
+export const DELETE = adminRoute(async function DELETE(request: NextRequest, context: RouteContext) {
   // ── Cross-site and media type ──
   const crossSite = refuseCrossSite(request);
   if (crossSite) return crossSite;
@@ -102,4 +98,4 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     default:
       return noStore(apiFailure(DELETE_ENTRY_REFUSALS[outcome.kind]));
   }
-}
+});

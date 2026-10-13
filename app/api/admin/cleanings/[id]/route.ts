@@ -18,7 +18,7 @@
  */
 
 import { NextRequest } from 'next/server';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiError, apiFailure, apiSuccess, apiValidationError, noStore } from '@/app/lib/api/safe-response';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { ChangeCleaningSchema, DeleteCleaningSchema } from '@/app/lib/cleanings/schemas';
@@ -34,8 +34,6 @@ const statementWords = (statements: { id: string; month: string; reference: stri
   statements.map((s) => `${s.month ? monthLabel(s.month) : 'a month that cannot be read'}'s statement (${s.reference.trim() ? `# ${s.reference.trim()}` : `ref ${reportRef(s.id)}`})`).join(', and ');
 
 async function readBody(request: NextRequest): Promise<{ ok: true; body: unknown } | { ok: false; response: Response }> {
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return { ok: false, response: noStore(apiError(auth.error!, auth.status!)) };
   const crossSite = refuseCrossSite(request);
   if (crossSite) return { ok: false, response: crossSite };
   const wrongType = requireMediaType(request, 'application/json');
@@ -47,7 +45,7 @@ async function readBody(request: NextRequest): Promise<{ ok: true; body: unknown
   }
 }
 
-export async function PATCH(request: NextRequest, context: RouteContext) {
+export const PATCH = adminRoute(async function PATCH(request: NextRequest, context: RouteContext, { actor }) {
   const read = await readBody(request);
   if (!read.ok) return read.response;
   const { id } = await context.params;
@@ -56,11 +54,11 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   if (!parsed.success) return noStore(apiValidationError(parsed.error.issues.map((i) => ({ path: i.path.map(String).join('.'), message: i.message }))));
 
   if (parsed.data.action === 'remove') {
-    const outcome = await removeCleaning(id, parsed.data.seen, parsed.data.reason);
+    const outcome = await removeCleaning(actor, id, parsed.data.seen, parsed.data.reason);
     return outcome.kind === 'removed' ? noStore(apiSuccess({ cleaning: outcome.cleaning })) : noStore(apiFailure(REMOVE_REFUSALS[outcome.kind]));
   }
   const { seen, day, amount, cleanerId, note, reason } = parsed.data;
-  const outcome = await changeCleaning(id, { day, amountCents: amount, cleanerId, ...(note !== undefined ? { note } : {}) }, seen, reason);
+  const outcome = await changeCleaning(actor, id, { day, amountCents: amount, cleanerId, ...(note !== undefined ? { note } : {}) }, seen, reason);
   switch (outcome.kind) {
     case 'changed':
       return noStore(apiSuccess({ cleaning: outcome.cleaning, changed: outcome.changed, statementMonth: outcome.statementMonth }));
@@ -78,9 +76,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     default:
       return noStore(apiFailure(CHANGE_REFUSALS[outcome.kind]));
   }
-}
+});
 
-export async function DELETE(request: NextRequest, context: RouteContext) {
+export const DELETE = adminRoute(async function DELETE(request: NextRequest, context: RouteContext) {
   const read = await readBody(request);
   if (!read.ok) return read.response;
   const { id } = await context.params;
@@ -103,4 +101,4 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     default:
       return noStore(apiFailure(DELETE_REFUSALS[outcome.kind]));
   }
-}
+});

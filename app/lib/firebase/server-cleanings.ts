@@ -24,7 +24,7 @@
 import type { Transaction } from 'firebase-admin/firestore';
 import { getAdminDb } from './admin';
 import { isDocumentId } from './server-leads';
-import { ADMIN_ACTOR, CLEANERS_COLLECTION, fieldText, roleOf, type Refusal } from '@/app/lib/cleaners/model';
+import { CLEANERS_COLLECTION, fieldText, roleOf, type Actor, type Refusal } from '@/app/lib/cleaners/model';
 import {
   CLEANINGS_COLLECTION,
   CLEANING_LIMITS,
@@ -217,7 +217,7 @@ export const LOG_REFUSALS: Record<Exclude<LogCleaningResult['kind'], 'logged' | 
  * and the amount the form started from, worked out again here from what is stored. Answers the statement it goes
  * on: its month's, or the next open one's once that is finished.
  */
-export async function logCleaning(input: CleaningInput): Promise<LogCleaningResult> {
+export async function logCleaning(actor: Actor, input: CleaningInput): Promise<LogCleaningResult> {
   const problem = cleaningDayProblem(input.day);
   if (problem) return { kind: 'bad-day', problem };
   const db = getAdminDb();
@@ -246,8 +246,8 @@ export async function logCleaning(input: CleaningInput): Promise<LogCleaningResu
         status: 'logged',
         suggested,
         createdAt: now,
-        actor: ADMIN_ACTOR,
-        history: [{ at: now, action: 'logged', actor: ADMIN_ACTOR, reason: null }],
+        actor,
+        history: [{ at: now, action: 'logged', actor, reason: null }],
       };
       tx.create(ref, stored);
       return {
@@ -300,7 +300,7 @@ export const CHANGE_REFUSALS: Record<Exclude<ChangeCleaningResult['kind'], 'chan
  * written. A cleaning a finished statement prints keeps its month: its day may move within it, never out of it (a
  * statement already sent printed it for that month). A changed amount after printing is the statements' to adjust.
  */
-export async function changeCleaning(id: string, change: CleaningChange, seen: number, reason: string | null): Promise<ChangeCleaningResult> {
+export async function changeCleaning(actor: Actor, id: string, change: CleaningChange, seen: number, reason: string | null): Promise<ChangeCleaningResult> {
   if (!isDocumentId(id)) return { kind: 'not-found' };
   if (change.day !== undefined) {
     const problem = cleaningDayProblem(change.day);
@@ -349,7 +349,7 @@ export async function changeCleaning(id: string, change: CleaningChange, seen: n
       const statementMonth = await statementMonthOf(stored.propertyId, month, tx);
       const view = (c: Cleaning & { id: string }): CleaningView => ({ ...c, cleaner: { state: 'found', name: c.cleanerNameAtEntry, status: null }, property: { state: 'found', name: c.propertyNameAtEntry } });
       if (Object.keys(after).length === 0) return { kind: 'changed', cleaning: view(stored), changed: false, statementMonth };
-      const event: CleaningEvent = { at: new Date().toISOString(), action: 'changed', actor: ADMIN_ACTOR, reason, before, after };
+      const event: CleaningEvent = { at: new Date().toISOString(), action: 'changed', actor, reason, before, after };
       const next = {
         day: after.day ?? stored.day,
         amountCents: after.amountCents ?? stored.amountCents,
@@ -373,7 +373,7 @@ export type RemoveCleaningResult = { kind: 'removed'; cleaning: CleaningView } |
  * Remove a cleaning: it stays, marked, and counts nowhere; a statement that printed it is given it back on the next
  * open one (Kian's ruling: the rules costs follow). As the admin saw it (`seen`).
  */
-export async function removeCleaning(id: string, seen: number, reason: string | null): Promise<RemoveCleaningResult> {
+export async function removeCleaning(actor: Actor, id: string, seen: number, reason: string | null): Promise<RemoveCleaningResult> {
   if (!isDocumentId(id)) return { kind: 'not-found' };
   const db = getAdminDb();
   const ref = db.collection(CLEANINGS_COLLECTION).doc(id);
@@ -385,7 +385,7 @@ export async function removeCleaning(id: string, seen: number, reason: string | 
       if (!stored) return { kind: 'unreadable' };
       if (stored.history.length !== seen) return { kind: 'changed-since' };
       if (stored.status === 'removed') return { kind: 'already-removed' };
-      const history = [...stored.history, { at: new Date().toISOString(), action: 'removed' as const, actor: ADMIN_ACTOR, reason }];
+      const history = [...stored.history, { at: new Date().toISOString(), action: 'removed' as const, actor, reason }];
       tx.update(ref, { status: 'removed', history });
       return { kind: 'removed', cleaning: { ...stored, status: 'removed', history, cleaner: { state: 'found', name: stored.cleanerNameAtEntry, status: null }, property: { state: 'found', name: stored.propertyNameAtEntry } } };
     });

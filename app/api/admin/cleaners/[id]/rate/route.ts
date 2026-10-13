@@ -13,7 +13,7 @@
  */
 
 import { NextRequest } from 'next/server';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiError, apiFailure, apiSuccess, apiValidationError, noStore } from '@/app/lib/api/safe-response';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { DefaultRateSchema } from '@/app/lib/cleanings/schemas';
@@ -24,9 +24,7 @@ interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
-export async function PUT(request: NextRequest, context: RouteContext) {
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
+export const PUT = adminRoute(async function PUT(request: NextRequest, context: RouteContext, { actor }) {
   const crossSite = refuseCrossSite(request);
   if (crossSite) return crossSite;
   const wrongType = requireMediaType(request, 'application/json');
@@ -41,6 +39,6 @@ export async function PUT(request: NextRequest, context: RouteContext) {
   }
   const parsed = DefaultRateSchema.safeParse(body);
   if (!parsed.success) return noStore(apiValidationError(parsed.error.issues.map((i) => ({ path: i.path.map(String).join('.'), message: i.message }))));
-  const outcome = await setCleanerDefaultRate(id, parsed.data.defaultRate);
+  const outcome = await setCleanerDefaultRate(actor, id, parsed.data.defaultRate);
   return outcome.kind === 'done' ? noStore(apiSuccess({ cleaner: outcome.cleaner, changed: outcome.changed })) : noStore(apiFailure(RATE_REFUSALS[outcome.kind]));
-}
+});

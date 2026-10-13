@@ -12,7 +12,7 @@
  */
 
 import { NextRequest } from 'next/server';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiError, apiFailure, apiSuccess, noStore } from '@/app/lib/api/safe-response';
 import { isDocumentId } from '@/app/lib/firebase/server-leads';
 import { readPropertyIncome } from '@/app/lib/firebase/server-income';
@@ -27,9 +27,7 @@ function grpcCode(err: unknown): string {
   return typeof code === 'number' ? String(code) : 'unknown';
 }
 
-export async function GET(request: NextRequest, context: RouteContext) {
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
+export const GET = adminRoute(async function GET(request: NextRequest, context: RouteContext) {
   const { id } = await context.params;
   if (!isDocumentId(id)) return noStore(apiError('Invalid property ID', 400));
   // With ?month=yyyy-mm: that month's calendar copies and the property's stays in them (dispatch 37C, I8, I15).
@@ -41,4 +39,4 @@ export async function GET(request: NextRequest, context: RouteContext) {
     console.error(`[income] property ${id} lines read failed: grpc code ${grpcCode(err)}`);
     return noStore(apiFailure({ message: 'Failed to load the lines from the files.', status: 500, code: 'INCOME_READ_FAILED' }));
   }
-}
+});

@@ -11,9 +11,9 @@
  *
  * ── Apart from the admin door ──
  * Its own cookie name, its own key and its own format. The admin session
- * check reads only the admin cookie and cannot parse this token (`c1` is not
- * a timestamp); this module reads only `nubnb_cleaner_session` and cannot
- * parse an admin token. The cookie's path is /api/cleaner, so a browser never
+ * check reads only the admin cookie and cannot parse this token (it takes
+ * `a1` tokens only, since dispatch 38); this module reads only
+ * `nubnb_cleaner_session` and cannot parse an admin token. The cookie's path is /api/cleaner, so a browser never
  * sends it to /admin or to any admin API. A leaked cleaner cookie reveals
  * nothing about the admin PIN: breaking it means brute-forcing a 256-bit key.
  *

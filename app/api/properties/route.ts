@@ -21,7 +21,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/app/lib/firebase/admin';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { CreatePropertySchema } from '@/app/lib/api/schemas';
 import { apiSuccess, apiError, apiValidationError } from '@/app/lib/api/safe-response';
 import { revalidateListingPages } from '@/app/lib/revalidate-listings';
@@ -30,11 +30,7 @@ import { listingIssues } from '@/app/lib/firebase/server-listing-clashes';
 
 const COLLECTION = 'properties';
 
-export async function POST(request: NextRequest) {
-  // ── Auth ──
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return apiError(auth.error!, auth.status!);
-
+export const POST = adminRoute(async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
@@ -81,4 +77,4 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     return apiError('Failed to create property', 500, err);
   }
-}
+});

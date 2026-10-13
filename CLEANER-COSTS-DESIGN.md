@@ -2518,3 +2518,184 @@ Kian's rulings of 2026-10-13 are in `CLAUDE.md` under *Airbnb files*: M10, M11, 
   - Send back and Reject all (only the lock's refusal of a send-back was exercised live);
   - the calendar-stays warning (the test property has no calendar), and I5's note.
 - **Variants:** the made-up variants (Guest renamed, rows out of order, the changed amount) went through the reader only, not uploaded.
+
+## 42. Admin accounts: dispatch 38 (2026-10-13)
+
+Kian's rulings of 2026-10-13 are in `CLAUDE.md` under *Admin accounts*:
+- one main admin, who adds and removes admins and sets their level;
+- each admin has their own PIN, and every admin action names its admin;
+- six-digit PINs, locked for 15 minutes after five wrong tries;
+- the shared PIN stays the main admin's until he changes it;
+- sessions are signed with their own secret.
+
+What follows is the design reported before building, what was built, the developer's decisions where the rulings leave room, and how it was checked. `firestore.rules` and `storage.rules` are unchanged: the three new collections are server-only through the rules' catch-all deny, so no rules deploy goes with this.
+
+### 42.1 The design, as reported before building
+
+- **How PINs are stored.** Never as typed. Each admin document holds `scrypt(HMAC-SHA256(ADMIN_PIN_KEY, "nubnb:admin-pin:v1:" + pin), salt)`:
+  - a random 16-byte salt;
+  - N 2^15, r 8, p 1;
+  - the scheme, the salt and the parameters stored beside the hash.
+
+  `ADMIN_PIN_KEY` lives in the environment only, so a copy of the database, every `./backups/` export included, cannot be used to recover a PIN. Unlike cleaner codes, nobody can read an admin's PIN back, the main admin included.
+
+  The shared PIN of today is not copied anywhere. The main admin's document says `pin: { state: 'shared' }`, and sign-in compares the typed PIN with `ADMIN_PIN` in constant time. Every check spends one scrypt, whichever kind it is, so timing does not tell the kinds apart.
+- **How a session names its admin.** Sign-in is a name and a PIN. A lock on "that PIN" needs to know whose PIN was tried, which a PIN alone cannot say.
+  - The token is `a1.<adminId>.<sessionEpoch>.<issuedAtMs>.<mac>`, an HMAC-SHA256 with `ADMIN_SESSION_SECRET`. The PIN is no longer the key.
+  - The cookie keeps its name, path and attributes, so a new session replaces a PIN-signed one in the browser.
+  - Each request checks the token, then reads the admin's document: it must exist and hold the token's epoch. The name, the level and the PIN's state come from that read.
+  - A level change holds on the next request. A removal, a new PIN or a PIN change ends that admin's other sessions at once. The lifetime is 24 hours, absolute, as before.
+- **What the main admin can do that an admin cannot:** the Admins page and its routes. There they can:
+  - add an admin (name, level, temporary PIN);
+  - remove one;
+  - set a level;
+  - give a new temporary PIN;
+  - unlock a locked PIN;
+  - read the activity log.
+
+  Every other page and action is open to both levels.
+- **How a locked PIN shows.**
+  - The fourth wrong try warns: "One more wrong try locks it for 15 minutes."
+  - After the fifth, the boxes grey out and the gate reads "Locked until 5:08 pm", in the browser's time. A try during the lock is refused unchecked, the right PIN included, and is not counted.
+  - The Admins page shows the same "Locked until …" on the admin's row, with Unlock.
+  - A name nobody holds always gets "Wrong name or PIN." and locks nothing.
+- **How Kian gets back in if he forgets his PIN:**
+  1. Run `node scripts/export-firestore.mjs`, as before every write.
+  2. Run `node scripts/admin-recover.mjs Kian --write` with the service account in `.env.local`. It puts that main admin back on the shared PIN (`ADMIN_PIN` as Vercel has it), clears any lock and ends his sessions.
+  3. Sign in with the shared PIN and set a new one.
+
+  It refuses an account that is not a main admin. Such an admin gets a new temporary PIN from a main admin on the Admins page.
+
+### 42.2 What was built
+
+- **The library.** In `app/lib/admins/`:
+  - `model.ts`: levels; PIN rules; the lock as pure functions (`lockHolding`, `afterTry`); names; `adminActor`; views; the activity log's words.
+  - `secrets.ts`: the two keys, validated lazily, failing closed.
+  - `pin.ts`: hashes and the shared PIN.
+  - `session.ts`: the token, the cookie, the session check.
+  - `schemas.ts` and `responses.ts`.
+
+  `app/lib/firebase/server-admins.ts` holds:
+  - sign-in with the lock;
+  - the first main admin;
+  - one's own PIN;
+  - add, level, new PIN, unlock and remove;
+  - the activity log.
+- **The admin door.**
+  - `app/lib/api/verify-admin.ts` exports `adminRoute(handler, { level?, record? })`. It checks the session (and the level, for the main admin's routes), hands the handler the admin and their `actor`, and after a response below 400 writes one `admin_actions` line through `after()`. The line records who, when, method, path and status. A GET is written only with `record: true` (the two downloads).
+  - All 64 admin-gated handlers go through it, converted by an AST codemod that removed each `verifyAdminSession` pair, so no route keeps the PIN-signed check.
+  - The public `GET /api/properties/[id]` reads the session itself: an admin gets an unlisted property, as before.
+- **Who did it, in the records.** Every server function that wrote `ADMIN_ACTOR` takes the signed-in admin's actor instead:
+  - cleaners (created, status, code, code released, rate);
+  - cleanings;
+  - cost entries (office entry, status, lines, tax, seen, cost-report exports);
+  - Airbnb uploads, lines and title links;
+  - finished statements;
+  - report and month downloads.
+
+  The cost history in the admin reads "Approved by <name>". A record made before keeps `{ role: 'admin', id: null, name: null }` and reads "an admin".
+- **Routes:**
+  - `POST/GET/DELETE /api/admin-auth`: sign in, who am I (clears a cookie that no longer opens anything), sign out;
+  - `PUT /api/admin-auth/pin`: one's own PIN;
+  - `GET/POST /api/admin/admins`, `PATCH/DELETE /api/admin/admins/[id]`, `POST …/[id]/pin`, `POST …/[id]/unlock`, `GET …/activity`: main admins only.
+- **Pages:**
+  - The gate (`PinGate.tsx`, `PinBoxes.tsx`): name and PIN, the lock, "Choose your PIN".
+  - The header: the admin's name with Change PIN and Sign out (`AccountMenu.tsx`, `ChangePinDialog.tsx`), and "Admins" for main admins.
+  - `/admin/admins`: the list, the add and new-PIN dialogs, and the activity.
+- **Scripts:**
+  - `scripts/admin-recover.mjs`;
+  - `scripts/export-firestore.mjs` names the three new collections.
+- **Tests:** `tests/admins/accounts.mjs` (`admin-accounts`) covers:
+  - names and PIN rules;
+  - the lock across a fifteen-minute boundary;
+  - tokens: a PIN-signed one of before, a cleaner token, a changed MAC or epoch, the 24-hour edge;
+  - PIN hashes;
+  - a walk of every route file asserting that every admin handler goes through `adminRoute` and that every recorded write has words in the activity log.
+
+### 42.3 Decisions, not rulings
+
+- **The name at sign-in.** It is matched without regard to case or spacing, and kept unique by `admin_names/{key}`. Each device remembers the last name that signed in, so on his own devices Kian types only the PIN.
+- **Temporary PINs.** A PIN the main admin sets, adding an admin or giving a new one, is temporary. It opens only "Choose your PIN"; every other route answers 403 `ADMIN_PIN_CHANGE_REQUIRED`. That way an admin's PIN is theirs alone, and the record of who did what means something.
+- **The lock counts wrong tries in a row** since the last right one or the last lock. There is no window, and a lock that ends starts the count from nothing. Unlock (a main admin's button) ends a lock early.
+- **Nobody acts on themselves** was the first version: no one could set their own level, remove themselves, or give themselves a new PIN, and a second main admin could have removed Kian. Superseded the same day by Kian's ruling that a main admin cannot be removed, demoted or given a new PIN by anyone but themselves (§42.7).
+- **Too easy.** New PINs refuse one digit six times and straight runs (20 PINs), as cleaner codes refuse theirs.
+- **The first main admin.** While no admin exists, the first sign-in attempt by the name Kian creates him as main admin on the shared PIN, before the PIN is checked, so the lock counts from his first try. Once any admin exists this never happens again: removing Kian does not let the shared PIN make him anew.
+- **The activity log** records successful writes only: what was done, not what was tried. It records the path, never the query or the body, which can hold PINs, codes and names. Sign-ins are not logged; `lastSignedInAt` is kept on the admin.
+- **What owners receive does not change.** An owner's workbook still says "Office" for an admin's action. Nubnb's own workbook prints the actor's name beside the role, as it already did for cleaners.
+- **Cleaner codes** are still kept clear of `ADMIN_PIN`. It is the main admin's PIN until he changes it, and the recovery PIN after that.
+- **The session secret.** The `ADMIN_SESSION_SECRET` already in `.env.local` was never read by the app and is not base64url, so it is refused and must be replaced.
+
+### 42.4 Before deploying
+
+1. Generate `ADMIN_SESSION_SECRET` and `ADMIN_PIN_KEY`, each `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`. Put both in Vercel Production and `.env.local`, with copies in a password manager. Without the first, nobody can sign in. Without the second, only the main admin on the shared PIN can sign in, and no PIN can be set.
+2. Keep `ADMIN_PIN` set.
+3. After the deploy, sign in as "Kian" with the shared PIN; the first attempt creates the main admin. Then use Change PIN.
+4. Every session signed with the PIN ends at the first request after the deploy.
+
+### 42.5 How it was checked (2026-10-13, 16:31–17:12 Toronto)
+
+- **Byte-identical:**
+  - `node tests/run.mjs`: the seven earlier checks identical; `admin-accounts` recorded, then recorded again after the reserved-name fix below, which added two lines;
+  - 40 of 40 version-3 statements (`d36/v3-hash.mjs`, run against this tree);
+  - `tsc` clean apart from the stale `.next` validator entries; lint equal to the baseline (the same three errors and seven warnings, none in these files).
+- **The setup.** Live, real time, on a local build reading production: 127.0.0.1:4500, a throwaway shared PIN and throwaway keys, and the write guard (30 of 30 offline checks first).
+  - `9dLEGY6oV0JzqZ7cBWEEO` dropped digits typed quickly into the PIN boxes. Fixed (the boxes read their latest value from a ref) before any write.
+  - `wEYI0cSOWzy4JgPjO4Bx0` served checks 1–10.
+  - `O07_rX5Dx_Vo1xpKKoy-Y` served the rest. It carries the fix for names the key cannot hold (`__…__`), which made the add 502 and sign-in 503 instead of refusing; that fix was exercised live.
+  - The opening export is `2026-10-13T20-31-01Z`.
+- **The checks:**
+  1. **Sessions from the PIN signing.** A token made by HEAD's own code with the server's PIN was valid there. On this server it got 401 `ADMIN_SESSION_INVALID` from every admin route and from the gate's check, which cleared the cookie (`Max-Age=0`). A browser holding it (78 characters) loaded `/admin` and showed the sign-in, with the cookie gone.
+  2. **The first main admin.** The first sign-in as Kian with the four-digit shared PIN created `admins/JDVSEoKv0UpAUSe6UUpC` and `admin_names/kian`. The header showed "Kian", with the amber shared-PIN dot, and "Admins".
+  3. **Adding admins.** The main admin added `__TEST__ Ada` on the Admins page and `__TEST__ Bo` through the API; each add wrote an activity line. A name differing only in case and spacing was refused (409), and 123456 was refused (422).
+  4. **Temporary PINs.** Ada's six-digit temporary PIN opened "Choose your PIN" and nothing else. Bo's temporary session got 403 `ADMIN_PIN_CHANGE_REQUIRED` from an admin route until he chose his PIN.
+  5. **An admin refused the main admin's pages.** Ada's page read "Only a main admin manages admins". All eight main-admin requests got 403 `MAIN_ADMIN_ONLY`; nothing was written.
+  6. **Each action records the right admin.**
+     - The cleaner: created by Ada, rate set by Bo, deactivated by Kian.
+     - The cost entry: sent and approved by Bo, removed by Ada.
+     - One activity line each, under the right name. The Costs page read "Approved by __TEST__ Bo … Removed by __TEST__ Ada".
+  7. **A level change.** Bo was refused the Admins list, made a main admin, and allowed it on his next request; made an admin again, refused again. Kian could not change his own level, remove himself or give himself a PIN (409 `ADMIN_IS_YOU`).
+  8. **The lock.**
+     - Four wrong tries got 401; the fourth carried the warning. The fifth got 429, locked until 21:08:30.048Z.
+     - The sixth, Ada's right PIN, got 429. A try at 3.2 minutes got 429 and was not counted.
+     - The gate read "This PIN is locked. Locked until 5:08 pm." with the boxes disabled; the Admins page showed "Locked until 5:08 pm" with Unlock. Her existing session kept working.
+     - At 16.9 minutes her right PIN got 200, with the lock and the count cleared.
+  9. **The recovery script.** It refused an admin who is not a main admin. On main-admin Bo it put him back on the shared PIN: his session ended, his own PIN got 401, the shared PIN got 200 as a main admin, and his history recorded `pin_reset` by "recovery script". It writes outside the guard, to a document removed after.
+  10. **Kian changes his PIN** from the header's menu. His other session ended; the shared PIN got 401 for Kian; the new PIN got 200; the browser that changed it carried on, without the dot.
+  11. **Removal ends sessions.** Ada's and Bo's sessions got 401 at once, and Ada's browser showed the sign-in. Her name no longer signed in. Kian alone remained. The Admins page listed the run's 20 activity lines.
+  12. **Sign out** took the cookie off the browser, and a reload stayed signed out. It wrote nothing.
+- **A stop and a restart.** The first attempt at check 5, written as `bash -c 'source …'`, was refused by a built-in permission check. The run stopped there and Kian was told. On his approval it went on as plain script files (`node checks/<n>.mjs`); nothing else was refused.
+- **Cleanup.** The guard recorded 67 writes and refused none.
+  - Through the app: the cost entry, the property (with its unlisted mark, owner record and name for cleaners), the cleaner, then Ada and Bo through the Admins API.
+  - By exact ID after an export (`2026-10-13T21-11-10Z`), approved by Kian: Kian's admin document, `admin_names/kian`, the 20 activity lines and the test cleaner's retired code, 23 of 23, each checked for what it held and deleted with its update time as a precondition.
+  - The closing export (`2026-10-13T21-12-01Z`) is byte-identical, file for file, to the opening one. Storage's 6,622 objects are identical by name and generation.
+
+### 42.6 Not exercised live
+
+- **Admins-page actions:**
+  - Unlock (the lock ended by itself after the real fifteen minutes): checked only by reading the code;
+  - New PIN… for another admin: through the API only, in §42.7's round, not from the page's dialog;
+  - Make main admin and Remove: run through the API only, not from the page's buttons.
+- **The 503 paths** with a key missing: checked only by reading the code.
+- **Concurrent tries** on one PIN, and two first sign-ins at once: the transactions are meant for them, but neither was run.
+- **Production.** Kian's first sign-in after the deploy, with the production `ADMIN_PIN` and keys, is his to do (CLAUDE.md: a live admin session is Kian's check).
+
+### 42.7 After the first report: masked boxes, and a main admin's account their own (Kian's rulings of 2026-10-13)
+
+- **PIN boxes mask their digits** on the sign-in gate, Choose your PIN and Change PIN. `PinBoxes` gives each box only a dot to show. The digits stay in the caller's state, and a key typed into a box is read from what the box then holds, the dot taken out, so masking does not depend on the browser. The main admin's temporary-PIN field on the Admins page is not a PIN box: it shows what they type, since they hand that PIN on.
+- **A main admin cannot be removed, demoted or given a new PIN by anyone but themselves.** One rule, `accountVerdict` in `admins/model.ts`, decides it for the server functions (inside their transactions) and for the page's buttons:
+  - another main admin's account is refused: 409 `MAIN_ADMIN_PROTECTED`;
+  - a main admin may step down or remove themselves while another main admin remains, otherwise 409 `LAST_MAIN_ADMIN`;
+  - their own PIN is changed with Change PIN, as before;
+  - promoting an admin and unlocking stay open.
+
+  The page shows another main admin's row as "Theirs to manage", with Unlock only during a lock. Your own row has Step down and Remove myself… while another main admin remains. Removing yourself clears your cookie and returns you to the sign-in.
+- **Decisions, not rulings:**
+  - **The last main admin** cannot step down or leave, so someone can always reach the Admins page.
+  - **Promoting is one-way** for the main admin who does it: the confirmation says so ("Only they can step down or leave: you cannot undo this").
+  - **The recovery script** is outside the admin. It is run with the service account, which only Kian holds, so it stays the way back in for any main admin.
+- **How it was checked** (2026-10-13, 17:25–17:30 Toronto). Build `x1QxiEe_hvwrHNu0PlfXg` on 127.0.0.1:4500, a new guard ledger, opening export `2026-10-13T21-25-10Z`:
+  - **The boxes** held `["•","•","•","•","",""]` on the gate and six dots in every other group. No digit was in any box, and the PIN appeared neither in the page's text nor in its boxes, on all three. Signing in, choosing a PIN and changing one worked with them.
+  - **Two main admins on each other.** With Bo made a main admin, each of the two was refused removing, demoting and re-PINing the other: six 409 `MAIN_ADMIN_PROTECTED`, nothing written. An admin was still given a new PIN.
+  - **Their own accounts.** Bo stepped down and lost the Admins page. Kian, then alone, was refused stepping down and removing himself (409 `LAST_MAIN_ADMIN`). Bo, made main again, removed himself: his cookie was cleared and his old session answered 401.
+  - **The test record:** `tests/admins/accounts.mjs` prints the rule for every action and case.
+  - **Cleanup.** The guard recorded 33 writes and refused none. Ada and Bo went through the app. After export `2026-10-13T21-28-42Z`, Kian's admin document, `admin_names/kian` and the 11 activity lines were deleted by exact ID (K13), 13 of 13. The closing export `2026-10-13T21-29-24Z` is byte-identical to the opening one. Storage's 6,622 objects are identical.

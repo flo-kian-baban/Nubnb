@@ -27,9 +27,9 @@
 
 import { NextRequest } from 'next/server';
 import { getAdminBucket, getAdminDb } from '@/app/lib/firebase/admin';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiError, apiFailure, apiSuccess, noStore } from '@/app/lib/api/safe-response';
-import { ADMIN_ACTOR, COST_ENTRIES_COLLECTION, RECEIPTS_PREFIX } from '@/app/lib/cleaners/model';
+import { COST_ENTRIES_COLLECTION, RECEIPTS_PREFIX } from '@/app/lib/cleaners/model';
 import { torontoDayOf } from '@/app/lib/costs/report';
 import {
   MONTH_DOWNLOADS_COLLECTION,
@@ -68,10 +68,7 @@ function signable(key: string, path: string): boolean {
   return false;
 }
 
-export async function GET(request: NextRequest) {
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
-
+export const GET = adminRoute(async function GET(request: NextRequest, _context: unknown, { actor }) {
   const month = request.nextUrl.searchParams.get('month');
   if (!isMonth(month)) return noStore(apiError('A month, like 2026-09', 400));
 
@@ -154,7 +151,7 @@ export async function GET(request: NextRequest) {
     for (const folder of pkg.folders) {
       if (!folder.report) continue;
       const ref = db.collection(REPORT_DOWNLOADS_COLLECTION).doc();
-      const record = { schemaVersion: REPORT_DOWNLOAD_SCHEMA_VERSION, reportId: folder.report.id, propertyId: folder.propertyId, month, at, actor: ADMIN_ACTOR, via: 'month-package' };
+      const record = { schemaVersion: REPORT_DOWNLOAD_SCHEMA_VERSION, reportId: folder.report.id, propertyId: folder.propertyId, month, at, actor, via: 'month-package' };
       batch.create(ref, record);
       // The package says what it was made with, its own download included.
       folder.report.downloads.push({ at, via: 'month-package' });
@@ -164,7 +161,7 @@ export async function GET(request: NextRequest) {
       schemaVersion: MONTH_DOWNLOAD_SCHEMA_VERSION,
       month,
       at,
-      actor: ADMIN_ACTOR,
+      actor,
       reportIds: selection.reportIds,
       folders: pkg.folders.length,
       entries: Object.keys(pkg.entries).length,
@@ -180,4 +177,4 @@ export async function GET(request: NextRequest) {
 
   console.log(`[month-package] ${month}: ${pkg.folders.length} folders, ${Object.keys(links).length} files, ${selection.reportIds.length} statements`);
   return noStore(apiSuccess({ package: pkg, links, expiresAt: new Date(expires).toISOString(), seconds }));
-}
+}, { record: true });

@@ -1,0 +1,278 @@
+/* ══════════════════════════════════════════════
+   Admins (dispatch 38). Container, header, table,
+   loading and empty styles come from
+   ../page.module.css; buttons, badges and the
+   level cards follow the Team page's.
+   ══════════════════════════════════════════════ */
+
+.block {
+  margin-bottom: 32px;
+}
+
+.blockTitle {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.tableScroll {
+  overflow-x: auto;
+}
+
+.nameCell {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #ffffff;
+  overflow-wrap: anywhere;
+}
+.nameCell .badge {
+  margin-left: 8px;
+}
+
+.addedCell,
+.whenCell {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.mono {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.45);
+  overflow-wrap: anywhere;
+}
+
+.muted {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.warn {
+  color: #f0a63a;
+  font-weight: 600;
+}
+
+/* ── Badges ── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.badgeMain {
+  background: rgba(101, 153, 205, 0.14);
+  color: #8dbbe8;
+  border-color: rgba(101, 153, 205, 0.3);
+}
+.badgeAdmin {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.7);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.badgeYou {
+  background: rgba(74, 222, 128, 0.1);
+  color: #6ee7a0;
+  border-color: rgba(74, 222, 128, 0.18);
+}
+.badgeLocked {
+  background: rgba(245, 158, 11, 0.08);
+  color: #f0a63a;
+  border-color: rgba(245, 158, 11, 0.22);
+}
+
+/* ── Row actions ── */
+.actionCell {
+  text-align: right;
+  white-space: nowrap;
+}
+.actionCell .rowAction + .rowAction {
+  margin-left: 8px;
+}
+.rowAction {
+  padding: 6px 12px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.2s ease;
+}
+.rowAction:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.rowAction:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.rowAction:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 2px;
+}
+.rowActionDanger {
+  color: #ef5350;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+.rowActionDanger:hover:not(:disabled) {
+  color: #ff6b68;
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+/* ── Dialog forms ── */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.label {
+  margin: 0 0 8px;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.45);
+}
+.field .label {
+  margin: 0;
+}
+
+.levelField {
+  margin: 0;
+  padding: 0;
+  border: none;
+  min-width: 0;
+}
+.levelCards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.levelCard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+.levelCard:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.05);
+}
+.levelCardOn,
+.levelCardOn:hover {
+  border-color: rgba(101, 153, 205, 0.7);
+  background: rgba(101, 153, 205, 0.1);
+}
+.levelCard:has(.levelRadio:focus-visible) {
+  box-shadow: 0 0 0 2px #7fb0e0;
+}
+/* The radio stays in the form and the tab order; the card is what shows. */
+.levelRadio {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+.levelName {
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+}
+.levelDoes {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.nameInput {
+  width: 100%;
+  height: 44px;
+  padding: 0 14px;
+  background: var(--ctl-bg, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--ctl-border, rgba(255, 255, 255, 0.09));
+  border-radius: var(--ctl-radius, 12px);
+  color: #ffffff;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+}
+.nameInput:focus {
+  border-color: var(--ctl-focus, rgba(101, 153, 205, 0.6));
+  box-shadow: var(--ctl-ring, 0 0 0 3px rgba(101, 153, 205, 0.18));
+}
+
+.pinRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.codeInput {
+  width: 9em;
+  height: 44px;
+  padding: 0 14px;
+  background: var(--ctl-bg, rgba(255, 255, 255, 0.04));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--ctl-radius, 12px);
+  color: #ffffff;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+}
+.codeInput:focus {
+  border-color: var(--ctl-focus, rgba(101, 153, 205, 0.6));
+  box-shadow: var(--ctl-ring, 0 0 0 3px rgba(101, 153, 205, 0.18));
+}
+
+.btnGhost {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.btnGhost:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.formError {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #f87171;
+}

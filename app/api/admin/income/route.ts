@@ -13,7 +13,7 @@
  */
 
 import { NextRequest } from 'next/server';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiError, apiFailure, apiSuccess, noStore } from '@/app/lib/api/safe-response';
 import { readIncomeMonth } from '@/app/lib/firebase/server-income';
 import { isMonth } from '@/app/lib/reports/model';
@@ -23,9 +23,7 @@ function grpcCode(err: unknown): string {
   return typeof code === 'number' ? String(code) : 'unknown';
 }
 
-export async function GET(request: NextRequest) {
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
+export const GET = adminRoute(async function GET(request: NextRequest) {
   const month = request.nextUrl.searchParams.get('month') ?? '';
   if (!isMonth(month)) return noStore(apiError('Invalid month: write it as yyyy-mm', 400));
   try {
@@ -34,4 +32,4 @@ export async function GET(request: NextRequest) {
     console.error(`[income] read of ${month} failed: grpc code ${grpcCode(err)}`);
     return noStore(apiFailure({ message: 'Failed to load the month\'s income.', status: 500, code: 'INCOME_READ_FAILED' }));
   }
-}
+});

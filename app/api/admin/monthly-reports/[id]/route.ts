@@ -24,7 +24,7 @@
  */
 
 import { NextRequest } from 'next/server';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiSuccess, apiError, apiFailure, apiValidationError, noStore } from '@/app/lib/api/safe-response';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { isDocumentId } from '@/app/lib/firebase/server-leads';
@@ -34,9 +34,7 @@ interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
-export async function DELETE(request: NextRequest, context: RouteContext) {
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
+export const DELETE = adminRoute(async function DELETE(request: NextRequest, context: RouteContext) {
   const crossSite = refuseCrossSite(request);
   if (crossSite) return crossSite;
   const wrongType = requireMediaType(request, 'application/json');
@@ -63,4 +61,4 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     return noStore(apiFailure(refusal));
   }
   return noStore(apiSuccess({ deleted: { reportId: outcome.reportId, downloads: outcome.downloads, pdf: outcome.pdf }, draft: outcome.draft, management: outcome.management }));
-}
+});

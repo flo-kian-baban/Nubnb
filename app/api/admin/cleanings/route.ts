@@ -18,15 +18,13 @@
  */
 
 import { NextRequest } from 'next/server';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiError, apiFailure, apiSuccess, apiValidationError, noStore } from '@/app/lib/api/safe-response';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { LogCleaningSchema } from '@/app/lib/cleanings/schemas';
 import { LOG_REFUSALS, logCleaning } from '@/app/lib/firebase/server-cleanings';
 
-export async function POST(request: NextRequest) {
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
+export const POST = adminRoute(async function POST(request: NextRequest, _context: unknown, { actor }) {
   const crossSite = refuseCrossSite(request);
   if (crossSite) return crossSite;
   const wrongType = requireMediaType(request, 'application/json');
@@ -42,7 +40,7 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) return noStore(apiValidationError(parsed.error.issues.map((i) => ({ path: i.path.map(String).join('.'), message: i.message }))));
 
   const { propertyId, cleanerId, day, amount, note } = parsed.data;
-  const outcome = await logCleaning({ propertyId, cleanerId, day, amountCents: amount, note });
+  const outcome = await logCleaning(actor, { propertyId, cleanerId, day, amountCents: amount, note });
   switch (outcome.kind) {
     case 'logged':
       return noStore(apiSuccess({ cleaning: outcome.cleaning, statementMonth: outcome.statementMonth }, 201));
@@ -51,4 +49,4 @@ export async function POST(request: NextRequest) {
     default:
       return noStore(apiFailure(LOG_REFUSALS[outcome.kind]));
   }
-}
+});

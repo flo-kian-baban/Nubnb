@@ -18,7 +18,7 @@
  */
 
 import { NextRequest } from 'next/server';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiError, apiFailure, apiSuccess, noStore } from '@/app/lib/api/safe-response';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { UPLOAD_REFUSALS, uploadEarnings } from '@/app/lib/firebase/server-income';
@@ -28,9 +28,7 @@ import { isMonth, monthLabel } from '@/app/lib/reports/model';
 /** The parts beside the file are a few bytes; this allows for the multipart framing. */
 const REQUEST_MAX_BYTES = INCOME_LIMITS.FILE_MAX_BYTES + 64 * 1024;
 
-export async function POST(request: NextRequest) {
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
+export const POST = adminRoute(async function POST(request: NextRequest, _context: unknown, { actor }) {
   const crossSite = refuseCrossSite(request);
   if (crossSite) return crossSite;
   const declaredLength = Number(request.headers.get('content-length') ?? 0);
@@ -65,7 +63,7 @@ export async function POST(request: NextRequest) {
   }
   const fileName = 'name' in file && typeof file.name === 'string' ? file.name : 'upload.csv';
 
-  const outcome = await uploadEarnings({ platform: channel, month, fileName, bytes, text });
+  const outcome = await uploadEarnings(actor, { platform: channel, month, fileName, bytes, text });
   switch (outcome.kind) {
     case 'uploaded':
       return noStore(apiSuccess({ upload: outcome.upload }, 201));
@@ -80,4 +78,4 @@ export async function POST(request: NextRequest) {
     default:
       return noStore(apiFailure(UPLOAD_REFUSALS[outcome.kind]));
   }
-}
+});

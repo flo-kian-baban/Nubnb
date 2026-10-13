@@ -17,7 +17,7 @@
  */
 
 import { NextRequest } from 'next/server';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiError, apiFailure, apiSuccess, apiValidationError, noStore } from '@/app/lib/api/safe-response';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { isDocumentId } from '@/app/lib/firebase/server-leads';
@@ -39,10 +39,7 @@ function grpcCode(err: unknown): string {
 
 const NOT_FOUND = { message: 'That property does not exist.', status: 404, code: 'PROPERTY_NOT_FOUND' } as const;
 
-export async function GET(request: NextRequest, context: RouteContext) {
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
-
+export const GET = adminRoute(async function GET(request: NextRequest, context: RouteContext) {
   const { id } = await context.params;
   if (!isDocumentId(id)) return noStore(apiError('Invalid property ID', 400));
 
@@ -52,13 +49,9 @@ export async function GET(request: NextRequest, context: RouteContext) {
     console.error(`[cleaner-name] read of ${id} failed: grpc code ${grpcCode(err)}`);
     return noStore(apiFailure({ message: 'Could not read the name cleaners see.', status: 503, code: 'CLEANER_NAME_UNAVAILABLE' }));
   }
-}
+});
 
-export async function PUT(request: NextRequest, context: RouteContext) {
-  // ── Auth ──
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
-
+export const PUT = adminRoute(async function PUT(request: NextRequest, context: RouteContext) {
   // ── Cross-site and media type ──
   const crossSite = refuseCrossSite(request);
   if (crossSite) return crossSite;
@@ -104,4 +97,4 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       }),
     );
   }
-}
+});

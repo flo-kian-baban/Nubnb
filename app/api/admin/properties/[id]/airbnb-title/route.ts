@@ -18,7 +18,7 @@
  */
 
 import { NextRequest } from 'next/server';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiError, apiFailure, apiSuccess, apiValidationError, noStore } from '@/app/lib/api/safe-response';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { isDocumentId } from '@/app/lib/firebase/server-leads';
@@ -35,9 +35,7 @@ function grpcCode(err: unknown): string {
   return typeof code === 'number' ? String(code) : 'unknown';
 }
 
-export async function GET(request: NextRequest, context: RouteContext) {
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
+export const GET = adminRoute(async function GET(request: NextRequest, context: RouteContext) {
   const { id } = await context.params;
   if (!isDocumentId(id)) return noStore(apiError('Invalid property ID', 400));
   try {
@@ -48,11 +46,9 @@ export async function GET(request: NextRequest, context: RouteContext) {
     console.error(`[income] property ${id} titles read failed: grpc code ${grpcCode(err)}`);
     return noStore(apiFailure({ message: 'Failed to load the property\'s Airbnb title.', status: 500, code: 'TITLES_READ_FAILED' }));
   }
-}
+});
 
-export async function PUT(request: NextRequest, context: RouteContext) {
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
+export const PUT = adminRoute(async function PUT(request: NextRequest, context: RouteContext, { actor }) {
   const crossSite = refuseCrossSite(request);
   if (crossSite) return crossSite;
   const wrongType = requireMediaType(request, 'application/json');
@@ -67,8 +63,8 @@ export async function PUT(request: NextRequest, context: RouteContext) {
   }
   const parsed = TitleInputSchema.safeParse(body);
   if (!parsed.success) return noStore(apiValidationError(parsed.error.issues.map((i) => ({ path: i.path.map(String).join('.'), message: i.message }))));
-  const outcome = await setActiveTitle({ platform: 'airbnb', title: parsed.data.title, propertyId: id, expected: parsed.data.expected });
+  const outcome = await setActiveTitle(actor, { platform: 'airbnb', title: parsed.data.title, propertyId: id, expected: parsed.data.expected });
   if (outcome.kind === 'linked') return noStore(apiSuccess({ link: outcome.link, previous: outcome.previous, sentBack: outcome.sentBack }));
   if (outcome.kind === 'printed') return noStore(apiFailure({ ...LINK_REFUSALS.printed, evidence: { statements: outcome.statements.map((row) => `${monthLabel(row.month)} (${row.reference})`).join('; ') } }));
   return noStore(apiFailure(LINK_REFUSALS[outcome.kind]));
-}
+});

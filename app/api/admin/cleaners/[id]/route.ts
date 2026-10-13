@@ -32,7 +32,7 @@
 
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import {
   apiSuccess,
   apiError,
@@ -77,11 +77,7 @@ const STATUS_REFUSALS: Record<Exclude<SetCleanerStatusResult['kind'], 'done'>, R
   },
 };
 
-export async function PATCH(request: NextRequest, context: RouteContext) {
-  // ── Auth ──
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
-
+export const PATCH = adminRoute(async function PATCH(request: NextRequest, context: RouteContext, { actor }) {
   // ── Cross-site and media type ──
   const crossSite = refuseCrossSite(request);
   if (crossSite) return crossSite;
@@ -111,17 +107,13 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     );
   }
 
-  const outcome = await setCleanerStatus(id, result.data.status);
+  const outcome = await setCleanerStatus(actor, id, result.data.status);
   if (outcome.kind !== 'done') return noStore(apiFailure(STATUS_REFUSALS[outcome.kind]));
 
   return noStore(apiSuccess({ cleaner: outcome.cleaner, changed: outcome.changed }));
-}
+});
 
-export async function DELETE(request: NextRequest, context: RouteContext) {
-  // ── Auth ──
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
-
+export const DELETE = adminRoute(async function DELETE(request: NextRequest, context: RouteContext) {
   // ── Cross-site ── (no body, so no media type to check)
   const crossSite = refuseCrossSite(request);
   if (crossSite) return crossSite;
@@ -133,4 +125,4 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
   if (outcome.kind !== 'deleted') return noStore(apiFailure(DELETE_CLEANER_REFUSALS[outcome.kind]));
   // The account as it was, without its code: the list is the only place a code is shown.
   return noStore(apiSuccess({ deleted: { id: outcome.cleaner.id, name: outcome.cleaner.name, role: outcome.cleaner.role, codes: outcome.codes } }));
-}
+});

@@ -47,7 +47,7 @@
  */
 
 import { NextRequest } from 'next/server';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiSuccess, apiError, apiFailure, apiValidationError, noStore } from '@/app/lib/api/safe-response';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { OfficeInputSchema, createOfficeEntry, listCosts, lookupPropertyName, type PropertyLookup } from '@/app/lib/firebase/server-cost-entries';
@@ -63,11 +63,7 @@ function grpcCode(err: unknown): string {
   return typeof code === 'number' ? String(code) : 'unknown';
 }
 
-export async function GET(request: NextRequest) {
-  // ── Auth ──
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
-
+export const GET = adminRoute(async function GET() {
   try {
     return noStore(apiSuccess(await listCosts()));
   } catch (err) {
@@ -82,13 +78,9 @@ export async function GET(request: NextRequest) {
       }),
     );
   }
-}
+});
 
-export async function POST(request: NextRequest) {
-  // ── Auth ──
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
-
+export const POST = adminRoute(async function POST(request: NextRequest, _context: unknown, { actor }) {
   // ── Cross-site and media type ──
   const crossSite = refuseCrossSite(request);
   if (crossSite) return crossSite;
@@ -128,7 +120,7 @@ export async function POST(request: NextRequest) {
 
   // ── Write ──
   try {
-    const entry = await createOfficeEntry({ office, propertyNameAtEntry: property.name });
+    const entry = await createOfficeEntry(actor, { office, propertyNameAtEntry: property.name });
     // Which statement it goes on (Kian's ruling of 2026-10-12): its month's, or the next open one's once that is
     // finished. A failed read leaves it unsaid; the entry is written either way.
     let statementMonth: string | null = null;
@@ -142,4 +134,4 @@ export async function POST(request: NextRequest) {
     console.error(`[cost-entries] office entry not written: grpc code ${grpcCode(err)}`);
     return noStore(apiFailure({ message: 'The cost could not be saved.', status: 502, code: 'ENTRY_WRITE_FAILED', hint: 'It may or may not have been recorded. Refresh the ledger before adding it again.' }));
   }
-}
+});

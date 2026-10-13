@@ -20,7 +20,7 @@
  */
 
 import { NextRequest } from 'next/server';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiSuccess, apiError, apiFailure, noStore } from '@/app/lib/api/safe-response';
 import { RECEIPT_LINK_SECONDS, receiptLink } from '@/app/lib/cleaners/receipts';
 import { findReceipt } from '@/app/lib/firebase/server-cost-entries';
@@ -36,11 +36,7 @@ function errorCode(err: unknown): string {
   return typeof code === 'number' || typeof code === 'string' ? String(code) : 'unknown';
 }
 
-export async function GET(request: NextRequest, context: RouteContext) {
-  // ── Auth ──
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
-
+export const GET = adminRoute(async function GET(request: NextRequest, context: RouteContext) {
   const { id } = await context.params;
   if (!isDocumentId(id)) return noStore(apiError('Invalid entry ID', 400));
 
@@ -90,4 +86,4 @@ export async function GET(request: NextRequest, context: RouteContext) {
       }),
     );
   }
-}
+});

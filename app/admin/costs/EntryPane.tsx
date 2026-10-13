@@ -113,6 +113,7 @@ import {
   whenText,
 } from "./cost-display";
 import { ReceiptImage } from "./ReceiptImage";
+import { adminActorWords } from "@/app/lib/admins/model";
 import { useAsk } from "../components/AskDialog";
 import styles from "./page.module.css";
 
@@ -1091,11 +1092,14 @@ function PdfSection({ entry, pdf }: { entry: CostEntryView; pdf: EntryPdfState }
   );
 }
 
-/** Who did it: the cleaner or handyman by name, "an admin" (one shared PIN, so never which one), or the rule. */
+/**
+ * Who did it: the cleaner or handyman by name, the admin by name (dispatch 38),
+ * "an admin" for what was done before admins had names (one shared PIN), or the rule.
+ */
 function actorOf(event: HistoryEventView): string {
   if (event.actor?.role === "cleaner") return event.actor.name ?? "the cleaner";
   if (event.actor?.role === "handyman") return event.actor.name ?? "the handyman";
-  if (event.actor?.role === "admin") return "an admin";
+  if (event.actor?.role === "admin") return adminActorWords(event.actor);
   if (event.actor?.role === "system") return "the rule";
   return "someone not recorded";
 }

@@ -24,7 +24,7 @@ import { getAdminDb } from '@/app/lib/firebase/admin';
 import { createdMonthOf } from '@/app/lib/firebase/created-month';
 import { isDocumentId } from '@/app/lib/firebase/server-leads';
 import { PROPERTY_VISIBILITY_COLLECTION } from '@/app/lib/firebase/server-visibility';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiError, apiFailure, apiSuccess, noStore } from '@/app/lib/api/safe-response';
 
 interface RouteContext {
@@ -37,10 +37,7 @@ function grpcCode(err: unknown): string {
   return typeof code === 'number' ? String(code) : 'unknown';
 }
 
-export async function GET(request: NextRequest, context: RouteContext) {
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
-
+export const GET = adminRoute(async function GET(request: NextRequest, context: RouteContext) {
   const { id } = await context.params;
   if (!isDocumentId(id)) return noStore(apiError('Invalid property ID', 400));
 
@@ -59,4 +56,4 @@ export async function GET(request: NextRequest, context: RouteContext) {
     console.error(`[admin/properties/${id}] read failed: grpc code ${grpcCode(err)}`);
     return noStore(apiFailure({ message: 'Could not load the property.', status: 503, code: 'PROPERTY_UNAVAILABLE' }));
   }
-}
+});

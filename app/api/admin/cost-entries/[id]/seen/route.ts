@@ -18,7 +18,7 @@
 
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiSuccess, apiError, apiFailure, apiValidationError, noStore } from '@/app/lib/api/safe-response';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { REVIEW_REFUSALS, markEntrySeen } from '@/app/lib/firebase/server-cost-entries';
@@ -33,11 +33,7 @@ const SeenSchema = z.strictObject({
   seen: z.number().int().min(0).max(1_000_000),
 });
 
-export async function POST(request: NextRequest, context: RouteContext) {
-  // ── Auth ──
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
-
+export const POST = adminRoute(async function POST(request: NextRequest, context: RouteContext, { actor }) {
   // ── Cross-site and media type ──
   const crossSite = refuseCrossSite(request);
   if (crossSite) return crossSite;
@@ -62,8 +58,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
     );
   }
 
-  const outcome = await markEntrySeen(id, result.data.seen);
+  const outcome = await markEntrySeen(actor, id, result.data.seen);
   if (outcome.kind !== 'done') return noStore(apiFailure(REVIEW_REFUSALS[outcome.kind]));
 
   return noStore(apiSuccess({ entry: outcome.entry, changed: outcome.changed }));
-}
+});

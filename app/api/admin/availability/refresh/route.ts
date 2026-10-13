@@ -14,9 +14,8 @@
  * press, by an admin, on purpose.
  */
 
-import { NextRequest } from 'next/server';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
-import { apiError, apiFailure, apiSuccess, noStore } from '@/app/lib/api/safe-response';
+import { adminRoute } from '@/app/lib/api/verify-admin';
+import { apiFailure, apiSuccess, noStore } from '@/app/lib/api/safe-response';
 import { getAdminDb } from '@/app/lib/firebase/admin';
 import { addDays, torontoDay } from '@/app/lib/availability/days';
 import { HISTORY_DAYS, historyView } from '@/app/lib/availability/attention';
@@ -31,10 +30,7 @@ const grpcCode = (err: unknown): string => {
   return typeof code === 'number' ? String(code) : 'unknown';
 };
 
-export async function POST(request: NextRequest) {
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
-
+export const POST = adminRoute(async function POST() {
   try {
     const db = getAdminDb();
     const outcome = await runRefresh({ db, source: 'manual', checkPages: false, log: (line) => console.log(`[availability] ${line}`) });
@@ -53,4 +49,4 @@ export async function POST(request: NextRequest) {
       }),
     );
   }
-}
+});

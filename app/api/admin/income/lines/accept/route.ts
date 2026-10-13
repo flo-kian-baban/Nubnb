@@ -21,15 +21,13 @@
  */
 
 import { NextRequest } from 'next/server';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiError, apiFailure, apiSuccess, apiValidationError, noStore } from '@/app/lib/api/safe-response';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { ACCEPT_REFUSALS, acceptLines } from '@/app/lib/firebase/server-income';
 import { AcceptInputSchema } from '@/app/lib/income/schemas';
 
-export async function POST(request: NextRequest) {
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
+export const POST = adminRoute(async function POST(request: NextRequest, _context: unknown, { actor }) {
   const crossSite = refuseCrossSite(request);
   if (crossSite) return crossSite;
   const wrongType = requireMediaType(request, 'application/json');
@@ -43,7 +41,7 @@ export async function POST(request: NextRequest) {
   const parsed = AcceptInputSchema.safeParse(body);
   if (!parsed.success) return noStore(apiValidationError(parsed.error.issues.map((i) => ({ path: i.path.map(String).join('.'), message: i.message }))));
   const { propertyId, month, lines } = parsed.data;
-  const outcome = await acceptLines({ propertyId, month, items: lines.map((line) => ({ id: line.id, ...(line.description === undefined ? {} : { description: line.description }), ...(line.amount === undefined ? {} : { amountCents: line.amount }) })) });
+  const outcome = await acceptLines(actor, { propertyId, month, items: lines.map((line) => ({ id: line.id, ...(line.description === undefined ? {} : { description: line.description }), ...(line.amount === undefined ? {} : { amountCents: line.amount }) })) });
   if (outcome.kind === 'accepted') return noStore(apiSuccess({ lines: outcome.lines, statementMonth: outcome.statementMonth }));
   return noStore(apiFailure(ACCEPT_REFUSALS[outcome.kind]));
-}
+});

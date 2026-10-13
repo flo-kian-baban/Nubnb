@@ -12,7 +12,7 @@
  */
 
 import { NextRequest } from 'next/server';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiError, apiFailure, apiSuccess, noStore } from '@/app/lib/api/safe-response';
 import { isDocumentId } from '@/app/lib/firebase/server-leads';
 import { readPropertyStatements } from '@/app/lib/firebase/server-reports';
@@ -26,9 +26,7 @@ function grpcCode(err: unknown): string {
   return typeof code === 'number' ? String(code) : 'unknown';
 }
 
-export async function GET(request: NextRequest, context: RouteContext) {
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
+export const GET = adminRoute(async function GET(request: NextRequest, context: RouteContext) {
   const { id } = await context.params;
   if (!isDocumentId(id)) return noStore(apiError('Invalid property ID', 400));
   try {
@@ -39,4 +37,4 @@ export async function GET(request: NextRequest, context: RouteContext) {
     console.error(`[reports] statements read for ${id} failed: grpc code ${grpcCode(err)}`);
     return noStore(apiFailure({ message: 'Failed to load the statements.', status: 500, code: 'REPORTS_READ_FAILED' }));
   }
-}
+});

@@ -22,7 +22,7 @@
 
 import { NextRequest } from 'next/server';
 import { getAdminDb } from '@/app/lib/firebase/admin';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiSuccess, apiError, apiFailure } from '@/app/lib/api/safe-response';
 import { mirrorPropertyImages } from '@/app/lib/mirror-images';
 import { revalidateListingPages } from '@/app/lib/revalidate-listings';
@@ -38,10 +38,7 @@ export const maxDuration = 300;
 
 const MIRROR_BUDGET_MS = 240_000;
 
-export async function POST(request: NextRequest) {
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return apiError(auth.error!, auth.status!);
-
+export const POST = adminRoute(async function POST(request: NextRequest) {
   let body: { id?: unknown };
   try {
     body = await request.json();
@@ -127,4 +124,4 @@ export async function POST(request: NextRequest) {
       internalError: err,
     });
   }
-}
+});

@@ -17,9 +17,8 @@
  * page does everything else itself. Nothing here fetches a feed.
  */
 
-import { NextRequest } from 'next/server';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
-import { apiError, apiFailure, apiSuccess, noStore } from '@/app/lib/api/safe-response';
+import { adminRoute } from '@/app/lib/api/verify-admin';
+import { apiFailure, apiSuccess, noStore } from '@/app/lib/api/safe-response';
 import { getAdminDb } from '@/app/lib/firebase/admin';
 import { addDays, torontoDay } from '@/app/lib/availability/days';
 import { historyView } from '@/app/lib/availability/attention';
@@ -31,10 +30,7 @@ const grpcCode = (err: unknown): string => {
   return typeof code === 'number' ? String(code) : 'unknown';
 };
 
-export async function GET(request: NextRequest) {
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
-
+export const GET = adminRoute(async function GET() {
   try {
     const db = getAdminDb();
     const today = torontoDay();
@@ -51,4 +47,4 @@ export async function GET(request: NextRequest) {
       }),
     );
   }
-}
+});

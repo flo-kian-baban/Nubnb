@@ -8,6 +8,10 @@
  * "Team" (dispatch 24) is the cleaners page, which now holds handymen too.
  * "Income" (dispatch 27, Kian's ruling of 2026-10-04) sits beside Costs: the
  * one place income comes in for all properties.
+ * "Admins" (dispatch 38, Kian's ruling of 2026-10-13: the main admin adds
+ * and removes admins and sets their level) is shown to a main admin only, last.
+ * The signed-in admin's name sits before View Site (AccountMenu.tsx): Change
+ * PIN and Sign out.
  * "Reports" (dispatch 23B) was a section from 2026-09-30 to dispatch 23F
  * (2026-10-01): the statements are written on each property's page now, and
  * the cross-property view is a panel on the admin home, under the
@@ -33,10 +37,12 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Banknote, CalendarSearch, ExternalLink, Inbox, LayoutGrid, Receipt, Users } from "lucide-react";
+import { Banknote, CalendarSearch, ExternalLink, Inbox, LayoutGrid, Receipt, ShieldCheck, Users } from "lucide-react";
 import styles from "../page.module.css";
+import { AccountMenu } from "./AccountMenu";
+import { useAdminSession } from "./PinGate";
 
-export type AdminSection = "properties" | "leads" | "costs" | "income" | "cleaners" | "availability";
+export type AdminSection = "properties" | "leads" | "costs" | "income" | "cleaners" | "availability" | "admins";
 
 const SECTIONS: { key: AdminSection; label: string; href: string; Icon: typeof Inbox }[] = [
   { key: "properties", label: "Properties", href: "/admin", Icon: LayoutGrid },
@@ -49,6 +55,9 @@ const SECTIONS: { key: AdminSection; label: string; href: string; Icon: typeof I
   { key: "availability", label: "Availability", href: "/admin/availability", Icon: CalendarSearch },
 ];
 
+/** Dispatch 38: a main admin's section, after the others. */
+const ADMINS_SECTION = { key: "admins" as const, label: "Admins", href: "/admin/admins", Icon: ShieldCheck };
+
 interface AdminHeaderProps {
   current: AdminSection;
   /** The page's heading for a screen reader, when it is not the section's name (a property's ledger). */
@@ -58,7 +67,9 @@ interface AdminHeaderProps {
 }
 
 export function AdminHeader({ current, title, children }: AdminHeaderProps) {
-  const heading = title ?? SECTIONS.find((section) => section.key === current)?.label ?? "Admin";
+  const session = useAdminSession();
+  const sections = session?.admin.level === "main" ? [...SECTIONS, ADMINS_SECTION] : SECTIONS;
+  const heading = title ?? sections.find((section) => section.key === current)?.label ?? "Admin";
 
   return (
     <header className={styles.header}>
@@ -71,7 +82,7 @@ export function AdminHeader({ current, title, children }: AdminHeaderProps) {
         <h1 className={styles.srOnly}>{heading}</h1>
 
         <nav className={styles.sectionNav} aria-label="Admin sections">
-          {SECTIONS.map(({ key, label, href, Icon }) => (
+          {sections.map(({ key, label, href, Icon }) => (
             <Link
               key={key}
               href={href}
@@ -86,6 +97,7 @@ export function AdminHeader({ current, title, children }: AdminHeaderProps) {
         </nav>
 
         <div className={styles.headerActions}>
+          <AccountMenu />
           <a href="/" target="_blank" rel="noopener" className={styles.viewSite}>
             <span>View Site</span>
             <ExternalLink size={13} aria-hidden />

@@ -24,7 +24,8 @@
 import { NextRequest } from 'next/server';
 import { getAdminDb } from '@/app/lib/firebase/admin';
 import { getPropertyById } from '@/app/lib/firebase/server-properties';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
+import { verifyAdminSession } from '@/app/lib/admins/session';
 import { createRateLimiter } from '@/app/lib/api/rate-limit';
 import { apiSuccess, apiError, apiFailure, apiValidationError, apiRateLimited } from '@/app/lib/api/safe-response';
 import { UpdatePropertySchema } from '@/app/lib/api/schemas';
@@ -76,7 +77,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
   try {
     // An unlisted property (Kian's ruling of 2026-10-03) is 404 to the public, exactly like one that does not
     // exist; the admin form reads through this route too, and with its session it gets the document.
-    const admin = verifyAdminSession(request).valid;
+    // A session on a temporary PIN, or one that cannot be checked, reads as the public does.
+    const admin = (await verifyAdminSession(request)).ok;
     const property = await getPropertyById(id, { includeUnlisted: admin, includeCalendarLink: admin });
     if (!property) return apiError('Property not found', 404);
     return apiSuccess(property);
@@ -87,14 +89,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
   }
 }
 
-export async function PUT(request: NextRequest, context: RouteContext) {
-  // ── Auth ──
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) {
-    console.error('[PUT /api/properties] Auth failed:', auth.error);
-    return apiError(auth.error!, auth.status!);
-  }
-
+export const PUT = adminRoute(async function PUT(request: NextRequest, context: RouteContext) {
   const { id } = await context.params;
 
   if (!id || typeof id !== 'string') {
@@ -172,13 +167,9 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     const message = err instanceof Error ? err.message : 'Failed to update property';
     return apiError(message, 500, err);
   }
-}
+});
 
-export async function DELETE(request: NextRequest, context: RouteContext) {
-  // ── Auth ──
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return apiError(auth.error!, auth.status!);
-
+export const DELETE = adminRoute(async function DELETE(request: NextRequest, context: RouteContext) {
   const { id } = await context.params;
 
   if (!id || typeof id !== 'string') {
@@ -207,5 +198,5 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
   } catch (err) {
     return apiError('Failed to delete property', 500, err);
   }
-}
+});
 

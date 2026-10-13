@@ -58,7 +58,7 @@ import { createdMonthOf } from './created-month';
 import { isDocumentId } from './server-leads';
 import { listCosts, listPropertyEntries, propertyEntriesInTransaction, toCents } from './server-cost-entries';
 import { getManagement, listManagement, toBasisPoints } from './server-management';
-import { ADMIN_ACTOR, type CostEntryView, type Refusal } from '@/app/lib/cleaners/model';
+import { type Actor, type CostEntryView, type Refusal } from '@/app/lib/cleaners/model';
 import { torontoDayOf } from '@/app/lib/costs/report';
 import {
   MONTHLY_REPORTS_COLLECTION,
@@ -540,7 +540,7 @@ export const FINISH_REFUSALS: Record<Exclude<FinishResult['kind'], 'finished'>, 
 };
 
 /** The frozen report, built from the bundle and the draft, with its PDF's bytes. */
-function freeze(bundle: StatementBundle, draft: StatementDraftView, propertyId: string, month: string, id: string, finishedAt: string): { report: MonthlyReport; bytes: Uint8Array; statement: Statement; claim: FinishClaim } | { kind: 'unreadable'; entryIds: string[] } {
+function freeze(bundle: StatementBundle, draft: StatementDraftView, propertyId: string, month: string, id: string, finishedAt: string, actor: Actor): { report: MonthlyReport; bytes: Uint8Array; statement: Statement; claim: FinishClaim } | { kind: 'unreadable'; entryIds: string[] } {
   const built = buildStatement({ propertyId, propertyName: bundle.propertyName, month, entries: bundle.entries, reports: bundle.reports, draft, management: bundle.management, platformLines: bundle.platformLines });
   if (built.kind === 'unreadable') return built;
   const statement: Statement = { ...built.statement, draft: false };
@@ -572,7 +572,7 @@ function freeze(bundle: StatementBundle, draft: StatementDraftView, propertyId: 
     notes: statement.notes,
     entryIds: statement.costs.map((row) => row.entryId),
     finishedAt,
-    actor: ADMIN_ACTOR,
+    actor,
     supersedes: draft.supersedes,
     draftRevision: draft.revision,
     pdf: { path: `${MONTHLY_REPORTS_PREFIX}/${id}.pdf`, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') },
@@ -585,7 +585,7 @@ function freeze(bundle: StatementBundle, draft: StatementDraftView, propertyId: 
  * the page's claim, store the PDF, then record it in one transaction that
  * re-checks the claim.
  */
-export async function finishStatement(input: FinishInput): Promise<FinishResult> {
+export async function finishStatement(actor: Actor, input: FinishInput): Promise<FinishResult> {
   const { propertyId, month } = input;
   const claim: FinishClaim = {
     entries: input.entries,
@@ -612,7 +612,7 @@ export async function finishStatement(input: FinishInput): Promise<FinishResult>
   const db = getAdminDb();
   const reportRefDoc = db.collection(MONTHLY_REPORTS_COLLECTION).doc();
   const finishedAt = new Date().toISOString();
-  const frozen = freeze(bundle, draft, propertyId, month, reportRefDoc.id, finishedAt);
+  const frozen = freeze(bundle, draft, propertyId, month, reportRefDoc.id, finishedAt, actor);
   if ('kind' in frozen) return frozen;
   if (!sameClaim(frozen.claim, claim)) return { kind: 'changed-since' };
 
@@ -672,7 +672,7 @@ export type DownloadLinkResult =
  *
  * @throws if a read, the signing or the record fails.
  */
-export async function downloadLink(reportId: string): Promise<DownloadLinkResult> {
+export async function downloadLink(actor: Actor, reportId: string): Promise<DownloadLinkResult> {
   if (!isDocumentId(reportId)) return { kind: 'no-such-report' };
   const db = getAdminDb();
   const doc = await db.collection(MONTHLY_REPORTS_COLLECTION).doc(reportId).get();
@@ -686,7 +686,7 @@ export async function downloadLink(reportId: string): Promise<DownloadLinkResult
   const fileName = statementFileName(report.propertyNameAtFinish, report.month, report.reference.trim() || reportRef(report.id));
   const [url] = await file.getSignedUrl({ version: 'v4', action: 'read', expires, responseDisposition: `attachment; filename="${fileName}"` });
   const ref = db.collection(REPORT_DOWNLOADS_COLLECTION).doc();
-  const record = { schemaVersion: REPORT_DOWNLOAD_SCHEMA_VERSION, reportId, propertyId: report.propertyId, month: report.month, at: new Date().toISOString(), actor: ADMIN_ACTOR };
+  const record = { schemaVersion: REPORT_DOWNLOAD_SCHEMA_VERSION, reportId, propertyId: report.propertyId, month: report.month, at: new Date().toISOString(), actor };
   await ref.create(record);
   return { kind: 'ok', url, expiresAt: new Date(expires).toISOString(), seconds: STATEMENT_LIMITS.DOWNLOAD_LINK_SECONDS, download: { id: ref.id, ...record } };
 }

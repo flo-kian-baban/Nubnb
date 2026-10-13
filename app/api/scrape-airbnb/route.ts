@@ -4,7 +4,7 @@ import { findBestIcons } from '@/app/data/amenityIcons';
 import { createRateLimiter } from '@/app/lib/api/rate-limit';
 import { validateAirbnbUrl } from '@/app/lib/api/validate';
 import { guardedFetch } from '@/app/lib/api/url-guard';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiSuccess, apiError, apiFailure, apiRateLimited } from '@/app/lib/api/safe-response';
 import type { ScrapeFieldStatus, ExtractionSummary } from '@/app/types/scrape';
 
@@ -86,11 +86,7 @@ function normalizeClockTime(raw: string): string | null {
   return `${hour}:${minutes} ${m[3].toUpperCase()}M`;
 }
 
-export async function POST(request: Request) {
-  // ── Admin auth — reject unauthenticated requests before any work ──
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return apiError(auth.error!, auth.status!);
-
+export const POST = adminRoute(async function POST(request: Request) {
   // ── Rate limit ───────────────────────────────────────────
   const limit = await limiter.check(request);
   if (limit.limited) return apiRateLimited(limit.retryAfterMs);
@@ -2073,4 +2069,4 @@ export async function POST(request: Request) {
       try { await browser.close(); } catch { /* ignore close errors */ }
     }
   }
-}
+});

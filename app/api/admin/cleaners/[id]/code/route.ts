@@ -33,7 +33,7 @@
 
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import {
   apiSuccess,
   apiError,
@@ -118,11 +118,7 @@ function takenRefusal(holder: string | null): Refusal {
   };
 }
 
-export async function POST(request: NextRequest, context: RouteContext) {
-  // ── Auth ──
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
-
+export const POST = adminRoute(async function POST(request: NextRequest, context: RouteContext, { actor }) {
   // ── Cross-site and media type ──
   const crossSite = refuseCrossSite(request);
   if (crossSite) return crossSite;
@@ -155,7 +151,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
   // ── Change ──
   // ADMIN_PIN is read inside the handler, never at module scope, and passed
   // on unlogged. The body holds a code, so it is never logged either.
-  const outcome = await setCleanerCode(
+  const outcome = await setCleanerCode(actor, 
     id,
     'code' in result.data ? { kind: 'typed', code: result.data.code } : { kind: 'generate' },
     process.env.ADMIN_PIN,
@@ -173,4 +169,4 @@ export async function POST(request: NextRequest, context: RouteContext) {
     default:
       return noStore(apiFailure(CODE_REFUSALS[outcome.kind]));
   }
-}
+});

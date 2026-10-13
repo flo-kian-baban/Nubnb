@@ -18,7 +18,7 @@
  */
 
 import { NextRequest } from 'next/server';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiSuccess, apiError, apiFailure, apiValidationError, noStore } from '@/app/lib/api/safe-response';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { DRAFT_REFUSALS, DraftInputSchema, readStatementBundle, saveDraft } from '@/app/lib/firebase/server-reports';
@@ -30,9 +30,7 @@ function grpcCode(err: unknown): string {
   return typeof code === 'number' ? String(code) : 'unknown';
 }
 
-export async function GET(request: NextRequest) {
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
+export const GET = adminRoute(async function GET(request: NextRequest) {
   const propertyId = request.nextUrl.searchParams.get('property') ?? '';
   const month = request.nextUrl.searchParams.get('month') ?? '';
   if (!isDocumentId(propertyId)) return noStore(apiError('Invalid property ID', 400));
@@ -45,11 +43,9 @@ export async function GET(request: NextRequest) {
     console.error(`[reports] draft read for ${propertyId} ${month} failed: grpc code ${grpcCode(err)}`);
     return noStore(apiFailure({ message: 'Failed to load the statement.', status: 500, code: 'STATEMENT_READ_FAILED' }));
   }
-}
+});
 
-export async function PUT(request: NextRequest) {
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
+export const PUT = adminRoute(async function PUT(request: NextRequest) {
   const crossSite = refuseCrossSite(request);
   if (crossSite) return crossSite;
   const wrongType = requireMediaType(request, 'application/json');
@@ -76,4 +72,4 @@ export async function PUT(request: NextRequest) {
     console.error(`[reports] draft save failed before the transaction: grpc code ${grpcCode(err)}`);
     return noStore(apiFailure({ message: 'Could not check the property.', status: 503, code: 'STATEMENT_READ_FAILED', hint: 'Nothing was saved; retry.' }));
   }
-}
+});

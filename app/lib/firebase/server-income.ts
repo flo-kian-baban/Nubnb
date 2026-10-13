@@ -45,7 +45,7 @@ import { createHash, randomUUID } from 'crypto';
 import { FieldPath, type Transaction } from 'firebase-admin/firestore';
 import { getAdminBucket, getAdminDb } from './admin';
 import { isDocumentId } from './server-leads';
-import { ADMIN_ACTOR, type Refusal } from '@/app/lib/cleaners/model';
+import { type Actor, type Refusal } from '@/app/lib/cleaners/model';
 import { torontoDayOf } from '@/app/lib/costs/report';
 import { addDays } from '@/app/lib/availability/days';
 import { DAYS_COLLECTION, isSnapshot } from '@/app/lib/availability/store';
@@ -147,7 +147,7 @@ export const UPLOAD_REFUSALS: Record<Exclude<UploadResult['kind'], 'uploaded'>, 
  * file is written first, and removed again (by its exact path) when the
  * record is not.
  */
-export async function uploadEarnings(input: { platform: IncomeChannel; month: string; fileName: string; bytes: Buffer; text: string }): Promise<UploadResult> {
+export async function uploadEarnings(actor: Actor, input: { platform: IncomeChannel; month: string; fileName: string; bytes: Buffer; text: string }): Promise<UploadResult> {
   const { platform, month } = input;
   const read = readerFor(platform).read(input.text);
   if (!read.ok) return { kind: 'unreadable', problems: read.problems };
@@ -227,7 +227,7 @@ export async function uploadEarnings(input: { platform: IncomeChannel; month: st
     outsideMonth: [...outside.entries()].map(([m, o]) => ({ month: m, rows: o.rows, amountCents: o.amountCents })).sort((a, b) => a.month.localeCompare(b.month)),
     notRead: notReadInMonth.map((row) => ({ row: row.row, type: row.type, amountCents: row.amountCents, why: row.why })),
     uploadedAt,
-    actor: ADMIN_ACTOR,
+    actor,
   };
 
   const lineRefs = [...byId.keys()].map((id) => db.collection(EARNINGS_LINES_COLLECTION).doc(id));
@@ -265,8 +265,8 @@ export async function uploadEarnings(input: { platform: IncomeChannel; month: st
           evidence: row.evidence,
           remittedTaxCents: row.remittedTaxCents,
           status: aside ? 'rejected' : 'proposed',
-          decided: aside ? { status: 'rejected', at: uploadedAt, actor: ADMIN_ACTOR } : null,
-          history: aside ? [{ at: uploadedAt, actor: ADMIN_ACTOR, action: 'rejected' }] : [],
+          decided: aside ? { status: 'rejected', at: uploadedAt, actor } : null,
+          history: aside ? [{ at: uploadedAt, actor, action: 'rejected' }] : [],
         };
         tx.create(snap.ref, line);
       }
@@ -696,7 +696,7 @@ export type SetAsideResult = { kind: 'set-aside'; link: TitleLinkView; rejected:
  * its history. Lines already accepted stay where they went; a finished statement is never touched. Linking the title
  * to a property later is an ordinary link; its rejected lines can be proposed again one by one.
  */
-export async function setTitleAside(input: { platform: IncomeChannel; title: string; expected: string | null }): Promise<SetAsideResult> {
+export async function setTitleAside(actor: Actor, input: { platform: IncomeChannel; title: string; expected: string | null }): Promise<SetAsideResult> {
   const db = getAdminDb();
   const title = normaliseTitle(input.title);
   const ref = db.collection(EARNINGS_TITLE_LINKS_COLLECTION).doc(linkIdOf(input.platform, title));
@@ -711,7 +711,7 @@ export async function setTitleAside(input: { platform: IncomeChannel; title: str
       for (const doc of linesSnap.docs) {
         const line = readEarningsLine(doc.id, doc.data());
         if (!line || line.platform !== input.platform || line.status !== 'proposed') continue;
-        tx.update(doc.ref, { status: 'rejected', decided: { status: 'rejected', at: now, actor: ADMIN_ACTOR }, history: [...line.history, { at: now, actor: ADMIN_ACTOR, action: 'rejected' }] });
+        tx.update(doc.ref, { status: 'rejected', decided: { status: 'rejected', at: now, actor }, history: [...line.history, { at: now, actor, action: 'rejected' }] });
         rejected += 1;
       }
       if (stored && isSetAside(stored)) return { kind: 'set-aside', link: stored, rejected };
@@ -722,7 +722,7 @@ export async function setTitleAside(input: { platform: IncomeChannel; title: str
         propertyId: null,
         notNubnb: true,
         linkedAt: now,
-        actor: ADMIN_ACTOR,
+        actor,
         history: stored ? [...stored.history, pastLink(stored)] : [],
       };
       tx.set(ref, next);
@@ -766,7 +766,7 @@ const pastLink = (link: TitleLink) => ({ propertyId: link.propertyId, ...(link.n
  *     accepted before dispatch 37C, copied into a draft, stops the move: it is removed on its property's page first.
  * Lines still proposed follow the link: a line carries no property until accepted.
  */
-export async function setActiveTitle(input: { platform: IncomeChannel; title: string; propertyId: string; expected: string | null }): Promise<LinkResult> {
+export async function setActiveTitle(actor: Actor, input: { platform: IncomeChannel; title: string; propertyId: string; expected: string | null }): Promise<LinkResult> {
   const db = getAdminDb();
   const title = normaliseTitle(input.title);
   const [property] = await db.getAll(db.collection('properties').doc(input.propertyId), { fieldMask: ['name'] });
@@ -811,13 +811,13 @@ export async function setActiveTitle(input: { platform: IncomeChannel; title: st
         title,
         propertyId: input.propertyId,
         linkedAt: now,
-        actor: ADMIN_ACTOR,
+        actor,
         history: stored ? [...stored.history, pastLink(stored)] : [],
         active: true,
       };
       tx.set(ref, next);
       for (const line of elsewhere) {
-        const history = [...line.history, { at: now, actor: ADMIN_ACTOR, action: 'proposed-again' as const, reason: `Its title moved to ${propertyName}.` }];
+        const history = [...line.history, { at: now, actor, action: 'proposed-again' as const, reason: `Its title moved to ${propertyName}.` }];
         tx.update(db.collection(EARNINGS_LINES_COLLECTION).doc(line.id), { status: 'proposed', decided: null, history });
       }
       return { kind: 'linked', link: { id: ref.id, ...next }, previous: was?.title ?? null, sentBack: elsewhere.length };
@@ -904,7 +904,7 @@ export const ACCEPT_REFUSALS: Record<Exclude<AcceptResult['kind'], 'accepted'>, 
  * left them. The statements place it: the month's own while open, else the next open one with its date printed
  * (M11), which the answer names. A finished statement is never touched.
  */
-export async function acceptLines(input: { propertyId: string; month: string; items: AcceptItem[] }): Promise<AcceptResult> {
+export async function acceptLines(actor: Actor, input: { propertyId: string; month: string; items: AcceptItem[] }): Promise<AcceptResult> {
   const { propertyId, month } = input;
   // One decision per line: an ID sent twice would be a mistake.
   if (input.items.length === 0 || new Set(input.items.map((item) => item.id)).size !== input.items.length) return { kind: 'changed-since', ids: [] };
@@ -938,8 +938,8 @@ export async function acceptLines(input: { propertyId: string; month: string; it
         const item = input.items[i];
         const description = item.description ?? proposedLabel(line);
         const amountCents = item.amountCents ?? line.amountCents;
-        const decided = { status: 'accepted' as const, at: now, actor: ADMIN_ACTOR, propertyId, description, amountCents, edited: description !== proposedLabel(line) || amountCents !== line.amountCents };
-        const history = [...line.history, { at: now, actor: ADMIN_ACTOR, action: 'accepted' as const, propertyId }];
+        const decided = { status: 'accepted' as const, at: now, actor, propertyId, description, amountCents, edited: description !== proposedLabel(line) || amountCents !== line.amountCents };
+        const history = [...line.history, { at: now, actor, action: 'accepted' as const, propertyId }];
         tx.update(db.collection(EARNINGS_LINES_COLLECTION).doc(line.id), { status: 'accepted', decided, history });
         updated.push({ ...line, status: 'accepted', decided, history });
       });
@@ -995,7 +995,7 @@ export const EDIT_REFUSALS: Record<Exclude<EditResult['kind'], 'edited' | 'locke
  * history's length): its words, its amount, or both. Recorded in its history with what it said before and after
  * (I10). Refused while a finished statement that is not being corrected prints it.
  */
-export async function editAcceptedLine(id: string, change: { description?: string; amountCents?: number }, seen: number): Promise<EditResult> {
+export async function editAcceptedLine(actor: Actor, id: string, change: { description?: string; amountCents?: number }, seen: number): Promise<EditResult> {
   const db = getAdminDb();
   const ref = db.collection(EARNINGS_LINES_COLLECTION).doc(id);
   try {
@@ -1017,7 +1017,7 @@ export async function editAcceptedLine(id: string, change: { description?: strin
       const before = { description: line.decided.description, amountCents: line.decided.amountCents };
       const after = { description, amountCents };
       const decided = { ...line.decided, description, amountCents, edited: description !== proposedLabel(line) || amountCents !== line.amountCents };
-      const history = [...line.history, { at: now, actor: ADMIN_ACTOR, action: 'edited' as const, before, after }];
+      const history = [...line.history, { at: now, actor, action: 'edited' as const, before, after }];
       tx.update(ref, { decided, history });
       return { kind: 'edited', line: { ...line, decided, history } };
     });
@@ -1062,7 +1062,7 @@ export const DECIDE_REFUSALS: Record<Exclude<DecideResult['kind'], 'decided' | '
  * been removed from its draft. A copy still in its draft is never proposed again, so it cannot reach a statement
  * twice; nor is a line whose title is set aside as not a Nubnb property (dispatch 36), whose lines are rejected.
  */
-export async function decideLine(id: string, action: 'reject' | 'propose-again'): Promise<DecideResult> {
+export async function decideLine(actor: Actor, id: string, action: 'reject' | 'propose-again'): Promise<DecideResult> {
   const db = getAdminDb();
   const ref = db.collection(EARNINGS_LINES_COLLECTION).doc(id);
   try {
@@ -1074,8 +1074,8 @@ export async function decideLine(id: string, action: 'reject' | 'propose-again')
       const now = new Date().toISOString();
       if (action === 'reject') {
         if (line.status !== 'proposed') return { kind: 'changed-since', status: line.status };
-        const decided = { status: 'rejected' as const, at: now, actor: ADMIN_ACTOR };
-        const history = [...line.history, { at: now, actor: ADMIN_ACTOR, action: 'rejected' as const }];
+        const decided = { status: 'rejected' as const, at: now, actor };
+        const history = [...line.history, { at: now, actor, action: 'rejected' as const }];
         tx.update(ref, { status: 'rejected', decided, history });
         return { kind: 'decided', line: { ...line, status: 'rejected', decided, history } };
       }
@@ -1091,7 +1091,7 @@ export async function decideLine(id: string, action: 'reject' | 'propose-again')
         const lock = await lockOf(tx, line);
         if (lock) return { kind: 'locked', ...lock };
       }
-      const history = [...line.history, { at: now, actor: ADMIN_ACTOR, action: 'proposed-again' as const }];
+      const history = [...line.history, { at: now, actor, action: 'proposed-again' as const }];
       tx.update(ref, { status: 'proposed', decided: null, history });
       return { kind: 'decided', line: { ...line, status: 'proposed', decided: null, history } };
     });
@@ -1109,7 +1109,7 @@ export const REJECT_ALL_REFUSALS: Record<Exclude<RejectAllResult['kind'], 'rejec
 };
 
 /** Reject a property's proposed lines together (N2), in one transaction: every one still proposed, or nothing changes. */
-export async function rejectLines(ids: string[]): Promise<RejectAllResult> {
+export async function rejectLines(actor: Actor, ids: string[]): Promise<RejectAllResult> {
   if (ids.length === 0 || new Set(ids).size !== ids.length) return { kind: 'changed-since', ids: [] };
   const db = getAdminDb();
   const refs = ids.map((id) => db.collection(EARNINGS_LINES_COLLECTION).doc(id));
@@ -1121,8 +1121,8 @@ export async function rejectLines(ids: string[]): Promise<RejectAllResult> {
       if (changed.length > 0) return { kind: 'changed-since', ids: changed };
       const now = new Date().toISOString();
       const updated = (lines as EarningsLineView[]).map((line) => {
-        const decided = { status: 'rejected' as const, at: now, actor: ADMIN_ACTOR };
-        const history = [...line.history, { at: now, actor: ADMIN_ACTOR, action: 'rejected' as const }];
+        const decided = { status: 'rejected' as const, at: now, actor };
+        const history = [...line.history, { at: now, actor, action: 'rejected' as const }];
         tx.update(db.collection(EARNINGS_LINES_COLLECTION).doc(line.id), { status: 'rejected', decided, history });
         return { ...line, status: 'rejected' as const, decided, history };
       });

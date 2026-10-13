@@ -52,7 +52,6 @@ import { getAdminDb } from './admin';
 import { isDocumentId } from './server-leads';
 import { generateCandidate, reservedReason, type ReservedReason } from '@/app/lib/cleaners/codes';
 import {
-  ADMIN_ACTOR,
   CLEANERS_COLLECTION,
   CLEANER_CODES_COLLECTION,
   CLEANER_CODE_SCHEMA_VERSION,
@@ -61,6 +60,7 @@ import {
   newestFirst,
   readCleanerSummary,
   roleOf,
+  type Actor,
   type CleanerRole,
   type CleanerStatus,
   type CleanerSummary,
@@ -146,6 +146,7 @@ function takeCode(
   toId: string,
   now: string,
   free: { exists: boolean; holder: { ref: FirebaseFirestore.DocumentReference; fields: Record<string, unknown> } | null },
+  actor: Actor,
 ): Released | null {
   const codeRef = db.collection(CLEANER_CODES_COLLECTION).doc(code);
   if (free.exists) tx.set(codeRef, codeRecord(toId, now));
@@ -153,7 +154,7 @@ function takeCode(
   if (!free.holder) return null;
   const { ref, fields } = free.holder;
   const history = Array.isArray(fields.history) ? fields.history : [];
-  const event: HistoryEvent = { at: now, action: 'code_released', from: code, to: null, actor: ADMIN_ACTOR, reason: 'Given to another team member' };
+  const event: HistoryEvent = { at: now, action: 'code_released', from: code, to: null, actor, reason: 'Given to another team member' };
   tx.update(ref, { code: null, history: [...history, event] });
   const name: unknown = fields.name;
   return { id: ref.id, name: typeof name === 'string' ? name : null };
@@ -222,13 +223,13 @@ export type IssueCleanerResult =
   | { kind: 'unconfirmed' };
 
 /** A new account's document, holding `code`, as of `now`. */
-function newCleaner(name: string, role: CleanerRole, code: string, now: string) {
+function newCleaner(name: string, role: CleanerRole, code: string, now: string, actor: Actor) {
   const created: HistoryEvent = {
     at: now,
     action: 'created',
     from: null,
     to: 'active',
-    actor: ADMIN_ACTOR,
+    actor,
     reason: null,
   };
   return {
@@ -269,6 +270,7 @@ function newCleaner(name: string, role: CleanerRole, code: string, now: string) 
  * create the cleaner twice.
  */
 export async function issueCleaner(
+  actor: Actor,
   name: string,
   role: CleanerRole,
   adminPin: string | undefined,
@@ -289,7 +291,7 @@ export async function issueCleaner(
     return { kind: 'unavailable' };
   }
 
-  if (typed !== null) return issueTyped(db, name, role, typed);
+  if (typed !== null) return issueTyped(db, name, role, typed, actor);
 
   for (let n = 1; n <= MAX_CANDIDATES; n++) {
     const code = generateCandidate();
@@ -300,7 +302,7 @@ export async function issueCleaner(
 
     const cleanerRef = db.collection(CLEANERS_COLLECTION).doc();
     const now = new Date().toISOString();
-    const cleaner = newCleaner(name, role, code, now);
+    const cleaner = newCleaner(name, role, code, now, actor);
 
     try {
       await db
@@ -336,6 +338,7 @@ async function issueTyped(
   name: string,
   role: CleanerRole,
   code: string,
+  actor: Actor,
 ): Promise<IssueCleanerResult> {
   const cleanerRef = db.collection(CLEANERS_COLLECTION).doc();
   try {
@@ -343,8 +346,8 @@ async function issueTyped(
       const available = await codeAvailability(tx, db, code, cleanerRef.id);
       if (available.kind === 'taken') return available;
       const now = new Date().toISOString();
-      const cleaner = newCleaner(name, role, code, now);
-      const released = takeCode(tx, db, code, cleanerRef.id, now, available);
+      const cleaner = newCleaner(name, role, code, now, actor);
+      const released = takeCode(tx, db, code, cleanerRef.id, now, available, actor);
       tx.create(cleanerRef, cleaner);
       return { kind: 'created', cleaner: readCleanerSummary(cleanerRef.id, cleaner), released };
     });
@@ -377,6 +380,7 @@ export type SetCleanerStatusResult =
  * makes the same code work again.
  */
 export async function setCleanerStatus(
+  actor: Actor,
   id: string,
   target: CleanerStatus,
 ): Promise<SetCleanerStatusResult> {
@@ -405,7 +409,7 @@ export async function setCleanerStatus(
         action: target === 'deactivated' ? 'deactivated' : 'reactivated',
         from: typeof stored.status === 'string' ? stored.status : null,
         to: target,
-        actor: ADMIN_ACTOR,
+        actor,
         reason: null,
       };
       const changes = {
@@ -450,7 +454,7 @@ const rateWords = (cents: number | null) => (cents === null ? 'none' : `$${(cent
  * cleaner, no per-property rate, no dated rates). One transaction: the rate and a history event saying what it was
  * and what it is. No cleaning already logged changes: each keeps the amount it was logged with.
  */
-export async function setCleanerDefaultRate(id: string, cents: number | null): Promise<SetDefaultRateResult> {
+export async function setCleanerDefaultRate(actor: Actor, id: string, cents: number | null): Promise<SetDefaultRateResult> {
   if (!isDocumentId(id)) return { kind: 'not-found' };
   try {
     const db = getAdminDb();
@@ -464,7 +468,7 @@ export async function setCleanerDefaultRate(id: string, cents: number | null): P
       if (was === cents) return { kind: 'done', cleaner: readCleanerSummary(id, stored), changed: false };
       const history: unknown = stored.history;
       if (!Array.isArray(history)) return { kind: 'unreadable' };
-      const event: HistoryEvent = { at: new Date().toISOString(), action: 'rate_set', from: null, to: null, actor: ADMIN_ACTOR, reason: `Default cleaning rate ${rateWords(cents)} (was ${rateWords(was)})` };
+      const event: HistoryEvent = { at: new Date().toISOString(), action: 'rate_set', from: null, to: null, actor, reason: `Default cleaning rate ${rateWords(cents)} (was ${rateWords(was)})` };
       const changes = { defaultRateCents: cents, history: [...history, event] };
       tx.update(ref, changes);
       return { kind: 'done', cleaner: readCleanerSummary(id, { ...stored, ...changes }), changed: true };
@@ -522,6 +526,7 @@ export type SetCleanerCodeResult =
  * candidate that is reserved, taken, or the cleaner's own code is skipped.
  */
 export async function setCleanerCode(
+  actor: Actor,
   id: string,
   request: NewCode,
   adminPin: string | undefined,
@@ -533,7 +538,7 @@ export async function setCleanerCode(
     if (!CODE_PATTERN.test(request.code)) return { kind: 'not-a-code' };
     const reason = reservedReason(request.code, adminPin);
     if (reason) return { kind: 'reserved', reason };
-    return writeCode(id, request.code, 'typed');
+    return writeCode(actor, id, request.code, 'typed');
   }
 
   for (let n = 1; n <= MAX_CANDIDATES; n++) {
@@ -542,7 +547,7 @@ export async function setCleanerCode(
       console.warn(`[cleaners] reserved candidate skipped (candidate ${n}/${MAX_CANDIDATES})`);
       continue;
     }
-    const result = await writeCode(id, code, 'drawn');
+    const result = await writeCode(actor, id, code, 'drawn');
     if (result.kind !== 'taken') return result;
     console.warn(`[cleaners] code collision (candidate ${n}/${MAX_CANDIDATES})`);
   }
@@ -553,6 +558,7 @@ export async function setCleanerCode(
 
 /** One attempt to point a cleaner at `code`, in a transaction. */
 async function writeCode(
+  actor: Actor,
   id: string,
   code: string,
   source: 'typed' | 'drawn',
@@ -601,7 +607,7 @@ async function writeCode(
         action: 'code_changed',
         from: current,
         to: code,
-        actor: ADMIN_ACTOR,
+        actor,
         reason: null,
       };
       const changes = {
@@ -611,7 +617,7 @@ async function writeCode(
         history: [...history, event],
       };
 
-      const released = takeCode(tx, db, code, id, now, available);
+      const released = takeCode(tx, db, code, id, now, available, actor);
       // Retired, kept: the record says whose it was; it is free to reuse from now on.
       if (oldRef && old?.exists && old.get('cleanerId') === id && old.get('retiredAt') === null) {
         tx.update(oldRef, { retiredAt: now });

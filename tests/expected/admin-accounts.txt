@@ -1,0 +1,149 @@
+1. Names: cleaned, keyed, refused
+  "Kian"                                                             clean "Kian" key "kian" problem null
+  "  kian  "                                                         clean "kian" key "kian" problem null
+  "KIAN"                                                             clean "KIAN" key "kian" problem null
+  "Ana  Maria"                                                       clean "Ana Maria" key "ana maria" problem null
+  "Ana Maria"                                                        clean "Ana Maria" key "ana maria" problem null
+  ""                                                                 clean "" key "" problem "Name the admin."
+  "   "                                                              clean "" key "" problem "Name the admin."
+  "a/b"                                                              clean "a/b" key "a/b" problem "No slashes."
+  "."                                                                clean "." key "." problem "No slashes."
+  "__x__"                                                            clean "__x__" key "__x__" problem "Not a name that can be kept: it starts and ends with two underscores."
+  "__TEST__ Ada"                                                     clean "__TEST__ Ada" key "__test__ ada" problem null
+  "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"    clean "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" key "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" problem "At most 60 characters."
+  "Zoë"                                                              clean "Zoë" key "zoë" problem null
+  the first main admin: Kian, key kian
+
+2. PINs: six digits, never too easy; sign-in takes four (the shared PIN) or six
+  too easy: 10 of one digit; runs 10 of 10
+  "000000"   new PIN problem "That PIN is too easy to guess: one digit six times, or a straight run like 123456." · sign-in shape true
+  "111111"   new PIN problem "That PIN is too easy to guess: one digit six times, or a straight run like 123456." · sign-in shape true
+  "999999"   new PIN problem "That PIN is too easy to guess: one digit six times, or a straight run like 123456." · sign-in shape true
+  "012345"   new PIN problem "That PIN is too easy to guess: one digit six times, or a straight run like 123456." · sign-in shape true
+  "123456"   new PIN problem "That PIN is too easy to guess: one digit six times, or a straight run like 123456." · sign-in shape true
+  "456789"   new PIN problem "That PIN is too easy to guess: one digit six times, or a straight run like 123456." · sign-in shape true
+  "987654"   new PIN problem "That PIN is too easy to guess: one digit six times, or a straight run like 123456." · sign-in shape true
+  "543210"   new PIN problem "That PIN is too easy to guess: one digit six times, or a straight run like 123456." · sign-in shape true
+  "583920"   new PIN problem null · sign-in shape true
+  "12345"    new PIN problem "A PIN is six digits." · sign-in shape false
+  "1234567"  new PIN problem "A PIN is six digits." · sign-in shape false
+  "12a456"   new PIN problem "A PIN is six digits." · sign-in shape false
+  ""         new PIN problem "A PIN is six digits." · sign-in shape false
+  sign-in shape of four digits: true; of five: false
+
+3. The lock: five wrong tries in a row, fifteen minutes from the fifth
+  wrong try 1 at +1s: lock before null → wrong, 4 left · stored {"failedTries":1,"lockedUntil":null}
+  wrong try 2 at +2s: lock before null → wrong, 3 left · stored {"failedTries":2,"lockedUntil":null}
+  wrong try 3 at +3s: lock before null → wrong, 2 left · stored {"failedTries":3,"lockedUntil":null}
+  wrong try 4 at +4s: lock before null → wrong, 1 left · stored {"failedTries":4,"lockedUntil":null}
+  wrong try 5 at +5s: lock before null → locked-now until 2026-10-13T20:15:05.000Z · stored {"failedTries":0,"lockedUntil":"2026-10-13T20:15:05.000Z"}
+  sixth try, 1 s later         lock holding: 2026-10-13T20:15:05.000Z
+  14 min 59 s after the fifth  lock holding: 2026-10-13T20:15:05.000Z
+  15 min after the fifth       lock holding: null
+  15 min 1 s after             lock holding: null
+  a wrong try once it ended: wrong, 4 left · stored {"failedTries":1,"lockedUntil":null}
+  a right try after three wrong: right · stored {"failedTries":0,"lockedUntil":null}
+  an unreadable lockedUntil holds nothing: null
+
+4. Session tokens: signed with ADMIN_SESSION_SECRET, never the PIN
+  token shape: a1.TESTADMINaaaaaaaaaa1.3.1791921600000.<mac 43>
+  parsed now:            {"adminId":"TESTADMINaaaaaaaaaa1","sessionEpoch":3,"issuedAtMs":1791921600000}
+  another key:           null
+  MAC changed:           null
+  epoch changed:         null
+  24 h exactly:          {"adminId":"TESTADMINaaaaaaaaaa1","sessionEpoch":3,"issuedAtMs":1791921600000}
+  24 h and 1 ms:         null
+  issued 61 s ahead:     null
+  a PIN-signed token of before: shape <13 digits>.<64 hex> → null
+  a cleaner token:       null
+  an ID that is not one: createAdminToken: fields out of range
+
+5. PIN hashes: keyed with ADMIN_PIN_KEY, salted, scrypt; the shared PIN only compared
+  stored: scheme scrypt-hmac-v1, N 32768, r 8, p 1, salt 16 bytes, hash 32 bytes, fields N,hash,p,r,salt,scheme
+  holds the PIN as typed: false
+  right PIN: true · wrong: false · another key: false
+  the same PIN twice: same salt false, same hash false
+  parameters raised past the ceiling are refused: false; not a power of two: false; not a hash at all: false
+  shared PIN: itself true, another four digits false, six digits false
+  shared PIN unset: null
+  shared PIN not digits: null
+
+6. Every admin route goes through the door; every admin write has words in the activity log
+  POST   /api/admin/admins/[id]/pin                           recorded as "Gave an admin a new PIN"
+  PATCH  /api/admin/admins/[id]                               recorded as "Set an admin’s level"
+  DELETE /api/admin/admins/[id]                               recorded as "Removed an admin"
+  POST   /api/admin/admins/[id]/unlock                        recorded as "Unlocked an admin’s PIN"
+  GET    /api/admin/admins/activity                           read, not recorded
+  GET    /api/admin/admins                                    read, not recorded
+  POST   /api/admin/admins                                    recorded as "Added an admin"
+  POST   /api/admin/availability/refresh                      recorded as "Refreshed availability"
+  GET    /api/admin/availability                              read, not recorded
+  POST   /api/admin/cleaners/[id]/code                        recorded as "Changed a team member’s code"
+  PUT    /api/admin/cleaners/[id]/rate                        recorded as "Set a cleaner’s default rate"
+  PATCH  /api/admin/cleaners/[id]                             recorded as "Changed a team member’s status"
+  DELETE /api/admin/cleaners/[id]                             recorded as "Deleted a team member"
+  GET    /api/admin/cleaners                                  read, not recorded
+  POST   /api/admin/cleaners                                  recorded as "Added a team member"
+  PATCH  /api/admin/cleanings/[id]                            recorded as "Changed or removed a cleaning"
+  DELETE /api/admin/cleanings/[id]                            recorded as "Deleted a cleaning"
+  POST   /api/admin/cleanings                                 recorded as "Logged a cleaning"
+  POST   /api/admin/cost-entries/[id]/lines                   recorded as "Corrected a cost entry’s lines"
+  GET    /api/admin/cost-entries/[id]/receipt                 read, not recorded
+  DELETE /api/admin/cost-entries/[id]                         recorded as "Deleted a cost entry"
+  POST   /api/admin/cost-entries/[id]/seen                    recorded as "Marked a cost entry seen"
+  POST   /api/admin/cost-entries/[id]/status                  recorded as "Approved, rejected or removed a cost entry"
+  POST   /api/admin/cost-entries/[id]/tax                     recorded as "Corrected a cost entry’s tax"
+  GET    /api/admin/cost-entries                              read, not recorded
+  POST   /api/admin/cost-entries                              recorded as "Logged an office cost"
+  POST   /api/admin/cost-reports                              recorded as "Exported a costs PDF"
+  PATCH  /api/admin/income/lines/[id]                         recorded as "Edited an income line"
+  POST   /api/admin/income/lines/accept                       recorded as "Accepted income lines"
+  POST   /api/admin/income/lines/reject                       recorded as "Rejected income lines"
+  PUT    /api/admin/income/links                              recorded as "Linked an Airbnb title"
+  GET    /api/admin/income                                    read, not recorded
+  GET    /api/admin/income/uploads/[id]/file                  read, not recorded
+  POST   /api/admin/income/uploads                            recorded as "Uploaded an Airbnb file"
+  GET    /api/admin/month-package                             recorded as "Downloaded a month’s files"
+  GET    /api/admin/monthly-reports/[id]/pdf                  recorded as "Downloaded a statement"
+  DELETE /api/admin/monthly-reports/[id]                      recorded as "Deleted a statement"
+  GET    /api/admin/monthly-reports/draft                     read, not recorded
+  PUT    /api/admin/monthly-reports/draft                     recorded as "Saved a statement draft"
+  GET    /api/admin/monthly-reports/empty                     read, not recorded
+  POST   /api/admin/monthly-reports/empty                     recorded as "Finished empty months"
+  GET    /api/admin/monthly-reports                           read, not recorded
+  POST   /api/admin/monthly-reports                           recorded as "Finished or corrected a statement"
+  GET    /api/admin/properties/[id]/airbnb-title              read, not recorded
+  PUT    /api/admin/properties/[id]/airbnb-title              recorded as "Set a property’s Airbnb title"
+  GET    /api/admin/properties/[id]/cleaner-name              read, not recorded
+  PUT    /api/admin/properties/[id]/cleaner-name              recorded as "Set a property’s name for cleaners"
+  GET    /api/admin/properties/[id]/income                    read, not recorded
+  GET    /api/admin/properties/[id]/management                read, not recorded
+  PUT    /api/admin/properties/[id]/management                recorded as "Changed a property’s reporting"
+  PUT    /api/admin/properties/[id]/report-for                recorded as "Set a property’s Report For"
+  GET    /api/admin/properties/[id]                           read, not recorded
+  GET    /api/admin/properties/[id]/statements                read, not recorded
+  PUT    /api/admin/properties/[id]/visibility                recorded as "Listed or unlisted a property"
+  GET    /api/admin/properties                                read, not recorded
+  PUT    /api/admin-auth/pin                                  the sign-in door itself
+  POST   /api/admin-auth                                      the sign-in door itself
+  GET    /api/admin-auth                                      the sign-in door itself
+  DELETE /api/admin-auth                                      the sign-in door itself
+  GET    /api/leads/[id]                                      read, not recorded
+  PATCH  /api/leads/[id]                                      recorded as "Updated a lead"
+  GET    /api/leads                                           read, not recorded
+  POST   /api/mirror-property-images                          recorded as "Copied a property’s images"
+  GET    /api/properties/[id]                                 public; reads the session itself
+  PUT    /api/properties/[id]                                 recorded as "Saved a property"
+  DELETE /api/properties/[id]                                 recorded as "Deleted a property"
+  POST   /api/properties                                      recorded as "Added a property"
+  POST   /api/scrape-airbnb                                   recorded as "Read an Airbnb listing"
+  POST   /api/upload-image                                    recorded as "Uploaded an image"
+  64 handlers through adminRoute; problems: 0
+  routes still on the PIN-signed session: 0
+
+7. A main admin cannot be removed, demoted or given a new PIN by anyone but themselves (Kian, 2026-10-13)
+  remove   another admin, 0 other main admins: ok · another admin, 1 other main admin: ok · another main admin, 0 other main admins: main-admin · another main admin, 1 other main admin: main-admin · themselves, 0 other main admins: last-main-admin · themselves, 1 other main admin: ok
+  demote   another admin, 0 other main admins: ok · another admin, 1 other main admin: ok · another main admin, 0 other main admins: main-admin · another main admin, 1 other main admin: main-admin · themselves, 0 other main admins: last-main-admin · themselves, 1 other main admin: ok
+  promote  another admin, 0 other main admins: ok · another admin, 1 other main admin: ok · another main admin, 0 other main admins: ok · another main admin, 1 other main admin: ok · themselves, 0 other main admins: ok · themselves, 1 other main admin: ok
+  new-pin  another admin, 0 other main admins: ok · another admin, 1 other main admin: ok · another main admin, 0 other main admins: main-admin · another main admin, 1 other main admin: main-admin · themselves, 0 other main admins: yourself · themselves, 1 other main admin: yourself
+  unlock   another admin, 0 other main admins: ok · another admin, 1 other main admin: ok · another main admin, 0 other main admins: ok · another main admin, 1 other main admin: ok · themselves, 0 other main admins: ok · themselves, 1 other main admin: ok

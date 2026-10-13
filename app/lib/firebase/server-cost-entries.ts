@@ -109,7 +109,6 @@ import type { ReadingAttachment } from '@/app/lib/cleaners/readings';
 import { byLedgerDay, inRange, ledgerDay } from '@/app/lib/costs/report';
 import { MONTHLY_REPORTS_COLLECTION } from '@/app/lib/reports/model';
 import {
-  ADMIN_ACTOR,
   AUTO_APPROVAL_REASON,
   SYSTEM_ACTOR,
   CLEANERS_COLLECTION,
@@ -137,6 +136,7 @@ import {
   taxFromReading,
   readLinesNow,
   awaitingLook,
+  type Actor,
   type AutoApproved,
   type CleanerEntry,
   type CostEntryFields,
@@ -890,12 +890,12 @@ export interface NewOfficeEntry {
  *
  * @throws anything the write throws: the caller cannot tell whether it landed.
  */
-export async function createOfficeEntry(input: NewOfficeEntry): Promise<CostEntryView> {
+export async function createOfficeEntry(actor: Actor, input: NewOfficeEntry): Promise<CostEntryView> {
   const { office, propertyNameAtEntry } = input;
   const ref = newEntryRef();
   const now = new Date().toISOString();
-  const submitted: HistoryEvent = { at: now, action: 'submitted', from: null, to: 'pending', actor: ADMIN_ACTOR, reason: null };
-  const approved: HistoryEvent = { at: now, action: 'approved', from: 'pending', to: 'approved', actor: ADMIN_ACTOR, reason: OFFICE_APPROVAL_REASON };
+  const submitted: HistoryEvent = { at: now, action: 'submitted', from: null, to: 'pending', actor, reason: null };
+  const approved: HistoryEvent = { at: now, action: 'approved', from: 'pending', to: 'approved', actor, reason: OFFICE_APPROVAL_REASON };
   const document = {
     schemaVersion: COST_ENTRY_SCHEMA_VERSION,
     kind: 'office',
@@ -1281,6 +1281,7 @@ async function review(
  * entry where it is, marked, and out of totals and reports.
  */
 export function setEntryStatus(
+  actor: Actor,
   id: string,
   target: ReviewStatus,
   reason: string | null,
@@ -1291,7 +1292,7 @@ export function setEntryStatus(
     const why = target === 'rejected' ? reason : null;
     return {
       kind: 'write',
-      event: { at: now, action: target, from: entry.status, to: target, actor: ADMIN_ACTOR, reason: why },
+      event: { at: now, action: target, from: entry.status, to: target, actor, reason: why },
       changes: { status: target, statusChangedAt: now, statusReason: why },
     };
   });
@@ -1303,7 +1304,7 @@ export function setEntryStatus(
  * touched. The amount is what the receipt prints for the line, as the admin
  * typed it; nothing is multiplied or worked out here.
  */
-export function changeEntryLine(id: string, index: number | null, line: Line, seen: number): Promise<ReviewResult> {
+export function changeEntryLine(actor: Actor, id: string, index: number | null, line: Line, seen: number): Promise<ReviewResult> {
   return review(id, seen, (entry, now) => {
     const current = readLinesNow(entry.lines, entry.history, { shape: entry.taxShape, cents: entry.taxCents });
     if (current.kind !== 'ok') return { kind: 'refuse', result: { kind: 'unreadable' } };
@@ -1326,7 +1327,7 @@ export function changeEntryLine(id: string, index: number | null, line: Line, se
           action: 'line_added',
           from: null,
           to: null,
-          actor: ADMIN_ACTOR,
+          actor,
           reason: null,
           line: { index: current.lines.length, before: null, after: line },
         },
@@ -1345,7 +1346,7 @@ export function changeEntryLine(id: string, index: number | null, line: Line, se
         action: 'line_corrected',
         from: null,
         to: null,
-        actor: ADMIN_ACTOR,
+        actor,
         reason: null,
         line: {
           index,
@@ -1363,7 +1364,7 @@ export function changeEntryLine(id: string, index: number | null, line: Line, se
  * keeps its tax apart takes one: on an older entry the tax, if any, is a
  * line among the items, and it is that line that is corrected.
  */
-export function changeEntryTax(id: string, taxCents: number | null, seen: number): Promise<ReviewResult> {
+export function changeEntryTax(actor: Actor, id: string, taxCents: number | null, seen: number): Promise<ReviewResult> {
   return review(id, seen, (entry, now) => {
     if (entry.taxShape !== 'field') return { kind: 'refuse', result: { kind: 'tax-in-lines' } };
     const current = readLinesNow(entry.lines, entry.history, { shape: entry.taxShape, cents: entry.taxCents });
@@ -1376,7 +1377,7 @@ export function changeEntryTax(id: string, taxCents: number | null, seen: number
         action: 'tax_corrected',
         from: null,
         to: null,
-        actor: ADMIN_ACTOR,
+        actor,
         reason: null,
         tax: { before: current.taxCents, after: taxCents },
       },
@@ -1390,13 +1391,13 @@ export function changeEntryTax(id: string, taxCents: number | null, seen: number
  * approved automatically is refused; one an admin has already looked at
  * (marked seen, corrected, removed or rejected since) writes nothing.
  */
-export function markEntrySeen(id: string, seen: number): Promise<ReviewResult> {
+export function markEntrySeen(actor: Actor, id: string, seen: number): Promise<ReviewResult> {
   return review(id, seen, (entry, now) => {
     if (entry.autoApproved === null) return { kind: 'refuse', result: { kind: 'not-auto-approved' } };
     if (!awaitingLook(entry)) return { kind: 'nothing' };
     return {
       kind: 'write',
-      event: { at: now, action: 'seen', from: null, to: null, actor: ADMIN_ACTOR, reason: null },
+      event: { at: now, action: 'seen', from: null, to: null, actor, reason: null },
     };
   });
 }
@@ -1639,7 +1640,7 @@ export const REPORT_REFUSALS: Record<Exclude<ReportRecordResult['kind'], 'record
  *
  * Reads: the property's name and one per entry of that property.
  */
-export async function recordReportExport(claim: ReportClaim): Promise<ReportRecordResult> {
+export async function recordReportExport(actor: Actor, claim: ReportClaim): Promise<ReportRecordResult> {
   let outcome: Exclude<ReportRecordResult, { kind: 'recorded' }> | { id: string; stored: ReportExport };
   try {
     const db = getAdminDb();
@@ -1690,7 +1691,7 @@ export async function recordReportExport(claim: ReportClaim): Promise<ReportReco
         from: claim.from,
         to: claim.to,
         createdAt: new Date().toISOString(),
-        actor: ADMIN_ACTOR,
+        actor,
         entries,
         itemsCents: entries.reduce((sum, entry) => sum + entry.itemsCents, 0),
         taxCents: entries.reduce((sum, entry) => sum + (entry.taxCents ?? 0), 0),

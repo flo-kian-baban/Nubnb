@@ -23,7 +23,7 @@
 
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import {
   apiSuccess,
   apiError,
@@ -72,11 +72,7 @@ const StatusChangeSchema = z
     }
   });
 
-export async function POST(request: NextRequest, context: RouteContext) {
-  // ── Auth ──
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
-
+export const POST = adminRoute(async function POST(request: NextRequest, context: RouteContext, { actor }) {
   // ── Cross-site and media type ──
   const crossSite = refuseCrossSite(request);
   if (crossSite) return crossSite;
@@ -107,8 +103,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
   }
 
   const { status, reason, seen } = result.data;
-  const outcome = await setEntryStatus(id, status, reason, seen);
+  const outcome = await setEntryStatus(actor, id, status, reason, seen);
   if (outcome.kind !== 'done') return noStore(apiFailure(REVIEW_REFUSALS[outcome.kind]));
 
   return noStore(apiSuccess({ entry: outcome.entry, changed: outcome.changed }));
-}
+});

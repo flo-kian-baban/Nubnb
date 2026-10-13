@@ -70,15 +70,14 @@ no checkout. Do not build toward one unless asked.
 
 ## Ruled out — do not propose again
 
-- **Upstash, Sentry, rate limiting, analytics.** Ruled out by Kian.
+- **Upstash, Sentry, rate limiting, analytics.** Ruled out by Kian. Rate
+  limiting is ruled in for admin sign-in only (dispatch 38, below).
 
 ## Accepted risks
 
-- **No rate limiting in production.**
+- **No rate limiting in production**, except admin sign-in (dispatch 38).
 - **No error monitoring.**
 - **No analytics.**
-- **The admin PIN doubles as the session signing key.** One leaked session
-  cookie yields the PIN offline in ~16 ms.
 - **Cleaner codes are 4 digits.** 10,000 combinations and no rate limiting,
   so the cleaner door can be brute-forced. Exposure is limited to submitting
   cost entries under another cleaner's name; receipts and admin approval
@@ -495,3 +494,20 @@ no checkout. Do not build toward one unless asked.
   deleted; no missing-instalment flag.** Kian's ruling of 2026-10-13.
 - **A title is listed as "not in this month's file" only for months after it
   became the property's active title.** Kian's ruling of 2026-10-13.
+
+## Admin accounts — Kian's rulings of 2026-10-13 (dispatch 38)
+
+- **One main admin, Kian, adds and removes admins and sets their level.**
+  Two levels to start: main admin and admin.
+- **Each admin signs in with their own PIN. Every admin action records which
+  admin did it, from now on. Records made before keep "admin".**
+- **Admin PINs are 6 digits. Five wrong tries locks that PIN for 15
+  minutes.** This replaces the ruling that rate limiting is ruled out, for
+  admin sign-in only.
+- **Today's shared PIN becomes the main admin's until Kian changes it.**
+- **Sessions are signed with their own secret, no longer the PIN.** This
+  retires the accepted risk that the PIN doubles as the signing key.
+- **PIN boxes mask their digits on the sign-in gate, Choose your PIN and
+  Change PIN.** Kian's ruling of 2026-10-13, after the first report.
+- **A main admin cannot be removed, demoted or given a new PIN by anyone but
+  themselves.** Kian's ruling of 2026-10-13, after the first report.

@@ -1,135 +1,74 @@
 /**
- * Admin session management.
+ * The admin door, for every admin route (dispatch 38).
  *
- * PIN verification:  Used once during login (admin-auth POST).
- * Session tokens:    HMAC-signed, stored in an HTTP-only cookie.
- * Session checks:    All admin API routes call verifyAdminSession() which
- *                    reads the cookie and validates the HMAC signature.
+ * Every admin route handler is wrapped:
+ *
+ *   export const POST = adminRoute(async function POST(request, context, { actor }) { … });
+ *
+ * and the wrapper, before the handler runs:
+ *   1. reads the session (app/lib/admins/session.ts): the signed token, then
+ *      the admin's document — 401, 403 or 503 as that module says, with
+ *      nothing run;
+ *   2. for a route made with `{ level: 'main' }`, refuses an admin who is not
+ *      a main admin (403 MAIN_ADMIN_ONLY);
+ * then hands the handler the signed-in admin and their `actor`, which every
+ * record the handler writes names them by (Kian's ruling of 2026-10-13:
+ * every admin action records which admin did it, from now on);
+ * and after it, for every method but GET (and for a GET made with
+ * `{ record: true }`: a download that writes its own record), puts one line
+ * in the activity log, `admin_actions` — who, when, the method, the path and
+ * the status — once the response has gone, when the status is below 400.
+ * Nothing of the request's body or query is recorded: they can carry PINs,
+ * codes and names.
+ *
+ * The session used to be `<issuedAtMs>.<HMAC(ADMIN_PIN, issuedAtMs)>`, the
+ * PIN itself the key; nothing reads ADMIN_PIN here any more.
  */
 
-import { createHmac, timingSafeEqual } from 'crypto';
+import { after, type NextRequest } from 'next/server';
+import { apiFailure, noStore } from '@/app/lib/api/safe-response';
+import { adminActor } from '@/app/lib/admins/model';
+import { MAIN_ADMIN_ONLY, verifyAdminSession } from '@/app/lib/admins/session';
+import type { Actor } from '@/app/lib/cleaners/model';
+import { recordAdminAction, type SignedInAdmin } from '@/app/lib/firebase/server-admins';
 
-// ─── Constants ─────────────────────────────────────────────────
-
-export const SESSION_COOKIE = 'nubnb_admin_session';
-export const SESSION_MAX_AGE = 24 * 60 * 60; // 24 hours (seconds)
-
-// ─── Types ─────────────────────────────────────────────────────
-
-export interface AdminVerification {
-  valid: boolean;
-  error?: string;
-  status?: number;
+/** What an admin route handler is given: who is signed in, and the actor their records carry. */
+export interface AdminSession {
+  admin: SignedInAdmin;
+  actor: Actor;
 }
 
-// ─── Internal helpers ──────────────────────────────────────────
-
-function getSecret(): string {
-  const pin = process.env.ADMIN_PIN;
-  if (!pin) throw new Error('ADMIN_PIN environment variable is not configured');
-  return pin;
+export interface AdminRouteOptions {
+  /** `'main'`: a main admin's route, refused to an admin (Kian's ruling: the main admin adds and removes admins and sets their level). */
+  level?: 'main';
+  /** Record a GET in the activity log too. Every other method always is. */
+  record?: boolean;
 }
 
-// ─── PIN verification (one-time login) ─────────────────────────
+/** An admin route handler: the request, the route's context, and the session. */
+export type AdminHandler<C> = (request: NextRequest, context: C, session: AdminSession) => Promise<Response>;
 
-/**
- * Verify a raw PIN string against ADMIN_PIN using constant-time comparison.
- * Used only by the /api/admin-auth POST handler.
- */
-export function verifyAdminPin(pin: string): AdminVerification {
-  if (!pin || typeof pin !== 'string') {
-    return { valid: false, error: 'PIN is required', status: 400 };
-  }
+/** Wrap a route handler in the admin door. See the file's header. */
+export function adminRoute<C>(handler: AdminHandler<C>, options: AdminRouteOptions = {}): (request: NextRequest, context: C) => Promise<Response> {
+  return async (request: NextRequest, context: C) => {
+    const verified = await verifyAdminSession(request);
+    if (!verified.ok) return noStore(apiFailure(verified.refusal));
+    const { admin } = verified;
+    if (options.level === 'main' && admin.level !== 'main') return noStore(apiFailure(MAIN_ADMIN_ONLY));
 
-  let adminPin: string;
-  try {
-    adminPin = getSecret();
-  } catch {
-    return { valid: false, error: 'Server configuration error', status: 500 };
-  }
+    const response = await handler(request, context, { admin, actor: adminActor(admin) });
 
-  const PAD_LENGTH = 64;
-  const pinBuf = Buffer.from(pin.padEnd(PAD_LENGTH, '\0'));
-  const adminBuf = Buffer.from(adminPin.padEnd(PAD_LENGTH, '\0'));
-
-  if (pin.length !== adminPin.length || !timingSafeEqual(pinBuf, adminBuf)) {
-    return { valid: false, error: 'Invalid PIN', status: 401 };
-  }
-
-  return { valid: true };
-}
-
-// ─── Session token lifecycle ───────────────────────────────────
-
-/**
- * Create an HMAC-signed session token: `<timestamp>.<signature>`.
- * The signature is HMAC-SHA256(ADMIN_PIN, timestamp).
- */
-export function createSessionToken(): string {
-  const timestamp = Date.now().toString();
-  const signature = createHmac('sha256', getSecret())
-    .update(timestamp)
-    .digest('hex');
-  return `${timestamp}.${signature}`;
-}
-
-/**
- * Validate an HMAC-signed session token.
- * Checks structure, expiry (24h), and signature integrity.
- */
-export function verifySessionToken(token: string): boolean {
-  if (!token || typeof token !== 'string') return false;
-
-  const dotIndex = token.indexOf('.');
-  if (dotIndex === -1) return false;
-
-  const timestamp = token.slice(0, dotIndex);
-  const signature = token.slice(dotIndex + 1);
-
-  // Check expiry
-  const age = Date.now() - parseInt(timestamp, 10);
-  if (isNaN(age) || age < 0 || age > SESSION_MAX_AGE * 1000) return false;
-
-  // Recompute expected signature
-  let expected: string;
-  try {
-    expected = createHmac('sha256', getSecret())
-      .update(timestamp)
-      .digest('hex');
-  } catch {
-    return false;
-  }
-
-  // Constant-time comparison
-  if (signature.length !== expected.length) return false;
-  try {
-    return timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
-  } catch {
-    return false;
-  }
-}
-
-// ─── Request-level session verification ────────────────────────
-
-/**
- * Verify the admin session from the request's HTTP-only cookie.
- * Use this in every admin-protected API route.
- */
-export function verifyAdminSession(request: Request): AdminVerification {
-  // Read the cookie from the Cookie header
-  const cookieHeader = request.headers.get('cookie') || '';
-  const match = cookieHeader.match(
-    new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`)
-  );
-  const token = match?.[1];
-
-  if (!token) {
-    return { valid: false, error: 'Authentication required', status: 401 };
-  }
-
-  if (!verifySessionToken(decodeURIComponent(token))) {
-    return { valid: false, error: 'Session expired or invalid', status: 401 };
-  }
-
-  return { valid: true };
+    const recorded = options.record === true || (request.method !== 'GET' && request.method !== 'HEAD');
+    if (recorded && response.status < 400) {
+      const record = {
+        at: new Date().toISOString(),
+        admin: { id: admin.id, name: admin.name, level: admin.level },
+        method: request.method,
+        path: new URL(request.url).pathname,
+        status: response.status,
+      };
+      after(() => recordAdminAction(record));
+    }
+    return response;
+  };
 }

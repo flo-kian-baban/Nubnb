@@ -19,6 +19,7 @@ import { listCosts } from './server-cost-entries';
 import { listManagement } from './server-management';
 import { readIncomeMonth, unlinkedTitlesFromLines } from './server-income';
 import { FINISH_REFUSALS, finishStatement, writeEmptyDraft } from './server-reports';
+import type { Actor } from '@/app/lib/cleaners/model';
 import { torontoDayOf } from '@/app/lib/costs/report';
 import { monthView } from '@/app/lib/income/month';
 import { EARNINGS_LINES_COLLECTION, platformLinesOf, readEarningsLine, type EarningsLineView } from '@/app/lib/income/model';
@@ -95,7 +96,7 @@ export type EmptyFinishResult = { kind: 'done'; results: EmptyFinishOutcome[] } 
  *
  * @throws if the list cannot be read.
  */
-export async function finishEmptyMonth(input: z.output<typeof EmptyFinishInputSchema>): Promise<EmptyFinishResult> {
+export async function finishEmptyMonth(actor: Actor, input: z.output<typeof EmptyFinishInputSchema>): Promise<EmptyFinishResult> {
   const read = await readEmptyMonth(input.month);
   if (read.kind === 'not-closed') return { kind: 'not-closed' };
   if (read.data.unsettled.length > 0) return { kind: 'unsettled', titles: read.data.unsettled };
@@ -112,7 +113,7 @@ export async function finishEmptyMonth(input: z.output<typeof EmptyFinishInputSc
       results.push({ propertyId: item.propertyId, outcome: 'failed', why: saved.kind === 'not-empty' ? 'A draft was typed into meanwhile.' : 'The draft could not be written.' });
       continue;
     }
-    const finished = await finishStatement({ propertyId: item.propertyId, month: input.month, draftRevision: saved.revision, entries: [], earlier: [], adjustments: [], carried: null, carriedAdjustments: [] });
+    const finished = await finishStatement(actor, { propertyId: item.propertyId, month: input.month, draftRevision: saved.revision, entries: [], earlier: [], adjustments: [], carried: null, carriedAdjustments: [] });
     results.push(finished.kind === 'finished' ? { propertyId: item.propertyId, outcome: 'finished', reportId: finished.report.id, reference: finished.report.reference } : { propertyId: item.propertyId, outcome: 'failed', why: FINISH_REFUSALS[finished.kind].message });
   }
   return { kind: 'done', results };

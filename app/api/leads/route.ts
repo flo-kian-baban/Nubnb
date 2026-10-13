@@ -11,16 +11,11 @@
  * call to a renter's page view.
  */
 
-import { NextRequest } from 'next/server';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiSuccess, apiError, noStore } from '@/app/lib/api/safe-response';
 import { listLeads } from '@/app/lib/firebase/server-leads';
 
-export async function GET(request: NextRequest) {
-  // ── Auth ──
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return apiError(auth.error!, auth.status!);
-
+export const GET = adminRoute(async function GET() {
   try {
     return noStore(apiSuccess(await listLeads()));
   } catch (err) {
@@ -28,4 +23,4 @@ export async function GET(request: NextRequest) {
     // dashboard and the inbox say "could not load" instead of showing zero.
     return noStore(apiError('Failed to load leads', 500, err));
   }
-}
+});

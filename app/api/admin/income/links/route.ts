@@ -27,16 +27,14 @@
  */
 
 import { NextRequest } from 'next/server';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiError, apiFailure, apiSuccess, apiValidationError, noStore } from '@/app/lib/api/safe-response';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { LINK_REFUSALS, setActiveTitle, setTitleAside } from '@/app/lib/firebase/server-income';
 import { LinkInputSchema } from '@/app/lib/income/schemas';
 import { monthLabel } from '@/app/lib/reports/model';
 
-export async function PUT(request: NextRequest) {
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
+export const PUT = adminRoute(async function PUT(request: NextRequest, _context: unknown, { actor }) {
   const crossSite = refuseCrossSite(request);
   if (crossSite) return crossSite;
   const wrongType = requireMediaType(request, 'application/json');
@@ -51,12 +49,12 @@ export async function PUT(request: NextRequest) {
   if (!parsed.success) return noStore(apiValidationError(parsed.error.issues.map((i) => ({ path: i.path.map(String).join('.'), message: i.message }))));
   const { channel, title, propertyId, notNubnb, expected } = parsed.data;
   if (notNubnb) {
-    const aside = await setTitleAside({ platform: channel, title, expected });
+    const aside = await setTitleAside(actor, { platform: channel, title, expected });
     if (aside.kind === 'set-aside') return noStore(apiSuccess({ link: aside.link, rejected: aside.rejected }));
     return noStore(apiFailure(LINK_REFUSALS[aside.kind]));
   }
-  const outcome = await setActiveTitle({ platform: channel, title, propertyId: propertyId!, expected });
+  const outcome = await setActiveTitle(actor, { platform: channel, title, propertyId: propertyId!, expected });
   if (outcome.kind === 'linked') return noStore(apiSuccess({ link: outcome.link, previous: outcome.previous, sentBack: outcome.sentBack }));
   if (outcome.kind === 'printed') return noStore(apiFailure({ ...LINK_REFUSALS.printed, evidence: { statements: outcome.statements.map((row) => `${monthLabel(row.month)} (${row.reference})`).join('; ') } }));
   return noStore(apiFailure(LINK_REFUSALS[outcome.kind]));
-}
+});

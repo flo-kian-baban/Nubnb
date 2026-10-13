@@ -36,11 +36,15 @@ export function generateCandidate(): string {
 }
 
 /**
- * Whether this code is the admin PIN.
+ * Whether this code is the admin PIN — ADMIN_PIN, the shared PIN.
  *
- * The /admin PIN gate takes four digits and submits the moment the fourth is
- * in, so a cleaner whose code were the admin PIN would open /admin with it.
- * That one code is never issued, and never accepted as a new code.
+ * Until dispatch 38 the /admin gate took that one four-digit PIN, so a
+ * cleaner whose code were it would open /admin. Since then it is the main
+ * admin's PIN until he changes it (Kian's ruling of 2026-10-13), and the PIN
+ * the recovery script puts a main admin back on (scripts/admin-recover.mjs),
+ * so it still opens /admin with the main admin's name. That one code is never
+ * issued, and never accepted as a new code. Every PIN set from dispatch 38 on
+ * is six digits and cannot equal a code.
  *
  * The PIN is only compared, in constant time. A PIN of any other length
  * cannot equal a code. An empty PIN is refused before this is reached; were

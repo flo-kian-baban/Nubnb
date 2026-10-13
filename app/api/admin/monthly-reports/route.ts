@@ -25,7 +25,7 @@
  */
 
 import { NextRequest } from 'next/server';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiSuccess, apiError, apiFailure, apiValidationError, noStore } from '@/app/lib/api/safe-response';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { FINISH_REFUSALS, FinishInputSchema, finishStatement, readTracker } from '@/app/lib/firebase/server-reports';
@@ -37,20 +37,16 @@ function grpcCode(err: unknown): string {
   return typeof code === 'number' ? String(code) : 'unknown';
 }
 
-export async function GET(request: NextRequest) {
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
+export const GET = adminRoute(async function GET() {
   try {
     return noStore(apiSuccess(await readTracker()));
   } catch (err) {
     console.error(`[reports] tracker read failed: grpc code ${grpcCode(err)}`);
     return noStore(apiFailure({ message: 'Failed to load the statements.', status: 500, code: 'REPORTS_READ_FAILED' }));
   }
-}
+});
 
-export async function POST(request: NextRequest) {
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
+export const POST = adminRoute(async function POST(request: NextRequest, _context: unknown, { actor }) {
   const crossSite = refuseCrossSite(request);
   if (crossSite) return crossSite;
   const wrongType = requireMediaType(request, 'application/json');
@@ -68,7 +64,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const outcome = await finishStatement(result.data);
+    const outcome = await finishStatement(actor, result.data);
     if (outcome.kind !== 'finished') {
       const refusal = FINISH_REFUSALS[outcome.kind];
       if (outcome.kind === 'unreadable') return noStore(apiFailure({ ...refusal, hint: `${refusal.hint} Entries: ${outcome.entryIds.join(', ')}.` }));
@@ -80,4 +76,4 @@ export async function POST(request: NextRequest) {
     console.error(`[reports] finish failed before any write: grpc code ${grpcCode(err)}`);
     return noStore(apiFailure({ message: 'Could not read what the statement is built from.', status: 503, code: 'STATEMENT_READ_FAILED', hint: 'Nothing was written; retry.' }));
   }
-}
+});

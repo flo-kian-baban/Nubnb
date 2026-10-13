@@ -394,8 +394,11 @@ export interface Actor {
 }
 
 /**
- * Every admin action today. There is one shared PIN and no admin identity,
- * and the record says so rather than inventing one.
+ * Every admin action recorded before dispatch 38, when there was one shared
+ * PIN and no admin identity: those records keep it (Kian's ruling of
+ * 2026-10-13: records made before keep "admin"). Nothing writes it any more;
+ * an admin's action records `adminActor(admin)` (admins/model.ts), their ID
+ * and name. The tests' made-up records still use it.
  */
 export const ADMIN_ACTOR: Actor = { role: 'admin', id: null, name: null };
 

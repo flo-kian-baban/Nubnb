@@ -25,9 +25,9 @@
 
 import { randomUUID } from 'crypto';
 import { getAdminBucket } from '@/app/lib/firebase/admin';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { createRateLimiter } from '@/app/lib/api/rate-limit';
-import { apiSuccess, apiError, apiFailure, apiRateLimited } from '@/app/lib/api/safe-response';
+import { apiSuccess, apiFailure, apiRateLimited } from '@/app/lib/api/safe-response';
 
 export const maxDuration = 30;
 
@@ -93,11 +93,7 @@ function buildObjectPath(originalName: string): string {
   return `properties/${Date.now()}_${randomUUID().slice(0, 8)}_${safe}`;
 }
 
-export async function POST(request: Request) {
-  // ── Auth — reject before touching the body ──
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return apiError(auth.error!, auth.status!);
-
+export const POST = adminRoute(async function POST(request: Request) {
   // ── Rate limit ──
   const limit = await limiter.check(request);
   if (limit.limited) return apiRateLimited(limit.retryAfterMs);
@@ -212,4 +208,4 @@ export async function POST(request: Request) {
       internalError: err,
     });
   }
-}
+});

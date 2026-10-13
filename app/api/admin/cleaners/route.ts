@@ -36,7 +36,7 @@
 
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import {
   apiSuccess,
   apiError,
@@ -142,11 +142,7 @@ function grpcCode(err: unknown): string {
   return typeof code === 'number' ? String(code) : 'unknown';
 }
 
-export async function GET(request: NextRequest) {
-  // ── Auth ──
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
-
+export const GET = adminRoute(async function GET() {
   try {
     return noStore(apiSuccess(await listCleaners()));
   } catch (err) {
@@ -161,13 +157,9 @@ export async function GET(request: NextRequest) {
       }),
     );
   }
-}
+});
 
-export async function POST(request: NextRequest) {
-  // ── Auth ──
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
-
+export const POST = adminRoute(async function POST(request: NextRequest, _context: unknown, { actor }) {
   // ── Cross-site and media type ──
   const crossSite = refuseCrossSite(request);
   if (crossSite) return crossSite;
@@ -197,7 +189,7 @@ export async function POST(request: NextRequest) {
   // ── Issue ──
   // Read inside the handler, never at module scope, and passed on unlogged.
   // The body may hold a code, so it is never logged.
-  const outcome = await issueCleaner(result.data.name, result.data.role, process.env.ADMIN_PIN, result.data.code);
+  const outcome = await issueCleaner(actor, result.data.name, result.data.role, process.env.ADMIN_PIN, result.data.code);
   switch (outcome.kind) {
     case 'created':
       // The new cleaner, their code included. Nothing logs it.
@@ -211,4 +203,4 @@ export async function POST(request: NextRequest) {
     default:
       return noStore(apiFailure(ISSUE_REFUSALS[outcome.kind]));
   }
-}
+});

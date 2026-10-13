@@ -9,7 +9,7 @@
 
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiSuccess, apiError, apiValidationError, noStore } from '@/app/lib/api/safe-response';
 import { getLead, isDocumentId, setLeadStatus } from '@/app/lib/firebase/server-leads';
 import { LEAD_STATUSES } from '@/app/lib/leads';
@@ -23,11 +23,7 @@ const StatusChangeSchema = z.strictObject({
   status: z.enum(LEAD_STATUSES),
 });
 
-export async function GET(request: NextRequest, context: RouteContext) {
-  // ── Auth ──
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return apiError(auth.error!, auth.status!);
-
+export const GET = adminRoute(async function GET(request: NextRequest, context: RouteContext) {
   const { id } = await context.params;
   if (!isDocumentId(id)) return apiError('Invalid lead ID', 400);
 
@@ -39,13 +35,9 @@ export async function GET(request: NextRequest, context: RouteContext) {
     // Not a 404: a read that failed says nothing about whether the lead exists.
     return noStore(apiError('Failed to load lead', 500, err));
   }
-}
+});
 
-export async function PATCH(request: NextRequest, context: RouteContext) {
-  // ── Auth ──
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return apiError(auth.error!, auth.status!);
-
+export const PATCH = adminRoute(async function PATCH(request: NextRequest, context: RouteContext) {
   const { id } = await context.params;
   if (!isDocumentId(id)) return apiError('Invalid lead ID', 400);
 
@@ -74,4 +66,4 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   } catch (err) {
     return noStore(apiError('Failed to change the lead status', 500, err));
   }
-}
+});

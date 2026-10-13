@@ -11,7 +11,7 @@
  */
 
 import { NextRequest } from 'next/server';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiSuccess, apiError, apiFailure, noStore } from '@/app/lib/api/safe-response';
 import { downloadLink } from '@/app/lib/firebase/server-reports';
 import { isDocumentId } from '@/app/lib/firebase/server-leads';
@@ -25,13 +25,11 @@ function errorCode(err: unknown): string {
   return typeof code === 'number' || typeof code === 'string' ? String(code) : 'unknown';
 }
 
-export async function GET(request: NextRequest, context: RouteContext) {
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
+export const GET = adminRoute(async function GET(request: NextRequest, context: RouteContext, { actor }) {
   const { id } = await context.params;
   if (!isDocumentId(id)) return noStore(apiError('Invalid report ID', 400));
   try {
-    const link = await downloadLink(id);
+    const link = await downloadLink(actor, id);
     if (link.kind === 'no-such-report') return noStore(apiFailure({ status: 404, code: 'REPORT_NOT_FOUND', message: 'Statement not found' }));
     if (link.kind === 'object-missing') {
       console.error(`[reports] statement PDF missing for report ${id}`);
@@ -42,4 +40,4 @@ export async function GET(request: NextRequest, context: RouteContext) {
     console.error(`[reports] download link failed for report ${id}: code ${errorCode(err)}`);
     return noStore(apiFailure({ status: 502, code: 'STATEMENT_LINK_FAILED', message: 'Could not open the statement.', hint: 'Try again in a moment.' }));
   }
-}
+}, { record: true });

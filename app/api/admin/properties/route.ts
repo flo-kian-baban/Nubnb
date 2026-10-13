@@ -18,12 +18,11 @@
  * Every response is no-store.
  */
 
-import { NextRequest } from 'next/server';
 import { getAdminDb } from '@/app/lib/firebase/admin';
 import { unlistedPropertyIds } from '@/app/lib/firebase/server-visibility';
 import { createdMonthOf } from '@/app/lib/firebase/created-month';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
-import { apiError, apiFailure, apiSuccess, noStore } from '@/app/lib/api/safe-response';
+import { adminRoute } from '@/app/lib/api/verify-admin';
+import { apiFailure, apiSuccess, noStore } from '@/app/lib/api/safe-response';
 
 /** The one thing logged about a Firestore error: its gRPC code. */
 function grpcCode(err: unknown): string {
@@ -31,10 +30,7 @@ function grpcCode(err: unknown): string {
   return typeof code === 'number' ? String(code) : 'unknown';
 }
 
-export async function GET(request: NextRequest) {
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
-
+export const GET = adminRoute(async function GET() {
   try {
     const [snapshot, unlisted] = await Promise.all([getAdminDb().collection('properties').get(), unlistedPropertyIds()]);
     const properties = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
@@ -44,4 +40,4 @@ export async function GET(request: NextRequest) {
     console.error(`[admin/properties] read failed: grpc code ${grpcCode(err)}`);
     return noStore(apiFailure({ message: 'Could not load the properties.', status: 503, code: 'PROPERTIES_UNAVAILABLE' }));
   }
-}
+});

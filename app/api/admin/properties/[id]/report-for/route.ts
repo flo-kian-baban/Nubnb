@@ -15,7 +15,7 @@
  */
 
 import { NextRequest } from 'next/server';
-import { verifyAdminSession } from '@/app/lib/api/verify-admin';
+import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiError, apiFailure, apiSuccess, apiValidationError, noStore } from '@/app/lib/api/safe-response';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { isDocumentId } from '@/app/lib/firebase/server-leads';
@@ -30,9 +30,7 @@ function grpcCode(err: unknown): string {
   return typeof code === 'number' ? String(code) : 'unknown';
 }
 
-export async function PUT(request: NextRequest, context: RouteContext) {
-  const auth = verifyAdminSession(request);
-  if (!auth.valid) return noStore(apiError(auth.error!, auth.status!));
+export const PUT = adminRoute(async function PUT(request: NextRequest, context: RouteContext) {
   const crossSite = refuseCrossSite(request);
   if (crossSite) return crossSite;
   const wrongType = requireMediaType(request, 'application/json');
@@ -63,4 +61,4 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     console.error(`[management] report-for write for ${id} failed: grpc code ${grpcCode(err)}`);
     return noStore(apiFailure({ message: 'Could not save who the report is for.', status: 502, code: 'REPORT_FOR_WRITE_FAILED', hint: 'It may or may not have been saved. Reload to see what is stored.' }));
   }
-}
+});
