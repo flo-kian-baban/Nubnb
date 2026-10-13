@@ -38,7 +38,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowLeft, BedDouble, Brush, CalendarDays, Check, Eye, ExternalLink, FileText, Home, ImageIcon, Link2, ListChecks, Lock, MapPin, RefreshCw, ScrollText, Sparkles, Star } from "lucide-react";
+import { AlertTriangle, ArrowLeft, BedDouble, Brush, CalendarDays, Check, Eye, ExternalLink, FileText, Home, ImageIcon, Link2, ListChecks, Lock, MapPin, RefreshCw, ScrollText, Sparkles, Star, Tag } from "lucide-react";
 import type { Property } from "@/app/types/property";
 import type { ExtractionSummary, ScrapeFieldStatus } from "@/app/types/scrape";
 import { AdminHeader } from "../../components/AdminHeader";
@@ -91,6 +91,7 @@ import type { LoadState, RowEdit, SectionContext } from "./shared";
 import { BasicsSection, HighlightsSection, LocationSection, PhotosSection, ReviewsSection, RulesSection, SpaceSection, type MapsTool } from "./sections-listing";
 import { OffersSection } from "./sections-offers";
 import { CalendarSection, CleanersSection, StatementsSection, StatusSection } from "./sections-internal";
+import { AirbnbTitleSection } from "./section-airbnb-title";
 import { ImportSection, type ImportTool } from "./sections-import";
 import { CALENDAR_MISMATCH_TEXT } from "@/app/lib/listing-identity";
 import shared from "../../page.module.css";
@@ -247,6 +248,7 @@ const SECTION_ICON: Record<SectionId, typeof Home> = {
   cleaners: Brush,
   statements: FileText,
   calendar: CalendarDays,
+  airbnbTitle: Tag,
 };
 
 /** Which section a field is in, for pointing at it. */
@@ -706,6 +708,7 @@ function Editor({ id, loaded, initialSection, created, mirror, links }: EditorPr
   // ── What the sections are handed ──
   const ctx = (sectionId: SectionId): SectionContext => ({
     mode,
+    propertyId: id,
     draft,
     stored,
     setProperty,
@@ -753,6 +756,8 @@ function Editor({ id, loaded, initialSection, created, mirror, links }: EditorPr
         return <StatementsSection ctx={ctx("statements")} />;
       case "calendar":
         return <CalendarSection ctx={ctx("calendar")} />;
+      case "airbnbTitle":
+        return <AirbnbTitleSection ctx={ctx("airbnbTitle")} />;
     }
   })();
 

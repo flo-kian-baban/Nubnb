@@ -78,8 +78,9 @@ import { NoticeBanner, useNotice, type Notice } from "../components/Notice";
 import { ReportingStatusLine, StandingBadge } from "../components/StatementStatus";
 import { fetchCosts } from "@/app/lib/costs-client";
 import { deleteStatement, fetchPropertyStatements, fetchStatementLink, finishStatement, saveDraft, setReportFor as saveReportFor, type PropertyStatements, type StatementDeleted } from "@/app/lib/reports-client";
-import { fetchPropertyIncome, type UnlinkedTitle } from "@/app/lib/income-client";
-import type { EarningsLineView } from "@/app/lib/income/model";
+import { fetchPropertyIncome, type PropertyIncome } from "@/app/lib/income-client";
+import { isCopied, platformLinesOf } from "@/app/lib/income/model";
+import type { PlatformLineInput } from "@/app/lib/reports/statement";
 import { formatCents, type CostEntryView, type CostsView, type ReportExportView } from "@/app/lib/cleaners/model";
 import { torontoDayOf } from "@/app/lib/costs/report";
 import {
@@ -102,7 +103,7 @@ import {
 import { STANDING_LABELS, laterReferences, moneyMonthsByProperty, previousStatement, propertyMonthState, propertyMonths, reportingStatus, statementOf, type FinishClaim, type PropertyMonthRow } from "@/app/lib/reports/statement";
 import { airbnbLineIdsOf, costCharges, frozenStatement, monthMoney, type Charge } from "@/app/lib/money/month";
 import { statementPdf } from "@/app/lib/reports/statement-pdf";
-import { checkoutsInMonth, finishChecks, type IncomeFacts } from "@/app/lib/reports/checks";
+import { checkoutsInMonth, finishChecks, uncoveredStays, type IncomeFacts } from "@/app/lib/reports/checks";
 import type { PropertyStatementsState } from "../costs/EntryPane";
 import { CostsTab } from "./CostsTab";
 import { DetailsTab } from "./DetailsTab";
@@ -116,8 +117,8 @@ import styles from "./page.module.css";
 import ed from "./editor/editor.module.css";
 
 type Read<T> = { kind: "loading" } | { kind: "ready"; data: T } | { kind: "error"; title: string; detail?: string; status: number };
-/** What GET /api/admin/properties/[id]/income answers (dispatch 27): the property's lines from the platforms' files, their files' names, and the titles no link names (dispatch 34). */
-type FromFiles = { lines: EarningsLineView[]; uploads: { id: string; name: string; month: string }[]; unlinked: UnlinkedTitle[] };
+/** What GET /api/admin/properties/[id]/income answers (dispatch 27; 37C): the property's lines from the platforms' files, their files' names, the titles no link names (dispatch 34), its titles, and the month's calendar stays. */
+type FromFiles = PropertyIncome;
 
 /**
  * What was typed in a month, kept while the admin works in another (dispatch 34, S10): a half-typed fee, balance
@@ -200,14 +201,26 @@ function PropertyPageInner() {
       if (cancelled) return;
       setStatements(result.ok ? { kind: "ready", data: result.data } : { kind: "error", title: result.title, detail: result.detail, status: result.status });
     });
-    fetchPropertyIncome(propertyId).then((result) => {
+    return () => {
+      cancelled = true;
+    };
+  }, [propertyId, valid, attempt]);
+
+  // ── The lines from the files, with the month's calendar stays (dispatch 37C): read again on each month and after a change ──
+  const [filesAttempt, setFilesAttempt] = useState(0);
+  useEffect(() => {
+    if (!valid) return;
+    let cancelled = false;
+    fetchPropertyIncome(propertyId, month).then((result) => {
       if (cancelled) return;
       setFromFiles(result.ok ? { kind: "ready", data: result.data } : { kind: "error", title: result.title, detail: result.detail, status: result.status });
     });
     return () => {
       cancelled = true;
     };
-  }, [propertyId, valid, attempt]);
+  }, [propertyId, valid, attempt, month, filesAttempt]);
+  /** Read the lines from the files again, keeping what is shown until the answer comes (after an edit or a line sent back). */
+  const rereadFiles = useCallback(() => setFilesAttempt((n) => n + 1), []);
 
   // ── The address bar ──
   useEffect(() => {
@@ -289,12 +302,14 @@ function PropertyPageInner() {
   const costData = costs.kind === "ready" ? costs.data : null;
   /** Every statement that charges each of the property's entries (dispatch 37A): one working-out for every month. */
   const charges = useMemo(() => (data && costData ? costCharges({ propertyId, entries: costData.entries, reports: data.reports, management: data.management }) : null), [data, costData, propertyId]);
-  /** The statement lines that came from an accepted Airbnb line (Kian's ruling M1: a claw-back takes revenue off). */
+  /** The statement lines that came from an accepted Airbnb line copied into a draft before dispatch 37C (Kian's ruling M1: a claw-back takes revenue off). */
   const airbnbLineIds = useMemo(() => airbnbLineIdsOf(fromFiles.kind === "ready" ? fromFiles.data.lines : []), [fromFiles]);
+  /** The accepted lines read where they are stored (dispatch 37C, Kian's ruling M10): the statements place them. */
+  const platformLines = useMemo(() => platformLinesOf(fromFiles.kind === "ready" ? fromFiles.data.lines : []), [fromFiles]);
 
   // ── The months ──
   /** The months this property has accepted income or approved costs in: owed whenever it was added (Kian's ruling of 2026-10-04). */
-  const moneyMonths = useMemo(() => (data ? (moneyMonthsByProperty(data.drafts, costData?.entries ?? []).get(propertyId) ?? []) : []), [data, costData, propertyId]);
+  const moneyMonths = useMemo(() => (data ? (moneyMonthsByProperty(data.drafts, costData?.entries ?? [], platformLines).get(propertyId) ?? []) : []), [data, costData, propertyId, platformLines]);
   const draftLikes = useMemo(() => (data ? data.drafts.map((d) => ({ propertyId: d.propertyId, month: d.month, updatedAt: d.updatedAt, finishedAs: d.finishedAs, superseding: d.supersedes !== null })) : []), [data]);
   const months = useMemo(() => (data ? propertyMonths({ propertyId, today, management: data.management, createdMonth: data.createdMonth ?? null, moneyMonths, reports: data.reports, drafts: draftLikes }) : null), [data, draftLikes, moneyMonths, propertyId, today]);
   const inScope = data ? inStatementScope(data.management, month, data.createdMonth ?? null, moneyMonths) : true;
@@ -440,6 +455,8 @@ function PropertyPageInner() {
                 kept={keptMonths}
                 charges={charges}
                 airbnbLineIds={airbnbLineIds}
+                platformLines={platformLines}
+                onFilesChanged={rereadFiles}
               />
             </div>
           </>
@@ -489,8 +506,12 @@ interface MonthWorkProps {
   kept: Map<string, KeptMonth>;
   /** Every statement that charges each of the property's entries (dispatch 37A). */
   charges: ReadonlyMap<string, Charge[]>;
-  /** The statement lines that came from an accepted Airbnb line. */
+  /** The statement lines that came from an accepted Airbnb line copied into a draft before dispatch 37C. */
   airbnbLineIds: ReadonlySet<string>;
+  /** The property's accepted lines read where they are stored (dispatch 37C). */
+  platformLines: PlatformLineInput[];
+  /** An accepted line was edited or sent back on the Income tab: the lines are read again. */
+  onFilesChanged: () => void;
 }
 
 /**
@@ -568,39 +589,50 @@ function MonthWork(props: MonthWorkProps) {
       management: record,
       airbnbLineIds: props.airbnbLineIds,
       charges: props.charges,
+      platformLines: props.platformLines,
     });
     // shownReportFor is derived from reportFor; comparing the object would redraw on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [propertyId, props.propertyName, month, entries, reports, parsed, typed.reference, typed.reportDate, typed.notes, supersedes, reportFor.name, reportFor.address, management, finishedReport, draft, props.airbnbLineIds, props.charges]);
+  }, [propertyId, props.propertyName, month, entries, reports, parsed, typed.reference, typed.reportDate, typed.notes, supersedes, reportFor.name, reportFor.address, management, finishedReport, draft, props.airbnbLineIds, props.charges, props.platformLines]);
   /** The draft built as it stands; null while the month is finished and not being corrected. */
   const built = money.build;
   const statement = money.statement;
+  /** The statement's lines read from the files, where they are stored (dispatch 37C): listed on the Income tab apart from the typed ones. */
+  const fileLines = useMemo(() => (statement && !statement.legacy ? statement.lines.filter((line) => line.platformLineId !== undefined) : []), [statement]);
   /** The figures the tabs show: the statement on screen (the correction's while one is written); and, beside a correction, the statement as sent. */
   const figures = money.correction ?? money.figures;
   const sentFigures = money.correcting ? money.figures : null;
 
   /**
-   * The lines from the platforms' files (dispatch 27): which of the month's lines an admin accepted from a
-   * file, and its file and row; and how many of the month's lines wait on the Income page. Read from the
-   * same earnings lines the Income page reads; the lines themselves are the draft's.
+   * The lines from the platforms' files (dispatch 27; 37C): the lines the statement reads where they are stored,
+   * each with its stored line, its file and row; the copies of lines accepted before 37C, marked on the draft's
+   * lines; how many of the month's lines wait on the Income page; and the month's calendar copies and the stays on
+   * them no line covers (I8, I15). Read from the same earnings lines the Income page reads.
    */
   const files = useMemo(() => {
     const read = props.fromFiles;
-    if (read.kind !== "ready") return { marks: new Map<string, string>(), pending: 0, failed: read.kind === "error", month };
+    if (read.kind !== "ready") return { marks: new Map<string, string>(), pending: 0, failed: read.kind === "error", month, stored: new Map(), names: new Map<string, string>(), calendar: null };
     const names = new Map(read.data.uploads.map((u) => [u.id, u.name]));
     const marks = new Map<string, string>();
     for (const line of read.data.lines) {
-      if (line.decided?.status === "accepted" && line.decided.propertyId === propertyId) marks.set(line.decided.lineId, `${names.get(line.uploadId) ?? "a file"} · row ${line.fileRow}`);
+      if (isCopied(line.decided) && line.decided.propertyId === propertyId) marks.set(line.decided.lineId, `${names.get(line.uploadId) ?? "a file"} · row ${line.fileRow}`);
     }
-    return { marks, pending: read.data.lines.filter((line) => line.status === "proposed" && line.month === month).length, failed: false, month };
+    const calendar = read.data.calendar && read.data.calendar.month === month ? { days: read.data.calendar.days, uncovered: uncoveredStays(read.data.calendar.stays, read.data.lines, month) } : null;
+    return { marks, pending: read.data.lines.filter((line) => line.status === "proposed" && line.month === month).length, failed: false, month, stored: new Map(read.data.lines.map((line) => [line.id, line])), names, calendar };
   }, [props.fromFiles, propertyId, month]);
 
-  /** What the files say about the month, for Finish's checks (dispatch 34): lines waiting, titles linked to no property, checkouts. */
+  /** What the files say about the month, for Finish's checks (dispatch 34; 37C): lines waiting, titles linked to no property, checkouts, the calendar's stays no line covers. */
   const incomeFacts = useMemo<IncomeFacts | null>(() => {
     const read = props.fromFiles;
     if (read.kind !== "ready") return null;
-    return { waiting: files.pending, unlinked: read.data.unlinked.filter((title) => title.month === month), checkouts: checkoutsInMonth(read.data.lines, month) };
-  }, [props.fromFiles, files.pending, month]);
+    return {
+      waiting: files.pending,
+      unlinked: read.data.unlinked.filter((title) => title.month === month),
+      checkouts: checkoutsInMonth(read.data.lines, month),
+      // Read only when the month's calendar copies exist: no copies is no check, never an all-clear (I8).
+      ...(files.calendar && files.calendar.days.length > 0 ? { uncovered: files.calendar.uncovered } : {}),
+    };
+  }, [props.fromFiles, files.pending, files.calendar, month]);
 
   /** What Finish checks (dispatch 34, Kian's rulings of 2026-10-12): refused only without a Report For name; everything else warns. */
   const checks = useMemo(() => (built?.kind === "ok" && !readOnly ? finishChecks({ statement: built.statement, reports, entries, income: incomeFacts, today, revenueCents: figures?.revenueCents }) : null), [built, readOnly, reports, entries, incomeFacts, today, figures]);
@@ -905,7 +937,7 @@ function MonthWork(props: MonthWorkProps) {
             <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} className={`${styles.tab} ${tab === t.key ? styles.tabActive : ""}`} onClick={() => props.onTab(t.key)}>
               {t.label}
               {t.key === "costs" && approvedInMonth !== null && approvedInMonth > 0 && <span className={styles.tabCount}>{approvedInMonth}</span>}
-              {t.key === "income" && typed.lines.length > 0 && <span className={styles.tabCount}>{typed.lines.length}</span>}
+              {t.key === "income" && typed.lines.length + fileLines.length > 0 && <span className={styles.tabCount}>{typed.lines.length + fileLines.length}</span>}
             </button>
           ))}
         </div>
@@ -938,7 +970,7 @@ function MonthWork(props: MonthWorkProps) {
               show={show}
             />
           )}
-          {tab === "income" && <IncomeTab typed={typed} readOnly={readOnly} figures={figures} sent={sentFigures} onChange={change} show={show} files={files} />}
+          {tab === "income" && <IncomeTab typed={typed} readOnly={readOnly} figures={figures} sent={sentFigures} onChange={change} show={show} files={files} fileLines={fileLines} onFilesChanged={props.onFilesChanged} />}
           {tab === "details" && (
             <DetailsTab
               typed={typed}

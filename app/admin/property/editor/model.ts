@@ -55,7 +55,7 @@ export const STARS_MAX = 6;
 export type SectionId =
   | "import"
   | "photos" | "basics" | "location" | "space" | "highlights" | "offers" | "rules" | "reviews"
-  | "status" | "cleaners" | "statements" | "calendar";
+  | "status" | "cleaners" | "statements" | "calendar" | "airbnbTitle";
 
 export type SectionGroup = "import" | "listing" | "internal";
 
@@ -80,6 +80,7 @@ export const SECTIONS: readonly SectionDef[] = [
   { id: "cleaners", label: "Cleaners", group: "internal" },
   { id: "statements", label: "Statements", group: "internal" },
   { id: "calendar", label: "Calendar", group: "internal" },
+  { id: "airbnbTitle", label: "Airbnb title", group: "internal" },
 ];
 
 export const GROUP_LABELS: Record<SectionGroup, string> = { import: "Import", listing: "Listing", internal: "Nubnb only" };

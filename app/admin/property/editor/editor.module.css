@@ -1433,3 +1433,33 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ── Airbnb title (dispatch 37C) ── */
+.titleWords {
+  display: block;
+  font-size: 15px;
+  color: #f2f5f8;
+  overflow-wrap: anywhere;
+}
+.titleChange {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+.titleActions {
+  display: inline-flex;
+  gap: 8px;
+}
+@media (max-width: 760px) {
+  .titleChange {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.titleList {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}

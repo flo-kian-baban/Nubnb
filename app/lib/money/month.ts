@@ -27,8 +27,11 @@
  *   receipt, work, office   cost entries: the month an office cost is for, else the day sent (`entryMonth`);
  *                           confirmed when approved
  *   typed                   a line typed on the month's draft: confirmed when typed
- *   airbnb                  a draft line an accepted Airbnb line points to (`decided.lineId`): confirmed when
- *                           accepted. A copy made by acceptance keeps its source this way, rewritten nowhere.
+ *   airbnb                  an accepted line from a platform's file: read where it is stored since dispatch 37C
+ *                           (Kian's ruling M10), placed on its month's statement or, that one finished, the next
+ *                           open one (M11); or, accepted before 37C, a draft line it points to (`decided.lineId`):
+ *                           a copy made by acceptance keeps its source this way, rewritten nowhere. Confirmed when
+ *                           accepted.
  *   cleaning                a cleaning an admin logged (dispatch 37B), read as an entry of kind `cleaning`
  *                           (app/lib/cleanings/model.ts): the month of the day cleaned; confirmed when logged
  * A cash payment (37E) is a further source of the same line.
@@ -50,7 +53,7 @@
 import { formatCents, type CostEntryView } from '@/app/lib/cleaners/model';
 import { entryMonth } from '@/app/lib/costs/report';
 import { currentReports, monthLabel, type Line, type MonthlyReportView, type PropertyManagementView } from '@/app/lib/reports/model';
-import { buildStatement, nextOpenMonth, printedLines, statementMonthFor, statementOf, type AnyStatement, type StatementBuild, type StatementInputs } from '@/app/lib/reports/statement';
+import { buildStatement, nextOpenMonth, printedLines, statementMonthFor, statementOf, type AnyStatement, type PlatformLineInput, type StatementBuild, type StatementInputs } from '@/app/lib/reports/statement';
 
 // ─── Sources ───────────────────────────────────────────────────
 
@@ -68,7 +71,11 @@ export function airbnbLineIdsOf(lines: readonly { decided: { status: string; lin
   return ids;
 }
 
-/** Where a statement line came from: an accepted Airbnb line, or typed. A line loaded from a row written before dispatch 23D says so itself. */
+/**
+ * Where a statement line came from: an accepted Airbnb line, or typed. A line read where it is stored (dispatch
+ * 37C) and a line loaded from a row written before dispatch 23D say so themselves (`source`); a copy made by
+ * acceptance before 37C is known by its ID.
+ */
 export function lineSource(line: Pick<Line, 'id' | 'source'>, airbnbLineIds: ReadonlySet<string>): 'airbnb' | 'typed' {
   return airbnbLineIds.has(line.id) || line.source === 'airbnb' ? 'airbnb' : 'typed';
 }
@@ -249,8 +256,10 @@ export interface MonthMoneyInputs {
   reports: MonthlyReportView[];
   draft: MoneyDraft | null;
   management: PropertyManagementView | null;
-  /** The statement lines that came from accepted Airbnb lines (`airbnbLineIdsOf`). Without them every line reads as typed. */
+  /** The statement lines that came from accepted Airbnb lines copied into a draft before dispatch 37C (`airbnbLineIdsOf`). */
   airbnbLineIds?: ReadonlySet<string>;
+  /** The property's accepted lines read where they are stored (dispatch 37C, `platformLinesOf`). Absent: none. */
+  platformLines?: readonly PlatformLineInput[];
   /** The property's charges (`costCharges`), when the caller already holds them for every month. */
   charges?: ReadonlyMap<string, Charge[]>;
 }
@@ -345,7 +354,7 @@ export function monthMoney(input: MonthMoneyInputs): MonthMoney {
   // ── The statement ──
   const frozen = frozenStatement(reports, month, draft);
   const correcting = frozen === null && (draft?.supersedes ?? null) !== null;
-  const build = frozen ? null : buildStatement({ propertyId, propertyName: input.propertyName, month, entries, reports, draft, management });
+  const build = frozen ? null : buildStatement({ propertyId, propertyName: input.propertyName, month, entries, reports, draft, management, platformLines: input.platformLines ? [...input.platformLines] : undefined });
   const statement: AnyStatement | null = frozen ? statementOf(frozen, reports) : build?.kind === 'ok' ? build.statement : null;
   const replaced = correcting ? (reports.find((report) => report.id === draft?.supersedes?.reportId) ?? null) : null;
   const report = frozen ?? replaced;

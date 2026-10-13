@@ -58,6 +58,7 @@ import {
   type Carried,
   type Fee,
   type IncomeRow,
+  type IncomeSource,
   type Line,
   type MonthlyReportView,
   type PropertyManagementView,
@@ -136,6 +137,8 @@ export type AnyStatement = Statement | LegacyStatement;
 /** The page's claim of what it built the statement from, checked again by the server at finish. */
 export interface FinishClaim {
   entries: { id: string; seen: number }[];
+  /** The lines read from the platforms' files (dispatch 37C): each stored line and its history's length. Absent: none. */
+  platform?: { id: string; seen: number }[];
   earlier: { id: string; seen: number }[];
   adjustments: { entryId: string; statementId: string; deltaCents: number }[];
   /** The carried balance as the page built it, and the carried balances it settles (dispatch 35): absent from a page built before. */
@@ -153,6 +156,31 @@ export interface StatementInputs {
   reports: MonthlyReportView[];
   draft: Pick<StatementDraftView, 'reference' | 'reportDate' | 'lines' | 'fee' | 'carried' | 'notes' | 'supersedes'> | null;
   management: PropertyManagementView | null;
+  /** The property's accepted lines from the platforms' files, read where they are stored (dispatch 37C, M10). Absent: none. */
+  platformLines?: PlatformLineInput[];
+}
+
+/**
+ * A line from a platform's file, accepted and read where it is stored (dispatch 37C, Kian's ruling M10): never
+ * copied into a draft; it prints as an ordinary line. It belongs to the month the platform paid it, and goes on that
+ * month's statement while it is open, else on the next open one with its date printed (M11).
+ */
+export interface PlatformLineInput {
+  /** The stored line's ID, `earnings_lines/{id}`. */
+  id: string;
+  platform: IncomeSource;
+  /** The property it was accepted for. */
+  propertyId: string;
+  /** The month it belongs to: the day the platform paid it, Toronto calendar. */
+  month: string;
+  payoutDate: string;
+  stay: { start: string | null; end: string | null };
+  fileRow: number;
+  /** As accepted, or as edited since: what its own month's statement prints. */
+  description: string;
+  amountCents: number;
+  /** Its history's length: what the page built from, checked again at Finish. */
+  seen: number;
 }
 
 export type StatementBuild =
@@ -415,6 +443,69 @@ export function uncarriedDebts(reports: MonthlyReportView[], month: string): Unc
  * server at finish, on the same inputs, so the claim either side computes
  * is the same.
  */
+// ─── Lines from the platforms' files (dispatch 37C) ───────────
+
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "Sep 30", as "(paid Sep 30)" prints a day. */
+function paidDayText(day: string): string {
+  const match = /^\d{4}-(\d{2})-(\d{2})$/.exec(day);
+  return match ? `${SHORT_MONTHS[Number(match[1]) - 1]} ${Number(match[2])}` : day;
+}
+
+/**
+ * A line printed on a later month's statement than its own says when the platform paid it (Kian's ruling M11):
+ * "(paid Sep 30)" after its words, unless they already end with one.
+ */
+export function withPaidDate(description: string, payoutDate: string): string {
+  return /\(paid [^)]*\)$/.test(description) ? description : `${description} (paid ${paidDayText(payoutDate)})`;
+}
+
+/** Which current statement printed each platform line: a printed line is locked (M10) and goes on no other statement. */
+export function printedPlatformLines(current: Pick<MonthlyReportView, 'id' | 'month' | 'lines'>[]): Map<string, { reportId: string; month: string }> {
+  const printed = new Map<string, { reportId: string; month: string }>();
+  for (const report of current) for (const line of report.lines ?? []) if (line.platformLineId) printed.set(line.platformLineId, { reportId: report.id, month: report.month });
+  return printed;
+}
+
+/** Newest stay first (Kian's ruling of 2026-10-13): by the stay's first day, else the day paid; then its last day, the day paid, the file's order. */
+function newestStayFirst(a: PlatformLineInput, b: PlatformLineInput): number {
+  return (
+    (b.stay.start ?? b.payoutDate).localeCompare(a.stay.start ?? a.payoutDate) ||
+    (b.stay.end ?? b.payoutDate).localeCompare(a.stay.end ?? a.payoutDate) ||
+    b.payoutDate.localeCompare(a.payoutDate) ||
+    a.fileRow - b.fileRow ||
+    a.id.localeCompare(b.id)
+  );
+}
+
+/**
+ * The platform lines a statement prints, in print order (dispatch 37C): the property's accepted lines that no
+ * current statement printed, whose month is this one while it is open, or an earlier one already finished (M11:
+ * the next open statement, with the date printed). A line before the property's first statement month goes on none.
+ */
+export function platformLinesOn(input: { propertyId: string; month: string; firstMonth: string; platformLines: readonly PlatformLineInput[]; current: Pick<MonthlyReportView, 'id' | 'month' | 'lines'>[] }): { line: Line; seen: number }[] {
+  const printed = printedPlatformLines(input.current);
+  const finishedMonths = new Set(input.current.map((report) => report.month));
+  return input.platformLines
+    .filter((line) => line.propertyId === input.propertyId && !printed.has(line.id) && line.month >= input.firstMonth && statementMonthFor(line.month, finishedMonths) === input.month)
+    .sort(newestStayFirst)
+    .map((line) => ({
+      line: {
+        id: line.id,
+        description: line.month === input.month ? line.description : withPaidDate(line.description, line.payoutDate),
+        from: null,
+        to: null,
+        quantity: 1,
+        rateCents: line.amountCents,
+        amountCents: line.amountCents,
+        source: line.platform,
+        platformLineId: line.id,
+      },
+      seen: line.seen,
+    }));
+}
+
 export function buildStatement(input: StatementInputs): StatementBuild {
   const { propertyId, month, draft, management } = input;
   const { from: firstMonth } = statementMonths(management);
@@ -492,7 +583,9 @@ export function buildStatement(input: StatementInputs): StatementBuild {
   }
   carriedAdjustments.sort((a, b) => a.fromMonth.localeCompare(b.fromMonth));
 
-  const lines = draft?.lines ?? [];
+  // The lines from the platforms' files first, newest stay first; then the lines typed, in the admin's order (dispatch 37C).
+  const fromFiles = platformLinesOn({ propertyId, month, firstMonth, platformLines: input.platformLines ?? [], current });
+  const lines = fromFiles.length > 0 ? [...fromFiles.map((row) => row.line), ...(draft?.lines ?? [])] : (draft?.lines ?? []);
   const fee = draft?.fee ?? null;
   const sums = statementSums(lines, costs, adjustments, fee, carried, carriedAdjustments);
   const reportById = new Map(input.reports.map((report) => [report.id, report]));
@@ -526,6 +619,7 @@ export function buildStatement(input: StatementInputs): StatementBuild {
     },
     claim: {
       entries: costs.filter((row) => row.group === 'month').map((row) => ({ id: row.entryId, seen: row.historyLength })),
+      ...(fromFiles.length > 0 ? { platform: fromFiles.map((row) => ({ id: row.line.id, seen: row.seen })) } : {}),
       earlier: costs.filter((row) => row.group === 'earlier').map((row) => ({ id: row.entryId, seen: row.historyLength })),
       adjustments: adjustments.map((row) => ({ entryId: row.entryId, statementId: row.statementId, deltaCents: row.deltaCents })),
       carried: carried ? { fromMonth: carriedHere, amountCents: carried.amountCents } : null,
@@ -550,6 +644,7 @@ export function sameClaim(a: FinishClaim, b: FinishClaim): boolean {
       entries: [...claim.entries].sort((x, y) => x.id.localeCompare(y.id)),
       earlier: [...claim.earlier].sort((x, y) => x.id.localeCompare(y.id)),
       adjustments: [...claim.adjustments].sort((x, y) => x.entryId.localeCompare(y.entryId)),
+      platform: [...(claim.platform ?? [])].sort((x, y) => x.id.localeCompare(y.id)),
       ...(withCarried ? { carried: claim.carried ?? null, carriedAdjustments: [...(claim.carriedAdjustments ?? [])].sort((x, y) => x.fromMonth.localeCompare(y.fromMonth)) } : {}),
     });
   const withCarried = b.carried !== undefined || b.carriedAdjustments !== undefined;
@@ -877,9 +972,11 @@ const TONE_OF: Record<Standing, ReportingTone> = { finished: 'done', due: 'warni
  * of 2026-10-13, M2: a month whose only money is a logged cleaning or a cash
  * payment is owed a statement). A month counts when it holds any confirmed
  * line of the month's money (app/lib/money/month.ts), whatever its source:
- *   typed, airbnb   a line on the month's statement draft, typed by an admin
- *                   or accepted from a platform's file; a proposed line is on
- *                   no draft
+ *   typed           a line on the month's statement draft, typed by an admin
+ *   airbnb          a line accepted from a platform's file, in the month the
+ *                   platform paid it: read where it is stored since dispatch
+ *                   37C (M10), or, accepted before, copied into the draft. A
+ *                   proposed line counts nowhere
  *   receipt, work,  an approved entry, in the month it belongs to: an office
  *   office          cost's chosen month, else the Toronto month it was sent
  *                   (`entryMonth`), the month its ledger and statement put it in
@@ -887,11 +984,17 @@ const TONE_OF: Record<Standing, ReportingTone> = { finished: 'done', due: 'warni
  *                   the day cleaned: one of the entries, of kind `cleaning`
  * A received cash payment (37E) is a further source: added here, beside these.
  */
-export function moneyMonthsByProperty(drafts: { propertyId: string; month: string; lines: readonly unknown[] }[], entries: Pick<CostEntryView, 'property' | 'status' | 'createdAt' | 'month'>[]): Map<string, string[]> {
+export function moneyMonthsByProperty(
+  drafts: { propertyId: string; month: string; lines: readonly unknown[] }[],
+  entries: Pick<CostEntryView, 'property' | 'status' | 'createdAt' | 'month'>[],
+  platformLines: readonly Pick<PlatformLineInput, 'propertyId' | 'month'>[] = [],
+): Map<string, string[]> {
   const months = new Map<string, Set<string>>();
   const add = (propertyId: string, month: string) => months.set(propertyId, (months.get(propertyId) ?? new Set<string>()).add(month));
-  // Lines on the month's draft: typed, or accepted from a platform's file.
+  // Lines on the month's draft: typed, or accepted from a platform's file before dispatch 37C (copied into it).
   for (const draft of drafts) if (draft.lines.length > 0) add(draft.propertyId, draft.month);
+  // Lines accepted from a platform's file since dispatch 37C, read where they are stored (M10), in the month paid.
+  for (const line of platformLines) add(line.propertyId, line.month);
   // Approved cost entries, in the month they belong to.
   for (const entry of entries) {
     if (entry.status !== 'approved' || entry.property.id === null) continue;

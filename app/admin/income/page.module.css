@@ -417,3 +417,23 @@
   font-size: 13px;
   color: rgba(255, 255, 255, 0.5);
 }
+
+/* ── Dispatch 37C ── */
+/* "Needs a decision" beside a line's words. */
+.inlineBadge {
+  margin-left: 8px;
+  vertical-align: 1px;
+}
+/* A rename the evidence agrees on (M14), under its unlinked title: offered, never applied. */
+.rename {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  flex-basis: 100%;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(101, 153, 205, 0.1);
+  border: 1px solid rgba(101, 153, 205, 0.25);
+  font-size: 12.5px;
+}

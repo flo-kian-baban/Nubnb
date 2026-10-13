@@ -20,6 +20,7 @@
  *                 cleaning of the month prints the cleaning line; Kian's ruling of 2026-10-13 keeps the warning,
  *                 a count only)
  *            —    a typed cleaning line beside logged cleanings: cleaning may be charged twice (dispatch 37B)
+ *            I15  stays on the property's calendar in the month that no line from a file covers (dispatch 37C)
  *            C2   costs approved automatically that nobody has looked at
  *            —    entries sent in the month still pending (said before, in the old confirmation)
  *            S25  Report For cut short on the PDF
@@ -35,7 +36,8 @@
  */
 
 import { awaitingLook, formatCents, type CostEntryView } from '@/app/lib/cleaners/model';
-import { currentReports, dateText, feeComputed, isDayText, monthLabel, monthName, monthRange, type Fee, type MonthlyReportView } from './model';
+import { currentReports, dateText, feeComputed, isDayText, monthLabel, monthName, monthRange, rangeText, type Fee, type MonthlyReportView } from './model';
+import { isStayType, type IncomeChannel } from '@/app/lib/income/model';
 import { carriedFromMonth, uncarriedDebts, type Statement } from './statement';
 import { reportForCut } from './statement-pdf';
 
@@ -64,6 +66,8 @@ export interface IncomeFacts {
   unlinked: { title: string; rows: number; amountCents: number }[];
   /** Airbnb stays under the property's titles that checked out in the month: distinct reservations. */
   checkouts: number;
+  /** Stays on the property's calendar copies that began in the month and that no line from a file covers (I15). Absent: not read. */
+  uncovered?: { start: string; end: string }[];
 }
 
 export interface CheckInputs {
@@ -114,15 +118,30 @@ export function feeLabelMismatch(fee: Pick<Fee, 'label' | 'amountCents'> | null)
   return labelCents === null || labelCents === fee.amountCents ? null : { labelCents };
 }
 
-/** Distinct Airbnb reservations that checked out in `month`: Reservation lines, not rejected, whose stay ends in it. */
-export function checkoutsInMonth(lines: { type: string; status: string; confirmationCode: string; stay: { end: string | null } }[], month: string): number {
+/** Distinct reservations that checked out in `month`: lines of a stay's type (Airbnb's Reservation), not rejected, whose stay ends in it. */
+export function checkoutsInMonth(lines: { platform?: IncomeChannel; type: string; status: string; confirmationCode: string; stay: { end: string | null } }[], month: string): number {
   const { from, to } = monthRange(month);
   const codes = new Set<string>();
   for (const line of lines) {
-    if (line.type !== 'Reservation' || line.status === 'rejected' || line.stay.end === null) continue;
+    if (!isStayType(line.platform ?? 'airbnb', line.type) || line.status === 'rejected' || line.stay.end === null) continue;
     if (line.stay.end >= from && line.stay.end <= to) codes.add(line.confirmationCode);
   }
   return codes.size;
+}
+
+/**
+ * The stays on a property's calendar copies that began in `month` and that no line from a file covers (dispatch
+ * 37C, I15): a line, proposed or accepted, of the same first and last day. A stay beginning on the month's last day
+ * is paid in the next month's file (I8), so it is not this month's.
+ */
+export function uncoveredStays(stays: readonly { start: string; end: string }[], lines: readonly { status: string; stay: { start: string | null; end: string | null } }[], month: string): { start: string; end: string }[] {
+  const { from, to } = monthRange(month);
+  const covered = new Set(lines.filter((line) => line.status !== 'rejected').map((line) => `${line.stay.start}|${line.stay.end}`));
+  const seen = new Set<string>();
+  return stays
+    .filter((stay) => stay.start >= from && stay.start < to && !covered.has(`${stay.start}|${stay.end}`))
+    .filter((stay) => !seen.has(`${stay.start}|${stay.end}`) && !!seen.add(`${stay.start}|${stay.end}`))
+    .sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end));
 }
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -170,6 +189,11 @@ export function finishChecks(input: CheckInputs): FinishChecks {
       warnings.push({ key: 'airbnb-unlinked', text: `${plural(income.unlinked.length, 'title', 'titles')} in ${monthName(s.month)}'s Airbnb file ${income.unlinked.length === 1 ? 'is' : 'are'} linked to no property (${formatCents(total)}).`, tab: 'income' });
     }
     if (income.checkouts > 0 && !hasCleaningLine(s)) warnings.push({ key: 'cleaning', text: `No cleaning line · ${plural(income.checkouts, 'Airbnb checkout', 'Airbnb checkouts')} in ${monthName(s.month)}.`, tab: 'income' });
+    // Stays on the calendar the month's file does not hold (I15): money not yet in, or a stay that is not Nubnb's to report.
+    if (income.uncovered && income.uncovered.length > 0) {
+      const shown = income.uncovered.slice(0, 4).map((stay) => rangeText(stay.start, stay.end)).join(', ');
+      warnings.push({ key: 'calendar-stays', text: `${plural(income.uncovered.length, 'stay', 'stays')} on its calendar in ${monthName(s.month)} ${income.uncovered.length === 1 ? 'is' : 'are'} in no Airbnb line: ${shown}${income.uncovered.length > 4 ? ', …' : ''}.`, tab: 'income' });
+    }
   }
   // A cleaning typed as a line beside cleanings logged for the month would charge the owner twice (dispatch 37B).
   if (hasTypedCleaningLine(s) && loggedCleanings(s) > 0) warnings.push({ key: 'cleaning-twice', text: `A typed cleaning line and ${plural(loggedCleanings(s), 'logged cleaning', 'logged cleanings')}: cleaning may be charged twice.`, tab: 'income' });

@@ -19,6 +19,7 @@ export const CHECKS = [
   { name: 'ledger', script: 'money/ledger.mjs', args: [] },
   { name: 'month-money', script: 'money/month-money.mjs', args: [] },
   { name: 'cleanings', script: 'money/cleanings.mjs', args: [] },
+  { name: 'airbnb-file', script: 'money/airbnb-file.mjs', args: [] },
 ];
 
 const argv = process.argv.slice(2);

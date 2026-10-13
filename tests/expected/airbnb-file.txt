@@ -1,0 +1,102 @@
+═══ 1. The reader · dispatch 36's made-up October file and its variants ═══
+  the file as dispatch 36 made it: 2 rows · 1 line(s) · paid out $321.00 · rows $321.00 · balanced true (checked by order)
+    row 3 Reservation HMTEST36D1 "__TEST__ Not Ours Loft" $321.00 stay 2026-10-10..2026-10-13 · known true
+    kept copy: blanked ["Guest","Details"] · holds the guest's name false · holds the payout's details false · sha 7f7273c9657ef209
+    its line's key: airbnb|HMTEST36D1|2026-10-15|Reservation|32100
+  A · two identical reservation rows under one payout of $642.00: 3 rows · 2 line(s) · paid out $642.00 · rows $642.00 · balanced true (checked by order)
+    row 3 Reservation HMTEST36D1 "__TEST__ Not Ours Loft" $321.00 stay 2026-10-10..2026-10-13 · known true
+    row 4 Reservation HMTEST36D1 "__TEST__ Not Ours Loft" $321.00 stay 2026-10-10..2026-10-13 · known true
+    keys, in the file's order: airbnb|HMTEST36D1|2026-10-15|Reservation|32100  and  airbnb|HMTEST36D1|2026-10-15|Reservation|32100|2 (different: true)
+    the same file again makes the same two keys, so it adds nothing; the first key is the one dispatch 36's file made: true
+  B · the same booking in a later file at $300.00: 2 rows · 1 line(s) · paid out $300.00 · rows $300.00 · balanced true (checked by order)
+    row 3 Reservation HMTEST36D1 "__TEST__ Not Ours Loft" $300.00 stay 2026-10-10..2026-10-13 · known true
+    its key differs from the first file's: true · same code, day and type: true
+  C · a "Pass Through Tot" row beside the reservation: 3 rows · 2 line(s) · paid out $333.50 · rows $333.50 · balanced true (checked by order)
+    row 3 Reservation HMTEST36D1 "__TEST__ Not Ours Loft" $321.00 stay 2026-10-10..2026-10-13 · known true
+    row 4 Pass Through Tot HMTEST36D1 "__TEST__ Not Ours Loft" $12.50 stay 2026-10-10..2026-10-13 · known false
+    its label: "Pass Through Tot - Oct 10–13, 2026" · the reservation's: "Revenue - Oct 10–13, 2026"
+  D · the Guest column renamed "Guest name": refused · The column "Guest" is not in this file. Nubnb empties the guests' names and the payout details in the copy it keeps, and cannot find them here, so nothing was stored.
+  D2 · the columns written in lower case: 2 rows · 1 line(s) · paid out $321.00 · rows $321.00 · balanced true (checked by order)
+    row 3 Reservation HMTEST36D1 "__TEST__ Not Ours Loft" $321.00 stay 2026-10-10..2026-10-13 · known true
+    kept copy: holds the guest's name false · holds the payout's details false
+  E · the rows in reverse order: 2 rows · 1 line(s) · paid out $321.00 · rows $321.00 · balanced true (checked by day)
+    row 2 Reservation HMTEST36D1 "__TEST__ Not Ours Loft" $321.00 stay 2026-10-10..2026-10-13 · known true
+  E2 · two payouts on two days, every row before its payout: 4 rows · 2 line(s) · paid out $471.00 · rows $471.00 · balanced true (checked by day)
+    row 2 Reservation HMTEST37C9 "__TEST__ Not Ours Loft" $150.00 stay 2026-10-10..2026-10-13 · known true
+    row 3 Reservation HMTEST36D1 "__TEST__ Not Ours Loft" $321.00 stay 2026-10-10..2026-10-13 · known true
+  E3 · the same, one payout wrong by $1.00: 4 rows · 2 line(s) · paid out $472.00 · rows $471.00 · balanced false (checked by order)
+    row 2 Reservation HMTEST37C9 "__TEST__ Not Ours Loft" $150.00 stay 2026-10-10..2026-10-13 · known true
+    row 3 Reservation HMTEST36D1 "__TEST__ Not Ours Loft" $321.00 stay 2026-10-10..2026-10-13 · known true
+  F · September: a long stay under "__TEST__ Lakeside Loft": 2 rows · 1 line(s) · paid out $2,000.00 · rows $2,000.00 · balanced true (checked by order)
+    row 3 Reservation HMTEST37C2 "__TEST__ Lakeside Loft" $2,000.00 stay 2026-09-01..2026-11-30 · known true
+  F · October: its next instalment under "__TEST__ Lakeside Loft Renamed": 2 rows · 1 line(s) · paid out $2,000.00 · rows $2,000.00 · balanced true (checked by order)
+    row 3 Reservation HMTEST37C2 "__TEST__ Lakeside Loft Renamed" $2,000.00 stay 2026-09-01..2026-11-30 · known true
+
+═══ 2. Accepted lines, read where they are stored (M10), placed by M11, printed newest stay first ═══
+  September's statement, three accepted lines and a typed line:
+      Revenue - Sep 20–25, 2026 (two guests) · 1 · $900.00 · $900.00
+      Resolution Adjustment - Sep 3–6, 2026 · 1 · -$100.00 · -$100.00
+      Revenue - Sep 3–6, 2026 · 1 · $500.00 · $500.00
+      Expense - Repairs · 1 · -$50.00 · -$50.00
+    total $1,250.00 · claim.platform [{"id":"cd9d39a2","seen":1},{"id":"fbe9105a","seen":1},{"id":"5fca46c9","seen":1}]
+    figures (M1): revenue $1,300.00 (Airbnb $1,300.00) · expenses $50.00
+  finished: report lines carry their stored line: 3 of 4 · source ["airbnb","typed"]
+  the PDF prints, in order: "Your Revenue Share:" · "Revenue - Sep 20–25, 2026 (two guests)" · "Resolution Adjustment - Sep 3–6, 2026" · "Revenue - Sep 3–6, 2026" · "Expense - Repairs"
+  locked (printed on a current statement): 2026-09, 2026-09, 2026-09 · for each of the three: true
+  October's statement, with a September line accepted after September was finished (M11):
+      Revenue - Oct 9–12, 2026 · 1 · $400.00 · $400.00
+      Revenue - Sep 27–29, 2026 (paid Sep 30) · 1 · $321.00 · $321.00
+      Revenue - direct booking · 1 · $250.00 · $250.00
+    September's statement as it stands, rebuilt: still 4 lines (finished, never touched) · the late line on it: false
+  owed months (accepted lines count where they are paid): [["TESTPROPairbnbfile01",["2026-09","2026-10"]]]
+  an edit after acceptance, read back: amount $300.00 · history accepted, edited $321.00→$300.00
+    Finish's claim, built before the edit, still holds: false (the server refuses: STATEMENT_CHANGED)
+  September corrected while October is open: its lines are its own again, the late one with them:
+      Revenue - Sep 27–29, 2026 · 1 · $321.00 · $321.00
+      Revenue - Sep 20–25, 2026 (two guests) · 1 · $900.00 · $900.00
+      Resolution Adjustment - Sep 3–6, 2026 · 1 · -$100.00 · -$100.00
+      Revenue - Sep 3–6, 2026 · 1 · $500.00 · $500.00
+      Expense - Repairs · 1 · -$50.00 · -$50.00
+  an August line (before September, its first statement month) is on September's statement: false
+  a copy made before 37C: read where stored false · copied true · placed by the statements 0
+
+═══ 3. The Income page · October, as the page reads it ═══
+  accepted: HMTEST37D1, HMTEST37D5 · removed (a copy taken out of its draft): HMTEST37D6
+  to review, Test Excluded Flat: HMTEST37D4 Reservation · undecided 0 · no statement: It is excluded from reporting: no statement is asked for.
+  to review, Test Lakeside Loft: HMTEST37D1 Reservation · HMTEST37D2 Pass Through Tot (needs a decision) · HMTEST37D3 Reservation · undecided 1 · no statement: —
+  warning on HMTEST37D1: The same booking, paid the same day, was accepted at $600.00: this may replace that line rather than add to it.
+  warning on HMTEST37D3: A typed line on the statement, “Revenue - Oct 15–18 (typed)”, is the same amount: it may be this payment typed by hand.
+  By property: Test Lakeside Loft · 3 lines, 2 from a file · revenue $1,272.00
+  check-ins with no income: [] (a check-in on the 31st is paid in November's file)
+  linked, not in this month's file: [] (a previous title is expected to be missing)
+  a title made active on 13 October, missing from each month's file: September [] · October [] · November ["__TEST__ Lakeside Loft Renamed"]
+  made active at 23:30 on 31 October, Toronto (3:30 on 1 November, UTC): October [] · November ["__TEST__ Lakeside Loft Renamed"]
+  renames: [{"title":"__TEST__ Lakeside Loft Renamed","property":"TESTPROPairbnbfile01","from":"__TEST__ Lakeside Loft","evidence":["code: Booking HMTEST37C2 was under “__TEST__ Lakeside Loft” in September 2026's file.","calendar: 1 stay matches a booking on its calendar."]}]
+  when the evidence disagrees (the code says one property, the name another): 0 suggested
+
+═══ 4. Finish · the calendar's stays and the checkouts ═══
+  stays on its calendar in October no line covers: [{"start":"2026-10-09","end":"2026-10-12"}] (Oct 2–5 is covered; a stay beginning on the 31st is November's; one beginning in September is not October's)
+  the warning: 1 stay on its calendar in October is in no Airbnb line: Oct 9–12, 2026.
+  checkouts in October (stays of a stay type, not rejected, distinct codes): 2
+
+═══ 5. Titles · one active per property, previous ones kept ═══
+  a link written before 37C is active: true · a previous title: false (its history keeps "active": true) · a title set aside: false · a set-aside link marked active reads: not in shape
+
+═══ 6. The routes' schemas, given what the pages send ═══
+  accept, as proposed: ok {"propertyId":"TESTPROPairbnbfile01","month":"2026-10","lines":[{"id":"31b9ee4a830b75580e39e6bd6356d40524fcb8683e67cf094290da306e7ee235"}]}
+  accept, edited: ok {"propertyId":"TESTPROPairbnbfile01","month":"2026-10","lines":[{"id":"31b9ee4a830b75580e39e6bd6356d40524fcb8683e67cf094290da306e7ee235","description":"Revenue - Oct 2–5","amount":-39740}]}
+  accept, $0.00: refused: lines.0.amount An amount is never $0.00
+  edit an accepted line: ok {"action":"edit","seen":1,"amount":30000}
+  edit with nothing to change: refused: description The words, the amount, or both
+  send back: ok {"action":"propose-again"} · reject: ok {"action":"reject"}
+  reject all: ok {"ids":["31b9ee4a830b75580e39e6bd6356d40524fcb8683e67cf094290da306e7ee235","ae448ac86c4e8e4dec645729708ef41873ae79c6dff84eff73360989487f08e5"]} · twice the same: refused: ids A line is listed twice
+  Link (the Income page): ok {"channel":"airbnb","title":"__TEST__ Lakeside Loft","propertyId":"TESTPROPairbnbfile01","expected":null}
+  the edit page's title: ok {"title":"__TEST__ Lakeside Loft Renamed","expected":null} · empty: refused: title A title
+
+═══ 7. The property save ═══
+  a body carrying "airbnbTitle": refused · Not a property field: the Airbnb title is set on the edit page's Airbnb title section, through /api/admin/properties/[id]/airbnb-title
+  a body carrying "listingTitle": refused · Not a property field: the Airbnb title is set on the edit page's Airbnb title section, through /api/admin/properties/[id]/airbnb-title
+  a body carrying "cleanerName": refused · Not a property field: the name cleaners see is set through /api/admin/properties/[id]/cleaner-name
+
+═══ 8. Empty months · October with accepted lines, nothing typed ═══
+  eligible 0 · left out: Accepted Airbnb lines are on its statement.

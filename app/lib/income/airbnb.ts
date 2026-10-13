@@ -15,9 +15,21 @@
  * line, and its Details, which name where the money went, are never kept.
  *
  * Reservation, Adjustment, Resolution Adjustment and Resolution Payout rows
- * become lines. A row of any other type is listed as not read, with its
- * amount, and still counts in its payout's check; so does a row with no
- * amount, no confirmation code, no listing, or a currency other than CAD.
+ * become lines. A row of any other type ("Pass Through Tot", say) becomes a
+ * line too, kept with its listing, code and stay, and needs an admin's
+ * decision (Kian's ruling of 2026-10-13, dispatch 37C: never dropped or set
+ * aside silently). A row with no amount, no confirmation code, no listing,
+ * or a currency other than CAD is listed as not read, with its amount, and
+ * still counts in its payout's check.
+ *
+ * Columns are found by name in any case ("guest" is "Guest"). Guest and
+ * Details must be there (dispatch 37C, I7): the kept copy empties them, and a
+ * file whose guest names could not be found is refused rather than kept with
+ * them.
+ *
+ * The payouts are checked against the rows after each; when a file's rows are
+ * not in that order, day by day instead: each day's payouts against that
+ * day's rows (dispatch 37C, I14).
  *
  * A file this reader cannot read exactly — a column missing, a date or an
  * amount not in Airbnb's form — is refused whole, with the rows named: a
@@ -27,7 +39,8 @@
  */
 
 import { parseCsv, writeCsv } from './csv';
-import { normaliseTitle, type Stay } from './model';
+import { PLATFORM_TYPES, normaliseTitle } from './model';
+import type { PlatformRead, PlatformRow } from './platforms';
 
 /** The columns this reader needs, by Airbnb's names. */
 export const AIRBNB_COLUMNS = {
@@ -44,28 +57,16 @@ export const AIRBNB_COLUMNS = {
 } as const;
 /** Kept as evidence when the file has them; never printed. */
 export const AIRBNB_EVIDENCE_COLUMNS = { gross: 'Gross earnings', serviceFee: 'Service fee', cleaningFee: 'Cleaning fee', tax: 'Airbnb remitted tax' } as const;
-/** Emptied in the copy kept (Kian's ruling): the guest's name, and Details, which on a payout row says where the money went. */
+/** Emptied in the copy kept (Kian's ruling): the guest's name, and Details, which on a payout row says where the money went. Both must be in the file (I7). */
 export const AIRBNB_BLANKED_COLUMNS = ['Guest', 'Details'] as const;
-/** The row types that become lines. */
-export const AIRBNB_LINE_TYPES = ['Reservation', 'Adjustment', 'Resolution Adjustment', 'Resolution Payout'] as const;
+/** The row types Nubnb recognises; a row of any other type is a line that needs a decision. */
+export const AIRBNB_LINE_TYPES = PLATFORM_TYPES.airbnb.known;
 export const AIRBNB_PAYOUT_TYPE = 'Payout';
 /** The currency Nubnb's statements are in. */
 export const STATEMENT_CURRENCY = 'CAD';
 
 /** A row that becomes a line, read. */
-export interface AirbnbLineRow {
-  /** As a spreadsheet numbers it: the header is row 1. */
-  row: number;
-  payoutDate: string;
-  type: string;
-  confirmationCode: string;
-  listingTitle: string;
-  stay: Stay;
-  amountCents: number;
-  currency: string;
-  evidence: { grossCents: number | null; serviceFeeCents: number | null; cleaningFeeCents: number | null };
-  remittedTaxCents: number | null;
-}
+export type AirbnbLineRow = PlatformRow;
 
 export interface AirbnbPayout {
   row: number;
@@ -76,27 +77,7 @@ export interface AirbnbPayout {
   rows: number;
 }
 
-export type AirbnbRead =
-  | {
-      ok: true;
-      /** Data rows in the file. */
-      rows: number;
-      lines: AirbnbLineRow[];
-      payouts: AirbnbPayout[];
-      /** Rows that are not payouts and do not become lines, with why. */
-      notRead: { row: number; payoutDate: string; type: string; amountCents: number; why: string }[];
-      /** Every non-payout row's amount. */
-      amountCents: number;
-      /** Every payout's amount. */
-      paidOutCents: number;
-      balanced: boolean;
-      /** Payouts that do not equal their rows; rows under no payout are reported as payout row 0. */
-      unbalanced: { row: number; paidOutCents: number; rowsCents: number }[];
-      /** The same file with the Guest and Details columns emptied: the copy that is kept. */
-      blanked: string;
-      blankedColumns: string[];
-    }
-  | { ok: false; problems: string[] };
+export type AirbnbRead = PlatformRead;
 
 const MAX_PROBLEMS = 20;
 
@@ -122,10 +103,19 @@ export function readAirbnbCsv(text: string): AirbnbRead {
   const table = parseCsv(text);
   if (table === null) return { ok: false, problems: ['The file has a quoted field that never closes: it is not a CSV this can read.'] };
   const header = table.header.map((name) => name.trim());
-  const index = (name: string) => header.indexOf(name);
+  // A column by its name in any case (I7): "guest" is "Guest".
+  const index = (name: string) => header.findIndex((h) => h.toLowerCase() === name.toLowerCase());
   const missing = Object.values(AIRBNB_COLUMNS).filter((name) => index(name) < 0);
   if (header.length === 0 || missing.length > 0) {
     return { ok: false, problems: [`This is not Airbnb's transaction report: ${missing.length === 1 ? 'the column' : 'the columns'} ${missing.map((m) => `"${m}"`).join(', ')} ${missing.length === 1 ? 'is' : 'are'} missing.`] };
+  }
+  // Guest and Details are emptied in the copy kept: a file where they cannot be found is not kept with them (I7).
+  const unblankable = AIRBNB_BLANKED_COLUMNS.filter((name) => index(name) < 0);
+  if (unblankable.length > 0) {
+    return {
+      ok: false,
+      problems: [`The ${unblankable.length === 1 ? 'column' : 'columns'} ${unblankable.map((m) => `"${m}"`).join(' and ')} ${unblankable.length === 1 ? 'is' : 'are'} not in this file. Nubnb empties the guests' names and the payout details in the copy it keeps, and cannot find them here, so nothing was stored.`],
+    };
   }
   if (table.records.length === 0) return { ok: false, problems: ['The file has its column names and no rows.'] };
 
@@ -140,6 +130,7 @@ export function readAirbnbCsv(text: string): AirbnbRead {
   const payouts: AirbnbPayout[] = [];
   const notRead: { row: number; payoutDate: string; type: string; amountCents: number; why: string }[] = [];
   const orphan = { rows: 0, cents: 0 };
+  const rowAmounts: { payoutDate: string; amountCents: number }[] = [];
   let amountCents = 0;
   let paidOutCents = 0;
 
@@ -182,6 +173,7 @@ export function readAirbnbCsv(text: string): AirbnbRead {
       return;
     }
     amountCents += amount;
+    rowAmounts.push({ payoutDate, amountCents: amount });
     const under = payouts[payouts.length - 1];
     if (under) {
       under.rowsCents += amount;
@@ -191,8 +183,9 @@ export function readAirbnbCsv(text: string): AirbnbRead {
       orphan.cents += amount;
     }
 
-    if (!(AIRBNB_LINE_TYPES as readonly string[]).includes(type)) {
-      notRead.push({ row, payoutDate, type, amountCents: amount, why: `Airbnb's type "${type}" is not one that becomes a line` });
+    // A row of a type Nubnb does not recognise is read as a line all the same, and needs a decision (Kian's ruling of 2026-10-13).
+    if (type === '') {
+      notRead.push({ row, payoutDate, type, amountCents: amount, why: 'no type' });
       return;
     }
     const start = cell(col.start) === '' ? null : airbnbDay(cell(col.start));
@@ -232,8 +225,20 @@ export function readAirbnbCsv(text: string): AirbnbRead {
 
   if (problems.length > 0) return { ok: false, problems };
 
-  const unbalanced = payouts.filter((p) => p.paidOutCents !== p.rowsCents).map((p) => ({ row: p.row, paidOutCents: p.paidOutCents, rowsCents: p.rowsCents }));
-  if (orphan.rows > 0) unbalanced.unshift({ row: 0, paidOutCents: 0, rowsCents: orphan.cents });
+  const inOrder = payouts.filter((p) => p.paidOutCents !== p.rowsCents).map((p) => ({ row: p.row, paidOutCents: p.paidOutCents, rowsCents: p.rowsCents }));
+  if (orphan.rows > 0) inOrder.unshift({ row: 0, paidOutCents: 0, rowsCents: orphan.cents });
+  // Rows not after their payout (I14): each day's payouts against the day's rows. A file in Airbnb's order passes the first check.
+  let checkedBy: 'order' | 'day' = 'order';
+  let unbalanced = inOrder;
+  if (inOrder.length > 0 && amountCents === paidOutCents) {
+    const byDay = new Map<string, number>();
+    for (const p of payouts) byDay.set(p.payoutDate, (byDay.get(p.payoutDate) ?? 0) + p.paidOutCents);
+    for (const r of rowAmounts) byDay.set(r.payoutDate, (byDay.get(r.payoutDate) ?? 0) - r.amountCents);
+    if ([...byDay.values()].every((left) => left === 0)) {
+      checkedBy = 'day';
+      unbalanced = [];
+    }
+  }
 
   // The copy kept: the same rows, Guest and Details emptied.
   const blankedColumns = AIRBNB_BLANKED_COLUMNS.filter((name) => index(name) >= 0);
@@ -250,6 +255,7 @@ export function readAirbnbCsv(text: string): AirbnbRead {
     paidOutCents,
     balanced: unbalanced.length === 0 && amountCents === paidOutCents,
     unbalanced,
+    checkedBy,
     blanked,
     blankedColumns: [...blankedColumns],
   };

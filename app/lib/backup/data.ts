@@ -34,7 +34,7 @@ import {
   type ReportDownloadView,
   type StatementDraftView,
 } from '@/app/lib/reports/model';
-import { moneyMonthsByProperty, monthStanding, type AnyStatement, type Standing, type Statement } from '@/app/lib/reports/statement';
+import { moneyMonthsByProperty, monthStanding, type AnyStatement, type PlatformLineInput, type Standing, type Statement } from '@/app/lib/reports/statement';
 import { chargesByMonth, costCharges, monthMoney, type Figures } from '@/app/lib/money/month';
 import { cleaningEntryView, readCleaning } from '@/app/lib/cleanings/model';
 
@@ -223,8 +223,10 @@ export interface SelectInputs {
   drafts: { view: StatementDraftView; stored: Record<string, unknown> }[];
   /** The month's download records, read, with their stored documents. */
   downloads: { view: ReportDownloadView; stored: Record<string, unknown> }[];
-  /** The statement lines that came from accepted Airbnb lines (Kian's ruling M1); absent, every line reads as typed. */
+  /** The statement lines that came from accepted Airbnb lines copied into a draft before dispatch 37C (Kian's ruling M1). */
   airbnbLineIds?: ReadonlySet<string>;
+  /** Every accepted line read where it is stored (dispatch 37C, `platformLinesOf`): the statements place them. Absent: none. */
+  platformLines?: PlatformLineInput[];
   /** Every cleaning, as stored (dispatch 37B): costs the statements read, beside the entries. */
   cleanings?: { id: string; stored: Record<string, unknown> }[];
   /** Every management record, read, with its stored document. */
@@ -260,7 +262,7 @@ export function selectMonthPackage(input: SelectInputs): Selection {
   // An office cost by the month it was logged for (dispatch 36), any other entry by the day it was sent.
   const inMonth = (entry: CostEntryView) => entryMonth(entry) === month;
   // A month with accepted income or approved costs in it is owed whenever the property was added (Kian's ruling of 2026-10-04).
-  const money = moneyMonthsByProperty(input.drafts.map((d) => d.view), [...views.values()]);
+  const money = moneyMonthsByProperty(input.drafts.map((d) => d.view), [...views.values()], input.platformLines ?? []);
 
   const folders: PackageFolder[] = [];
   const properties: PackageProperty[] = [];
@@ -282,7 +284,7 @@ export function selectMonthPackage(input: SelectInputs): Selection {
     // The month's money (dispatch 37A): the current finished statement, also while a correction of it is written; else the draft as it stands.
     const entriesOfProperty = [...views.values()].filter((entry) => entry.property.id === property.id);
     const charges = costCharges({ propertyId: property.id, entries: entriesOfProperty, reports: reportsOfProperty, management: record });
-    const its = monthMoney({ propertyId: property.id, propertyName: name, month, entries: entriesOfProperty, reports: reportsOfProperty, draft, management: record, airbnbLineIds: input.airbnbLineIds, charges });
+    const its = monthMoney({ propertyId: property.id, propertyName: name, month, entries: entriesOfProperty, reports: reportsOfProperty, draft, management: record, airbnbLineIds: input.airbnbLineIds, charges, platformLines: (input.platformLines ?? []).filter((line) => line.propertyId === property.id) });
     const statement: Statement | null = its.held ? asStatement(its.held) : null;
     const unreadable: string[] = its.held === null && its.build?.kind === 'unreadable' ? its.build.entryIds : [];
     // A cost the statement charges only part of: the other statements that charge the rest (T6).

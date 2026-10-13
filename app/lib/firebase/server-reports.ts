@@ -101,9 +101,9 @@ import {
   type StatementDraftSummary,
   type StatementDraftView,
 } from '@/app/lib/reports/model';
-import { buildStatement, chargedBy, moneyMonthsByProperty, nothingToReport, printedBy, sameClaim, statementMonthFor, type FinishClaim, type Statement } from '@/app/lib/reports/statement';
+import { buildStatement, chargedBy, moneyMonthsByProperty, nothingToReport, printedBy, sameClaim, statementMonthFor, type FinishClaim, type PlatformLineInput, type Statement } from '@/app/lib/reports/statement';
 import { airbnbLineIdsOf, costCharges, monthMoney, type Figures } from '@/app/lib/money/month';
-import { EARNINGS_LINES_COLLECTION, readEarningsLine } from '@/app/lib/income/model';
+import { EARNINGS_LINES_COLLECTION, platformLinesOf, readEarningsLine, type EarningsLineView } from '@/app/lib/income/model';
 import { statementPdf } from '@/app/lib/reports/statement-pdf';
 
 const CONTROL_CHARACTER = /\p{Cc}/u;
@@ -257,6 +257,8 @@ export const FinishInputSchema = z.strictObject({
   /** The carried balance and the carried balances settled, as the page built them (dispatch 35); a page built before sends neither. */
   carried: z.strictObject({ fromMonth: z.string().refine(isMonth, 'A month').nullable(), amountCents: z.number().int() }).nullable().optional(),
   carriedAdjustments: z.array(z.strictObject({ fromMonth: z.string().refine(isMonth, 'A month'), deltaCents: z.number().int() })).max(1_200).optional(),
+  /** The lines from the platforms' files the page placed on the statement, each with its history's length (dispatch 37C). */
+  platform: z.array(z.strictObject({ id: z.string().regex(/^[0-9a-f]{64}$/, 'Not a line ID'), seen: z.number().int().min(0).max(1_000_000) })).max(5_000).optional(),
 });
 export type FinishInput = z.output<typeof FinishInputSchema>;
 
@@ -295,6 +297,15 @@ export interface StatementBundle {
   entries: CostEntryView[];
   reports: MonthlyReportView[];
   management: PropertyManagementView | null;
+  /** The property's accepted lines from the files, read where they are stored (dispatch 37C, Kian's ruling M10). */
+  platformLines: PlatformLineInput[];
+}
+
+/** A property's accepted lines from the platforms' files, read where they are stored (dispatch 37C): in a transaction when given one. */
+async function propertyPlatformLines(propertyId: string, tx?: Transaction): Promise<PlatformLineInput[]> {
+  const query = getAdminDb().collection(EARNINGS_LINES_COLLECTION).where('decided.propertyId', '==', propertyId).where('status', '==', 'accepted');
+  const snapshot = tx ? await tx.get(query) : await query.get();
+  return platformLinesOf(snapshot.docs.map((doc) => readEarningsLine(doc.id, doc.data())).filter((line): line is EarningsLineView => line !== null));
 }
 
 /** The editor's read. null when no property has the ID. @throws if a read fails. */
@@ -303,15 +314,16 @@ export async function readStatementBundle(propertyId: string, month: string): Pr
   const name = await propertyName(propertyId);
   if (name === null) return null;
   const db = getAdminDb();
-  const [draftDoc, entries, reports, management] = await Promise.all([
+  const [draftDoc, entries, reports, management, platformLines] = await Promise.all([
     db.collection(MONTHLY_REPORT_DRAFTS_COLLECTION).doc(draftId(propertyId, month)).get(),
     listPropertyEntries(propertyId),
     propertyReports(propertyId),
     getManagement(propertyId),
+    propertyPlatformLines(propertyId),
   ]);
   const draft = draftDoc.exists ? readStatementDraft(draftDoc.id, draftDoc.data() ?? {}) : null;
   if (draftDoc.exists && draft === null) console.error(`[reports] monthly_report_drafts/${draftDoc.id} is not in the written shape; read as none`);
-  return { propertyName: name, draft, entries, reports, management };
+  return { propertyName: name, draft, entries, reports, management, platformLines };
 }
 
 /** Everything a property's page shows about its statements (dispatch 23D). */
@@ -529,7 +541,7 @@ export const FINISH_REFUSALS: Record<Exclude<FinishResult['kind'], 'finished'>, 
 
 /** The frozen report, built from the bundle and the draft, with its PDF's bytes. */
 function freeze(bundle: StatementBundle, draft: StatementDraftView, propertyId: string, month: string, id: string, finishedAt: string): { report: MonthlyReport; bytes: Uint8Array; statement: Statement; claim: FinishClaim } | { kind: 'unreadable'; entryIds: string[] } {
-  const built = buildStatement({ propertyId, propertyName: bundle.propertyName, month, entries: bundle.entries, reports: bundle.reports, draft, management: bundle.management });
+  const built = buildStatement({ propertyId, propertyName: bundle.propertyName, month, entries: bundle.entries, reports: bundle.reports, draft, management: bundle.management, platformLines: bundle.platformLines });
   if (built.kind === 'unreadable') return built;
   const statement: Statement = { ...built.statement, draft: false };
   const bytes = statementPdf(statement);
@@ -581,6 +593,7 @@ export async function finishStatement(input: FinishInput): Promise<FinishResult>
     adjustments: input.adjustments,
     ...(input.carried !== undefined ? { carried: input.carried } : {}),
     ...(input.carriedAdjustments !== undefined ? { carriedAdjustments: input.carriedAdjustments } : {}),
+    ...(input.platform !== undefined && input.platform.length > 0 ? { platform: input.platform } : {}),
   };
   const bundle = await readStatementBundle(propertyId, month);
   if (bundle === null) return { kind: 'no-such-property' };
@@ -627,10 +640,10 @@ export async function finishStatement(input: FinishInput): Promise<FinishResult>
   try {
     const draftRef = db.collection(MONTHLY_REPORT_DRAFTS_COLLECTION).doc(draftId(propertyId, month));
     const outcome = await db.runTransaction(async (tx): Promise<FinishResult> => {
-      const [draftSnap, entries, reports] = await Promise.all([tx.get(draftRef), propertyEntriesInTransaction(tx, propertyId), propertyReports(propertyId, tx)]);
+      const [draftSnap, entries, reports, platformLines] = await Promise.all([tx.get(draftRef), propertyEntriesInTransaction(tx, propertyId), propertyReports(propertyId, tx), propertyPlatformLines(propertyId, tx)]);
       const draftNow = draftSnap.exists ? readStatementDraft(draftSnap.id, draftSnap.data() ?? {}) : null;
       if (!draftNow || draftNow.revision !== input.draftRevision || draftNow.finishedAs !== null) return { kind: 'draft-changed' };
-      const again = buildStatement({ propertyId, propertyName: bundle.propertyName, month, entries, reports, draft: draftNow, management: bundle.management });
+      const again = buildStatement({ propertyId, propertyName: bundle.propertyName, month, entries, reports, draft: draftNow, management: bundle.management, platformLines });
       if (again.kind === 'unreadable') return again;
       if (!sameClaim(again.claim, claim)) return { kind: 'changed-since' };
       tx.create(reportRefDoc, frozen.report);
@@ -776,7 +789,8 @@ export async function deleteFinishedStatement(reportId: string, input: { downloa
         reference: report.reference,
         // A statement finished before the Payment Summary has no date of its own: the day it was finished.
         reportDate: isDayText(report.reportDate) ? report.reportDate : torontoDayOf(new Date(report.finishedAt)),
-        lines: report.legacy ? report.income.map(lineFromIncomeRow) : report.lines,
+        // The lines read from the files stay where they are stored (dispatch 37C, M10): the draft takes back the typed ones only.
+        lines: report.legacy ? report.income.map(lineFromIncomeRow) : report.lines.filter((line) => line.platformLineId === undefined),
         fee: report.fee,
         carried: report.carried,
         notes: report.notes,
@@ -916,11 +930,14 @@ export async function readTracker(): Promise<TrackerData> {
     else unreadable.downloads += 1;
   }
   if (costs.properties === null) throw new Error('The property names could not be read');
+  const accepted = acceptedSnap.docs.map((doc) => readEarningsLine(doc.id, doc.data())).filter((line): line is EarningsLineView => line !== null);
+  // Read where they are stored (dispatch 37C, M10): the statements place them, and their months are owed.
+  const platformLines = platformLinesOf(accepted);
   // A month with accepted income or approved costs is owed whenever the property was added (Kian's ruling of 2026-10-04).
-  const money = moneyMonthsByProperty(withLines, costs.entries);
+  const money = moneyMonthsByProperty(withLines, costs.entries, platformLines);
   const properties = costs.properties.map((property) => ({ ...property, moneyMonths: money.get(property.id) ?? [] }));
-  const airbnbLineIds = airbnbLineIdsOf(acceptedSnap.docs.map((doc) => readEarningsLine(doc.id, doc.data())).filter((line) => line !== null));
-  const figures = panelFigures({ today: torontoDayOf(new Date()), properties, entries: costs.entries, reports: fullReports, drafts: fullDrafts, management, airbnbLineIds });
+  const airbnbLineIds = airbnbLineIdsOf(accepted);
+  const figures = panelFigures({ today: torontoDayOf(new Date()), properties, entries: costs.entries, reports: fullReports, drafts: fullDrafts, management, airbnbLineIds, platformLines });
   return { reports, drafts, downloads, management, properties, entries: costs.entries, unreadable, figures };
 }
 
@@ -937,6 +954,8 @@ export function panelFigures(input: {
   drafts: StatementDraftView[];
   management: PropertyManagementView[];
   airbnbLineIds: ReadonlySet<string>;
+  /** Accepted lines read where they are stored (dispatch 37C). Absent: none. */
+  platformLines?: PlatformLineInput[];
 }): Record<string, Record<string, PanelFigures>> {
   const thisMonth = monthOfDay(input.today);
   const named = [...input.reports.map((report) => report.month), ...input.drafts.map((draft) => draft.month)];
@@ -948,11 +967,12 @@ export function panelFigures(input: {
     const reports = input.reports.filter((report) => report.propertyId === property.id);
     const drafts = input.drafts.filter((draft) => draft.propertyId === property.id);
     const management = records.get(property.id) ?? null;
-    if (entries.length === 0 && reports.length === 0 && drafts.length === 0) continue;
+    const platformLines = (input.platformLines ?? []).filter((line) => line.propertyId === property.id);
+    if (entries.length === 0 && reports.length === 0 && drafts.length === 0 && platformLines.length === 0) continue;
     const charges = costCharges({ propertyId: property.id, entries, reports, management });
     for (const month of months) {
       const draft = drafts.find((d) => d.month === month) ?? null;
-      const one = monthMoney({ propertyId: property.id, propertyName: property.name?.trim() || 'Unnamed property', month, entries, reports, draft, management, airbnbLineIds: input.airbnbLineIds, charges });
+      const one = monthMoney({ propertyId: property.id, propertyName: property.name?.trim() || 'Unnamed property', month, entries, reports, draft, management, airbnbLineIds: input.airbnbLineIds, charges, platformLines });
       if (one.figures === null || one.held === null) continue;
       const empty = one.held.legacy ? false : nothingToReport(one.held);
       if (one.report === null && draft === null && empty) continue;

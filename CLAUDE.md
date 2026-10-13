@@ -468,3 +468,30 @@ no checkout. Do not build toward one unless asked.
 - **A cleaning is also the cleaner's earnings record.**
 - **Finish keeps its warning when a month has Airbnb checkouts but no
   cleaning logged — a count only.**
+
+## Airbnb files — Kian's rulings of 2026-10-13 (dispatch 37C)
+
+- **Accepted Airbnb lines are read where they are stored, never copied into
+  the month's draft. They still print as ordinary lines; an edit changes the
+  line itself; a line on a finished statement is locked.** (M10)
+- **A line accepted for a month already finished goes on the next open
+  statement, with its date printed.** (M11)
+- **Each property holds one active Airbnb title, set on its edit page;
+  previous titles are kept so older files still match. The property save
+  never writes it. The Income page's Link stays as a second way to set the
+  same title.**
+- **A title linked to the wrong property can move while none of its lines is
+  on a finished statement; its unfinished accepted lines go back for
+  review.** (M13)
+- **A renamed title is suggested from the evidence, never applied without an
+  admin.** (M14)
+- **Two identical rows in one file are two payments.**
+- **Row types Nubnb does not recognise are kept with their property and shown
+  as needing a decision, never dropped or set aside silently.**
+- **Statement lines from files print by stay date, newest first.**
+- **Correcting a month returns a late line to it; a printed line changes only
+  by correcting its statement.** Kian's confirmation of 2026-10-13.
+- **Deduction wording stays as is; uploads and title links cannot be
+  deleted; no missing-instalment flag.** Kian's ruling of 2026-10-13.
+- **A title is listed as "not in this month's file" only for months after it
+  became the property's active title.** Kian's ruling of 2026-10-13.

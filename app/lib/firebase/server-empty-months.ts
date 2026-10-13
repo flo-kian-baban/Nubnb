@@ -21,6 +21,7 @@ import { readIncomeMonth, unlinkedTitlesFromLines } from './server-income';
 import { FINISH_REFUSALS, finishStatement, writeEmptyDraft } from './server-reports';
 import { torontoDayOf } from '@/app/lib/costs/report';
 import { monthView } from '@/app/lib/income/month';
+import { EARNINGS_LINES_COLLECTION, platformLinesOf, readEarningsLine, type EarningsLineView } from '@/app/lib/income/model';
 import { emptyMonth, type EmptyFinishOutcome, type EmptyMonth, type UnsettledTitle } from '@/app/lib/reports/empty';
 import { MONTHLY_REPORTS_COLLECTION, MONTHLY_REPORT_DRAFTS_COLLECTION, STATEMENT_LIMITS, isMonth, monthOfDay, readMonthlyReport, readStatementDraft, type MonthlyReportView, type StatementDraftView } from '@/app/lib/reports/model';
 
@@ -37,18 +38,21 @@ export async function readEmptyMonth(month: string): Promise<EmptyMonthRead> {
   const today = torontoDayOf(new Date());
   if (month >= monthOfDay(today)) return { kind: 'not-closed', today };
   const db = getAdminDb();
-  const [reportsSnap, draftsSnap, management, costs, income] = await Promise.all([
+  const [reportsSnap, draftsSnap, management, costs, income, acceptedSnap] = await Promise.all([
     db.collection(MONTHLY_REPORTS_COLLECTION).get(),
     db.collection(MONTHLY_REPORT_DRAFTS_COLLECTION).get(),
     listManagement(),
     listCosts(),
     readIncomeMonth(month),
+    // Every accepted line, read where it is stored (dispatch 37C): a month holding one is not empty, and is owed.
+    db.collection(EARNINGS_LINES_COLLECTION).where('status', '==', 'accepted').get(),
   ]);
   if (costs.properties === null) throw new Error('The property names could not be read');
   const reports = reportsSnap.docs.map((doc) => readMonthlyReport(doc.id, doc.data())).filter((report): report is MonthlyReportView => report !== null);
   const drafts = draftsSnap.docs.map((doc) => readStatementDraft(doc.id, doc.data())).filter((draft): draft is StatementDraftView => draft !== null);
   // The month's file, as the Income page reads it: lines waiting by property, check-ins with nothing in the file, titles unsettled.
-  const view = monthView({ uploads: income.uploads, lines: income.lines, links: income.links, lastSeen: income.lastSeen, properties: income.properties, statements: income.statements, calendar: income.calendar });
+  const view = monthView({ uploads: income.uploads, lines: income.lines, links: income.links, lastSeen: income.lastSeen, properties: income.properties, statements: income.statements, calendar: income.calendar, month });
+  const platformLines = platformLinesOf(acceptedSnap.docs.map((doc) => readEarningsLine(doc.id, doc.data())).filter((line): line is EarningsLineView => line !== null));
   // Counted from the month's stored lines, each row once (dispatch 37A, T3): as the Income page and Finish count them.
   const unsettled: UnsettledTitle[] = unlinkedTitlesFromLines(income.lines, income.links)
     .filter((title) => title.month === month)
@@ -62,6 +66,7 @@ export async function readEmptyMonth(month: string): Promise<EmptyMonthRead> {
     drafts,
     entries: costs.entries,
     income: { waiting: new Map(view.review.map((group) => [group.propertyId, group.lines.length])), checkInsWithout: new Set(view.gaps.checkIns.map((row) => row.propertyId)), unsettled },
+    platformLines,
   });
   return { kind: 'ok', data, today };
 }

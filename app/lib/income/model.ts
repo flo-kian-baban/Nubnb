@@ -43,6 +43,27 @@
  * - The uploaded CSV is kept with its Guest and Details columns blanked, with
  *   the original file's SHA-256. CSV only: no PDF, image or AI path.
  *
+ * ── Kian's rulings of 2026-10-13 (dispatch 37C) ──
+ * - M10: accepted lines are read where they are stored, never copied into the
+ *   month's draft. They still print as ordinary lines; an edit changes the
+ *   line itself; a line on a finished statement is locked. A line accepted
+ *   before dispatch 37C was copied into its draft and says so (`draftId`,
+ *   `lineId`): the draft holds it, read as it is, never rewritten.
+ * - M11: a line accepted for a month already finished goes on the next open
+ *   statement, with its date printed.
+ * - Each property holds one active title, set on its edit page; previous
+ *   titles are kept so older files still match (`active` false). The
+ *   property save never writes it; the Income page's Link sets the same one.
+ * - M13: a title linked to the wrong property can move while none of its
+ *   lines is on a finished statement; its unfinished accepted lines go back
+ *   for review. M14: a renamed title is suggested from the evidence, never
+ *   applied without an admin.
+ * - Two identical rows in one file are two payments: the second and later
+ *   carry their place in the file in their key (`lineKeyText`).
+ * - Row types Nubnb does not recognise are kept with their property and shown
+ *   as needing a decision, never dropped or set aside silently.
+ * - Statement lines from files print by stay date, newest first.
+ *
  * ── Readers ──
  * These collections are written only by this code, so a document is read
  * strictly: one not in a written shape is left out and counted, never
@@ -51,6 +72,7 @@
 
 import type { Actor } from '@/app/lib/cleaners/model';
 import { monthRange, rangeText, type Line } from '@/app/lib/reports/model';
+import type { PlatformLineInput } from '@/app/lib/reports/statement';
 
 export const EARNINGS_UPLOADS_COLLECTION = 'earnings_uploads';
 export const EARNINGS_LINES_COLLECTION = 'earnings_lines';
@@ -68,6 +90,26 @@ export type IncomeChannel = (typeof INCOME_CHANNELS)[number];
 export const INCOME_CHANNEL_LABELS: Record<IncomeChannel, string> = { airbnb: 'Airbnb' };
 export function isIncomeChannel(value: unknown): value is IncomeChannel {
   return typeof value === 'string' && (INCOME_CHANNELS as readonly string[]).includes(value);
+}
+
+/**
+ * What each platform's row types mean (dispatch 37C: one reader per platform, everything after it shared). `stays`:
+ * the types that pay for a stay, printed "Revenue" and counted as checkouts. `known`: every type Nubnb recognises
+ * and proposes as a line. A row of any other type is kept as a line too, with its property, and needs a decision
+ * (Kian's ruling of 2026-10-13): never dropped, never set aside silently.
+ */
+export const PLATFORM_TYPES: Record<IncomeChannel, { stays: readonly string[]; known: readonly string[] }> = {
+  airbnb: { stays: ['Reservation'], known: ['Reservation', 'Adjustment', 'Resolution Adjustment', 'Resolution Payout'] },
+};
+
+/** Whether Nubnb recognises a row type of the platform; a line of any other type needs a decision. */
+export function isKnownType(platform: IncomeChannel, type: string): boolean {
+  return PLATFORM_TYPES[platform].known.includes(type);
+}
+
+/** Whether a row type pays for a stay: printed "Revenue", and counted as a checkout. */
+export function isStayType(platform: IncomeChannel, type: string): boolean {
+  return PLATFORM_TYPES[platform].stays.includes(type);
 }
 
 export const INCOME_LIMITS = {
@@ -92,30 +134,54 @@ export interface Stay {
 
 export type EarningsStatus = 'proposed' | 'accepted' | 'rejected';
 
-/** An admin's decision on a line. Accepted: where it went and what it said, which may differ from the file's (edited). */
+/**
+ * An admin's decision on a line. Accepted: the property it belongs to and what it says, which may differ from the
+ * file's (edited); since dispatch 37C (M10) the line is read here, and an edit after acceptance changes these two.
+ */
 export type Decision =
   | {
       status: 'accepted';
       at: string;
       actor: Actor;
       propertyId: string;
-      /** monthly_report_drafts/{propertyId}_{month} */
-      draftId: string;
-      /** The id of the line it became in that draft. */
-      lineId: string;
       description: string;
       amountCents: number;
       edited: boolean;
+      /** Only on a line accepted before dispatch 37C, copied into a draft: monthly_report_drafts/{propertyId}_{month}. */
+      draftId?: string;
+      /** Only on such a line: the id of the line it became in that draft. */
+      lineId?: string;
     }
   | { status: 'rejected'; at: string; actor: Actor };
 
-/** One step in a line's life, oldest first: accepted, rejected, or proposed again. */
+/** A line accepted before dispatch 37C: copied into its month's draft, which holds it (M10 keeps such copies as they are). */
+export function isCopied(decided: Decision | null | undefined): decided is Extract<Decision, { status: 'accepted' }> & { draftId: string; lineId: string } {
+  return decided?.status === 'accepted' && typeof decided.draftId === 'string' && typeof decided.lineId === 'string';
+}
+
+/** A line accepted and read where it is stored (dispatch 37C, M10): what the statements print. */
+export function isReadWhereStored(line: Pick<EarningsLine, 'status' | 'decided'>): boolean {
+  return line.status === 'accepted' && line.decided?.status === 'accepted' && !isCopied(line.decided);
+}
+
+/** What an accepted line said, before and after an edit (dispatch 37C, I10). */
+export interface LineWords {
+  description: string;
+  amountCents: number;
+}
+
+/** One step in a line's life, oldest first: accepted, rejected, proposed again, or edited after it was accepted. */
 export interface EarningsHistoryEvent {
   at: string;
   actor: Actor;
-  action: 'accepted' | 'rejected' | 'proposed-again';
+  action: 'accepted' | 'rejected' | 'proposed-again' | 'edited';
   /** On "accepted": the property it went to. */
   propertyId?: string;
+  /** On "edited" (dispatch 37C, I10): what it said before and after. */
+  before?: LineWords;
+  after?: LineWords;
+  /** On "proposed-again" when Nubnb sent it back (its title moved to another property, M13): why. */
+  reason?: string;
 }
 
 /** `earnings_lines/{id}`: one row a line can come from. */
@@ -181,6 +247,8 @@ export interface EarningsUpload {
     balanced: boolean;
     /** The payouts that do not equal their rows; rows under no payout show as payout row 0. */
     unbalanced: { row: number; paidOutCents: number; rowsCents: number }[];
+    /** Written only when the rows were not after their payouts and the file was checked day by day (dispatch 37C, I14). */
+    checkedBy?: 'day';
   };
   /** The listing titles of this month's rows, with their rows and total, whether new or duplicates. */
   titles: { title: string; rows: number; amountCents: number }[];
@@ -212,7 +280,18 @@ export interface TitleLink {
   linkedAt: string;
   actor: Actor;
   /** The links it had before, oldest first; a set-aside one has propertyId null. */
-  history: { propertyId: string | null; notNubnb?: true; linkedAt: string; actor: Actor }[];
+  history: { propertyId: string | null; notNubnb?: true; linkedAt: string; actor: Actor; active?: boolean }[];
+  /**
+   * Whether it is its property's active title (dispatch 37C): one per property and platform; the others are its
+   * previous titles, kept so older files still match. A link written before dispatch 37C has no such field and
+   * reads as active.
+   */
+  active?: boolean;
+}
+
+/** Whether a link is its property's active title (a link written before dispatch 37C reads as active). */
+export function isActiveTitle(link: Pick<TitleLink, 'propertyId' | 'active'> | null | undefined): boolean {
+  return !!link && link.propertyId !== null && link.active !== false;
 }
 
 /** Whether a title is set aside as not a Nubnb property (dispatch 36). */
@@ -231,6 +310,32 @@ export const NOT_NUBNB = 'not-nubnb';
 
 export interface EarningsLineView extends EarningsLine {
   id: string;
+}
+
+/**
+ * An accepted line as the statements read it where it is stored (dispatch 37C, M10): its property, its month, its
+ * words and amount as accepted or edited since, and how many events its history holds (what Finish checks again).
+ * null for a line not accepted, or accepted before dispatch 37C and copied into its draft.
+ */
+export function platformLineOf(line: EarningsLineView): PlatformLineInput | null {
+  if (!isReadWhereStored(line) || line.decided?.status !== 'accepted') return null;
+  return {
+    id: line.id,
+    platform: line.platform,
+    propertyId: line.decided.propertyId,
+    month: line.month,
+    payoutDate: line.payoutDate,
+    stay: { start: line.stay.start, end: line.stay.end },
+    fileRow: line.fileRow,
+    description: line.decided.description,
+    amountCents: line.decided.amountCents,
+    seen: line.history.length,
+  };
+}
+
+/** The accepted lines read where they are stored, of any property. */
+export function platformLinesOf(lines: readonly EarningsLineView[]): PlatformLineInput[] {
+  return lines.map(platformLineOf).filter((line): line is PlatformLineInput => line !== null);
 }
 export interface EarningsUploadView extends EarningsUpload {
   id: string;
@@ -264,8 +369,8 @@ export function stayOutsideMonth(stay: Stay, month: string): boolean {
  * prints a description and then its dates, and the payout date comes after
  * the dates.
  */
-export function proposedLabel(line: Pick<EarningsLine, 'type' | 'stay' | 'payoutDate' | 'month'>): string {
-  const word = line.type === 'Reservation' ? 'Revenue' : line.type;
+export function proposedLabel(line: Pick<EarningsLine, 'type' | 'stay' | 'payoutDate' | 'month'> & { platform?: IncomeChannel }): string {
+  const word = isStayType(line.platform ?? 'airbnb', line.type) ? 'Revenue' : line.type;
   const range = rangeText(line.stay.start, line.stay.end);
   const paid = stayOutsideMonth(line.stay, line.month) ? ` (paid ${shortDay(line.payoutDate)})` : '';
   return range ? `${word} - ${range}${paid}` : `${word} (paid ${shortDay(line.payoutDate)})`;
@@ -276,9 +381,14 @@ export function normaliseTitle(title: string): string {
   return title.normalize('NFC').replace(/\s+/g, ' ').trim();
 }
 
-/** The text a line's ID is the SHA-256 of: the four fields that make it the same line, and the platform. */
-export function lineKeyText(platform: IncomeChannel, line: Pick<EarningsLine, 'confirmationCode' | 'payoutDate' | 'type' | 'amountCents'>): string {
-  return [platform, line.confirmationCode, line.payoutDate, line.type, String(line.amountCents)].join('|');
+/**
+ * The text a line's ID is the SHA-256 of: the four fields that make it the same line, and the platform. Two
+ * identical rows in one file are two payments (Kian's ruling of 2026-10-13): the second such row in a file is
+ * keyed with "|2", the third "|3"; the first keeps the key every earlier line has. A later file holding the same
+ * rows makes the same keys, so it adds nothing.
+ */
+export function lineKeyText(platform: IncomeChannel, line: Pick<EarningsLine, 'confirmationCode' | 'payoutDate' | 'type' | 'amountCents'>, occurrence = 1): string {
+  return [platform, line.confirmationCode, line.payoutDate, line.type, String(line.amountCents), ...(occurrence > 1 ? [String(occurrence)] : [])].join('|');
 }
 
 /** The text a title link's ID is the SHA-256 of. */
@@ -314,8 +424,11 @@ function readDecision(value: unknown): Decision | null | undefined {
   if (value.status === 'rejected') return { status: 'rejected', at: value.at, actor: value.actor };
   if (value.status !== 'accepted') return undefined;
   const { propertyId, draftId, lineId, description, amountCents, edited } = value;
-  if (!isText(propertyId) || !isText(draftId) || !isText(lineId) || !isText(description) || !isCents(amountCents) || typeof edited !== 'boolean') return undefined;
-  return { status: 'accepted', at: value.at, actor: value.actor, propertyId, draftId, lineId, description, amountCents, edited };
+  if (!isText(propertyId) || !isText(description) || !isCents(amountCents) || typeof edited !== 'boolean') return undefined;
+  // A copy (before dispatch 37C) names its draft and line; a line read where it is stored names neither.
+  const copied = draftId !== undefined || lineId !== undefined;
+  if (copied && (!isText(draftId) || !isText(lineId))) return undefined;
+  return { status: 'accepted', at: value.at, actor: value.actor, propertyId, ...(copied ? { draftId: draftId as string, lineId: lineId as string } : {}), description, amountCents, edited };
 }
 
 function readHistory(value: unknown): EarningsHistoryEvent[] | null {
@@ -323,11 +436,21 @@ function readHistory(value: unknown): EarningsHistoryEvent[] | null {
   const events: EarningsHistoryEvent[] = [];
   for (const item of value) {
     if (!isRecord(item) || !isText(item.at) || !isActor(item.actor)) return null;
-    if (item.action !== 'accepted' && item.action !== 'rejected' && item.action !== 'proposed-again') return null;
+    if (item.action !== 'accepted' && item.action !== 'rejected' && item.action !== 'proposed-again' && item.action !== 'edited') return null;
     const event: EarningsHistoryEvent = { at: item.at, actor: item.actor, action: item.action };
     if ('propertyId' in item) {
       if (!isText(item.propertyId)) return null;
       event.propertyId = item.propertyId;
+    }
+    for (const key of ['before', 'after'] as const) {
+      if (!(key in item)) continue;
+      const words = item[key];
+      if (!isRecord(words) || !isText(words.description) || !isCents(words.amountCents)) return null;
+      event[key] = { description: words.description, amountCents: words.amountCents };
+    }
+    if ('reason' in item) {
+      if (!isText(item.reason)) return null;
+      event.reason = item.reason;
     }
     events.push(event);
   }
@@ -372,6 +495,7 @@ export function readEarningsUpload(id: string, fields: Record<string, unknown>):
   if (!isRecord(file) || !isText(file.name) || file.kind !== 'csv' || !isCents(file.bytes) || !isText(file.sha256) || !isText(file.storagePath) || !isCents(file.storedBytes) || !isText(file.storedSha256)) return null;
   if (!Array.isArray(file.blanked) || !file.blanked.every(isText)) return null;
   if (!isRecord(read) || read.by !== 'csv' || !isCents(read.rows) || !isCents(read.payoutRows) || !isCents(read.lineRows) || !isCents(read.amountCents) || !isCents(read.paidOutCents) || typeof read.balanced !== 'boolean') return null;
+  if (read.checkedBy !== undefined && read.checkedBy !== 'day') return null;
   if (!Array.isArray(read.unbalanced) || !read.unbalanced.every((u) => isRecord(u) && isCents(u.row) && isCents(u.paidOutCents) && isCents(u.rowsCents))) return null;
   if (!Array.isArray(titles) || !titles.every((t) => isRecord(t) && isText(t.title) && isCents(t.rows) && isCents(t.amountCents))) return null;
   if (!Array.isArray(outsideMonth) || !outsideMonth.every((o) => isRecord(o) && isMonthText(o.month) && isCents(o.rows) && isCents(o.amountCents))) return null;
@@ -400,6 +524,7 @@ export function readEarningsUpload(id: string, fields: Record<string, unknown>):
       paidOutCents: read.paidOutCents,
       balanced: read.balanced,
       unbalanced: (read.unbalanced as Record<string, number>[]).map((u) => ({ row: u.row, paidOutCents: u.paidOutCents, rowsCents: u.rowsCents })),
+      ...(read.checkedBy === 'day' ? { checkedBy: 'day' as const } : {}),
     },
     titles: (titles as Record<string, unknown>[]).map((t) => ({ title: t.title as string, rows: t.rows as number, amountCents: t.amountCents as number })),
     added,
@@ -412,12 +537,13 @@ export function readEarningsUpload(id: string, fields: Record<string, unknown>):
 }
 
 export function readTitleLink(id: string, fields: Record<string, unknown>): TitleLinkView | null {
-  const { schemaVersion, platform, title, propertyId, linkedAt, actor, history, notNubnb } = fields;
+  const { schemaVersion, platform, title, propertyId, linkedAt, actor, history, notNubnb, active } = fields;
   // A title set aside (dispatch 36) has no property and says so; every other link names one.
   const setAside = notNubnb === true && propertyId === null;
   if (!isCents(schemaVersion) || !isIncomeChannel(platform) || !isText(title) || !(isText(propertyId) || setAside) || !isText(linkedAt) || !isActor(actor)) return null;
   if (notNubnb !== undefined && !setAside) return null;
-  const pastOk = (h: unknown) => isRecord(h) && (isText(h.propertyId) || (h.propertyId === null && h.notNubnb === true)) && isText(h.linkedAt) && isActor(h.actor);
+  if (active !== undefined && (typeof active !== 'boolean' || setAside)) return null;
+  const pastOk = (h: unknown) => isRecord(h) && (isText(h.propertyId) || (h.propertyId === null && h.notNubnb === true)) && isText(h.linkedAt) && isActor(h.actor) && (h.active === undefined || typeof h.active === 'boolean');
   if (!Array.isArray(history) || !history.every(pastOk)) return null;
   return {
     id,
@@ -428,6 +554,7 @@ export function readTitleLink(id: string, fields: Record<string, unknown>): Titl
     ...(setAside ? { notNubnb: true as const } : {}),
     linkedAt,
     actor,
-    history: (history as Record<string, unknown>[]).map((h) => ({ propertyId: (h.propertyId as string | null) ?? null, ...(h.notNubnb === true ? { notNubnb: true as const } : {}), linkedAt: h.linkedAt as string, actor: h.actor as Actor })),
+    history: (history as Record<string, unknown>[]).map((h) => ({ propertyId: (h.propertyId as string | null) ?? null, ...(h.notNubnb === true ? { notNubnb: true as const } : {}), linkedAt: h.linkedAt as string, actor: h.actor as Actor, ...(typeof h.active === 'boolean' ? { active: h.active } : {}) })),
+    ...(typeof active === 'boolean' ? { active } : {}),
   };
 }

@@ -1,48 +1,38 @@
 /**
- * PUT /api/admin/income/links — Link a listing title to a property, or move its link (admin-only, dispatch 27).
+ * PUT /api/admin/income/links — Make a listing title a property's active title, or set it aside (admin-only,
+ * dispatch 27; dispatch 37C).
  *
  * Request: `{ channel, title, propertyId, expected }` — `expected` is the
- * property the page showed the title linked to, "not-nubnb" for a title set
- * aside, or null for none. Or `{ channel, title, notNubnb: true, expected }`
- * to set the title aside as not a Nubnb property (dispatch 36, Kian's ruling
- * of 2026-10-12): it stays listed and marked, leaves the gaps count, and its
- * proposed lines are rejected; the answer then carries `rejected`, how many.
+ * title's link as the page showed it: the property's ID, "not-nubnb" for a
+ * title set aside, or null for none. Or `{ channel, title, notNubnb: true,
+ * expected }` to set the title aside as not a Nubnb property (dispatch 36,
+ * Kian's ruling of 2026-10-12): it stays listed and marked, leaves the gaps
+ * count, and its proposed lines are rejected; the answer then carries
+ * `rejected`, how many.
  *
- * Response: 200 `{ link }`. 404 PROPERTY_NOT_FOUND; 409 LINK_CHANGED when the
- * stored link is not `expected` (nothing changes); 422 for a title or ID that
- * is not one.
+ * Kian's rulings of 2026-10-13 (dispatch 37C): each property holds one active
+ * title, set on its edit page; the Income page's Link is a second way to set
+ * the same title (M12). Its previous active title stays its own, as a
+ * previous title, so older files still match. A title linked to another
+ * property moves only while none of its lines is on a finished statement;
+ * its unfinished accepted lines go back for review (M13). Lines still
+ * proposed follow the link.
  *
- * Kian's ruling: each title is linked to one property by an admin, once, and
- * remembered. Lines already accepted stay where they went; lines still
- * proposed follow the link. Every response is no-store.
+ * Response: 200 `{ link, previous, sentBack }` — the title the property had
+ * before (now previous), and how many lines went back for review. 404
+ * PROPERTY_NOT_FOUND; 409 LINK_CHANGED when the stored link is not
+ * `expected`, TITLE_LINES_PRINTED (with `evidence.statements`, the statements named) or
+ * TITLE_LINES_IN_DRAFT: nothing changes; 422 for a title or ID that is not
+ * one. Every response is no-store.
  */
 
 import { NextRequest } from 'next/server';
-import { z } from 'zod';
 import { verifyAdminSession } from '@/app/lib/api/verify-admin';
 import { apiError, apiFailure, apiSuccess, apiValidationError, noStore } from '@/app/lib/api/safe-response';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
-import { isDocumentId } from '@/app/lib/firebase/server-leads';
-import { LINK_REFUSALS, linkTitle, setTitleAside } from '@/app/lib/firebase/server-income';
-import { INCOME_CHANNELS, INCOME_LIMITS, NOT_NUBNB, normaliseTitle } from '@/app/lib/income/model';
-
-const CONTROL_CHARACTER = /\p{Cc}/u;
-
-const LinkInputSchema = z.strictObject({
-  channel: z.enum(INCOME_CHANNELS),
-  title: z
-    .string()
-    .transform(normaliseTitle)
-    .pipe(z.string().min(1, 'A title').max(INCOME_LIMITS.TITLE_MAX, `At most ${INCOME_LIMITS.TITLE_MAX} characters`).refine((s) => !CONTROL_CHARACTER.test(s), 'No control characters')),
-  /** The property to link it to; absent when the title is set aside. */
-  propertyId: z.string().refine((id) => isDocumentId(id), 'Not a property ID').optional(),
-  /** Set the title aside as not a Nubnb property (dispatch 36). */
-  notNubnb: z.literal(true).optional(),
-  expected: z
-    .string()
-    .refine((id) => id === NOT_NUBNB || isDocumentId(id), 'Not a property ID')
-    .nullable(),
-}).refine((input) => (input.propertyId !== undefined) !== (input.notNubnb === true), { message: 'Either a property to link it to, or notNubnb', path: ['propertyId'] });
+import { LINK_REFUSALS, setActiveTitle, setTitleAside } from '@/app/lib/firebase/server-income';
+import { LinkInputSchema } from '@/app/lib/income/schemas';
+import { monthLabel } from '@/app/lib/reports/model';
 
 export async function PUT(request: NextRequest) {
   const auth = verifyAdminSession(request);
@@ -65,7 +55,8 @@ export async function PUT(request: NextRequest) {
     if (aside.kind === 'set-aside') return noStore(apiSuccess({ link: aside.link, rejected: aside.rejected }));
     return noStore(apiFailure(LINK_REFUSALS[aside.kind]));
   }
-  const outcome = await linkTitle({ platform: channel, title, propertyId: propertyId!, expected });
-  if (outcome.kind === 'linked') return noStore(apiSuccess({ link: outcome.link }));
+  const outcome = await setActiveTitle({ platform: channel, title, propertyId: propertyId!, expected });
+  if (outcome.kind === 'linked') return noStore(apiSuccess({ link: outcome.link, previous: outcome.previous, sentBack: outcome.sentBack }));
+  if (outcome.kind === 'printed') return noStore(apiFailure({ ...LINK_REFUSALS.printed, evidence: { statements: outcome.statements.map((row) => `${monthLabel(row.month)} (${row.reference})`).join('; ') } }));
   return noStore(apiFailure(LINK_REFUSALS[outcome.kind]));
 }

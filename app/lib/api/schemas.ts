@@ -170,7 +170,17 @@ export const UpdatePropertySchema = z.object({
   .refine((body) => !('cleanerName' in body), {
     path: ['cleanerName'],
     message: 'Not a property field: the name cleaners see is set through /api/admin/properties/[id]/cleaner-name',
+  })
+  // The property's Airbnb title lives in its own server-only record (dispatch 37C, Kian's ruling of 2026-10-13: the
+  // property save never writes it), so a body carrying it, under any of the names it might be sent as, is refused.
+  .superRefine((body, ctx) => {
+    for (const field of AIRBNB_TITLE_FIELDS) {
+      if (field in body) ctx.addIssue({ code: 'custom', path: [field], message: 'Not a property field: the Airbnb title is set on the edit page\'s Airbnb title section, through /api/admin/properties/[id]/airbnb-title' });
+    }
   });
+
+/** Names an Airbnb title could be sent under on a property body: none is ever a property field (dispatch 37C). */
+export const AIRBNB_TITLE_FIELDS = ['airbnbTitle', 'airbnbTitles', 'listingTitle', 'titleLink', 'titleLinks', 'activeTitle'] as const;
 
 // ─── Types derived from schemas ────────────────────────────────
 

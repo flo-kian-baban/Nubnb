@@ -50,7 +50,7 @@ import {
 import { selectMonthPackage, type SelectInputs } from '@/app/lib/backup/data';
 import { airbnbLineIdsOf } from '@/app/lib/money/month';
 import { CLEANINGS_COLLECTION } from '@/app/lib/cleanings/model';
-import { EARNINGS_LINES_COLLECTION, readEarningsLine } from '@/app/lib/income/model';
+import { EARNINGS_LINES_COLLECTION, platformLinesOf, readEarningsLine, type EarningsLineView } from '@/app/lib/income/model';
 import { createdMonthOf } from '@/app/lib/firebase/created-month';
 
 /** The one thing logged about a Firestore or Storage error: its code. */
@@ -87,11 +87,13 @@ export async function GET(request: NextRequest) {
       db.collection(MONTHLY_REPORT_DRAFTS_COLLECTION).where('month', '==', month).get(),
       db.collection(REPORT_DOWNLOADS_COLLECTION).where('month', '==', month).get(),
       db.collection(PROPERTY_MANAGEMENT_COLLECTION).get(),
-      // The month's Airbnb lines: which statement lines are Airbnb's, for the workbooks' revenue (dispatch 37A, Kian's ruling M1).
-      db.collection(EARNINGS_LINES_COLLECTION).where('month', '==', month).get(),
+      // Every accepted Airbnb line: read where it is stored, the statements place it (dispatch 37C, M10, M11); copied
+      // into a draft before 37C, it says which statement lines are Airbnb's (dispatch 37A, Kian's ruling M1).
+      db.collection(EARNINGS_LINES_COLLECTION).where('status', '==', 'accepted').get(),
       // Every cleaning (dispatch 37B): costs the statements read; Nubnb's folder lists them with who cleaned.
       db.collection(CLEANINGS_COLLECTION).get(),
     ]);
+    const accepted = earnings.docs.map((doc) => readEarningsLine(doc.id, doc.data())).filter((line): line is EarningsLineView => line !== null);
     const input: SelectInputs = {
       month,
       today: torontoDayOf(madeAt),
@@ -115,7 +117,8 @@ export async function GET(request: NextRequest) {
         const view = readPropertyManagement(doc.id, doc.data());
         return view ? [{ view, stored: doc.data() }] : [];
       }),
-      airbnbLineIds: airbnbLineIdsOf(earnings.docs.map((doc) => readEarningsLine(doc.id, doc.data())).filter((line) => line !== null)),
+      airbnbLineIds: airbnbLineIdsOf(accepted),
+      platformLines: platformLinesOf(accepted),
       cleanings: cleanings.docs.map((doc) => ({ id: doc.id, stored: doc.data() })),
     };
     selection = selectMonthPackage(input);

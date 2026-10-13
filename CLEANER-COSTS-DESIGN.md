@@ -2428,3 +2428,93 @@ Kian's rulings of 2026-10-13 are in `CLAUDE.md` under *Cleanings*: one default r
 - **Finish's checkouts warning** needs a property with Airbnb checkouts. The cleaning-twice warning and M2's owed and empty months for a cleaning-only month were also not exercised live. All three were checked on made-up data only (`tests/money/cleanings.mjs` §6–7).
 - **The Team page** was read only with codes masked and never screenshotted, so the Rate column was checked by a masked read.
 - **The property page's Costs tab** heads its column "Logged by". For a cleaning it shows who cleaned, which only admins see.
+
+## 41. October's Airbnb file: dispatch 37C of the dispatch 37 plan (2026-10-13)
+
+Kian's rulings of 2026-10-13 are in `CLAUDE.md` under *Airbnb files*: M10, M11, one active title per property, M13, M14, identical rows, unknown row types, and print order. What follows is how they were built, with the rest of dispatch 31 Step 4 as the architecture lists it, the developer's decisions where the rulings leave room, and how it was checked. Production held no upload, line or title link, so no stored record changes shape for good; `firestore.rules` and `storage.rules` are unchanged.
+
+### 41.1 What was built
+
+- **Accepted lines read where they are stored (M10):**
+  - Accepting writes only the decision on the line: the property, and the words and amount as the admin left them. Nothing is copied into the draft.
+  - `platformLineOf` reads such a line for the statements (`PlatformLineInput`), and `buildStatement` places it (`platformLinesOn`): its own month while that month's statement is open, otherwise the next open statement, with "(paid Sep 29)" printed (M11).
+  - Lines from files print first, newest stay first; the typed lines follow in the admin's order.
+  - A finished statement keeps each such line with `source` and `platformLineId`, which locks it. An edit or a send-back is refused while a current statement prints the line, unless a correction of that statement is being written.
+  - Finish's claim carries each line and its history's length, so a line changed since the page loaded is refused (`STATEMENT_CHANGED`).
+  - A line accepted before 37C carries `draftId` and `lineId`: it was copied into its draft, which still holds it, and it is read there as before.
+- **The readers:**
+  - The property page, Finish (re-checked inside the transaction), the home panel and tracker, owed months, empty months, the Income page and the month ZIP all read accepted lines through the same path.
+  - A deleted or corrected statement reopens its draft with its typed lines only.
+- **An edit after acceptance (I10):** `PATCH /api/admin/income/lines/[id]` `{ action: "edit", seen, description?, amount? }` changes the line itself, with an `edited` event holding what it said before and after. `propose-again` sends an accepted line back for review.
+- **Reject all (N2):** `POST /api/admin/income/lines/reject`.
+- **One active title per property:**
+  - `earnings_title_links` gains `active`. A link written before 37C reads as active. One title per property and platform is active; the others are previous titles, still the property's, so older files still match.
+  - `setActiveTitle` serves the edit page's new "Airbnb title" section (Nubnb only; `GET`/`PUT /api/admin/properties/[id]/airbnb-title`), the Income page's Link (M12), and an accepted rename.
+  - The property save refuses `airbnbTitle`, `airbnbTitles`, `listingTitle`, `titleLink`, `titleLinks` and `activeTitle`, as it refuses `cleanerName`.
+- **Moving a title (M13):** a title linked to another property moves only while none of its lines is on a current finished statement (`TITLE_LINES_PRINTED`, naming the statements). Its lines accepted for the other property go back for review, each with an event saying why.
+- **Renames (M14):** `renameSuggestions` (pure) weighs three kinds of evidence:
+  - a confirmation code under the new title that was under one of a property's titles in an earlier file;
+  - stays matching bookings on the property's calendar copies;
+  - the title being the property's name.
+
+  It suggests only when every kind of evidence found names the same one property. The Income page offers "Make it <property>'s title", asking first; nothing is applied otherwise.
+- **The reader:** `income/platforms.ts` holds one reader per platform. Row types live in `PLATFORM_TYPES` (stay types print "Revenue" and count as checkouts). Lines are looked up by title on their own platform.
+  - **Identical rows:** the second identical row in a file is keyed `|2`, the third `|3`. The first keeps the key earlier files made, so a later file holding the same rows adds nothing.
+  - **Unknown row types:** a row Nubnb does not recognise becomes a line with its property and is marked "Needs a decision". "Accept all" leaves it out.
+  - **Columns (I7):** names are matched in any case, and a file without Guest or Details is refused.
+  - **Rows out of order (I14):** payouts are checked day by day when the rows are not after their payouts.
+- **The rest of Step 4:**
+  - **I2:** a proposed line warns when it may repeat the same booking accepted at another amount, or a typed line of the same amount and dates.
+  - **I5:** a review group says when its property owes no statement (excluded, or outside its record's months).
+  - **I8:** the Income page and the Income tab say how many days' calendar copies were read, so an empty gap list is never an all-clear. A check-in on a month's last day is left to the next month's file.
+  - **I15:** stays on the calendar copies that no line covers are listed on the Income tab and warned about at Finish (`calendar-stays`).
+- **The Income tab** lists the lines from the files apart from the typed ones ("From the Airbnb file"), each with its file and row, "edited since accepted", and, for a late line, the month it belongs to. While the statement is open, each has Edit and Send back.
+- **Tests:** `tests/money/airbnb-file.mjs`, with dispatch 36's made-up October file (`tests/fixtures/airbnb-october-d36.csv`) and its variants. The income route schemas moved to `app/lib/income/schemas.ts` so the bodies the pages send are tested as they are.
+
+### 41.2 Decisions, not rulings
+
+- **Where a late line goes:** a line accepted for a finished month goes on the next open statement. If that month is corrected while the later statement is still open, the line returns to its own month, as a late cost does (dispatch 36). Once a later statement prints it, it stays there.
+- **Edits after printing:** an accepted line printed on a finished statement is never adjusted on a later one. M10 locks it; only correcting that statement unlocks it.
+- **A line before the property's first statement month** (September 2026, or its record's start) goes on no statement, as a cost does.
+- **Accept all** leaves out lines that need a decision; each is accepted (edited if need be) or rejected on its own.
+- **Moving a title** is refused while any of its lines is on a current statement, even one being corrected. Lines accepted before 37C still in a draft also stop the move (`TITLE_LINES_IN_DRAFT`).
+- **Missing titles:** "Linked, not in this month's file" lists active titles only. A previous title is expected to be missing. Since Kian's ruling of 2026-10-13 (after the first report), an active title is listed only for months after the Toronto month it became active (`activeMonthOf`, from its `linkedAt`); a renamed listing's earlier months are no longer flagged.
+- **The calendar-stays warning** appears only when the month has calendar copies; with none, nothing is checked, and the page says so.
+- **Kian's confirmations of 2026-10-13, after the first report:** the two decisions above stand (a late line returns to its corrected month; a printed line changes only by correcting its statement). Deduction wording (I12) stays as is; uploads and title links cannot be deleted; no flag for a long stay's missing instalment. Still unchanged: the kept copy's byte-order mark (I11) and one file for two months (I13). The pages still say "Airbnb", the one platform there is.
+
+### 41.3 How it was checked (2026-10-13, 14:24–14:36 Toronto)
+
+- **Byte-identical:**
+  - `node tests/run.mjs`: the six earlier checks identical; `airbnb-file` recorded;
+  - 40 of 40 version-3 statements (`d36/v3-hash.mjs`);
+  - dispatch 34's pure checks (dated 12 October) and small checks over the 11 October export, identical to `a4ad705`'s output.
+- **Made-up files** (`tests/money/airbnb-file.mjs`): dispatch 36's October file and variants:
+  - two identical rows: two lines, two keys;
+  - a changed amount: a new key, and a warning beside the accepted one;
+  - a "Pass Through Tot" row: a line that needs a decision;
+  - the Guest column renamed: refused; the columns in lower case: read and blanked;
+  - rows reversed: balanced day by day; one payout $1.00 wrong: unbalanced;
+  - a renamed title whose long stay repeats its code: suggested, with its evidence; with disagreeing evidence: nothing suggested.
+
+  Also checked there: statements placing lines (order, M11, the lock, the claim, a correction, a copy made before 37C), the Income page's view, Finish's checks, titles, the route schemas, and the property save's refusal.
+- **Live, real time** on a local build reading production: build `jBkFC2X4bep4Lvmbwr3ok` (earlier `4V6G_-4tJ74tXQkdID5Pd`), 127.0.0.1:4500, a throwaway PIN, and the write guard (40 of 40 offline checks first). One Unlisted `__TEST__` property, `mNZIIoGbDMgw9uw8YRAd`, and three made-up files:
+  1. On the edit page, "Change title" typed "__TEST__ d37c Loft" and saved it through Nubnb's dialog.
+  2. The September file, uploaded on the Income page: 12 rows became 8 lines; the identical pair became 2 lines; the "Pass Through Tot" line was marked "Needs a decision"; "Accept all 7".
+  3. One line edited and accepted, one rejected, the unknown type accepted on its own, the other five accepted together. Then one accepted line was edited from $900.00 to $880.00 ("edited since accepted").
+  4. The property page listed the 7 file lines newest stay first, with Edit and Send back. September was finished with them and a typed line, and its PDF read back as printed. Edits and send-backs on its lines were then refused with `LINE_LOCKED`, and the page marked them "Locked".
+  5. The late September file was uploaded after September was finished. Its line was accepted: "September 2026 is finished: on its October 2026 statement, with the day paid printed".
+  6. The October file under "__TEST__ d37c Loft Renamed": the page offered the rename on the repeated booking code; accepting it made the old title previous. Its two lines were accepted.
+  7. October was finished. Its PDF prints "Revenue - Sep 27–29, 2026 (paid Sep 29)" between October's own lines.
+  8. After both statements were deleted, the late line returned to September's reopened draft, with nothing counted twice.
+- **Cleanup.** The guard recorded 58 writes and refused none.
+  - Through the app: both statements, their PDFs and download records; the property, with its owner record and unlisted mark.
+  - By exact ID after an export (K13): the 11 lines, 3 uploads and their 3 kept files, 2 title links and 2 drafts.
+  - The closing export (`2026-10-13T18-36-12Z`) is byte-identical, file for file, to the opening one (`18-24-39Z`). Storage's 6,622 objects are identical by name and generation.
+
+### 41.4 Not exercised live
+
+- **Not run live; checked only by pure tests or reading the code:**
+  - moving a title between two properties (M13);
+  - Send back and Reject all (only the lock's refusal of a send-back was exercised live);
+  - the calendar-stays warning (the test property has no calendar), and I5's note.
+- **Variants:** the made-up variants (Guest renamed, rows out of order, the changed amount) went through the reader only, not uploaded.

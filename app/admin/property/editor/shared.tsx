@@ -51,6 +51,8 @@ export interface RowEdits {
 /** Everything a section is handed. */
 export interface SectionContext {
   mode: "new" | "edit";
+  /** The property's ID on an edit; null while it is being created. */
+  propertyId: string | null;
   draft: EditorDraft;
   /** The document as loaded, on an edit. */
   stored: Property | null;

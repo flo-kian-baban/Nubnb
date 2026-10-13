@@ -318,11 +318,16 @@ export interface Line {
   source?: IncomeSource;
   /** On a line loaded from a row written before dispatch 23D: a booking code, or null. */
   reference?: string | null;
+  /**
+   * On a line read from a platform's file (dispatch 37C, Kian's ruling M10): the stored line it is read from,
+   * `earnings_lines/{id}`. Such a line is never in a draft; a finished statement keeps it, with `source`, as printed.
+   */
+  platformLineId?: string;
 }
 
 /** Whether a line carries what a row written before dispatch 23D carried, so the editor shows it. */
 export function lineHasDetails(line: Line): boolean {
-  return line.source !== undefined || (line.reference ?? null) !== null;
+  return line.platformLineId === undefined && (line.source !== undefined || (line.reference ?? null) !== null);
 }
 
 /** A row written before, as a line: quantity 1, the rate its amount, its stay the range. */
@@ -668,6 +673,10 @@ export function readLine(value: unknown): Line | null {
   if ('reference' in value) {
     if (!isTextOrNull(value.reference)) return null;
     line.reference = value.reference;
+  }
+  if ('platformLineId' in value) {
+    if (!isText(value.platformLineId) || !/^[0-9a-f]{64}$/.test(value.platformLineId)) return null;
+    line.platformLineId = value.platformLineId;
   }
   return line;
 }

@@ -122,9 +122,13 @@ export function fromStored(draft: Pick<StatementDraftView, "reference" | "report
   };
 }
 
-/** A finished report's content as typed, for the read-only view and for a correction. */
+/**
+ * A finished report's content as typed, for the read-only view and for a correction. The lines it printed from the
+ * platforms' files stay where they are stored (dispatch 37C, Kian's ruling M10): never typed, never copied into a
+ * draft; the Income tab lists them apart.
+ */
 export function fromReport(report: MonthlyReportView, today: string): Typed {
-  const lines = report.legacy ? report.income.map(lineFromIncomeRow) : report.lines;
+  const lines = report.legacy ? report.income.map(lineFromIncomeRow) : report.lines.filter((line) => line.platformLineId === undefined);
   return fromStored({ reference: report.reference, reportDate: report.reportDate, lines, fee: report.fee, carried: report.carried, notes: report.notes }, today);
 }
 

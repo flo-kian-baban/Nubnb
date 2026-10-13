@@ -18,22 +18,32 @@
  *
  * A finished month shows the frozen lines, with no form.
  *
- * Lines from the platforms' files (dispatch 27): a line an admin accepted on
- * the Income page is an ordinary line of the draft, marked here with its file
- * and row; the month's lines still waiting there are counted, with the way
- * to them. The Income page reads the same draft.
+ * Lines from the platforms' files (dispatch 37C, Kian's ruling M10): a line
+ * an admin accepted on the Income page is read where it is stored, never
+ * copied into the draft. The statement prints it first, newest stay first;
+ * this tab lists it apart, with its file and row, and lets it be edited (the
+ * line itself changes, with its history) or sent back for review — until a
+ * finished statement prints it: then it is locked, unless that statement is
+ * being corrected. A line accepted for a month already finished is on the
+ * next open statement, its day paid printed (M11). The month's lines still
+ * waiting on the Income page are counted, with the way to them; a line
+ * accepted before 37C is an ordinary line of the draft, marked with its file
+ * and row. The month's calendar copies and the stays on them no line covers
+ * are said here (I8, I15).
  */
 
 import { useState, type FormEvent } from "react";
+import type { EarningsLineView } from "@/app/lib/income/model";
+import { decideIncomeLine, editIncomeLine } from "@/app/lib/income-client";
 import Link from "next/link";
 import { ArrowDown, ArrowUp, Plus } from "lucide-react";
 import type { Notice } from "../components/Notice";
 import { useAsk } from "../components/AskDialog";
 import { DateRangeField } from "../components/DateRangeField";
 import { formatCents } from "@/app/lib/cleaners/model";
-import { STATEMENT_LIMITS, isDayText, lineAmount, rangeText } from "@/app/lib/reports/model";
+import { STATEMENT_LIMITS, isDayText, lineAmount, monthLabel, monthRange, rangeText, type Line } from "@/app/lib/reports/model";
 import { lineDetailsText } from "@/app/lib/reports/statement";
-import { readAmount } from "../costs/cost-display";
+import { amountField, readAmount } from "../costs/cost-display";
 import type { Figures } from "@/app/lib/money/month";
 import { centsOf, newId, readQuantity, type LineDraft, type Typed } from "./statement-form";
 import styles from "./page.module.css";
@@ -47,8 +57,24 @@ interface Props {
   sent: Pick<Figures, "revenueCents" | "expensesCents"> | null;
   onChange: (next: Typed) => void;
   show: (notice: Notice) => void;
-  /** The month's lines from the platforms' files: each accepted line's file and row, by line id; how many wait on the Income page; whether they could be read. */
-  files?: { marks: Map<string, string>; pending: number; failed: boolean; month: string };
+  /**
+   * The month's lines from the platforms' files: a copy's file and row (accepted before dispatch 37C), by its draft
+   * line's id; how many wait on the Income page; whether they could be read; the stored lines by ID and the files'
+   * names; and the month's calendar copies with the stays no line covers.
+   */
+  files?: {
+    marks: Map<string, string>;
+    pending: number;
+    failed: boolean;
+    month: string;
+    stored: Map<string, EarningsLineView>;
+    names: Map<string, string>;
+    calendar: { days: string[]; uncovered: { start: string; end: string }[] } | null;
+  };
+  /** The statement's lines read from the files where they are stored (dispatch 37C), in print order. */
+  fileLines?: Line[];
+  /** One of them was edited or sent back: the page reads the lines again. */
+  onFilesChanged?: () => void;
 }
 
 /** The form's fields: the line being added (id null) or corrected (its id), as typed so far. */
@@ -75,8 +101,17 @@ function incomeWords(figures: Pick<Figures, "revenueCents" | "airbnbCents" | "ex
   return `${formatCents(figures.revenueCents)} revenue${airbnb} · ${formatCents(figures.expensesCents)} expenses`;
 }
 
-export function IncomeTab({ typed, readOnly, figures, sent, onChange, show, files }: Props) {
+/** A line from a file being edited: its words and amount as typed. */
+interface FileEditing {
+  id: string;
+  description: string;
+  amount: string;
+}
+
+export function IncomeTab({ typed, readOnly, figures, sent, onChange, show, files, fileLines = [], onFilesChanged }: Props) {
   const [editing, setEditing] = useState<Editing | null>(null);
+  const [fileEditing, setFileEditing] = useState<FileEditing | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
   /** Questions in Nubnb's own dialog (Kian's ruling of 2026-10-12: no native browser dialogs in the admin). */
   const { ask, dialog } = useAsk();
   const full = typed.lines.length >= STATEMENT_LIMITS.LINES_MAX;
@@ -122,6 +157,60 @@ export function IncomeTab({ typed, readOnly, figures, sent, onChange, show, file
     setEditing(null);
   };
 
+  // ── A line from a file: edited, or sent back for review (Kian's ruling M10: until a finished statement prints it) ──
+  const saveFileLine = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!fileEditing || busy) return;
+    const line = files?.stored.get(fileEditing.id);
+    if (!line || line.decided?.status !== "accepted") return;
+    const description = fileEditing.description.normalize("NFC").replace(/\s+/g, " ").trim();
+    const amount = readAmount(fileEditing.amount);
+    const problems = [
+      description === "" || description.length > STATEMENT_LIMITS.LINE_DESCRIPTION_MAX ? `Describe the line, in at most ${STATEMENT_LIMITS.LINE_DESCRIPTION_MAX} characters.` : null,
+      amount === null || amount === "0.00" ? "Check the amount: dollars and cents other than 0.00, negative for money taken back." : null,
+    ].filter((p): p is string => p !== null);
+    if (problems.length > 0 || amount === null) {
+      show({ tone: "error", title: "The line was not saved.", items: problems });
+      return;
+    }
+    const change: { seen: number; description?: string; amount?: string } = { seen: line.history.length };
+    if (description !== line.decided.description) change.description = description;
+    if (amount !== amountField(line.decided.amountCents)) change.amount = amount;
+    if (change.description === undefined && change.amount === undefined) {
+      setFileEditing(null);
+      return;
+    }
+    setBusy(`edit:${line.id}`);
+    const result = await editIncomeLine(line.id, change);
+    setBusy(null);
+    if (!result.ok) {
+      show({ tone: result.status === 409 ? "warning" : "error", title: result.title, detail: result.detail });
+      return;
+    }
+    setFileEditing(null);
+    show({ tone: "success", title: "Saved. The line's history keeps what it said before." });
+    onFilesChanged?.();
+  };
+  const sendBack = async (line: EarningsLineView) => {
+    if (busy || line.decided?.status !== "accepted") return;
+    const yes = await ask({
+      title: "Send this line back for review?",
+      lines: [`“${line.decided.description}” leaves the statement and waits on the Income page, where it can be accepted again or rejected.`],
+      confirm: "Send back",
+    });
+    if (!yes) return;
+    setBusy(`back:${line.id}`);
+    const result = await decideIncomeLine(line.id, "propose-again");
+    setBusy(null);
+    if (!result.ok) {
+      show({ tone: result.status === 409 ? "warning" : "error", title: result.title, detail: result.detail });
+      return;
+    }
+    show({ tone: "success", title: "Sent back: it waits on the Income page." });
+    onFilesChanged?.();
+  };
+  const monthDays = files ? Number(monthRange(files.month).to.slice(8)) : 0;
+
   const live = editing ? figuresOf(editing) : null;
   const position = editing?.id === null ? null : typed.lines.findIndex((line) => line.id === editing?.id);
 
@@ -142,6 +231,87 @@ export function IncomeTab({ typed, readOnly, figures, sent, onChange, show, file
           </span>
         )}
       </div>
+
+      {/* ── The lines from the files, read where they are stored (dispatch 37C): printed first, newest stay first ── */}
+      {fileLines.length > 0 && (
+        <>
+          <h4 className={styles.subTitle}>From the Airbnb file · {fileLines.length}</h4>
+          <table className={styles.listTable}>
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th className={styles.num}>Amount</th>
+                {!readOnly && <th className={styles.orderCell} aria-label="Actions" />}
+              </tr>
+            </thead>
+            <tbody>
+              {fileLines.map((printed) => {
+                const line = printed.platformLineId ? files?.stored.get(printed.platformLineId) : undefined;
+                const from = line ? `${files?.names.get(line.uploadId) ?? "a file"} · row ${line.fileRow}` : "a file";
+                const edited = line?.history.some((h) => h.action === "edited") ?? false;
+                const late = line && files && line.month !== files.month ? `${monthLabel(line.month)}'s, accepted after that month was finished` : null;
+                if (line && fileEditing?.id === line.id && !readOnly) {
+                  return (
+                    <tr key={printed.id} className={styles.rowOpen}>
+                      <td colSpan={3}>
+                        <form className={styles.inlineForm} onSubmit={saveFileLine} aria-label="Edit the line from the file">
+                          <input className={`${styles.textInput} ${styles.inlineDescription}`} aria-label="Description" value={fileEditing.description} maxLength={STATEMENT_LIMITS.LINE_DESCRIPTION_MAX} onChange={(e) => setFileEditing({ ...fileEditing, description: e.target.value })} autoFocus />
+                          <input className={`${styles.textInput} ${styles.amountInput} ${styles.inlineAmount}`} aria-label="Amount" inputMode="decimal" value={fileEditing.amount} onChange={(e) => setFileEditing({ ...fileEditing, amount: e.target.value })} />
+                          <button type="submit" className={styles.btnPrimary} disabled={busy !== null}>
+                            {busy === `edit:${line.id}` ? "Saving…" : "Save"}
+                          </button>
+                          <button type="button" className={styles.btnGhost} onClick={() => setFileEditing(null)}>
+                            Cancel
+                          </button>
+                          <span className={styles.note}>
+                            In the file: {formatCents(line.amountCents)} · {from}
+                          </span>
+                        </form>
+                      </td>
+                    </tr>
+                  );
+                }
+                return (
+                  <tr key={printed.id}>
+                    <td className={styles.cellWhat}>
+                      {printed.description}
+                      <span className={styles.rowSub}>{[`From ${from}`, edited ? "edited since accepted" : null, late].filter(Boolean).join(" · ")}</span>
+                    </td>
+                    <td className={styles.num}>{formatCents(printed.amountCents)}</td>
+                    {!readOnly && (
+                      <td className={styles.orderCell}>
+                        {line && line.decided?.status === "accepted" && (
+                          <span className={styles.rowActions}>
+                            <button type="button" className={styles.btnGhost} disabled={busy !== null || fileEditing !== null} onClick={() => line.decided?.status === "accepted" && setFileEditing({ id: line.id, description: line.decided.description, amount: amountField(line.decided.amountCents) })}>
+                              Edit
+                            </button>
+                            <button type="button" className={styles.btnGhost} disabled={busy !== null || fileEditing !== null} onClick={() => void sendBack(line)}>
+                              {busy === `back:${line.id}` ? "Sending…" : "Send back"}
+                            </button>
+                          </span>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {readOnly && <p className={styles.note}>On a finished statement, so locked. Correcting the statement lets them change.</p>}
+        </>
+      )}
+
+      {/* ── The month's calendar (I8, I15): which days' copies were read, and the stays on them no line covers ── */}
+      {files?.calendar && files.calendar.days.filter((d) => d.startsWith(files.month)).length < monthDays && (
+        <p className={styles.note}>
+          Calendar copies kept for {files.calendar.days.filter((d) => d.startsWith(files.month)).length} of {monthLabel(files.month)}&rsquo;s {monthDays} days: stays on the other days are not checked.
+        </p>
+      )}
+      {files?.calendar && files.calendar.uncovered.length > 0 && (
+        <p className={styles.noteWarn}>
+          {files.calendar.uncovered.length === 1 ? "1 stay" : `${files.calendar.uncovered.length} stays`} on its calendar {files.calendar.uncovered.length === 1 ? "is" : "are"} in no Airbnb line: {files.calendar.uncovered.map((stay) => rangeText(stay.start, stay.end)).join(", ")}.
+        </p>
+      )}
 
       {/* ── The month's lines from the files that wait on the Income page (dispatch 27) ── */}
       {files && files.pending > 0 && (
@@ -210,6 +380,7 @@ export function IncomeTab({ typed, readOnly, figures, sent, onChange, show, file
       )}
 
       {/* ── The lines, in the admin's order ── */}
+      {fileLines.length > 0 && typed.lines.length > 0 && <h4 className={styles.subTitle}>Typed · {typed.lines.length}</h4>}
       {typed.lines.length > 0 && (
         <table className={styles.listTable}>
           <thead>

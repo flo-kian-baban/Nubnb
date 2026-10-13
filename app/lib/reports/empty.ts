@@ -16,7 +16,8 @@
  * about. Every other owed, unfinished property is left out, with why:
  *   - no Report For name;
  *   - a draft in progress (anything typed but its reference and date);
- *   - Airbnb lines for the month waiting on the Income page;
+ *   - Airbnb lines for the month waiting on the Income page, or accepted and
+ *     on its statement (read where they are stored since dispatch 37C);
  *   - its calendar shows check-ins in the month and the month's file holds
  *     nothing for it (I15);
  *   - a cost, an earlier month's cost, an adjustment or a carried balance;
@@ -30,7 +31,7 @@
 import type { CostEntryView } from '@/app/lib/cleaners/model';
 import { finishChecks } from './checks';
 import { currentReports, inStatementScope, isExcludedFromReporting, monthLabel, type MonthlyReportView, type PropertyManagementView, type StatementDraftView } from './model';
-import { moneyMonthsByProperty, monthStanding, nothingToReport, referenceSuggestion } from './statement';
+import { moneyMonthsByProperty, monthStanding, nothingToReport, referenceSuggestion, type PlatformLineInput } from './statement';
 import { monthMoney } from '@/app/lib/money/month';
 
 /** A property whose empty month can be finished, with the reference suggested from its last statement (null when it has none to follow). */
@@ -81,6 +82,8 @@ export interface EmptyInputs {
   entries: CostEntryView[];
   /** What the month's file and calendar say: lines waiting by property, properties with check-ins and nothing in the file, titles unsettled. */
   income: { waiting: Map<string, number>; checkInsWithout: Set<string>; unsettled: UnsettledTitle[] };
+  /** Every accepted line read where it is stored (dispatch 37C, `platformLinesOf`). Absent: none. */
+  platformLines?: PlatformLineInput[];
 }
 
 /** A draft holds nothing but what the empty statement would print anyway: no lines, fee, balance, notes or correction. */
@@ -91,7 +94,7 @@ function draftIsEmpty(draft: StatementDraftView): boolean {
 export function emptyMonth(input: EmptyInputs): EmptyMonth {
   const { month, today } = input;
   const records = new Map(input.management.map((record) => [record.propertyId, record]));
-  const money = moneyMonthsByProperty(input.drafts, input.entries);
+  const money = moneyMonthsByProperty(input.drafts, input.entries, input.platformLines ?? []);
   const eligible: EmptyCandidate[] = [];
   const leftOut: EmptyLeftOut[] = [];
 
@@ -138,9 +141,14 @@ export function emptyMonth(input: EmptyInputs): EmptyMonth {
       reports,
       draft: { reference: reference ?? '', reportDate: today, lines: [], fee: null, carried: null, notes: null, supersedes: null, finishedAs: null },
       management: record,
+      platformLines: input.platformLines,
     }).build;
     if (built === null || built.kind !== 'ok') {
       leave('An approved cost cannot be added up.');
+      continue;
+    }
+    if (built.statement.lines.some((line) => line.platformLineId !== undefined)) {
+      leave('Accepted Airbnb lines are on its statement.');
       continue;
     }
     if (!nothingToReport(built.statement)) {
