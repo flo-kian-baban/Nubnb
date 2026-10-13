@@ -48,5 +48,5 @@ function EditPropertyInner() {
       </PinGate>
     );
   }
-  return <PropertyEditorPage key={id} mode={{ mode: "edit", id }} section={params.get("section")} created={params.get("created") === "1"} mirror={params.get("mirror")} />;
+  return <PropertyEditorPage key={id} mode={{ mode: "edit", id }} section={params.get("section")} created={params.get("created") === "1"} mirror={params.get("mirror")} links={params.get("links")} />;
 }

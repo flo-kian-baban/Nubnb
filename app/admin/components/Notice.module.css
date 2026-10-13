@@ -49,6 +49,23 @@
   list-style: disc;
 }
 
+/* The way to put it right (dispatch 34): a link in the notice's own colour. */
+.action {
+  align-self: flex-start;
+  margin-top: 2px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.action:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
 .dismiss {
   flex-shrink: 0;
   background: none;

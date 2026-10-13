@@ -80,6 +80,7 @@ import {
   readReportDownload,
   readStatementDraft,
   reportRef,
+  statementFileName,
   type Carried,
   type Fee,
   type Line,
@@ -175,6 +176,8 @@ export const StatementFeeInputSchema = z
     rate: z.string().regex(RATE, 'A rate in percent, like 20 or 12.5').transform(toBasisPoints).nullable(),
     base: z.string().regex(AMOUNT, 'A base with two decimals, like 9539.78').transform(toCents).nullable(),
     amount: z.string().regex(AMOUNT, 'An amount with two decimals, like 1907.96').transform(toCents).nullable(),
+    /** The month's revenue when the base was last typed (dispatch 34, S6), as the page saw it; kept only to warn at Finish. */
+    baseRevenueCents: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).nullable().optional(),
   })
   .superRefine((fee, ctx) => {
     if (fee.rate === null && fee.amount === null) ctx.addIssue({ code: 'custom', path: ['amount'], message: 'A fee needs a rate or an amount' });
@@ -182,7 +185,9 @@ export const StatementFeeInputSchema = z
   .transform((fee): Fee => {
     const computedCents = feeComputed(fee.base, fee.rate);
     const amountCents = fee.amount ?? computedCents ?? 0;
-    return { label: fee.label, rateBasisPoints: fee.rate, baseCents: fee.base, computedCents, amountCents, overwritten: fee.amount !== null && amountCents !== computedCents };
+    const out: Fee = { label: fee.label, rateBasisPoints: fee.rate, baseCents: fee.base, computedCents, amountCents, overwritten: fee.amount !== null && amountCents !== computedCents };
+    if (fee.baseRevenueCents !== undefined) out.baseRevenueCents = fee.baseRevenueCents;
+    return out;
   });
 
 /** The carried balance as the page sends it: a label, a signed amount, and the statement the suggestion came from or null. */
@@ -432,7 +437,7 @@ export async function saveDraft(input: DraftInput): Promise<SaveDraftResult> {
 export type FinishResult =
   | { kind: 'finished'; report: MonthlyReportView }
   | { kind: 'no-such-property' }
-  /** The draft has no reference or no date yet, or a fee rate with no base. Nothing written. */
+  /** The draft has no reference or no date yet, a fee rate with no base, or the property no Report For name. Nothing written. */
   | { kind: 'incomplete'; missing: string[] }
   /** No draft at that revision, or the draft is already finished. */
   | { kind: 'draft-changed' }
@@ -446,7 +451,7 @@ export type FinishResult =
 
 export const FINISH_REFUSALS: Record<Exclude<FinishResult['kind'], 'finished'>, Refusal> = {
   'no-such-property': { status: 404, code: 'PROPERTY_NOT_FOUND', message: 'Property not found' },
-  incomplete: { status: 422, code: 'STATEMENT_INCOMPLETE', message: 'The statement needs a reference, a date and, when the fee has a rate, the base it applies to before it is finished.', hint: 'Nothing was written. Fill them in and finish again.' },
+  incomplete: { status: 422, code: 'STATEMENT_INCOMPLETE', message: 'The statement needs a Report For name, a reference, a date and, when the fee has a rate, the base it applies to before it is finished.', hint: 'Nothing was written. Fill them in and finish again.' },
   'draft-changed': { status: 409, code: 'DRAFT_CHANGED', message: 'The draft changed since it was loaded, or is already finished.', hint: 'Nothing was written. Reload the page.' },
   'changed-since': { status: 409, code: 'STATEMENT_CHANGED', message: 'An entry in this statement changed since the page loaded.', hint: 'Nothing was written. Reload, check what changed, and finish again.' },
   unreadable: { status: 409, code: 'STATEMENT_ENTRY_UNREADABLE', message: 'An approved entry in this statement cannot be added up.', hint: 'Nothing was written. Open the entry in the ledger to see why.' },
@@ -506,7 +511,9 @@ export async function finishStatement(input: FinishInput): Promise<FinishResult>
   const { draft } = bundle;
   if (draft === null || draft.revision !== input.draftRevision || draft.finishedAs !== null) return { kind: 'draft-changed' };
   // A rate with no base cannot be finished: the base has no default and is never worked out by code (Kian's ruling, dispatch 26).
+  // Nor a statement with no Report For name: the one check Finish refuses (Kian's ruling of 2026-10-12, dispatch 34); every other check warns, on the page.
   const missing = [
+    ...((bundle.management?.reportFor?.name ?? '').trim() === '' ? ['reportForName'] : []),
     ...(draft.reference.trim() === '' ? ['reference'] : []),
     ...(isDayText(draft.reportDate) ? [] : ['reportDate']),
     ...(draft.fee && draft.fee.rateBasisPoints !== null && draft.fee.baseCents === null ? ['feeBase'] : []),
@@ -586,7 +593,9 @@ export async function downloadLink(reportId: string): Promise<DownloadLinkResult
   const [exists] = await file.exists();
   if (!exists) return { kind: 'object-missing' };
   const expires = Date.now() + STATEMENT_LIMITS.DOWNLOAD_LINK_SECONDS * 1000;
-  const [url] = await file.getSignedUrl({ version: 'v4', action: 'read', expires, responseDisposition: `attachment; filename="nubnb-statement-${report.month}-${reportRef(report.id)}.pdf"` });
+  // Named by property, month and reference (dispatch 34, S23), so 35 near-identical files are told apart.
+  const fileName = statementFileName(report.propertyNameAtFinish, report.month, report.reference.trim() || reportRef(report.id));
+  const [url] = await file.getSignedUrl({ version: 'v4', action: 'read', expires, responseDisposition: `attachment; filename="${fileName}"` });
   const ref = db.collection(REPORT_DOWNLOADS_COLLECTION).doc();
   const record = { schemaVersion: REPORT_DOWNLOAD_SCHEMA_VERSION, reportId, propertyId: report.propertyId, month: report.month, at: new Date().toISOString(), actor: ADMIN_ACTOR };
   await ref.create(record);

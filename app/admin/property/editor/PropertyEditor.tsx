@@ -92,6 +92,7 @@ import { BasicsSection, HighlightsSection, LocationSection, PhotosSection, Revie
 import { OffersSection } from "./sections-offers";
 import { CalendarSection, CleanersSection, StatementsSection, StatusSection } from "./sections-internal";
 import { ImportSection, type ImportTool } from "./sections-import";
+import { CALENDAR_MISMATCH_TEXT } from "@/app/lib/listing-identity";
 import shared from "../../page.module.css";
 import styles from "./editor.module.css";
 
@@ -106,6 +107,8 @@ interface PageProps {
   /** The page was reached from a create: say so, and how the mirror went. */
   created: boolean;
   mirror: string | null;
+  /** "warn" when the create answered a warning about its links (dispatch 34: a calendar for another Airbnb room). */
+  links?: string | null;
 }
 
 /** What the server holds, as far as the page knows: the three things saved apart from the document, and their load states. */
@@ -210,7 +213,7 @@ function Loader(props: PageProps) {
     );
   }
 
-  return <Editor key={`${id ?? "new"}:${attempt}`} id={id} loaded={read.loaded} initialSection={props.section} created={props.created} mirror={props.mirror} />;
+  return <Editor key={`${id ?? "new"}:${attempt}`} id={id} loaded={read.loaded} initialSection={props.section} created={props.created} mirror={props.mirror} links={props.links ?? null} />;
 }
 
 // ─── The editor ───────────────────────────────────────────────
@@ -221,6 +224,7 @@ interface EditorProps {
   initialSection: string | null;
   created: boolean;
   mirror: string | null;
+  links: string | null;
 }
 
 /** What the page knows the server holds, in the draft's shape. */
@@ -269,7 +273,7 @@ async function mirrorImages(id: string): Promise<{ ok: true } | { ok: false; det
 
 const MIRROR_FAILED = "The property itself is saved and its previously mirrored images are unchanged. Save again to retry, or run scripts/mirror-images.mjs.";
 
-function Editor({ id, loaded, initialSection, created, mirror }: EditorProps) {
+function Editor({ id, loaded, initialSection, created, mirror, links }: EditorProps) {
   const router = useRouter();
   const mode: "new" | "edit" = id === null ? "new" : "edit";
   const { notice, show, clear } = useNotice();
@@ -295,6 +299,7 @@ function Editor({ id, loaded, initialSection, created, mirror }: EditorProps) {
     else url.searchParams.set("section", wanted);
     url.searchParams.delete("created");
     url.searchParams.delete("mirror");
+    url.searchParams.delete("links");
     if (url.href !== window.location.href) window.history.replaceState(null, "", url.href);
   }, [section, mode]);
 
@@ -319,6 +324,7 @@ function Editor({ id, loaded, initialSection, created, mirror }: EditorProps) {
   useEffect(() => {
     if (!created) return;
     if (mirror === "failed") show({ tone: "warning", title: "Created — but the images were not mirrored.", detail: MIRROR_FAILED });
+    else if (links === "warn") show({ tone: "warning", title: "Created — but check the links.", items: [CALENDAR_MISMATCH_TEXT] });
     else show({ tone: "success", title: "Created." });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -460,6 +466,8 @@ function Editor({ id, loaded, initialSection, created, mirror }: EditorProps) {
       return;
     }
     const savedId = id ?? result.data.id;
+    /** The same listing or calendar on another property, or a calendar for another room (dispatch 34): saved, and said. */
+    const linkWarnings = result.data.warnings;
 
     // The document is saved. The draft's links and slug are now what was written.
     const settled: Partial<Property> = { ...current.property, price: payload.price, slug: payload.slug };
@@ -475,7 +483,7 @@ function Editor({ id, loaded, initialSection, created, mirror }: EditorProps) {
     }
 
     // The name cleaners see, as its own write, when it changed.
-    const warnings: Notice[] = [];
+    const warnings: Notice[] = linkWarnings.length > 0 ? [{ tone: "warning", title: "Saved — but check the links.", items: [...new Set(linkWarnings.map((w) => w.message))] }] : [];
     if (held.cleanerNameState !== "unavailable") {
       const typed = current.cleanerName.trim();
       if (typed !== held.cleanerName) {
@@ -519,7 +527,7 @@ function Editor({ id, loaded, initialSection, created, mirror }: EditorProps) {
     if (id === null) {
       leavingRef.current = true;
       forgetKeptDraft(null);
-      router.replace(`/admin/property/edit?id=${encodeURIComponent(savedId)}&created=1${mirrored.ok ? "" : "&mirror=failed"}`);
+      router.replace(`/admin/property/edit?id=${encodeURIComponent(savedId)}&created=1${mirrored.ok ? "" : "&mirror=failed"}${linkWarnings.length > 0 ? "&links=warn" : ""}`);
       return;
     }
 

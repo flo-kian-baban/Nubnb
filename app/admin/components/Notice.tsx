@@ -10,6 +10,7 @@
  */
 
 import { useCallback, useState } from "react";
+import Link from "next/link";
 import { AlertTriangle, CheckCircle2, Info, X, XCircle } from "lucide-react";
 import styles from "./Notice.module.css";
 
@@ -23,6 +24,8 @@ export interface Notice {
   detail?: string;
   /** Optional bullets — field-level issues, per-field warnings. */
   items?: string[];
+  /** Optional way to put it right: a link under the text (dispatch 34: a refused delete points to Status). */
+  action?: { label: string; href: string };
 }
 
 const ICONS = {
@@ -66,6 +69,11 @@ export function NoticeBanner({
               <li key={i}>{item}</li>
             ))}
           </ul>
+        )}
+        {notice.action && (
+          <Link href={notice.action.href} prefetch={false} className={styles.action}>
+            {notice.action.label}
+          </Link>
         )}
       </div>
       {onDismiss && (

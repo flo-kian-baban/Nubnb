@@ -494,6 +494,83 @@ textarea.addressInput {
   border-bottom: none;
 }
 
+/* ── Before finishing (dispatch 34): the checks Finish makes, one line each, a dot in its tone (red: refused,
+   amber: warned), the tab that puts it right at the end of the line ── */
+.checkList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.checkItem {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding-left: 15px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #e8edf3;
+}
+.checkItem::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.5em;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.checkItem > span {
+  flex: 1;
+  min-width: 0;
+}
+.checkRefused::before {
+  background: #ef5350;
+}
+.checkRefused > span {
+  color: #ff8a80;
+}
+.checkWarned::before {
+  background: #f0a63a;
+}
+
+/* The Finish dialog: the warnings again, then the one extra confirmation (a tick and its words). */
+.dialogChecks {
+  margin: 2px 0 14px;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #f3c27c;
+}
+.dialogChecks li {
+  list-style: disc;
+}
+.dialogAck {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #e8edf3;
+  cursor: pointer;
+}
+textarea.reasonInput {
+  min-height: 104px;
+}
+/* A finished statement's date, as text: no control to open. */
+.readOnlyValue {
+  display: flex;
+  align-items: center;
+  opacity: 0.6;
+}
+
 /* ── The list: the month's lines on Income, its approved entries on Costs ──
    One table for both: a row a line or an entry, named in its first column (the description; the day an entry
    was submitted), its figures right-aligned, a click on the row opening it. The table keeps to the block's

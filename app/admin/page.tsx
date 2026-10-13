@@ -13,7 +13,9 @@ import { AdminSelect } from "./components/AdminSelect";
 import { ReportingStatusCell } from "./components/StatementStatus";
 import { torontoDayOf } from "@/app/lib/costs/report";
 import { reportingStatuses } from "@/app/lib/reports/statement";
+import { Dialog } from "./property/editor/controls";
 import styles from "./page.module.css";
+import ed from "./property/editor/editor.module.css";
 import {
   Plus,
   Edit2,
@@ -276,13 +278,18 @@ function AdminHome() {
     setBedsFilter("all");
   };
 
-  const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Are you sure you want to delete "${name}"?`)) return;
+  /** The property the Delete dialog asks about (Kian's ruling of 2026-10-12: no native browser dialogs anywhere in the admin). */
+  const [askingDelete, setAskingDelete] = useState<{ id: string; name: string } | null>(null);
 
+  const handleDelete = async (id: string, name: string) => {
+    setAskingDelete(null);
     clearNotice();
     const result = await deleteProperty(id);
     if (result.ok) {
       showNotice({ tone: "success", title: `Deleted "${name}".` });
+    } else if (result.code === "PROPERTY_HOLDS_RECORDS") {
+      // Kian's ruling of 2026-10-12 (dispatch 34): it is never deleted; the way is Unlisted and Exclude from reporting.
+      showNotice({ tone: "warning", title: `"${name}" was not deleted. ${result.error}`, detail: result.hint, action: { label: "Open its Status", href: `${editHref(id)}&section=status` } });
     } else {
       // Previously the return value was dropped, so an expired session looked
       // exactly like a UI glitch: the row simply stayed.
@@ -586,7 +593,7 @@ function AdminHome() {
                         <button
                           type="button"
                           className={styles.iconBtnDelete}
-                          onClick={() => handleDelete(p.id, p.name)}
+                          onClick={() => setAskingDelete({ id: p.id, name: p.name })}
                           title="Delete"
                           aria-label={`Delete ${p.name}`}
                         >
@@ -601,6 +608,27 @@ function AdminHome() {
           </div>
         )}
       </main>
+
+      {/* ── Delete: Nubnb's own dialog (no native browser dialogs in the admin, Kian's ruling of 2026-10-12) ── */}
+      {askingDelete && (
+        <Dialog
+          title={`Delete “${askingDelete.name}”?`}
+          onClose={() => setAskingDelete(null)}
+          actions={
+            <>
+              <button type="button" className={`${ed.btn} ${ed.btnGhost}`} onClick={() => setAskingDelete(null)}>
+                Keep it
+              </button>
+              <button type="button" className={`${ed.btn} ${ed.btnGhost} ${ed.btnDanger}`} onClick={() => void handleDelete(askingDelete.id, askingDelete.name)}>
+                Delete property
+              </button>
+            </>
+          }
+        >
+          <p>Its listing, its owner record and its name for cleaners are deleted with it.</p>
+          <p>A property with statements, drafts, income, Airbnb title links or costs is never deleted: mark it Unlisted and exclude it from reporting instead.</p>
+        </Dialog>
+      )}
     </div>
   );
 }

@@ -19,13 +19,21 @@
  * labelled fields under it, on the same widths.
  *
  * A finished month shows the frozen values, disabled.
+ *
+ * Dispatch 34: the month's revenue is shown beside the base, never filled in,
+ * and the revenue when the base was typed is kept with the fee, so Finish can
+ * warn once the lines change (S6); Report For says when the PDF will cut it
+ * short (S25); the carried balance reads as the PDF prints it, the amount
+ * deducted (S17); a fee or balance not saved because it does not read yet
+ * says so (S10).
  */
 
 import { formatCents } from "@/app/lib/cleaners/model";
 import { STATEMENT_LIMITS, monthLabel, type MonthlyReportView, type PropertyManagementView } from "@/app/lib/reports/model";
 import { carriedSuggestion, feeRateSuggestion } from "@/app/lib/reports/statement";
+import { reportForCut } from "@/app/lib/reports/statement-pdf";
 import { amountField, readAmount } from "../costs/cost-display";
-import { feeNow, rateField, type FeeDraft, type ReportForDraft, type Typed } from "./statement-form";
+import { feeNow, rateField, type FeeDraft, type HeldPart, type ReportForDraft, type Typed } from "./statement-form";
 import styles from "./page.module.css";
 
 interface Props {
@@ -42,9 +50,13 @@ interface Props {
   management: PropertyManagementView | null;
   /** The carried balance as parsed; null when none or unreadable. */
   carriedCents: number | null;
+  /** The month's revenue, the positive lines, as the statement adds it up; null when it cannot be built. */
+  revenueCents: number | null;
+  /** Parts not saved because they do not read yet (dispatch 34, S10). */
+  heldBack: HeldPart[];
 }
 
-export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForState, onReportFor, finishedReport, previous, management, carriedCents }: Props) {
+export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForState, onReportFor, finishedReport, previous, management, carriedCents, revenueCents, heldBack }: Props) {
   const fee = typed.fee ? feeNow(typed.fee) : null;
   const setFee = (patch: Partial<FeeDraft>) => typed.fee && onChange({ ...typed, fee: { ...typed.fee, ...patch } });
   const suggestedCarried = carriedSuggestion(previous);
@@ -61,6 +73,7 @@ export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForStat
           <h3 className={styles.blockTitle} title="Saved to the property; the unit's info shows the same">Report For</h3>
           {!readOnly && reportForState === "failed" && <span className={styles.noteWarn}>Not saved</span>}
           {!readOnly && reportForState === "saving" && <span className={styles.note}>Saving…</span>}
+          {!readOnly && reportForCut(shownName.trim() === "" ? null : { name: shownName.trim(), address: shownAddress }) && <span className={styles.noteWarn}>Cut short on the PDF</span>}
         </div>
         {/* Name and address side by side, so the tab's four blocks fit a 1,280 × 800 window (Kian, 2026-10-01). */}
         <div className={styles.fields}>
@@ -79,6 +92,7 @@ export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForStat
       <section className={styles.block} aria-label="Management fee">
         <div className={styles.blockHead}>
           <h3 className={styles.blockTitle}>Management fee</h3>
+          {!readOnly && heldBack.includes("fee") && <span className={styles.noteWarn}>Not saved until complete</span>}
           <span className={styles.blockTotal}>{fee?.amountCents != null ? formatCents(-fee.amountCents) : typed.fee ? "—" : "None"}</span>
           {!readOnly && (
             <span className={styles.blockActions}>
@@ -109,7 +123,8 @@ export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForStat
                 value={typed.fee.base}
                 disabled={readOnly}
                 placeholder="0.00"
-                onChange={(e) => setFee({ base: e.target.value })}
+                // The revenue as the base is typed, kept with the fee: Finish warns when the lines change after (S6).
+                onChange={(e) => setFee({ base: e.target.value, baseRevenue: revenueCents })}
                 onBlur={() => {
                   if (!typed.fee) return;
                   const read = readAmount(typed.fee.base);
@@ -117,6 +132,8 @@ export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForStat
                 }}
               />
               {!readOnly && fee.baseMissing && <span className={styles.noteWarn}>type the base the rate applies to</span>}
+              {/* Shown beside the base, never filled into it (dispatch 26: the base has no default). */}
+              {!readOnly && revenueCents !== null && <span className={styles.note}>revenue {formatCents(revenueCents)}</span>}
             </div>
             <div className={`${styles.field} ${styles.fieldAmount}`}>
               <label className={styles.fieldLabel} htmlFor="fee-amount">Amount</label>
@@ -167,7 +184,9 @@ export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForStat
       <section className={styles.block} aria-label="Carried balance">
         <div className={styles.blockHead}>
           <h3 className={styles.blockTitle}>Carried balance</h3>
-          <span className={styles.blockTotal}>{carriedCents !== null ? formatCents(-carriedCents) : typed.carried ? "—" : "None"}</span>
+          {!readOnly && heldBack.includes("carried") && <span className={styles.noteWarn}>Not saved until complete</span>}
+          {/* The amount deducted, as the PDF prints it under its label (S17: this read −$359.96, the PDF $359.96). */}
+          <span className={styles.blockTotal}>{carriedCents !== null ? `${formatCents(carriedCents)} deducted` : typed.carried ? "—" : "None"}</span>
           {!readOnly && (
             <span className={styles.blockActions}>
               {typed.carried ? (

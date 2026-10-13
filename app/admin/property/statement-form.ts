@@ -9,9 +9,9 @@
  */
 
 import { amountField, readAmount } from "../costs/cost-display";
-import { feeComputed, isDayText, lineAmount, lineFromIncomeRow, rateText, type Carried, type Fee, type Line, type MonthlyReportView, type PropertyManagementView, type StatementDraftView } from "@/app/lib/reports/model";
+import { STATEMENT_LIMITS, feeComputed, isDayText, lineAmount, lineFromIncomeRow, rateText, type Carried, type Fee, type Line, type MonthlyReportView, type PropertyManagementView, type StatementDraftView } from "@/app/lib/reports/model";
 import { feeLabelFor, feeRateSuggestion, referenceSuggestion } from "@/app/lib/reports/statement";
-import type { DraftPayload, LinePayload } from "@/app/lib/reports-client";
+import type { CarriedPayload, DraftPayload, FeePayload, LinePayload } from "@/app/lib/reports-client";
 
 /** A line as typed. */
 export interface LineDraft {
@@ -37,6 +37,8 @@ export interface FeeDraft {
   amount: string;
   amountEdited: boolean;
   labelEdited: boolean;
+  /** The month's revenue, in cents, when the base was last typed (dispatch 34, S6); absent when it never was on this page. */
+  baseRevenue?: number | null;
 }
 export interface CarriedDraft {
   label: string;
@@ -98,6 +100,7 @@ export function feeDraftOf(fee: Fee): FeeDraft {
     amount: amountField(fee.amountCents),
     amountEdited: fee.overwritten,
     labelEdited: fee.label !== label,
+    ...(fee.baseRevenueCents !== undefined ? { baseRevenue: fee.baseRevenueCents } : {}),
   };
 }
 
@@ -189,6 +192,7 @@ export function toDraft(typed: Typed): { lines: Line[]; fee: Fee | null; carried
       problems.push("Management fee: a rate in percent or an amount, a base, and a label");
     } else {
       fee = { label: now.label.trim(), rateBasisPoints: now.rateBp, baseCents: now.baseCents, computedCents: now.computedCents, amountCents: now.amountCents, overwritten: now.amountCents !== now.computedCents };
+      if (typed.fee.baseRevenue !== undefined) fee.baseRevenueCents = typed.fee.baseRevenue;
     }
   }
   let carried: Carried | null = null;
@@ -223,6 +227,7 @@ export function toPayload(propertyId: string, month: string, revision: number, t
             // Empty stays empty (null): a rate with no base saves as a draft and cannot be finished.
             base: typed.fee.base.trim() === "" ? null : fee.baseCents === null ? (readAmount(typed.fee.base) ?? typed.fee.base) : amountField(fee.baseCents),
             amount: typed.fee.amountEdited || fee.rateBp === null ? (fee.amountCents === null ? (readAmount(typed.fee.amount) ?? typed.fee.amount) : amountField(fee.amountCents)) : null,
+            ...(typed.fee.baseRevenue !== undefined ? { baseRevenueCents: typed.fee.baseRevenue } : {}),
           }
         : null,
     carried: typed.carried ? { label: typed.carried.label.trim(), amount: readAmount(typed.carried.amount) ?? typed.carried.amount, fromReportId: typed.carried.fromReportId } : null,
@@ -230,6 +235,73 @@ export function toPayload(propertyId: string, month: string, revision: number, t
     supersedes,
   };
 }
+
+// ─── Saving what reads (dispatch 34, S10) ──────────────────────
+// The server takes the draft whole and refuses all of it when one part does
+// not read, so a fee or a balance half-typed ("Add a fee" with no rate
+// offered, "Type a balance" before both fields are filled) left the whole
+// draft unsaved. A save now sends what reads; a part that does not — the
+// fee, the carried balance, the date — is sent as it was last saved, and
+// what is typed in it stays on the page until it reads. Finish stays blocked
+// meanwhile: it names the part.
+
+const PAYLOAD_AMOUNT = /^(0|[1-9][0-9]{0,5})\.[0-9]{2}$/;
+const PAYLOAD_SIGNED = /^-?(0|[1-9][0-9]{0,5})\.[0-9]{2}$/;
+const PAYLOAD_RATE = /^(100(\.0{1,2})?|[0-9]{1,2}(\.[0-9]{1,2})?)$/;
+
+/** A label as the server reads it: whitespace collapsed, 1 to `max` characters, no control characters. */
+const labelReads = (value: string, max: number) => {
+  const text = value.normalize("NFC").replace(/\s+/g, " ").trim();
+  return text.length >= 1 && text.length <= max && !/\p{Cc}/u.test(text);
+};
+
+/** Whether the server takes this fee as it stands: the rules of StatementFeeInputSchema. */
+export function feeSavable(fee: FeePayload): boolean {
+  return (
+    labelReads(fee.label, STATEMENT_LIMITS.FEE_LABEL_MAX) &&
+    (fee.rate === null || PAYLOAD_RATE.test(fee.rate)) &&
+    (fee.base === null || PAYLOAD_AMOUNT.test(fee.base)) &&
+    (fee.amount === null || PAYLOAD_AMOUNT.test(fee.amount)) &&
+    !(fee.rate === null && fee.amount === null)
+  );
+}
+
+/** Whether the server takes this carried balance as it stands: the rules of CarriedInputSchema. */
+export function carriedSavable(carried: CarriedPayload): boolean {
+  return labelReads(carried.label, STATEMENT_LIMITS.CARRIED_LABEL_MAX) && PAYLOAD_SIGNED.test(carried.amount);
+}
+
+/** A part of the draft that did not read and was sent as it was last saved. */
+export type HeldPart = "fee" | "carried" | "date";
+
+/** What was last saved in place of each part that can be held back. */
+export interface HeldParts {
+  fee: FeePayload | null;
+  carried: CarriedPayload | null;
+  reportDate: string;
+}
+
+/** The draft to save: what reads as typed, and in place of a part that does not, what was last saved there. */
+export function savablePayload(propertyId: string, month: string, revision: number, typed: Typed, supersedes: { reportId: string; reason: string } | null, held: HeldParts): { payload: DraftPayload; heldBack: HeldPart[] } {
+  const payload = toPayload(propertyId, month, revision, typed, supersedes);
+  const heldBack: HeldPart[] = [];
+  if (payload.fee && !feeSavable(payload.fee)) {
+    payload.fee = held.fee;
+    heldBack.push("fee");
+  }
+  if (payload.carried && !carriedSavable(payload.carried)) {
+    payload.carried = held.carried;
+    heldBack.push("carried");
+  }
+  if (!isDayText(payload.reportDate)) {
+    payload.reportDate = held.reportDate;
+    heldBack.push("date");
+  }
+  return { payload, heldBack };
+}
+
+/** The parts a saved payload holds, as the next save falls back to them. */
+export const heldPartsOf = (payload: Pick<DraftPayload, "fee" | "carried" | "reportDate">): HeldParts => ({ fee: payload.fee, carried: payload.carried, reportDate: payload.reportDate });
 
 export async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", bytes as BufferSource);

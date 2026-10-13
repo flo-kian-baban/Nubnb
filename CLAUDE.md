@@ -379,3 +379,27 @@ no checkout. Do not build toward one unless asked.
 - **Production reset of 2026-10-12: all cost, income and statement data
   recorded before this date was test data and was cleared. Properties and
   their settings were kept.**
+
+## Safe to finish — Kian's rulings of 2026-10-12 (dispatch 34)
+
+- **Each check at Finish warns and asks for one extra confirmation. Only a
+  statement with no Report For name is refused.**
+- **A property with drafts, statements, accepted income, title links or
+  cost entries cannot be deleted; the page points to Unlisted and Exclude
+  from reporting.**
+- **A duplicate Airbnb listing or calendar link is refused on create and
+  warned about on save.**
+- **The statement PDF prints the property and the month at the top.**
+- **Finish, Correct and Delete on the property page use Nubnb's own
+  dialogs, no native browser controls.**
+- **Unseen automatic approvals warn only.**
+- **Finish may show the month's Airbnb checkouts beside a missing cleaning
+  line, as a count, never a charge.**
+
+## Admin dialogs, the fee and deletions — Kian's rulings of 2026-10-12 (dispatch 34)
+
+- **No native browser dialogs anywhere in the admin.** The property list's
+  Delete uses Nubnb's own dialog, not the browser's confirm.
+- **A $0.00 fee does not print on the statement PDF.**
+- **Records the admin cannot delete may be deleted by exact document ID
+  after an export, never by pattern.** (K13)

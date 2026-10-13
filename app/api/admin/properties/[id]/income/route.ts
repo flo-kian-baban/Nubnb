@@ -1,9 +1,11 @@
 /**
  * GET /api/admin/properties/[id]/income — One property's lines from the platforms' files, for its page (admin-only, dispatch 27).
  *
- * Response: 200 `{ lines, uploads }` — every line under a title linked to the
- * property, and every line accepted into its statements, whatever the month;
- * and the name of each file they came from. The property page's Income tab
+ * Response: 200 `{ lines, uploads, unlinked }` — every line under a title
+ * linked to the property, and every line accepted into its statements,
+ * whatever the month; the name of each file they came from; and the titles
+ * in each month's files that no link names (dispatch 34: Finish warns while
+ * any is left, as the property's money may be under one). The property page's Income tab
  * reads them beside its draft: an accepted line is an ordinary line of the
  * draft, marked with its file and row, and the month's proposed lines are
  * counted with a way to the Income page. Every response is no-store.

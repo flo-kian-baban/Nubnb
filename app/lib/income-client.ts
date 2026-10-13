@@ -129,7 +129,17 @@ export function fetchUploadFileLink(uploadId: string): Promise<IncomeResult<{ ur
   return call(`/api/admin/income/uploads/${encodeURIComponent(uploadId)}/file`, {}, 'Opening the file failed', (data) => isRecord(data) && typeof data.url === 'string' && data.url.startsWith('https://'));
 }
 
-/** One property's lines from the files, for its page. */
-export function fetchPropertyIncome(propertyId: string): Promise<IncomeResult<{ lines: EarningsLineView[]; uploads: { id: string; name: string; month: string }[] }>> {
-  return call(`/api/admin/properties/${encodeURIComponent(propertyId)}/income`, {}, 'Loading the lines from the files failed', (data) => isRecord(data) && Array.isArray(data.lines) && data.lines.every(isLine) && Array.isArray(data.uploads));
+/** A title in a month's files that no link names (dispatch 34, I1). */
+export interface UnlinkedTitle {
+  month: string;
+  title: string;
+  rows: number;
+  amountCents: number;
+}
+
+const isUnlinkedTitle = (data: unknown): boolean => isRecord(data) && typeof data.month === 'string' && typeof data.title === 'string' && typeof data.rows === 'number' && typeof data.amountCents === 'number';
+
+/** One property's lines from the files, for its page, and the titles in each month's files that no link names. */
+export function fetchPropertyIncome(propertyId: string): Promise<IncomeResult<{ lines: EarningsLineView[]; uploads: { id: string; name: string; month: string }[]; unlinked: UnlinkedTitle[] }>> {
+  return call(`/api/admin/properties/${encodeURIComponent(propertyId)}/income`, {}, 'Loading the lines from the files failed', (data) => isRecord(data) && Array.isArray(data.lines) && data.lines.every(isLine) && Array.isArray(data.uploads) && Array.isArray(data.unlinked) && data.unlinked.every(isUnlinkedTitle));
 }

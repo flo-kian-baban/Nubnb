@@ -48,8 +48,12 @@ export const PROPERTY_MANAGEMENT_COLLECTION = 'property_management';
 /** Storage prefix of finished statements. Readers use the stored path and never rebuild it. */
 export const MONTHLY_REPORTS_PREFIX = 'monthly-reports';
 
-/** 3 (dispatch 23E): lines with a quantity and a rate, the fee with its rate, the carried balance, the reference and date, "Report For" frozen. */
-export const MONTHLY_REPORT_SCHEMA_VERSION = 3;
+/**
+ * 3 (dispatch 23E): lines with a quantity and a rate, the fee with its rate, the carried balance, the reference and date, "Report For" frozen.
+ * 4 (dispatch 34): the same fields; its PDF prints the property and the month at the top (Kian's ruling of 2026-10-12) and a
+ * correction's reason in full. A report of version 3 is still drawn as it was stored.
+ */
+export const MONTHLY_REPORT_SCHEMA_VERSION = 4;
 export const MONTHLY_REPORT_DRAFT_SCHEMA_VERSION = 3;
 /** 2 (dispatch 24): `via` may be present — 'month-package' when the statement went out in a month's ZIP. */
 export const REPORT_DOWNLOAD_SCHEMA_VERSION = 2;
@@ -171,6 +175,18 @@ export function monthReferenceWord(month: string): string {
   const match = MONTH.exec(month);
   if (!match) return month;
   return MONTHS_REFERENCE[Number(match[2]) - 1];
+}
+
+/**
+ * The three words a reference may use for a month (dispatch 34, S24): the
+ * reports' own ("Sept", "June"), the short one ("Sep", "Jun") and the long
+ * one ("September"). null when `month` is not a month.
+ */
+export function monthWordStyles(month: string): { reference: string; long: string; short: string } | null {
+  const match = MONTH.exec(month);
+  if (!match) return null;
+  const i = Number(match[2]) - 1;
+  return { reference: MONTHS_REFERENCE[i], long: MONTHS_LONG[i], short: MONTHS_SHORT[i] };
 }
 
 /** "Sep 1, 2026", as the reports print the date. The text itself if it is not a day. */
@@ -342,6 +358,13 @@ export interface Fee {
   amountCents: number;
   /** Whether amountCents differs from computedCents. */
   overwritten: boolean;
+  /**
+   * The month's revenue (the positive lines) when the base was last typed
+   * (dispatch 34, S6): Finish warns when the lines have changed since. Never
+   * used to fill the base in. Absent on a fee saved before, or whose base was
+   * never typed on this page.
+   */
+  baseRevenueCents?: number | null;
 }
 
 /** The carried balance (dispatch 23E): deducted from the total; "Balance From June: $359.96" is 35996. */
@@ -617,7 +640,13 @@ export function readFee(value: unknown): Fee | null | undefined {
   if (!('rateBasisPoints' in value)) return { label: value.label, rateBasisPoints: null, baseCents: 0, computedCents: null, amountCents: value.amountCents, overwritten: true };
   const { rateBasisPoints, baseCents, computedCents, amountCents, overwritten } = value;
   if (!(rateBasisPoints === null || isCents(rateBasisPoints)) || !(baseCents === null || isCents(baseCents)) || !(computedCents === null || isCents(computedCents)) || typeof overwritten !== 'boolean') return undefined;
-  return { label: value.label, rateBasisPoints: rateBasisPoints as number | null, baseCents: baseCents as number | null, computedCents: computedCents as number | null, amountCents, overwritten };
+  const fee: Fee = { label: value.label, rateBasisPoints: rateBasisPoints as number | null, baseCents: baseCents as number | null, computedCents: computedCents as number | null, amountCents, overwritten };
+  // Kept exactly when stored (dispatch 34): a fee saved before has no such field and keeps its shape.
+  if ('baseRevenueCents' in value) {
+    if (!(value.baseRevenueCents === null || isCents(value.baseRevenueCents))) return undefined;
+    fee.baseRevenueCents = value.baseRevenueCents as number | null;
+  }
+  return fee;
 }
 
 export function readCarried(value: unknown): Carried | null | undefined {
@@ -876,6 +905,17 @@ export function inStatementScope(management: PropertyManagementView | null, mont
   const { floor, added, until } = statementBounds(management, createdMonth);
   if (month < floor || (until !== null && month > until)) return false;
   return month >= added || moneyMonths.includes(month);
+}
+
+/**
+ * A downloaded statement's file name (dispatch 34, S23): the property, the month and the reference —
+ * "New Build Cottage - September 2026 - Sept-NBC.pdf" — so one owner's file is not mistaken for another's.
+ * Plain ASCII (accents dropped, anything else a space), which every system and the download header keep.
+ */
+export function statementFileName(propertyName: string, month: string, reference: string): string {
+  const clean = (text: string) => text.normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9 ._-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const parts = [clean(propertyName).slice(0, 80).trim() || 'Property', clean(monthLabel(month)), clean(reference).slice(0, 60).trim()].filter((part) => part !== '');
+  return `${parts.join(' - ')}.pdf`;
 }
 
 /** A report's internal reference: the first six characters of its ID, as an entry's ref. Printed on legacy statements; shown in the admin for any. */

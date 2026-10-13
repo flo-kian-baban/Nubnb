@@ -25,10 +25,12 @@ interface AdminRangeCalendarProps {
   /** Months side by side. */
   months: number;
   className?: string;
+  /** One day rather than a range (dispatch 34: a statement's date): `from` is the day, and a pick gives it as both ends. */
+  single?: boolean;
   onChange: (range: { from: string; to: string }) => void;
 }
 
-export function AdminRangeCalendar({ from, to, max, min, months, className, onChange }: AdminRangeCalendarProps) {
+export function AdminRangeCalendar({ from, to, max, min, months, className, single, onChange }: AdminRangeCalendarProps) {
   const selected: DateRange | undefined = useMemo(
     () => (from ? { from: parseISO(from), to: to ? parseISO(to) : undefined } : undefined),
     [from, to],
@@ -39,6 +41,26 @@ export function AdminRangeCalendar({ from, to, max, min, months, className, onCh
   // Looking forward (a min): the chosen (or first) month on the left, the months after it to its right.
   const anchor = startOfMonth(earliest ? (from ? parseISO(from) : earliest) : to ? parseISO(to) : from ? parseISO(from) : latest);
   const defaultMonth = earliest || months <= 1 ? anchor : subMonths(anchor, months - 1);
+
+  if (single) {
+    return (
+      <DayPicker
+        mode="single"
+        numberOfMonths={months}
+        selected={from ? parseISO(from) : undefined}
+        defaultMonth={defaultMonth}
+        startMonth={earliest ? startOfMonth(earliest) : undefined}
+        endMonth={startOfMonth(latest)}
+        disabled={earliest ? [{ before: earliest }, { after: latest }] : [{ after: latest }]}
+        showOutsideDays={false}
+        className={className}
+        onSelect={(day) => {
+          const text = day ? format(day, "yyyy-MM-dd") : "";
+          onChange({ from: text, to: text });
+        }}
+      />
+    );
+  }
 
   return (
     <DayPicker

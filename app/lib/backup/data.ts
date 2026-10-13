@@ -171,6 +171,8 @@ export function asStatement(any: AnyStatement): Statement {
     pendingLeftOut: any.pendingLeftOut,
     notes: any.notes,
     supersedes: null,
+    // Read for its figures; a legacy statement is never drawn in the Payment Summary's layout.
+    heading: false,
   };
 }
 

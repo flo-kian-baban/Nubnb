@@ -45,7 +45,7 @@ import {
   monthLabel,
   monthOfDay,
   monthRange,
-  monthReferenceWord,
+  monthWordStyles,
   monthsBetween,
   rangeText,
   rateText,
@@ -93,6 +93,12 @@ export interface Statement {
   notes: string | null;
   /** When replacing an earlier statement: how it is named, its date, and the reason. */
   supersedes: { ref: string; reportDate: string | null; finishedAt: string | null; reason: string } | null;
+  /**
+   * The layout of dispatch 34: the property and the month printed at the top (Kian's ruling of 2026-10-12) and a
+   * correction's reason printed in full. True for a draft and a report of version 4; false for a report of
+   * version 3, which is drawn as it was stored.
+   */
+  heading: boolean;
 }
 
 /** A statement of dispatches 23B and 23D, as their writer lays it out; drawn for reports finished before 23E. */
@@ -314,6 +320,7 @@ export function buildStatement(input: StatementInputs): StatementBuild {
       pendingLeftOut: mine.filter((entry) => entry.status === 'pending' && (sentDay(entry.createdAt) ?? '') >= range.from && (sentDay(entry.createdAt) ?? '') <= range.to).length,
       notes: draft?.notes ?? null,
       supersedes,
+      heading: true,
     },
     claim: {
       entries: costs.filter((row) => row.group === 'month').map((row) => ({ id: row.entryId, seen: row.historyLength })),
@@ -390,6 +397,8 @@ export function statementOf(report: MonthlyReportView, all: MonthlyReportView[])
     supersedes: report.supersedes
       ? { ref: replaced ? displayName(replaced) : reportRef(report.supersedes.reportId), reportDate: replaced?.reportDate || null, finishedAt: replaced?.finishedAt ?? null, reason: report.supersedes.reason }
       : null,
+    // A report finished before dispatch 34 is drawn exactly as it was stored.
+    heading: report.schemaVersion >= 4,
   };
 }
 
@@ -420,9 +429,11 @@ export function lineText(line: Pick<Line, 'description' | 'from' | 'to'>): strin
  * costs of the month, then the earlier-month entries, then the adjustments,
  * then the fee. Every recorded entry is one negative line; an adjustment's
  * amount is the difference negated (an entry corrected down gives money
- * back).
+ * back). A $0.00 fee does not print (Kian's ruling of 2026-10-12, dispatch
+ * 34) on a statement of the dispatch 34 layout (`heading`); a report of
+ * version 3 is drawn as it was stored.
  */
-export function printedLines(statement: Pick<Statement, 'lines' | 'costs' | 'adjustments' | 'fee'>): PrintedLine[] {
+export function printedLines(statement: Pick<Statement, 'lines' | 'costs' | 'adjustments' | 'fee'> & { heading?: boolean }): PrintedLine[] {
   const rows: PrintedLine[] = statement.lines.map((line) => ({ key: line.id, kind: 'line', description: lineText(line), quantity: line.quantity, rateCents: line.rateCents, amountCents: line.amountCents, entryId: null }));
   for (const row of statement.costs.filter((cost) => cost.group === 'month')) {
     rows.push({ key: `cost-${row.entryId}`, kind: 'cost', description: `Expense - ${row.description}`, quantity: 1, rateCents: -row.totalCents, amountCents: -row.totalCents, entryId: row.entryId });
@@ -436,7 +447,7 @@ export function printedLines(statement: Pick<Statement, 'lines' | 'costs' | 'adj
     const now = row.nowCents === 0 ? 'no longer in the ledger' : `now ${formatCents(-row.nowCents)}`;
     rows.push({ key: `adj-${row.entryId}`, kind: 'adjustment', description: `Adjustment - ${what} (reported ${where} as ${formatCents(-row.printedCents)}, ${now})`, quantity: 1, rateCents: -row.deltaCents, amountCents: -row.deltaCents, entryId: row.entryId });
   }
-  if (statement.fee) rows.push({ key: 'fee', kind: 'fee', description: statement.fee.label, quantity: 1, rateCents: -statement.fee.amountCents, amountCents: -statement.fee.amountCents, entryId: null });
+  if (statement.fee && !(statement.heading && statement.fee.amountCents === 0)) rows.push({ key: 'fee', kind: 'fee', description: statement.fee.label, quantity: 1, rateCents: -statement.fee.amountCents, amountCents: -statement.fee.amountCents, entryId: null });
   return rows;
 }
 
@@ -488,12 +499,22 @@ export function carriedSuggestion(previous: MonthlyReportView | null): Carried |
   return { label: `Balance From ${monthLabel(previous.month).split(' ')[0]}`, amountCents: -previous.payableCents, fromReportId: previous.id };
 }
 
-/** The reference to offer: the previous one with its month word swapped ("June-321-John" → "July-321-John"), when it has that form. */
+/**
+ * The reference to offer: the previous one with its month word swapped ("June-321-John" → "July-321-John"),
+ * when it starts with its month's word. Any of the three words is read, in any case — "Sept-", "Sep-" or
+ * "September-" (dispatch 34, S24) — and the next month's word is written in the same style; the reports' own
+ * word is tried first, so "July-19-Tannery" is followed by "Aug-19-Tannery", as the reports NuBNB sends have it.
+ */
 export function referenceSuggestion(previous: MonthlyReportView | null, month: string): string | null {
   if (!previous || !previous.reference) return null;
-  const was = `${monthReferenceWord(previous.month)}-`;
-  if (!previous.reference.startsWith(was)) return null;
-  return `${monthReferenceWord(month)}-${previous.reference.slice(was.length)}`;
+  const was = monthWordStyles(previous.month);
+  const next = monthWordStyles(month);
+  if (!was || !next) return null;
+  for (const style of ['reference', 'long', 'short'] as const) {
+    const word = `${was[style]}-`;
+    if (previous.reference.toLowerCase().startsWith(word.toLowerCase())) return `${next[style]}-${previous.reference.slice(word.length)}`;
+  }
+  return null;
 }
 
 /** The fee rate to start from: the previous statement's, else the property's default. */

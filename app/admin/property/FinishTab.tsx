@@ -14,15 +14,23 @@
  * refuses unless that is what is stored (dispatch 23B). After finishing the
  * page runs the writer on the frozen object the server returned and says
  * whether its SHA-256 is the stored object's.
+ *
+ * Before finishing (dispatch 34, Kian's rulings of 2026-10-12), the checks
+ * Finish makes are listed here, each a line with the tab that puts it right:
+ * the one refusal (no Report For name) in red, the warnings in amber. The
+ * Finish dialog lists the warnings again and asks one extra confirmation.
+ * The date is Nubnb's own day picker, not the browser's.
  */
 
 import { Download } from "lucide-react";
 import { formatCents } from "@/app/lib/cleaners/model";
-import { STATEMENT_LIMITS, addMonths, displayRef, isDayText, monthLabel, type MonthlyReportView } from "@/app/lib/reports/model";
+import { STATEMENT_LIMITS, addMonths, displayRef, monthLabel, monthOfDay, monthRange, type MonthlyReportView } from "@/app/lib/reports/model";
+import type { CheckTab, FinishChecks } from "@/app/lib/reports/checks";
 import type { MonthlyReportSummaryLike, Standing, StatementState } from "@/app/lib/reports/statement";
+import { DateRangeField } from "../components/DateRangeField";
 import { StandingBadge } from "../components/StatementStatus";
 import { SentAt, whenText } from "../costs/cost-display";
-import type { Typed } from "./statement-form";
+import type { HeldPart, Typed } from "./statement-form";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
 
@@ -37,7 +45,18 @@ export interface ReleaseRow {
   upcoming: boolean;
 }
 
-export type SaveState = { kind: "saved"; at: string } | { kind: "saving" } | { kind: "unsaved" } | { kind: "failed"; reason: string } | { kind: "none" };
+/** The draft's save. `heldBack`: parts half-typed, sent as last saved and kept on the page until they read (dispatch 34, S10). */
+export type SaveState = { kind: "saved"; at: string; heldBack?: HeldPart[] } | { kind: "saving" } | { kind: "unsaved" } | { kind: "failed"; reason: string } | { kind: "none"; heldBack?: HeldPart[] };
+
+const HELD_WORDS: Record<HeldPart, string> = { fee: "the fee", carried: "the carried balance", date: "the date" };
+
+/** "the fee and the date": the parts held back, in words. */
+export function heldWords(parts: HeldPart[]): string {
+  const words = parts.map((part) => HELD_WORDS[part]);
+  return words.length <= 1 ? (words[0] ?? "") : `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
+}
+
+const TAB_WORDS: Record<CheckTab, string> = { income: "Income", costs: "Costs", details: "Details", finish: "" };
 
 interface Props {
   month: string;
@@ -69,9 +88,15 @@ interface Props {
   downloadsOf: (reportId: string) => { count: number; last: string | null };
   releases: ReleaseRow[];
   onMonth: (month: string) => void;
+  /** What Finish checks (dispatch 34); null once finished, or while the statement cannot be built. */
+  checks: FinishChecks | null;
+  /** Opens the tab that puts a check right. */
+  onTab: (tab: "income" | "costs" | "details" | "finish") => void;
+  /** Today, yyyy-mm-dd in Toronto: the latest a statement may be dated is the end of next month. */
+  today: string;
 }
 
-export function FinishTab({ month, monthOpen, typed, readOnly, onChange, finishedReport, versions, supersedes, save, reportForState, payableCents, buildable, finishing, onFinish, onCorrect, deleting, onDelete, linking, onDownload, verified, downloadsOf, releases, onMonth }: Props) {
+export function FinishTab({ month, monthOpen, typed, readOnly, onChange, finishedReport, versions, supersedes, save, reportForState, payableCents, buildable, finishing, onFinish, onCorrect, deleting, onDelete, linking, onDownload, verified, downloadsOf, releases, onMonth, checks, onTab, today }: Props) {
   const legacyView = readOnly && finishedReport?.legacy === true;
   const stateLine =
     readOnly && finishedReport ? (
@@ -86,11 +111,14 @@ export function FinishTab({ month, monthOpen, typed, readOnly, onChange, finishe
     ) : save.kind === "unsaved" || reportForState === "unsaved" ? (
       <span className={styles.stateLine}>{supersedes ? "Correction" : "Draft"} · changed, saving shortly</span>
     ) : save.kind === "saved" ? (
-      <span className={styles.stateLine}>
+      <span className={`${styles.stateLine} ${save.heldBack && save.heldBack.length > 0 ? styles.stateLineWarn : ""}`}>
         <strong>{supersedes ? "Correction" : "Draft"}</strong> · saved {whenText(save.at)}
+        {save.heldBack && save.heldBack.length > 0 && <> · {heldWords(save.heldBack)} not saved until complete</>}
       </span>
     ) : (
-      <span className={styles.stateLine}>Nothing saved yet</span>
+      <span className={`${styles.stateLine} ${save.heldBack && save.heldBack.length > 0 ? styles.stateLineWarn : ""}`}>
+        Nothing saved yet{save.heldBack && save.heldBack.length > 0 && <> · {heldWords(save.heldBack)} not saved until complete</>}
+      </span>
     );
   const downloadTitle = (reportId: string) => {
     const d = downloadsOf(reportId);
@@ -119,11 +147,46 @@ export function FinishTab({ month, monthOpen, typed, readOnly, onChange, finishe
             />
           </div>
           <div className={`${styles.field} ${styles.fieldAmount}`}>
-            <label className={styles.fieldLabel} htmlFor="report-date">Date</label>
-            <input id="report-date" type="date" className={`${styles.textInput} ${!readOnly && !isDayText(typed.reportDate) ? styles.inputInvalid : ""}`} value={legacyView ? "" : typed.reportDate} disabled={readOnly} onChange={(e) => onChange({ ...typed, reportDate: e.target.value })} />
+            <span className={styles.fieldLabel}>Date</span>
+            {/* Nubnb's own day picker (Kian's ruling of 2026-10-12, dispatch 34: no native browser controls at Finish). */}
+            {readOnly ? (
+              <span className={`${styles.textInput} ${styles.readOnlyValue}`}>{legacyView ? "" : typed.reportDate}</span>
+            ) : (
+              <DateRangeField
+                single
+                label="Statement date"
+                from={typed.reportDate}
+                to={typed.reportDate}
+                max={monthRange(addMonths(monthOfDay(today), 1)).to}
+                emptyText="Choose a date"
+                onChange={(range) => range.from && onChange({ ...typed, reportDate: range.from })}
+              />
+            )}
           </div>
         </div>
       </section>
+
+      {/* ── Before finishing: what Finish checks, one line each, with the tab that puts it right ── */}
+      {!readOnly && checks && checks.refusals.length + checks.warnings.length > 0 && (
+        <section className={styles.block} aria-label="Before finishing">
+          <div className={styles.blockHead}>
+            <h3 className={styles.blockTitle}>Before finishing</h3>
+            <span className={styles.note}>{checks.refusals.length + checks.warnings.length}</span>
+          </div>
+          <ul className={styles.checkList}>
+            {[...checks.refusals.map((check) => ({ check, refused: true })), ...checks.warnings.map((check) => ({ check, refused: false }))].map(({ check, refused }) => (
+              <li key={check.key} className={`${styles.checkItem} ${refused ? styles.checkRefused : styles.checkWarned}`}>
+                <span>{check.text}</span>
+                {check.tab !== "finish" && (
+                  <button type="button" className={styles.linkButton} onClick={() => onTab(check.tab)}>
+                    {TAB_WORDS[check.tab]}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {/* ── Finish, or the finished statement ── */}
       <section className={styles.block} aria-label="Finish">

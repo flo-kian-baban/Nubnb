@@ -67,6 +67,8 @@ export interface FeePayload {
   rate: string | null;
   base: string | null;
   amount: string | null;
+  /** The month's revenue when the base was last typed (dispatch 34, S6); sent only when the page knows it. */
+  baseRevenueCents?: number | null;
 }
 
 export interface CarriedPayload {

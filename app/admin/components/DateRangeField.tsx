@@ -56,6 +56,11 @@ interface DateRangeFieldProps {
   /** A line at the foot of the calendar: what the days mean. */
   note?: string;
   className?: string;
+  /**
+   * One day rather than a range (dispatch 34: a statement's date, which Kian's ruling keeps off the browser's
+   * own date control): the field reads the day, a pick sets it as both ends and closes, and it cannot be cleared.
+   */
+  single?: boolean;
 }
 
 const dayText = (day: string, withYear: boolean) =>
@@ -71,7 +76,7 @@ export function rangeText(from: string, to: string, emptyText = "All time"): str
   return `${dayText(from, from.slice(0, 4) !== to.slice(0, 4))} – ${dayText(to, true)}`;
 }
 
-export function DateRangeField({ label, from, to, onChange, presets = [], max, min, emptyText, note, className }: DateRangeFieldProps) {
+export function DateRangeField({ label, from, to, onChange, presets = [], max, min, emptyText, note, className, single }: DateRangeFieldProps) {
   const id = useId();
   const [open, setOpen] = useState(false);
   const [months, setMonths] = useState(2);
@@ -112,7 +117,7 @@ export function DateRangeField({ label, from, to, onChange, presets = [], max, m
 
   const active = presets.find((preset) => preset.from === from && preset.to === to)?.key;
   const set = (range: DayRange) => onChange(range);
-  const text = rangeText(from, to, emptyText);
+  const text = single ? (from ? dayText(from, true) : (emptyText ?? "No date")) : rangeText(from, to, emptyText);
 
   return (
     <div ref={rootRef} className={`${styles.root} ${className ?? ""}`}>
@@ -156,7 +161,20 @@ export function DateRangeField({ label, from, to, onChange, presets = [], max, m
           )}
           <div className={styles.calendar} aria-busy={calendar.status === "pending" || undefined}>
             {calendar.status === "loaded" ? (
-              <calendar.value.AdminRangeCalendar from={from} to={to} max={max} min={min} months={months} className={styles.dayPicker} onChange={set} />
+              <calendar.value.AdminRangeCalendar
+                from={from}
+                to={to}
+                max={max}
+                min={min}
+                months={months}
+                className={styles.dayPicker}
+                single={single}
+                onChange={(range) => {
+                  set(range);
+                  // A day picked is the whole answer: the field closes, as a quick range does.
+                  if (single && range.from) close();
+                }}
+              />
             ) : calendar.status === "failed" ? (
               // A failed chunk cannot be fetched again in the same page (app/lib/on-demand.ts).
               <button type="button" className={styles.preset} onClick={() => window.location.reload()}>
@@ -167,7 +185,7 @@ export function DateRangeField({ label, from, to, onChange, presets = [], max, m
             )}
             <div className={styles.foot}>
               {note && <span className={styles.note}>{note}</span>}
-              {(from || to) && (
+              {!single && (from || to) && (
                 <button type="button" className={styles.clear} onClick={() => set({ from: "", to: "" })}>
                   <X size={13} aria-hidden />
                   <span>Clear dates</span>

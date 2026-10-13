@@ -233,8 +233,8 @@ interface DialogProps {
   actions: ReactNode;
   /** Escape, and the × in the corner. */
   onClose: () => void;
-  /** Where the keyboard goes when it opens. */
-  initialFocus?: "first" | "last";
+  /** Where the keyboard goes when it opens: a button of the foot, or "none" when a field in the body takes it (dispatch 34). */
+  initialFocus?: "first" | "last" | "none";
 }
 
 export function Dialog({ title, children, actions, onClose, initialFocus = "first" }: DialogProps) {
@@ -242,6 +242,7 @@ export function Dialog({ title, children, actions, onClose, initialFocus = "firs
   const footRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (initialFocus === "none") return;
     const buttons = footRef.current?.querySelectorAll<HTMLButtonElement>("button") ?? [];
     const target = initialFocus === "last" ? buttons[buttons.length - 1] : buttons[0];
     target?.focus();

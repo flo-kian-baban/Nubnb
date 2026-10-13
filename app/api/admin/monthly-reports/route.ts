@@ -13,9 +13,10 @@
  * statementId, deltaCents }] }` and answers 201 `{ report }`. The server
  * rebuilds the statement from what is stored and refuses unless that is
  * exactly the claim: 409 STATEMENT_CHANGED. A draft at another revision, or
- * already finished: 409 DRAFT_CHANGED. No reference, no date, or a fee rate
- * with no base (dispatch 26): 422 STATEMENT_INCOMPLETE, its evidence's
- * `missing` naming which. 409 STATEMENT_ENTRY_UNREADABLE, 502
+ * already finished: 409 DRAFT_CHANGED. No Report For name (dispatch 34:
+ * the one check Finish refuses, Kian's ruling of 2026-10-12), no reference,
+ * no date, or a fee rate with no base (dispatch 26): 422
+ * STATEMENT_INCOMPLETE, its evidence's `missing` naming which. 409 STATEMENT_ENTRY_UNREADABLE, 502
  * STATEMENT_PDF_FAILED (nothing written), 502 STATEMENT_RECORD_FAILED (may
  * or may not have been finished). See finishStatement.
  *

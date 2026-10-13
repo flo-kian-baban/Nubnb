@@ -70,11 +70,12 @@ import { NoticeBanner, useNotice, type Notice } from "../components/Notice";
 import { ReportingStatusLine, StandingBadge } from "../components/StatementStatus";
 import { fetchCosts } from "@/app/lib/costs-client";
 import { deleteStatement, fetchPropertyStatements, fetchStatementLink, finishStatement, saveDraft, setReportFor as saveReportFor, type PropertyStatements, type StatementDeleted } from "@/app/lib/reports-client";
-import { fetchPropertyIncome } from "@/app/lib/income-client";
+import { fetchPropertyIncome, type UnlinkedTitle } from "@/app/lib/income-client";
 import type { EarningsLineView } from "@/app/lib/income/model";
 import { formatCents, type CostEntryView, type CostsView, type ReportExportView } from "@/app/lib/cleaners/model";
 import { torontoDayOf } from "@/app/lib/costs/report";
 import {
+  STATEMENTS_FROM_DEFAULT,
   STATEMENT_LIMITS,
   addMonths,
   currentReports,
@@ -93,19 +94,32 @@ import {
 } from "@/app/lib/reports/model";
 import { STANDING_LABELS, buildStatement, moneyMonthsByProperty, previousStatement, propertyMonthState, propertyMonths, reportingStatus, statementOf, type AnyStatement, type FinishClaim, type PropertyMonthRow } from "@/app/lib/reports/statement";
 import { statementPdf } from "@/app/lib/reports/statement-pdf";
+import { checkoutsInMonth, finishChecks, type IncomeFacts } from "@/app/lib/reports/checks";
 import type { PropertyStatementsState } from "../costs/EntryPane";
 import { CostsTab } from "./CostsTab";
 import { DetailsTab } from "./DetailsTab";
 import { FinishTab, type ReleaseRow, type SaveState } from "./FinishTab";
 import { IncomeTab } from "./IncomeTab";
 import { PdfPages } from "./PdfPages";
-import { fromReport, fromStored, sha256Hex, suggestedTyped, toDraft, toPayload, type ReportForDraft, type Typed } from "./statement-form";
+import { Dialog, Tick } from "./editor/controls";
+import { fromReport, fromStored, heldPartsOf, savablePayload, sha256Hex, suggestedTyped, toDraft, toPayload, type HeldParts, type ReportForDraft, type Typed } from "./statement-form";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
+import ed from "./editor/editor.module.css";
 
 type Read<T> = { kind: "loading" } | { kind: "ready"; data: T } | { kind: "error"; title: string; detail?: string; status: number };
-/** What GET /api/admin/properties/[id]/income answers (dispatch 27): the property's lines from the platforms' files, and their files' names. */
-type FromFiles = { lines: EarningsLineView[]; uploads: { id: string; name: string; month: string }[] };
+/** What GET /api/admin/properties/[id]/income answers (dispatch 27): the property's lines from the platforms' files, their files' names, and the titles no link names (dispatch 34). */
+type FromFiles = { lines: EarningsLineView[]; uploads: { id: string; name: string; month: string }[]; unlinked: UnlinkedTitle[] };
+
+/**
+ * What was typed in a month, kept while the admin works in another (dispatch 34, S10): a half-typed fee, balance
+ * or date is never saved, so leaving the month used to lose it. `revision` is the draft's after the last save
+ * from that month; the typing comes back only while the draft is still at it.
+ */
+interface KeptMonth {
+  typed: Typed;
+  revision: number;
+}
 type Tab = "costs" | "income" | "details" | "finish";
 const TABS: { key: Tab; label: string }[] = [
   { key: "income", label: "Income" },
@@ -163,6 +177,8 @@ function PropertyPageInner() {
   const [fromFiles, setFromFiles] = useState<Read<FromFiles>>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
   const { notice, show, clear } = useNotice();
+  /** Each month's typing, kept while another month is open (dispatch 34, S10); keyed by property and month. */
+  const [keptMonths] = useState(() => new Map<string, KeptMonth>());
 
   // ── The two reads ──
   useEffect(() => {
@@ -409,6 +425,7 @@ function PropertyPageInner() {
                 releases={releases}
                 onMonth={setMonth}
                 fromFiles={fromFiles}
+                kept={keptMonths}
               />
             </div>
           </>
@@ -454,6 +471,8 @@ interface MonthWorkProps {
   onMonth: (month: string) => void;
   /** The property's lines from the platforms' files (dispatch 27), for the Income tab's marks and its count to review. */
   fromFiles: Read<FromFiles>;
+  /** Each month's typing, kept while another month is open (dispatch 34, S10). */
+  kept: Map<string, KeptMonth>;
 }
 
 /**
@@ -473,30 +492,53 @@ function MonthWork(props: MonthWorkProps) {
   const versions = useMemo(() => propertyMonthState({ propertyId, month, today, inScope: true, reports, drafts: draft ? [{ propertyId, month, updatedAt: draft.updatedAt, finishedAs: draft.finishedAs, superseding: draft.supersedes !== null }] : [] }).reports, [propertyId, month, today, reports, draft]);
 
   // ── What is typed ──
-  const [typed, setTyped] = useState<Typed>(() => (finishedReport ? fromReport(finishedReport, today) : draft ? fromStored(draft, today) : suggestedTyped(previous, management, month, today)));
+  // A month left with typing that was not all saved (a half-typed fee, balance or date) comes back as it was typed,
+  // while its draft is still at the revision that typing was saved against (dispatch 34, S10).
+  const keptKey = `${propertyId}:${month}`;
+  const restored = useMemo(() => {
+    if (finishedReport) return null;
+    const kept = props.kept.get(keptKey);
+    return kept && kept.revision === (draft?.revision ?? 0) ? kept.typed : null;
+    // Read once, as the month opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const [typed, setTyped] = useState<Typed>(() => (finishedReport ? fromReport(finishedReport, today) : (restored ?? (draft ? fromStored(draft, today) : suggestedTyped(previous, management, month, today)))));
   const [reportFor, setReportFor] = useState<ReportForDraft>(() => ({ name: management?.reportFor?.name ?? "", address: management?.reportFor?.address ?? "" }));
   const [reportForState, setReportForState] = useState<"saved" | "saving" | "unsaved" | "failed">("saved");
-  const [save, setSave] = useState<SaveState>(() => (draft && !finishedReport ? { kind: "saved", at: draft.updatedAt } : { kind: "none" }));
+  /** What the server holds in place of each part that can be half-typed: a save sends these for a part that does not read. */
+  const heldRef = useRef<HeldParts>(draft && !finishedReport ? heldPartsOf(toPayload(propertyId, month, draft.revision, fromStored(draft, today), draft.supersedes)) : { fee: null, carried: null, reportDate: today });
+  const [save, setSave] = useState<SaveState>(() => {
+    if (!draft || finishedReport) return { kind: "none" };
+    const heldBack = restored ? savablePayload(propertyId, month, draft.revision, restored, draft.supersedes, heldRef.current).heldBack : [];
+    return { kind: "saved", at: draft.updatedAt, heldBack };
+  });
   const [finishing, setFinishing] = useState(false);
   const [linking, setLinking] = useState<string | null>(null);
   const [verified, setVerified] = useState<{ ok: boolean; stored: string; computed: string } | null>(null);
-  const savedRef = useRef<string>(JSON.stringify(draft && !finishedReport ? fromStored(draft, today) : null));
+  const savedRef = useRef<string>(JSON.stringify(restored ?? (draft && !finishedReport ? fromStored(draft, today) : null)));
   const typedRef = useRef(typed);
   typedRef.current = typed;
   const revisionRef = useRef(draft?.revision ?? 0);
   const supersedesRef = useRef<{ reportId: string; reason: string } | null>(draft && !finishedReport ? draft.supersedes : null);
+  /** The last payload the server took, its revision aside: a save that would send the same again writes nothing. */
+  const sentRef = useRef<string | null>(draft && !finishedReport ? JSON.stringify({ ...toPayload(propertyId, month, 0, fromStored(draft, today), draft.supersedes), revision: 0 }) : null);
+  /** When the draft was last saved, for the state line after a change that wrote nothing. */
+  const savedAtRef = useRef<string | null>(draft && !finishedReport ? draft.updatedAt : null);
   const saveTimer = useRef<number | null>(null);
   const reportForSavedRef = useRef<string>(JSON.stringify({ name: management?.reportFor?.name ?? "", address: management?.reportFor?.address ?? "" }));
   const reportForRef = useRef(reportFor);
   reportForRef.current = reportFor;
   const reportForTimer = useRef<number | null>(null);
+  const readOnlyRef = useRef(readOnly);
+  readOnlyRef.current = readOnly;
   const supersedes = supersedesRef.current;
 
   // ── The statement as it stands ──
   const parsed = useMemo(() => toDraft(typed), [typed]);
   const shownReportFor: ReportFor | null = reportFor.name.trim() === "" ? null : { name: reportFor.name.trim(), address: reportFor.address };
   const built = useMemo(() => {
-    const record = management ? { ...management, reportFor: shownReportFor } : shownReportFor ? { id: propertyId, schemaVersion: 0, propertyId, reportFor: shownReportFor, owners: [], statementsFrom: "2026-10", statementsUntil: null, defaultFeeRateBasisPoints: null, defaultFee: null, setAt: "" } : null;
+    // A record not saved yet starts its statements where every property's do (dispatch 34, S18: it read "2026-10" and left September's costs out of the preview).
+    const record = management ? { ...management, reportFor: shownReportFor } : shownReportFor ? { id: propertyId, schemaVersion: 0, propertyId, reportFor: shownReportFor, owners: [], statementsFrom: STATEMENTS_FROM_DEFAULT, statementsUntil: null, defaultFeeRateBasisPoints: null, defaultFee: null, setAt: "" } : null;
     return buildStatement({
       propertyId,
       propertyName: props.propertyName,
@@ -532,17 +574,43 @@ function MonthWork(props: MonthWorkProps) {
     return { marks, pending: read.data.lines.filter((line) => line.status === "proposed" && line.month === month).length, failed: false, month };
   }, [props.fromFiles, propertyId, month]);
 
+  /** What the files say about the month, for Finish's checks (dispatch 34): lines waiting, titles linked to no property, checkouts. */
+  const incomeFacts = useMemo<IncomeFacts | null>(() => {
+    const read = props.fromFiles;
+    if (read.kind !== "ready") return null;
+    return { waiting: files.pending, unlinked: read.data.unlinked.filter((title) => title.month === month), checkouts: checkoutsInMonth(read.data.lines, month) };
+  }, [props.fromFiles, files.pending, month]);
+
+  /** What Finish checks (dispatch 34, Kian's rulings of 2026-10-12): refused only without a Report For name; everything else warns. */
+  const checks = useMemo(() => (built.kind === "ok" && !readOnly ? finishChecks({ statement: built.statement, previous, reports, entries, income: incomeFacts, today }) : null), [built, readOnly, previous, reports, entries, incomeFacts, today]);
+
   // ── Save, 800 ms after the last change; the first save on a month with nothing stored creates the draft ──
+  // What reads is saved; a fee, balance or date that does not read yet is sent as last saved and stays typed here (S10).
   const doSave = useCallback(async () => {
     const current = typedRef.current;
     const key = JSON.stringify(current);
     if (key === savedRef.current) return;
+    const { payload, heldBack } = savablePayload(propertyId, month, revisionRef.current, current, supersedesRef.current, heldRef.current);
+    const sent = JSON.stringify({ ...payload, revision: 0 });
+    const empty = payload.lines.length === 0 && payload.fee === null && payload.carried === null && payload.notes === null && payload.reference === "" && payload.supersedes === null;
+    // Nothing that reads has changed, or nothing is stored and nothing that reads is typed: no write, only the state.
+    if (sent === sentRef.current || (revisionRef.current === 0 && empty)) {
+      savedRef.current = key;
+      setSave(revisionRef.current === 0 || savedAtRef.current === null ? { kind: "none", heldBack } : { kind: "saved", at: savedAtRef.current, heldBack });
+      return;
+    }
     setSave({ kind: "saving" });
-    const result = await saveDraft(toPayload(propertyId, month, revisionRef.current, current, supersedesRef.current));
+    const result = await saveDraft(payload);
     if (result.ok) {
       savedRef.current = key;
+      sentRef.current = sent;
+      heldRef.current = heldPartsOf(payload);
       revisionRef.current = result.data.draft.revision;
-      setSave({ kind: "saved", at: result.data.draft.updatedAt });
+      savedAtRef.current = result.data.draft.updatedAt;
+      // A save sent as the admin left the month: the typing kept for it is now saved against this revision.
+      const kept = props.kept.get(keptKey);
+      if (kept) kept.revision = result.data.draft.revision;
+      setSave({ kind: "saved", at: result.data.draft.updatedAt, heldBack });
       onDraftSaved(result.data.draft);
       return;
     }
@@ -552,7 +620,7 @@ function MonthWork(props: MonthWorkProps) {
       return;
     }
     setSave({ kind: "failed", reason: `${result.title}${result.detail ? ` ${result.detail}` : ""}${result.status === 401 || result.status === 403 ? ` ${SESSION_HINT}` : ""}` });
-  }, [propertyId, month, show, onReload, onDraftSaved]);
+  }, [propertyId, month, show, onReload, onDraftSaved, props.kept, keptKey]);
   const doSaveRef = useRef(doSave);
   doSaveRef.current = doSave;
 
@@ -596,20 +664,33 @@ function MonthWork(props: MonthWorkProps) {
     }, STATEMENT_LIMITS.SAVE_DELAY_MS);
   };
 
-  // A save still pending when the admin moves to another month (or the page reloads its data) is sent now, not lost.
+  /** Send a save still waiting on its timer: the draft's and Report For's. */
+  const flushPending = () => {
+    if (saveTimer.current !== null) {
+      window.clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+      void doSaveRef.current();
+    }
+    if (reportForTimer.current !== null) {
+      window.clearTimeout(reportForTimer.current);
+      reportForTimer.current = null;
+      void doSaveReportForRef.current();
+    }
+  };
+
+  // The month's typing is kept for when the admin comes back to it (dispatch 34, S10): what was half-typed is not
+  // saved, and would otherwise be lost. Opening the month takes it back out. A save still pending when the admin
+  // moves to another month (or the page reloads its data) is sent now, not lost.
   useEffect(
-    () => () => {
-      if (saveTimer.current !== null) {
-        window.clearTimeout(saveTimer.current);
-        saveTimer.current = null;
-        void doSaveRef.current();
-      }
-      if (reportForTimer.current !== null) {
-        window.clearTimeout(reportForTimer.current);
-        reportForTimer.current = null;
-        void doSaveReportForRef.current();
-      }
+    () => {
+      props.kept.delete(keptKey);
+      return () => {
+        if (!readOnlyRef.current) props.kept.set(keptKey, { typed: typedRef.current, revision: revisionRef.current });
+        flushPending();
+      };
     },
+    // Once per month opened: the month is the component's key.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
 
@@ -621,8 +702,15 @@ function MonthWork(props: MonthWorkProps) {
     return () => window.clearTimeout(timer);
   }, [statement]);
 
+  // ── The three questions, asked in Nubnb's own dialogs (Kian's ruling of 2026-10-12, dispatch 34) ──
+  const [asking, setAsking] = useState<"finish" | "correct" | "delete" | null>(null);
+  /** The one extra confirmation Finish asks for while any check warns. */
+  const [acknowledged, setAcknowledged] = useState(false);
+  const [reason, setReason] = useState("");
+
   // ── Finish ──
-  const finish = async () => {
+  /** The Finish button: what cannot be finished is said; otherwise the dialog asks, listing what Finish warns about. */
+  const finish = () => {
     if (built.kind !== "ok" || finishing || readOnly) return;
     clear();
     const problems = [...parsed.problems, ...(typed.reference.trim() === "" ? ["Give the statement a reference, like Aug-321-John"] : []), ...(isDayText(typed.reportDate) ? [] : ["Give the statement a date"])];
@@ -630,20 +718,23 @@ function MonthWork(props: MonthWorkProps) {
       show({ tone: "error", title: "The statement cannot be finished as it stands.", items: problems });
       return;
     }
+    // Refused only without a Report For name (Kian's ruling of 2026-10-12); the server refuses it too.
+    if (checks && checks.refusals.length > 0) {
+      show({ tone: "error", title: "The statement cannot be finished.", items: checks.refusals.map((check) => check.text) });
+      return;
+    }
     if (save.kind !== "saved" || revisionRef.current === 0 || reportForState !== "saved") {
       show({ tone: "warning", title: save.kind === "none" ? "Nothing is saved yet: type a line, a fee or a note first." : "Wait for the draft to save first.", detail: save.kind === "failed" ? save.reason : undefined });
       return;
     }
-    const pending = built.statement.pendingLeftOut;
-    const question = [
-      `Finish and issue # ${typed.reference.trim()} for ${props.propertyName}, ${monthLabel(month)}?`,
-      `Your Revenue Share: ${formatCents(built.statement.payableCents)}.`,
-      pending > 0 ? `${pending === 1 ? "1 entry" : `${pending} entries`} sent in ${monthLabel(month)} ${pending === 1 ? "is" : "are"} still pending and ${pending === 1 ? "is" : "are"} not in it.` : null,
-      "A finished statement is never edited; a mistake in it is corrected with a replacing statement, or the statement is deleted.",
-    ]
-      .filter(Boolean)
-      .join("\n");
-    if (!window.confirm(question)) return;
+    setAcknowledged(false);
+    setAsking("finish");
+  };
+
+  /** Finish and issue, once the dialog is answered. */
+  const finishConfirmed = async () => {
+    if (built.kind !== "ok" || finishing || readOnly) return;
+    setAsking(null);
     setFinishing(true);
     const claim: FinishClaim = built.claim;
     const result = await finishStatement({ propertyId, month, draftRevision: revisionRef.current, ...claim });
@@ -667,21 +758,26 @@ function MonthWork(props: MonthWorkProps) {
   };
 
   // ── Correct ──
-  const correct = async () => {
+  const correct = () => {
     if (!finishedReport || finishing) return;
-    const reason = window.prompt(`Correct ${displayRef(finishedReport)}? It stays on record, marked replaced, and a corrected statement is made beside it. Why is it corrected? (the owner reads this)`)?.trim();
-    if (!reason) return;
-    if (reason.length > STATEMENT_LIMITS.REASON_MAX) {
-      show({ tone: "error", title: `The reason can be at most ${STATEMENT_LIMITS.REASON_MAX} characters.` });
-      return;
-    }
     clear();
+    setReason("");
+    setAsking("correct");
+  };
+
+  /** Start the correction, once a reason is given: printed in full on the corrected statement (S12). */
+  const correctConfirmed = async () => {
+    if (!finishedReport || finishing) return;
+    const why = reason.trim();
+    if (why === "" || why.length > STATEMENT_LIMITS.REASON_MAX) return;
+    setAsking(null);
     const next = fromReport(finishedReport, today);
     if (next.reference === "") next.reference = suggestedTyped(previous, management, month, today).reference;
     next.reportDate = today;
-    const sup = { reportId: finishedReport.id, reason };
+    const sup = { reportId: finishedReport.id, reason: why };
     setSave({ kind: "saving" });
-    const result = await saveDraft(toPayload(propertyId, month, revisionRef.current, next, sup));
+    const payload = toPayload(propertyId, month, revisionRef.current, next, sup);
+    const result = await saveDraft(payload);
     if (!result.ok) {
       setSave({ kind: "failed", reason: result.title });
       show({ tone: "error", title: result.title, detail: result.detail });
@@ -689,34 +785,33 @@ function MonthWork(props: MonthWorkProps) {
     }
     setTyped(next);
     savedRef.current = JSON.stringify(next);
+    sentRef.current = JSON.stringify({ ...payload, revision: 0 });
+    heldRef.current = heldPartsOf(payload);
     supersedesRef.current = sup;
     revisionRef.current = result.data.draft.revision;
+    savedAtRef.current = result.data.draft.updatedAt;
     setVerified(null);
-    setSave({ kind: "saved", at: result.data.draft.updatedAt });
+    setSave({ kind: "saved", at: result.data.draft.updatedAt, heldBack: [] });
     onDraftSaved(result.data.draft);
     show({ tone: "info", title: "Correcting the statement.", detail: "The lines, fee, balance and notes are copied from the finished statement; the recorded costs are read fresh. Finish it to replace the old one." });
   };
 
   // ── Delete (Kian's ruling of 2026-10-02): the confirmation names what is lost; the server does the rest ──
   const [deleting, setDeleting] = useState(false);
-  const remove = async () => {
+  /** The finished statement's download records, as the dialog names them and the server checks. */
+  const seenDownloads = finishedReport ? downloads.filter((d) => d.reportId === finishedReport.id).map((d) => d.at).sort() : [];
+  const replacedByThis = finishedReport?.supersedes ? reports.find((r) => r.id === finishedReport.supersedes!.reportId) : undefined;
+  const remove = () => {
     if (!finishedReport || deleting || finishing) return;
-    const seen = downloads.filter((d) => d.reportId === finishedReport.id).map((d) => d.at).sort();
-    const replaced = finishedReport.supersedes ? reports.find((r) => r.id === finishedReport.supersedes!.reportId) : undefined;
-    const question = [
-      `Delete ${displayRef(finishedReport)}, ${props.propertyName}, ${monthLabel(month)}?`,
-      seen.length === 0
-        ? "This statement was never downloaded."
-        : `This statement was downloaded ${seen.length === 1 ? dayWords(seen[0], today) : `${seen.length} times, last ${dayWords(seen[seen.length - 1], today)}`}. Deleting it removes the record of what was sent.`,
-      replaced ? `${displayRef(replaced)}, which it replaced, becomes the month's statement again; the draft continues the correction.` : null,
-      "Its PDF is deleted too. The month reopens as a draft holding everything the statement had.",
-    ]
-      .filter(Boolean)
-      .join("\n");
-    if (!window.confirm(question)) return;
     clear();
+    setAsking("delete");
+  };
+  const removeConfirmed = async () => {
+    if (!finishedReport || deleting || finishing) return;
+    setAsking(null);
     setDeleting(true);
-    const result = await deleteStatement(finishedReport.id, seen.length);
+    const replaced = replacedByThis;
+    const result = await deleteStatement(finishedReport.id, seenDownloads.length);
     setDeleting(false);
     if (!result.ok) {
       if (result.code === "DOWNLOADED_SINCE" || result.code === "DRAFT_CHANGED" || result.code === "REPORT_NOT_FOUND" || result.code === "CORRECTION_IN_PROGRESS" || result.code === "REPORT_REPLACED") {
@@ -820,6 +915,8 @@ function MonthWork(props: MonthWorkProps) {
               previous={previous}
               management={management}
               carriedCents={parsed.carried?.amountCents ?? null}
+              revenueCents={sums ? sums.incomeCents : null}
+              heldBack={save.kind === "saved" || save.kind === "none" ? (save.heldBack ?? []) : []}
             />
           )}
           {tab === "finish" && (
@@ -847,6 +944,9 @@ function MonthWork(props: MonthWorkProps) {
               downloadsOf={downloadsOf}
               releases={props.releases}
               onMonth={props.onMonth}
+              checks={checks}
+              onTab={props.onTab}
+              today={today}
             />
           )}
         </div>
@@ -859,6 +959,99 @@ function MonthWork(props: MonthWorkProps) {
           {!statement && <div className={styles.previewEmpty}>{built.kind === "unreadable" ? "No statement until every approved entry can be added up." : "No statement to show."}</div>}
         </div>
       </div>
+
+      {/* ── Finish: what it warns about, and the one extra confirmation while anything does ── */}
+      {asking === "finish" && built.kind === "ok" && checks && (
+        <Dialog
+          title={`Finish and issue # ${typed.reference.trim()}?`}
+          onClose={() => setAsking(null)}
+          actions={
+            <>
+              <button type="button" className={`${ed.btn} ${ed.btnGhost}`} onClick={() => setAsking(null)}>
+                Go back
+              </button>
+              <button type="button" className={`${ed.btn} ${ed.btnPrimary}`} disabled={checks.warnings.length > 0 && !acknowledged} onClick={() => void finishConfirmed()}>
+                Finish and issue
+              </button>
+            </>
+          }
+        >
+          <p>
+            {props.propertyName}, {monthLabel(month)} · Your Revenue Share <b>{formatCents(built.statement.payableCents)}</b>
+          </p>
+          {checks.warnings.length > 0 && (
+            <>
+              <ul className={styles.dialogChecks}>
+                {checks.warnings.map((check) => (
+                  <li key={check.key}>{check.text}</li>
+                ))}
+              </ul>
+              <label className={styles.dialogAck}>
+                <Tick checked={acknowledged} onChange={() => setAcknowledged((was) => !was)} label={checks.warnings.length === 1 ? "Finish with this warning" : `Finish with these ${checks.warnings.length} warnings`} />
+                <span>{checks.warnings.length === 1 ? "Finish with this warning" : `Finish with these ${checks.warnings.length} warnings`}</span>
+              </label>
+            </>
+          )}
+          <p>A finished statement is never edited: it is corrected or deleted.</p>
+        </Dialog>
+      )}
+
+      {/* ── Correct: the reason the owner reads, in full ── */}
+      {asking === "correct" && finishedReport && (
+        <Dialog
+          title={`Correct ${displayRef(finishedReport)}?`}
+          onClose={() => setAsking(null)}
+          initialFocus="none"
+          actions={
+            <>
+              <button type="button" className={`${ed.btn} ${ed.btnGhost}`} onClick={() => setAsking(null)}>
+                Cancel
+              </button>
+              <button type="button" className={`${ed.btn} ${ed.btnPrimary}`} disabled={reason.trim() === ""} onClick={() => void correctConfirmed()}>
+                Start the correction
+              </button>
+            </>
+          }
+        >
+          <p>It stays on record, marked replaced; a corrected statement is made beside it.</p>
+          <label className={styles.fieldLabel} htmlFor="correct-reason">
+            Why is it corrected? The owner reads this in full.
+          </label>
+          <textarea id="correct-reason" className={`${styles.textInput} ${styles.reasonInput}`} value={reason} maxLength={STATEMENT_LIMITS.REASON_MAX} rows={4} autoFocus onChange={(e) => setReason(e.target.value)} />
+          <span className={styles.note}>
+            {reason.length}/{STATEMENT_LIMITS.REASON_MAX}
+          </span>
+        </Dialog>
+      )}
+
+      {/* ── Delete: what is lost, in the ruled words ── */}
+      {asking === "delete" && finishedReport && (
+        <Dialog
+          title={`Delete ${displayRef(finishedReport)}?`}
+          onClose={() => setAsking(null)}
+          actions={
+            <>
+              <button type="button" className={`${ed.btn} ${ed.btnGhost}`} onClick={() => setAsking(null)}>
+                Keep it
+              </button>
+              <button type="button" className={`${ed.btn} ${ed.btnGhost} ${ed.btnDanger}`} onClick={() => void removeConfirmed()}>
+                Delete statement
+              </button>
+            </>
+          }
+        >
+          <p>
+            {props.propertyName}, {monthLabel(month)}.
+          </p>
+          <p>
+            {seenDownloads.length === 0
+              ? "This statement was never downloaded."
+              : `This statement was downloaded ${seenDownloads.length === 1 ? dayWords(seenDownloads[0], today) : `${seenDownloads.length} times, last ${dayWords(seenDownloads[seenDownloads.length - 1], today)}`}. Deleting it removes the record of what was sent.`}
+          </p>
+          {replacedByThis && <p>{displayRef(replacedByThis)}, which it replaced, becomes the month&apos;s statement again; the draft continues the correction.</p>}
+          <p>Its PDF is deleted too. The month reopens as a draft holding everything the statement had.</p>
+        </Dialog>
+      )}
     </div>
   );
 }

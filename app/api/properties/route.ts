@@ -12,15 +12,21 @@
  * `property_visibility` mark are written in one batch, so it is never public,
  * not even between two writes. The flag rides on the URL, never in the body,
  * because the body is the property document.
+ *
+ * A property whose Airbnb listing or calendar another property already holds
+ * is refused (Kian's ruling of 2026-10-12, dispatch 34): 409 DUPLICATE_LISTING
+ * with `issues` at the field, nothing written. A calendar link for another
+ * Airbnb room than the listing is created, with `warnings` in the answer.
  */
 
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/app/lib/firebase/admin';
 import { verifyAdminSession } from '@/app/lib/api/verify-admin';
 import { CreatePropertySchema } from '@/app/lib/api/schemas';
 import { apiSuccess, apiError, apiValidationError } from '@/app/lib/api/safe-response';
 import { revalidateListingPages } from '@/app/lib/revalidate-listings';
 import { PROPERTY_VISIBILITY_COLLECTION, unlistedDocument } from '@/app/lib/firebase/server-visibility';
+import { listingIssues } from '@/app/lib/firebase/server-listing-clashes';
 
 const COLLECTION = 'properties';
 
@@ -50,6 +56,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // ── The same listing or calendar on another property: refused, nothing written ──
+    const links = await listingIssues(result.data, null);
+    if (links.duplicates.length > 0) {
+      return NextResponse.json(
+        { success: false, error: `Not created: ${[...new Set(links.duplicates.map((issue) => issue.message))].join(' ')}`, code: 'DUPLICATE_LISTING', issues: links.duplicates },
+        { status: 409 },
+      );
+    }
+
     const db = getAdminDb();
     const docRef = db.collection(COLLECTION).doc();
     if (request.nextUrl.searchParams.get('unlisted') === '1') {
@@ -62,7 +77,7 @@ export async function POST(request: NextRequest) {
     }
     revalidateListingPages(`create ${docRef.id}`, docRef.id);
 
-    return apiSuccess({ id: docRef.id }, 201);
+    return apiSuccess({ id: docRef.id, warnings: links.mismatch }, 201);
   } catch (err) {
     return apiError('Failed to create property', 500, err);
   }

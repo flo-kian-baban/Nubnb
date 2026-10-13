@@ -2,7 +2,8 @@
  * GET    /api/properties/[id] — Read one complete property (public; an
  *                               unlisted one only with an admin session).
  * PUT    /api/properties/[id] — Update a property (admin-only).
- * DELETE /api/properties/[id] — Delete a property and its unlisted mark (admin-only).
+ * DELETE /api/properties/[id] — Delete a property that holds no money records, with the records that only
+ *                               describe it (admin-only; dispatch 34, Kian's ruling of 2026-10-12).
  *
  * Writes are authenticated via HTTP-only session cookie and go through the
  * Admin SDK. The GET answers anyone, but the public gets a listed property
@@ -13,6 +14,11 @@
  *
  * Both write handlers revalidate the renter-facing pages after a successful
  * write, so an edit is visible without waiting for the ISR timer.
+ *
+ * A save whose Airbnb listing or calendar another property already holds is
+ * saved and warned about (Kian's ruling of 2026-10-12, dispatch 34): the
+ * answer's `warnings` name the other property at the field, as they do a
+ * calendar link for another Airbnb room than the listing.
  */
 
 import { NextRequest } from 'next/server';
@@ -20,10 +26,11 @@ import { getAdminDb } from '@/app/lib/firebase/admin';
 import { getPropertyById } from '@/app/lib/firebase/server-properties';
 import { verifyAdminSession } from '@/app/lib/api/verify-admin';
 import { createRateLimiter } from '@/app/lib/api/rate-limit';
-import { apiSuccess, apiError, apiValidationError, apiRateLimited } from '@/app/lib/api/safe-response';
+import { apiSuccess, apiError, apiFailure, apiValidationError, apiRateLimited } from '@/app/lib/api/safe-response';
 import { UpdatePropertySchema } from '@/app/lib/api/schemas';
 import { revalidateListingPages } from '@/app/lib/revalidate-listings';
-import { PROPERTY_VISIBILITY_COLLECTION } from '@/app/lib/firebase/server-visibility';
+import { deletePropertyUnlessItHoldsRecords, holdingsText } from '@/app/lib/firebase/server-property-delete';
+import { listingIssues, type LinkIssue } from '@/app/lib/firebase/server-listing-clashes';
 
 const COLLECTION = 'properties';
 
@@ -142,11 +149,24 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       return apiError('Property not found', 404);
     }
 
+    // The listing and calendar as they will stand after the update (an update keeps what it does not name):
+    // another property holding either is warned about, never refused, on a save. A failed check never fails the save.
+    const stored = docSnap.data() ?? {};
+    const linkOf = (key: 'airbnbUrl' | 'icalUrl') => (typeof updateData[key] === 'string' ? updateData[key] : typeof stored[key] === 'string' ? stored[key] : null);
+    let warnings: LinkIssue[] | { path: string; message: string }[];
+    try {
+      const links = await listingIssues({ airbnbUrl: linkOf('airbnbUrl'), icalUrl: linkOf('icalUrl') }, id);
+      warnings = [...links.duplicates, ...links.mismatch];
+    } catch (err) {
+      console.error(`[PUT /api/properties/${id}] the duplicate check could not read the properties:`, err instanceof Error ? err.message : err);
+      warnings = [{ path: '', message: 'The check for the same listing or calendar on another property could not run.' }];
+    }
+
     await docRef.update(updateData);
     revalidateListingPages(`update ${id}`, id);
 
     console.log(`[PUT /api/properties/${id}] Updated successfully (${Object.keys(updateData).length} fields)`);
-    return apiSuccess({ id });
+    return apiSuccess({ id, warnings });
   } catch (err) {
     console.error(`[PUT /api/properties/${id}] Firestore write error:`, err);
     const message = err instanceof Error ? err.message : 'Failed to update property';
@@ -165,26 +185,24 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     return apiError('Property ID is required', 400);
   }
 
+  // A property with drafts, statements, accepted income, title links or cost entries is never deleted (Kian's
+  // ruling of 2026-10-12, dispatch 34): 409 PROPERTY_HOLDS_RECORDS names what it holds and points to Unlisted and
+  // Exclude from reporting. One holding none of them goes with its unlisted mark (dispatch 29), its owner record
+  // and its cleaner-facing name, in one transaction (server-property-delete.ts).
   try {
-    const db = getAdminDb();
-    const docRef = db.collection(COLLECTION).doc(id);
-
-    // Verify the document exists
-    const docSnap = await docRef.get();
-    if (!docSnap.exists) {
-      return apiError('Property not found', 404);
+    const outcome = await deletePropertyUnlessItHoldsRecords(id);
+    if (outcome.kind === 'not-found') return apiError('Property not found', 404);
+    if (outcome.kind === 'holds-records') {
+      const { holdings } = outcome;
+      return apiFailure({
+        status: 409,
+        code: 'PROPERTY_HOLDS_RECORDS',
+        message: `It holds ${holdingsText(holdings)}, so it cannot be deleted.`,
+        hint: 'Mark it Unlisted and Exclude it from reporting instead, under Status on its edit page. Nothing was deleted.',
+        evidence: { ...holdings },
+      });
     }
-
-    // Its unlisted mark (dispatch 24) goes with it, in one batch (dispatch 29).
-    // The mark means nothing without the property, and once the property is
-    // gone the visibility route refuses to touch it, so nothing else could
-    // remove it. Deleting a mark that does not exist is a no-op.
-    const batch = db.batch();
-    batch.delete(docRef);
-    batch.delete(db.collection(PROPERTY_VISIBILITY_COLLECTION).doc(id));
-    await batch.commit();
     revalidateListingPages(`delete ${id}`, id);
-
     return apiSuccess({ id, deleted: true });
   } catch (err) {
     return apiError('Failed to delete property', 500, err);

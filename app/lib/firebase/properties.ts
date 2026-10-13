@@ -37,6 +37,9 @@ export type MutationResult<T> =
       status: number;
       error: string;
       issues: MutationIssue[];
+      /** The server's code and next step, when it gave them (dispatch 34: PROPERTY_HOLDS_RECORDS, DUPLICATE_LISTING). */
+      code?: string;
+      hint?: string;
     };
 
 export type ReadResult<T> = { ok: true; data: T } | { ok: false; error: string };
@@ -66,7 +69,18 @@ async function toFailure(res: Response, fallback: string): Promise<Extract<Mutat
     status: res.status,
     error: typeof body.error === 'string' && body.error ? body.error : fallback,
     issues,
+    ...(typeof body.code === 'string' ? { code: body.code } : {}),
+    ...(typeof body.hint === 'string' ? { hint: body.hint } : {}),
   };
+}
+
+/** The warnings a write answered with (dispatch 34: the same listing or calendar on another property), at their fields. */
+function warningsOf(data: unknown): MutationIssue[] {
+  const warnings = data && typeof data === 'object' ? (data as { warnings?: unknown }).warnings : undefined;
+  if (!Array.isArray(warnings)) return [];
+  return warnings
+    .filter((w): w is { path?: unknown; message: unknown } => !!w && typeof w === 'object' && typeof (w as { message?: unknown }).message === 'string')
+    .map((w) => ({ path: String(w.path ?? ''), message: String(w.message) }));
 }
 
 /** A request that never reached the server (offline, DNS, CORS, abort). */
@@ -150,7 +164,7 @@ export async function getAdminProperty(id: string): Promise<AdminPropertyRead> {
 export async function addProperty(
   property: Omit<Property, 'id'>,
   options: { unlisted?: boolean } = {},
-): Promise<MutationResult<{ id: string }>> {
+): Promise<MutationResult<{ id: string; warnings: MutationIssue[] }>> {
   let res: Response;
   try {
     // Unlisted from the start (dispatch 24): the route writes the property and its mark in one batch.
@@ -170,13 +184,13 @@ export async function addProperty(
   if (!data?.id) {
     return { ok: false, status: res.status, error: 'The server accepted the write but returned no property ID.', issues: [] };
   }
-  return { ok: true, data: { id: data.id } };
+  return { ok: true, data: { id: data.id, warnings: warningsOf(data) } };
 }
 
 export async function updateProperty(
   id: string,
   property: Partial<Property>,
-): Promise<MutationResult<{ id: string }>> {
+): Promise<MutationResult<{ id: string; warnings: MutationIssue[] }>> {
   let res: Response;
   try {
     res = await fetch(`/api/properties/${id}`, {
@@ -190,7 +204,8 @@ export async function updateProperty(
 
   if (!res.ok) return toFailure(res, 'Failed to update property');
 
-  return { ok: true, data: { id } };
+  const body = await readJson(res);
+  return { ok: true, data: { id, warnings: warningsOf(body.data) } };
 }
 
 // ─── The name cleaners see (dispatch 21) ────────────────────────

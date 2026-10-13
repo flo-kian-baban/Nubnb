@@ -416,10 +416,17 @@ export async function readIncomeMonth(month: string): Promise<IncomeMonth> {
 }
 
 /** One property's lines from the files, for its page: those linked to it now and those decided for it. @throws if a read fails. */
-export async function readPropertyIncome(propertyId: string): Promise<{ lines: EarningsLineView[]; uploads: { id: string; name: string; month: string }[] }> {
+export async function readPropertyIncome(propertyId: string): Promise<{ lines: EarningsLineView[]; uploads: { id: string; name: string; month: string }[]; unlinked: UnlinkedTitle[] }> {
   const db = getAdminDb();
-  const linksSnap = await db.collection(EARNINGS_TITLE_LINKS_COLLECTION).where('propertyId', '==', propertyId).get();
-  const titles = linksSnap.docs.map((doc) => readTitleLink(doc.id, doc.data())).filter((link): link is TitleLinkView => link !== null).map((link) => link.title);
+  // Every link and every upload, both small (one link per title, one upload per file): the property's titles,
+  // and the titles in each month's files that no link names (dispatch 34, I1).
+  const [linksSnap, uploadsSnap] = await Promise.all([db.collection(EARNINGS_TITLE_LINKS_COLLECTION).get(), db.collection(EARNINGS_UPLOADS_COLLECTION).get()]);
+  const links = linksSnap.docs.map((doc) => readTitleLink(doc.id, doc.data())).filter((link): link is TitleLinkView => link !== null);
+  const titles = links.filter((link) => link.propertyId === propertyId).map((link) => link.title);
+  const unlinked = unlinkedTitles(
+    uploadsSnap.docs.map((doc) => readEarningsUpload(doc.id, doc.data())).filter((upload): upload is EarningsUploadView => upload !== null),
+    links,
+  );
   const queries = [db.collection(EARNINGS_LINES_COLLECTION).where('decided.propertyId', '==', propertyId).get()];
   for (let i = 0; i < titles.length; i += 30) queries.push(db.collection(EARNINGS_LINES_COLLECTION).where('listingTitle', 'in', titles.slice(i, i + 30)).get());
   const snaps = await Promise.all(queries);
@@ -442,7 +449,34 @@ export async function readPropertyIncome(propertyId: string): Promise<{ lines: E
       if (upload) uploads.push({ id: upload.id, name: upload.file.name, month: upload.month });
     }
   }
-  return { lines: [...byId.values()].sort((a, b) => a.payoutDate.localeCompare(b.payoutDate) || a.fileRow - b.fileRow), uploads };
+  return { lines: [...byId.values()].sort((a, b) => a.payoutDate.localeCompare(b.payoutDate) || a.fileRow - b.fileRow), uploads, unlinked };
+}
+
+/** A title in a month's files that no link names, with its rows and total across that month's files (dispatch 34, I1). */
+export interface UnlinkedTitle {
+  month: string;
+  title: string;
+  rows: number;
+  amountCents: number;
+}
+
+/**
+ * The titles in each month's files that no link names (dispatch 34, I1): a property's money may be under one,
+ * so Finish warns while any is left. A title in two files of the same month is counted once, its rows and
+ * totals added.
+ */
+export function unlinkedTitles(uploads: Pick<EarningsUploadView, 'platform' | 'month' | 'titles'>[], links: Pick<TitleLinkView, 'platform' | 'title'>[]): UnlinkedTitle[] {
+  const linked = new Set(links.map((link) => titleKeyText(link.platform, link.title)));
+  const byKey = new Map<string, UnlinkedTitle>();
+  for (const upload of uploads) {
+    for (const title of upload.titles) {
+      const key = titleKeyText(upload.platform, title.title);
+      if (linked.has(key)) continue;
+      const was = byKey.get(`${upload.month}|${key}`);
+      byKey.set(`${upload.month}|${key}`, { month: upload.month, title: normaliseTitle(title.title), rows: (was?.rows ?? 0) + title.rows, amountCents: (was?.amountCents ?? 0) + title.amountCents });
+    }
+  }
+  return [...byKey.values()].sort((a, b) => a.month.localeCompare(b.month) || a.title.localeCompare(b.title));
 }
 
 // ─── A title's link ─────────────────────────────────────────────
