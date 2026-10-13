@@ -56,6 +56,14 @@
  * The day an entry was sent, in Toronto time; the app records no purchase
  * date. An office cost is placed by the month it is for (dispatch 36).
  *
+ * ── Cleanings (dispatch 37B, Kian's rulings of 2026-10-13) ──
+ * A tab inside this page (?tab=cleanings, CleaningsTab.tsx): admins log each
+ * cleaning by hand there. A cleaning is also a cost: it is in the one read
+ * (as an entry of kind `cleaning`), in a property's ledger, its totals and
+ * its exports, and in the cleaner filter as that cleaner's. It is never in
+ * the review queue — admins log it — and opening one takes the admin to it
+ * in the Cleanings tab.
+ *
  * ── Reports ──
  * One property over the dates chosen, approved entries only: the PDF goes to
  * the property's owner, and pending entries have not been checked. The
@@ -166,6 +174,8 @@ import { Absent, FieldText } from "../leads/lead-display";
 import { EntryStatusBadge, KindBadge, SentAt, quantityText, whenText } from "./cost-display";
 import { EntryPane, type PropertyStatementsState } from "./EntryPane";
 import { costCharges, chargesByMonth, chargedElsewhere, type Charge } from "@/app/lib/money/month";
+import { cleaningEntryView, type CleaningView, type TeamRate } from "@/app/lib/cleanings/model";
+import { CleaningsTab } from "./CleaningsTab";
 import { useAsk } from "../components/AskDialog";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
@@ -179,6 +189,9 @@ type ListState =
       exports: ReportExportView[];
       /** Every property's current name; null when they could not be read. */
       properties: PropertyNameView[] | null;
+      /** Every cleaning, and the team's rates (dispatch 37B). */
+      cleanings: CleaningView[];
+      team: TeamRate[];
     }
   | { kind: "error"; title: string; detail?: string; status: number };
 
@@ -215,11 +228,15 @@ function Costs() {
       status: isEntryStatus(status) ? status : status === "all" ? "" : NEEDS_ATTENTION,
       from: day("from"),
       to: day("to"),
-      kind: isEntryKind(kind) ? kind : "",
+      kind: isEntryKind(kind) || kind === "cleaning" ? kind : "",
       cleanerId: params.get("cleaner") ?? "",
     };
   });
   const [view, setView] = useState<View>(() => (params.get("view") === "items" ? "items" : "entries"));
+  /** The page's two tabs: costs (the queue and the ledgers), and cleanings (dispatch 37B). */
+  const [section, setSection] = useState<"costs" | "cleanings">(() => (params.get("tab") === "cleanings" ? "cleanings" : "costs"));
+  /** A cleaning opened from the costs list or another page: its row in the Cleanings tab. */
+  const [focusCleaning, setFocusCleaning] = useState<string | null>(() => params.get("cleaning"));
   const [selectedId, setSelectedId] = useState<string | null>(() => params.get("entry"));
   /** An entry named in the address is brought into view once the list has loaded. */
   const linkedEntry = useRef<string | null>(params.get("entry"));
@@ -272,8 +289,10 @@ function Costs() {
     set("cleaner", filters.cleanerId);
     set("view", view === "items" && filters.propertyId !== "" ? "items" : null);
     set("entry", selectedId);
+    set("tab", section === "cleanings" ? "cleanings" : null);
+    set("cleaning", section === "cleanings" ? focusCleaning : null);
     if (url.href !== window.location.href) window.history.replaceState(null, "", url.href);
-  }, [filters, view, selectedId]);
+  }, [filters, view, selectedId, section, focusCleaning]);
 
   const reload = () => {
     clear();
@@ -289,6 +308,12 @@ function Costs() {
    * on the screen, so what opens under it can be read.
    */
   const toggle = (id: string) => {
+    // A cleaning is opened in the Cleanings tab, where it is changed, removed or deleted (dispatch 37B).
+    if (list.kind === "ready" && list.cleanings.some((cleaning) => cleaning.id === id)) {
+      setFocusCleaning(id);
+      setSection("cleanings");
+      return;
+    }
     if (selectedId === id) {
       setSelectedId(null);
       return;
@@ -345,6 +370,23 @@ function Costs() {
     [show],
   );
 
+  /** A cleaning as stored after a log, change or removal (dispatch 37B): in the Cleanings tab's list, and among the costs as its entry. */
+  const savedCleaning = useCallback((cleaning: CleaningView) => {
+    setList((prev) => {
+      if (prev.kind !== "ready") return prev;
+      const known = prev.cleanings.some((c) => c.id === cleaning.id);
+      const entry = cleaningEntryView(cleaning);
+      return {
+        ...prev,
+        cleanings: known ? prev.cleanings.map((c) => (c.id === cleaning.id ? cleaning : c)) : [cleaning, ...prev.cleanings],
+        entries: prev.entries.some((e) => e.id === cleaning.id) ? prev.entries.map((e) => (e.id === cleaning.id ? entry : e)) : [entry, ...prev.entries],
+      };
+    });
+  }, []);
+  const deletedCleaning = useCallback((id: string) => {
+    setList((prev) => (prev.kind === "ready" ? { ...prev, cleanings: prev.cleanings.filter((c) => c.id !== id), entries: prev.entries.filter((e) => e.id !== id) } : prev));
+  }, []);
+
   const entries = useMemo(() => (list.kind === "ready" ? list.entries : []), [list]);
   const known = list.kind === "ready" ? list.properties : null;
   const visible = useMemo(() => entries.filter((entry) => matchesFilters(entry, filters)), [entries, filters]);
@@ -375,7 +417,8 @@ function Costs() {
   }, [entries]);
   const kindCounts = useMemo(
     () => ({
-      receipt: entries.filter((e) => e.kind !== "work" && e.kind !== "office").length,
+      receipt: entries.filter((e) => e.kind !== "work" && e.kind !== "office" && e.kind !== "cleaning").length,
+      cleaning: entries.filter((e) => e.kind === "cleaning").length,
       work: entries.filter((e) => e.kind === "work").length,
       office: entries.filter((e) => e.kind === "office").length,
     }),
@@ -602,7 +645,7 @@ function Costs() {
   return (
     <div className={shared.container}>
       {/* ── Header ── the shared one; this page's action is Refresh */}
-      <AdminHeader current="costs" title={(ledger ? "Ledger" : "Costs")}>
+      <AdminHeader current="costs" title={section === "cleanings" ? "Cleanings" : ledger ? "Ledger" : "Costs"}>
         <button type="button" className={shared.btnGhost} onClick={reload} disabled={list.kind === "loading"}>
           <RefreshCw size={15} aria-hidden />
           <span>Refresh</span>
@@ -612,7 +655,33 @@ function Costs() {
       <main className={shared.main}>
         <NoticeBanner notice={notice} onDismiss={clear} className={shared.pageNotice} />
 
-        {list.kind === "loading" ? (
+        {/* ── The page's two tabs (dispatch 37B: cleanings are a tab inside the Costs page) ── */}
+        {list.kind === "ready" && (
+          <div className={`${styles.tabs} ${styles.sectionTabs}`} role="tablist" aria-label="Costs or cleanings">
+            <button type="button" role="tab" aria-selected={section === "costs"} className={`${styles.tab} ${section === "costs" ? styles.tabActive : ""}`} onClick={() => setSection("costs")}>
+              Costs
+            </button>
+            <button type="button" role="tab" aria-selected={section === "cleanings"} className={`${styles.tab} ${section === "cleanings" ? styles.tabActive : ""}`} onClick={() => setSection("cleanings")}>
+              Cleanings
+            </button>
+          </div>
+        )}
+
+        {list.kind === "ready" && section === "cleanings" ? (
+          <CleaningsTab
+            cleanings={list.cleanings}
+            team={list.team}
+            properties={list.properties}
+            filters={{ propertyId: filters.propertyId, cleanerId: filters.cleanerId, from: filters.from, to: filters.to }}
+            setFilter={setFilter}
+            charges={charges}
+            today={today}
+            focusId={focusCleaning}
+            onSaved={savedCleaning}
+            onDeleted={deletedCleaning}
+            show={show}
+          />
+        ) : list.kind === "loading" ? (
           <div className={shared.loading}>
             <div className={shared.spinner} />
             <p>Loading cost entries…</p>
@@ -785,6 +854,7 @@ function Costs() {
                         { value: "receipt", label: `Receipts (${kindCounts.receipt})` },
                         { value: "work", label: `Work (${kindCounts.work})` },
                         { value: "office", label: `Added by the office (${kindCounts.office})` },
+                        { value: "cleaning", label: `Cleanings (${kindCounts.cleaning})` },
                       ],
                     },
                   ]}
@@ -1110,7 +1180,7 @@ function EntryRow({
           }}
         >
           <ChevronRight size={14} aria-hidden className={`${styles.chevron} ${isOpen ? styles.chevronOpen : ""}`} />
-          <SentAt iso={entry.createdAt} />
+          <SentAt iso={entry.createdAt} dayOnly={entry.kind === "cleaning"} />
         </button>
       </td>
       {showProperty && (

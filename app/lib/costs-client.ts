@@ -19,6 +19,7 @@
 
 import { describeErrorBody, readErrorBody } from '@/app/lib/api/http-failure';
 import type { CostEntryView, CostsView, LinesNow, ReportExportView, ReviewStatus } from '@/app/lib/cleaners/model';
+import type { CleaningView } from '@/app/lib/cleanings/model';
 
 export type CostResult<T> =
   | { ok: true; data: T }
@@ -211,6 +212,11 @@ export function fetchCosts(): Promise<CostResult<CostsView>> {
       data.entries.every(isCostEntryView) &&
       Array.isArray(data.exports) &&
       data.exports.every(isReportExportView) &&
+      // Dispatch 37B: the cleanings and the team's rates.
+      Array.isArray(data.cleanings) &&
+      data.cleanings.every(isCleaningView) &&
+      Array.isArray(data.team) &&
+      data.team.every((member) => isRecord(member) && typeof member.id === 'string' && isTextOrNull(member.name) && typeof member.role === 'string' && (member.defaultRateCents === null || typeof member.defaultRateCents === 'number')) &&
       (data.properties === null ||
         (Array.isArray(data.properties) &&
           data.properties.every((p) => isRecord(p) && typeof p.id === 'string' && isTextOrNull(p.name)))),
@@ -413,3 +419,78 @@ export function fetchReceiptLink(id: string): Promise<CostResult<ReceiptLinkData
       typeof data.publicToken === 'boolean',
   );
 }
+
+// ─── Cleanings (dispatch 37B) ──────────────────────────────────
+
+/** A cleaning in the shape the page reads. */
+function isCleaningView(data: unknown): data is CleaningView {
+  return (
+    isRecord(data) &&
+    typeof data.id === 'string' &&
+    typeof data.propertyId === 'string' &&
+    typeof data.cleanerId === 'string' &&
+    typeof data.day === 'string' &&
+    typeof data.amountCents === 'number' &&
+    (data.status === 'logged' || data.status === 'removed') &&
+    isTextOrNull(data.note) &&
+    Array.isArray(data.history) &&
+    isRecord(data.cleaner) &&
+    isRecord(data.property)
+  );
+}
+
+/** What logging or changing a cleaning answers: the cleaning as stored, and the month whose statement it goes on. */
+export interface CleaningSaved {
+  cleaning: CleaningView;
+  statementMonth: string;
+  changed?: boolean;
+}
+
+/**
+ * Log one cleaning (Kian's rulings of 2026-10-13: by hand; the amount as the admin left it, "60.00"). The answer
+ * names the statement it goes on. CLEANING_LOG_FAILED may or may not have landed: the page says so and offers
+ * Refresh rather than sending it again.
+ */
+export function logCleaning(request: { propertyId: string; cleanerId: string; day: string; amount: string; note: string | null }): Promise<CostResult<CleaningSaved>> {
+  return call(
+    '/api/admin/cleanings',
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) },
+    'Logging the cleaning failed',
+    (data) => isRecord(data) && isCleaningView(data.cleaning) && typeof data.statementMonth === 'string',
+    ['CLEANING_LOG_FAILED'],
+  );
+}
+
+/** Change a cleaning's day, amount, cleaner or note, as the page saw it (`seen`: its history's length). */
+export function changeCleaning(id: string, request: { seen: number; day?: string; amount?: string; cleanerId?: string; note?: string | null; reason?: string | null }): Promise<CostResult<CleaningSaved>> {
+  return call(
+    `/api/admin/cleanings/${encodeURIComponent(id)}`,
+    { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'change', ...request }) },
+    'Saving the cleaning failed',
+    (data) => isRecord(data) && isCleaningView(data.cleaning) && typeof data.statementMonth === 'string' && typeof data.changed === 'boolean',
+    ['CLEANING_SAVE_FAILED'],
+  );
+}
+
+/** Remove a cleaning: it stays, marked, and counts nowhere; a statement that printed it is given it back. */
+export function removeCleaning(id: string, request: { seen: number; reason?: string | null }): Promise<CostResult<{ cleaning: CleaningView }>> {
+  return call(
+    `/api/admin/cleanings/${encodeURIComponent(id)}`,
+    { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'remove', ...request }) },
+    'Removing the cleaning failed',
+    (data) => isRecord(data) && isCleaningView(data.cleaning),
+    ['CLEANING_REMOVE_FAILED'],
+  );
+}
+
+/** Delete a cleaning outright, while no finished statement prints it. */
+export function deleteCleaning(id: string, request: { seen: number }): Promise<CostResult<{ deleted: { id: string } }>> {
+  return call(
+    `/api/admin/cleanings/${encodeURIComponent(id)}`,
+    { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) },
+    'Deleting the cleaning failed',
+    (data) => isRecord(data) && isRecord(data.deleted) && data.deleted.id === id,
+    ['CLEANING_DELETE_FAILED'],
+  );
+}
+

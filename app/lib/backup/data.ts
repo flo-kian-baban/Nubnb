@@ -35,7 +35,8 @@ import {
   type StatementDraftView,
 } from '@/app/lib/reports/model';
 import { moneyMonthsByProperty, monthStanding, type AnyStatement, type Standing, type Statement } from '@/app/lib/reports/statement';
-import { costCharges, monthMoney, type Figures } from '@/app/lib/money/month';
+import { chargesByMonth, costCharges, monthMoney, type Figures } from '@/app/lib/money/month';
+import { cleaningEntryView, readCleaning } from '@/app/lib/cleanings/model';
 
 export const MONTH_PACKAGE_SCHEMA_VERSION = 1;
 
@@ -106,6 +107,13 @@ export interface MonthPackageData {
   notCharged: NotCharged[];
   /** The entries the package names, as stored, by ID, the Storage path of each receipt left out. */
   entries: Record<string, StoredDocument>;
+  /**
+   * The cleanings the package names (dispatch 37B): every cleaning of the month and every one a folder's statement
+   * charges, as stored, by ID. They name their cleaner: Nubnb's folder holds them, an owner's never does.
+   */
+  cleanings: Record<string, StoredDocument>;
+  /** Every statement that charges each of those cleanings, by ID: Nubnb's Cleanings workbook says where each went. */
+  cleaningCharges: Record<string, { month: string; finished: boolean; cents: number }[]>;
   /** Statements an adjustment names, so the workbook can say where an entry was printed. */
   printedStatements: Record<string, { month: string; reference: string }>;
   /** The month's stored documents, for `Records/`. */
@@ -217,6 +225,8 @@ export interface SelectInputs {
   downloads: { view: ReportDownloadView; stored: Record<string, unknown> }[];
   /** The statement lines that came from accepted Airbnb lines (Kian's ruling M1); absent, every line reads as typed. */
   airbnbLineIds?: ReadonlySet<string>;
+  /** Every cleaning, as stored (dispatch 37B): costs the statements read, beside the entries. */
+  cleanings?: { id: string; stored: Record<string, unknown> }[];
   /** Every management record, read, with its stored document. */
   management: { view: PropertyManagementView; stored: Record<string, unknown> }[];
 }
@@ -238,6 +248,12 @@ export function selectMonthPackage(input: SelectInputs): Selection {
   const { month, today } = input;
   const views = new Map(input.entries.map(({ id, stored }) => [id, entryViewOf(id, stored)]));
   const storedEntries = new Map(input.entries.map(({ id, stored }) => [id, stored]));
+  // Cleanings (dispatch 37B), read as entries of kind `cleaning` so the statements charge them; stored apart.
+  const storedCleanings = new Map((input.cleanings ?? []).map(({ id, stored }) => [id, stored]));
+  for (const { id, stored } of input.cleanings ?? []) {
+    const read = readCleaning(id, stored);
+    if (read) views.set(id, cleaningEntryView({ ...read, cleaner: { state: 'found', name: read.cleanerNameAtEntry, status: null }, property: { state: 'found', name: read.propertyNameAtEntry } }));
+  }
   const allReports = input.reports.map((r) => r.view);
   const current = currentReports(allReports);
   const management = new Map(input.management.map((m) => [m.view.propertyId, m.view]));
@@ -250,6 +266,7 @@ export function selectMonthPackage(input: SelectInputs): Selection {
   const properties: PackageProperty[] = [];
   const charged = new Set<string>();
   const named = new Set<string>();
+  const cleaningCharges: Record<string, { month: string; finished: boolean; cents: number }[]> = {};
   const objects: PackageObject[] = [];
   const reportIds: string[] = [];
 
@@ -273,6 +290,13 @@ export function selectMonthPackage(input: SelectInputs): Selection {
     for (const row of statement?.costs ?? []) {
       const others = (charges.get(row.entryId) ?? []).filter((charge) => charge.month !== month);
       if (others.length > 0) elsewhere[row.entryId] = others.map((charge) => ({ month: charge.month, cents: charge.cents }));
+    }
+    // Where each of the property's cleanings of the month, or charged on its statement, is charged.
+    for (const view of entriesOfProperty) {
+      if (view.kind !== 'cleaning') continue;
+      const onStatement = (statement?.costs ?? []).some((row) => row.entryId === view.id) || (statement?.adjustments ?? []).some((row) => row.entryId === view.id);
+      if (!inMonth(view) && !onStatement) continue;
+      cleaningCharges[view.id] = chargesByMonth(charges.get(view.id) ?? []);
     }
 
     const hasCosts = statement !== null && (statement.costs.length > 0 || statement.adjustments.length > 0);
@@ -314,6 +338,8 @@ export function selectMonthPackage(input: SelectInputs): Selection {
   const names = new Map(input.properties.map((p) => [p.id, p.name?.trim() || 'Unnamed property']));
   const notCharged: NotCharged[] = [];
   for (const entry of [...views.values()].filter(inMonth).sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '') || a.id.localeCompare(b.id))) {
+    // A cleaning is listed in Nubnb's Cleanings workbook instead, with where it is charged (dispatch 37B).
+    if (entry.kind === 'cleaning') continue;
     if (charged.has(entry.id)) continue;
     named.add(entry.id);
     const printed = printedBy.get(entry.id) ?? null;
@@ -325,9 +351,15 @@ export function selectMonthPackage(input: SelectInputs): Selection {
     });
   }
 
-  // The receipts the package holds: every named entry's.
+  // The receipts the package holds: every named entry's. A cleaning has none; its document is kept apart.
   const entries: Record<string, StoredDocument> = {};
-  for (const id of [...named].sort()) {
+  const cleanings: Record<string, StoredDocument> = {};
+  for (const id of [...new Set([...named, ...Object.keys(cleaningCharges)])].sort()) {
+    const cleaning = storedCleanings.get(id);
+    if (cleaning) {
+      cleanings[id] = { id, ...cleaning };
+      continue;
+    }
     const stored = storedEntries.get(id);
     if (!stored) continue;
     entries[id] = withoutPaths(id, stored);
@@ -358,6 +390,8 @@ export function selectMonthPackage(input: SelectInputs): Selection {
       folders,
       notCharged,
       entries,
+      cleanings,
+      cleaningCharges,
       printedStatements,
       records: {
         monthlyReports: input.reports.filter((r) => reportsInPackage.has(r.view.id)).map((r) => ({ id: r.view.id, ...r.stored })),

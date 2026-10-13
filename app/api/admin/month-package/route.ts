@@ -49,6 +49,7 @@ import {
 } from '@/app/lib/reports/model';
 import { selectMonthPackage, type SelectInputs } from '@/app/lib/backup/data';
 import { airbnbLineIdsOf } from '@/app/lib/money/month';
+import { CLEANINGS_COLLECTION } from '@/app/lib/cleanings/model';
 import { EARNINGS_LINES_COLLECTION, readEarningsLine } from '@/app/lib/income/model';
 import { createdMonthOf } from '@/app/lib/firebase/created-month';
 
@@ -79,7 +80,7 @@ export async function GET(request: NextRequest) {
   let selection: ReturnType<typeof selectMonthPackage>;
   const madeAt = new Date();
   try {
-    const [properties, entries, reports, drafts, downloads, management, earnings] = await Promise.all([
+    const [properties, entries, reports, drafts, downloads, management, earnings, cleanings] = await Promise.all([
       db.collection('properties').select('name').get(),
       db.collection(COST_ENTRIES_COLLECTION).get(),
       db.collection(MONTHLY_REPORTS_COLLECTION).get(),
@@ -88,6 +89,8 @@ export async function GET(request: NextRequest) {
       db.collection(PROPERTY_MANAGEMENT_COLLECTION).get(),
       // The month's Airbnb lines: which statement lines are Airbnb's, for the workbooks' revenue (dispatch 37A, Kian's ruling M1).
       db.collection(EARNINGS_LINES_COLLECTION).where('month', '==', month).get(),
+      // Every cleaning (dispatch 37B): costs the statements read; Nubnb's folder lists them with who cleaned.
+      db.collection(CLEANINGS_COLLECTION).get(),
     ]);
     const input: SelectInputs = {
       month,
@@ -113,6 +116,7 @@ export async function GET(request: NextRequest) {
         return view ? [{ view, stored: doc.data() }] : [];
       }),
       airbnbLineIds: airbnbLineIdsOf(earnings.docs.map((doc) => readEarningsLine(doc.id, doc.data())).filter((line) => line !== null)),
+      cleanings: cleanings.docs.map((doc) => ({ id: doc.id, stored: doc.data() })),
     };
     selection = selectMonthPackage(input);
   } catch (err) {

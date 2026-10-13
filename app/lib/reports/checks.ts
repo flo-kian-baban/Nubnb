@@ -16,7 +16,10 @@
  *            S3   an earlier month closed owing NuBNB and no statement carries it (dispatch 35: every such month, not only the last)
  *            S2   a carried balance whose month's statement was deleted and not finished again (dispatch 35: a corrected one is followed by the link)
  *            I1   Airbnb lines waiting, or titles in the month's file linked to no property
- *            N4   no cleaning line while the month's Airbnb file shows checkouts
+ *            N4   no cleaning line while the month's Airbnb file shows checkouts (dispatch 37B: a logged
+ *                 cleaning of the month prints the cleaning line; Kian's ruling of 2026-10-13 keeps the warning,
+ *                 a count only)
+ *            —    a typed cleaning line beside logged cleanings: cleaning may be charged twice (dispatch 37B)
  *            C2   costs approved automatically that nobody has looked at
  *            —    entries sent in the month still pending (said before, in the old confirmation)
  *            S25  Report For cut short on the PDF
@@ -81,9 +84,19 @@ export interface CheckInputs {
   revenueCents?: number;
 }
 
-/** A line that charges cleaning: its description says so ("Expense - Cleaning", as the reports NuBNB sends have it). */
-export function hasCleaningLine(statement: Pick<Statement, 'lines'>): boolean {
+/** A typed line that charges cleaning: its description says so ("Expense - Cleaning", as the reports NuBNB sends have it). */
+export function hasTypedCleaningLine(statement: Pick<Statement, 'lines'>): boolean {
   return statement.lines.some((line) => /clean/i.test(line.description));
+}
+
+/** Cleanings logged for the statement's own month (dispatch 37B): they print as its "Expense - Cleaning" line. */
+export function loggedCleanings(statement: Pick<Statement, 'costs'>): number {
+  return statement.costs.filter((cost) => cost.kind === 'cleaning' && cost.group === 'month').length;
+}
+
+/** A line that charges cleaning: a typed one, or the line the month's logged cleanings print (dispatch 37B). */
+export function hasCleaningLine(statement: Pick<Statement, 'lines'> & Partial<Pick<Statement, 'costs'>>): boolean {
+  return hasTypedCleaningLine(statement) || loggedCleanings({ costs: statement.costs ?? [] }) > 0;
 }
 
 /**
@@ -158,6 +171,8 @@ export function finishChecks(input: CheckInputs): FinishChecks {
     }
     if (income.checkouts > 0 && !hasCleaningLine(s)) warnings.push({ key: 'cleaning', text: `No cleaning line · ${plural(income.checkouts, 'Airbnb checkout', 'Airbnb checkouts')} in ${monthName(s.month)}.`, tab: 'income' });
   }
+  // A cleaning typed as a line beside cleanings logged for the month would charge the owner twice (dispatch 37B).
+  if (hasTypedCleaningLine(s) && loggedCleanings(s) > 0) warnings.push({ key: 'cleaning-twice', text: `A typed cleaning line and ${plural(loggedCleanings(s), 'logged cleaning', 'logged cleanings')}: cleaning may be charged twice.`, tab: 'income' });
 
   // ── Costs (C2, and the pending entries the old confirmation named) ──
   const printed = new Set(s.costs.map((cost) => cost.entryId));

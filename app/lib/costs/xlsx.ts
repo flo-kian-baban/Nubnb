@@ -73,7 +73,7 @@ export function workbookFor(report: CostReport): Uint8Array<ArrayBuffer> {
           when(entry),
           text(entry.ref),
           text(entry.id),
-          text(isEntryKind(entry.kind) ? ENTRY_KIND_LABELS[entry.kind] : entry.kind),
+          text(isEntryKind(entry.kind) ? ENTRY_KIND_LABELS[entry.kind] : entry.kind === 'cleaning' ? 'Cleaning' : entry.kind),
           text(entry.cleaner),
           text(whatWasBoughtText(entry.lines)),
           count(entry.lines.length),

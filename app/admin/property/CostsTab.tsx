@@ -29,11 +29,14 @@
  * (Kian's ruling: approved entries stay correctable and removable). A
  * change shows in the statement preview at once.
  *
- * The ledger for any dates is a link away.
+ * The ledger for any dates is a link away. A cleaning (dispatch 37B) is one
+ * of the month's costs here, listed with who cleaned (an admin's page); it
+ * opens in the Costs page's Cleanings tab, where cleanings are logged.
  */
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FileSpreadsheet, FileText, Plus } from "lucide-react";
 import type { Notice } from "../components/Notice";
 import { useAsk } from "../components/AskDialog";
@@ -51,6 +54,12 @@ import { AddCostForm } from "./AddCostForm";
 import styles from "./page.module.css";
 
 const SESSION_HINT = "Your admin session may have expired — reload and sign in again.";
+
+/** The Costs page's Cleanings tab, on the property and the month (and a cleaning, when one is opened). */
+function cleaningsHref(propertyId: string, month: string, cleaningId: string | null): string {
+  const { from, to } = monthRange(month);
+  return `/admin/costs?tab=cleanings&property=${encodeURIComponent(propertyId)}&from=${from}&to=${to}${cleaningId ? `&cleaning=${encodeURIComponent(cleaningId)}` : ""}`;
+}
 
 interface Props {
   propertyId: string;
@@ -118,6 +127,12 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
   /** What else the month's statement charges: earlier months' entries and adjustments, as cost amounts. */
   const alsoCharged = money.alsoCharged;
   const patterns = useMemo(() => watchList(entries, today), [entries, today]);
+  const router = useRouter();
+  /** An entry opens here; a cleaning, in the Costs page's Cleanings tab (dispatch 37B). */
+  const open = (entry: CostEntryView) => {
+    if (entry.kind === "cleaning") router.push(cleaningsHref(propertyId, month, entry.id));
+    else onOpenEntry(entry.id);
+  };
 
   const exportReport = async (kind: "pdf" | "xlsx") => {
     if (recording) return;
@@ -279,7 +294,7 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
               const pdf = pdfStateOf(entry);
               const where = chargeWords(line, month);
               return (
-                <tr key={entry.id} className={styles.rowClick} onClick={() => onOpenEntry(entry.id)}>
+                <tr key={entry.id} className={styles.rowClick} onClick={() => open(entry)}>
                   {/* The cost is named by the day it was submitted (Kian, 2026-10-01), an office cost by its month and the day it was logged (Kian's ruling of 2026-10-12): what was bought is in the entry it opens. */}
                   <td className={styles.costWhen}>
                     <button
@@ -287,7 +302,7 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
                       className={styles.rowButton}
                       onClick={(e) => {
                         e.stopPropagation();
-                        onOpenEntry(entry.id);
+                        open(entry);
                       }}
                     >
                       {officeWhen(entry) ?? (day ? shortDay(day) : "—")}
@@ -347,6 +362,10 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
       <p className={`${styles.note} ${styles.costsFoot}`}>
         <Link href={`/admin/costs?property=${encodeURIComponent(propertyId)}&status=approved`} prefetch={false} className={styles.linkButton}>
           Ledger: all dates, Excel and PDF
+        </Link>
+        {" · "}
+        <Link href={cleaningsHref(propertyId, month, null)} prefetch={false} className={styles.linkButton}>
+          Log cleanings
         </Link>
       </p>
       {dialog}

@@ -66,6 +66,8 @@
 // ─── Collections ───────────────────────────────────────────────
 // Permanent: renaming one would mean moving documents, which is a backfill.
 
+import type { CleaningView, TeamRate } from '@/app/lib/cleanings/model';
+
 export const CLEANERS_COLLECTION = 'cleaners';
 export const CLEANER_CODES_COLLECTION = 'cleaner_codes';
 export const COST_ENTRIES_COLLECTION = 'cost_entries';
@@ -359,6 +361,7 @@ export const HISTORY_ACTIONS = [
   'line_added',
   'tax_corrected',
   'seen',
+  'rate_set',
 ] as const;
 export type HistoryAction = (typeof HISTORY_ACTIONS)[number];
 
@@ -376,6 +379,7 @@ export const HISTORY_ACTION_LABELS: Record<HistoryAction, string> = {
   line_added: 'Line added',
   tax_corrected: 'Tax corrected',
   seen: 'Seen',
+  rate_set: 'Default rate set',
 };
 
 // ─── Stored shapes ─────────────────────────────────────────────
@@ -588,6 +592,11 @@ export interface CleanerSummary {
   history: HistoryEventView[] | null;
   /** `cleaner` or `handyman` (dispatch 24); `cleaner` when the document has no role; anything else as stored. */
   role: string;
+  /**
+   * The cleaner's one default rate for a cleaning (dispatch 37B, Kian's ruling of 2026-10-13), in cents; null when
+   * none is set. Admins only: the cleaner app never reads it.
+   */
+  defaultRateCents: number | null;
 }
 
 export interface LineView {
@@ -789,8 +798,15 @@ export interface PropertyNameView {
 
 /** What GET /api/admin/cost-entries answers: everything the costs page works from. */
 export interface CostsView {
-  /** Every cost entry, newest first. */
+  /**
+   * Every cost the statements read, newest first: every cost entry, and every cleaning as an entry of kind
+   * `cleaning` (dispatch 37B, `cleaningEntryView`).
+   */
   entries: CostEntryView[];
+  /** Every cleaning, as the Cleanings tab lists it, newest day first (dispatch 37B). */
+  cleanings: CleaningView[];
+  /** Every team member with their role, status and default rate, for the cleaning form (dispatch 37B). */
+  team: TeamRate[];
   /** Every recorded PDF, newest first. */
   exports: ReportExportView[];
   /** Every property's current name, A to Z; null when they could not be read. */
@@ -1088,6 +1104,7 @@ export function readCleanerSummary(id: string, fields: Record<string, unknown>):
     createdAt: fieldText(fields.createdAt),
     history: readHistory(fields.history),
     role: roleOf(fields),
+    defaultRateCents: typeof fields.defaultRateCents === 'number' && Number.isSafeInteger(fields.defaultRateCents) && fields.defaultRateCents > 0 ? fields.defaultRateCents : null,
   };
 }
 

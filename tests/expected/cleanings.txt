@@ -1,0 +1,68 @@
+═══ 1. September: three cleanings at $60.00, and a $56.50 receipt ═══
+  printed rows:
+      Revenue · 1 · $2,000.00 · $2,000.00
+      Expense - Cleaning · 3 · -$60.00 · -$180.00
+      Expense - ref TESTEN · Sep 10, 2026 · 1 · -$56.50 · -$56.50
+  stored cost rows: cleaning Cleaning · Sep 5, 2026 $60.00 | receipt ref TESTEN · Sep 10, 2026 $56.50 | cleaning Cleaning · Sep 12, 2026 $60.00 | cleaning Cleaning · Sep 19, 2026 $60.00
+  September finished: recorded $236.50 · PDF holds "Expense - Cleaning": true · names the cleaner: false
+
+═══ 2. October: cleanings at $60.00 and $80.00; a September cleaning logged after September was finished; one changed, one removed after printing ═══
+  printed rows:
+      Expense - Cleaning · 2 · (rate empty) · -$140.00
+      Expense - Cleaning (from September 2026) · 1 · -$75.00 · -$75.00
+      Adjustment - Cleaning · Sep 5, 2026 (reported in September 2026 as -$60.00, now -$70.00) · 1 · -$10.00 · -$10.00
+      Adjustment - Cleaning · Sep 12, 2026 (reported in September 2026 as -$60.00, no longer in the ledger) · 1 · $60.00 · $60.00
+  October's statement: recorded $165.00 · total -$165.00
+  October's PDF names the cleaner: false · prints an average of $70.00: false
+  charges 2026-09-05 logged $70.00: 2026-09 finished cost $60.00 | 2026-10 open adjustment $10.00
+  charges 2026-09-12 removed $60.00: 2026-09 finished cost $60.00 | 2026-10 open adjustment -$60.00
+  charges 2026-09-19 logged $60.00: 2026-09 finished cost $60.00
+  charges 2026-09-28 logged $75.00: 2026-10 open cost $75.00
+  charges 2026-10-03 logged $60.00: 2026-10 open cost $60.00
+  charges 2026-10-09 logged $80.00: 2026-10 open cost $80.00
+  September's Costs tab: 4 costs · $261.50 · by statement: 2026-09 $236.50 · 2026-10 (open) $25.00
+
+═══ 3. The cleaner deleted ═══
+  read by: Zelda Testcleaner (state missing) · amount $60.00
+  October's statement unchanged: true
+
+═══ 4. Owners' documents ═══
+  ledger: 2026-09-05 cleaning Nubnb office $70.00 | 2026-09-10 receipt Zelda Testcleaner $56.50 | 2026-09-19 cleaning Nubnb office $60.00 | 2026-09-28 cleaning Nubnb office $75.00 | 2026-10-03 cleaning Nubnb office $60.00 | 2026-10-09 cleaning Nubnb office $80.00
+  ledger PDF lists "Cleaning": true · names the cleaner: false
+  ledger Excel of the cleanings alone names the cleaner: false · with the receipt, its "Logged by" names who sent it, as before 37B: true
+  ledger PDF of the cleanings alone, the changed cleaning's split, line by line: "On September 2026's statement $60.00," + "October 2026's statement $10.00" + "On October 2026's statement" + "Charged on: September 2026's statement $120.00 · October 2026's statement $225.00"
+  its footnotes: "* A cleaning marked so was changed by Nubnb after it was logged."
+  ZIP 2026-09: owner's folder 5 files, any naming the cleaner: none · Nubnb's folder names them in: 2026-09 Cleanings.xlsx, cleanings 2026-09.json, cost_entries 2026-09.json
+    owner's workbook lists the cleanings: 3 cleaning rows · says "Differs": false
+  ZIP 2026-10: owner's folder 4 files, any naming the cleaner: none · Nubnb's folder names them in: 2026-10 Cleanings.xlsx, cleanings 2026-10.json
+    owner's workbook lists the cleanings: 5 cleaning rows · says "Differs": false
+
+═══ 5. The form's amount (Kian's ruling: last paid for the property, else the default rate) ═══
+  Zelda at this property: {"from":"last","cents":8000}
+  Zelda at another property, default $65.00: {"from":"default","cents":6500}
+  someone with no default: {"from":"none","cents":null}
+  the property's last cleaner: TESTCLEANERzelda0001
+  typed amounts: 60→6000 60.5→6050 60.50→6050 $75→7500 0→null -5→null 10000→null abc→null
+
+═══ 6. Finish ═══
+  4 checkouts, nothing logged: fee-none, cleaning
+  4 checkouts, October's cleanings logged: fee-none, date
+  a typed cleaning line beside logged cleanings: A typed cleaning line and 2 logged cleanings: cleaning may be charged twice.
+
+═══ 7. A month whose only money is a logged cleaning ═══
+  months with money: [["TESTPROPonlycleaning",["2026-10"]]]
+  owed in October, the property added in November: true
+  finish-empty list for October: eligible 0 · left out: It has costs, an adjustment or a carried balance to settle.
+
+═══ 8. The routes' schemas, given what the page sends ═══
+  log, no note typed (null): ok {"propertyId":"TESTPROPcleaningsaa1","cleanerId":"TESTCLEANERzelda0001","day":"2026-09-05","amount":6000,"note":null}
+  log, note left out: ok {"propertyId":"TESTPROPcleaningsaa1","cleanerId":"TESTCLEANERzelda0001","day":"2026-09-05","amount":6000,"note":null}
+  log, a note: ok {"propertyId":"TESTPROPcleaningsaa1","cleanerId":"TESTCLEANERzelda0001","day":"2026-09-05","amount":6000,"note":"Mid-stay clean"}
+  log, "60": refused: amount Write the amount as dollars and cents, like 60.00
+  log, "0.00": refused: amount More than $0.00, at most $9,999.99
+  log, an extra field: refused: (body) Unrecognized key: "rate"
+  change the amount: ok {"action":"change","seen":1,"amount":7000,"reason":null}
+  clear the note: ok {"action":"change","seen":2,"note":null,"reason":null}
+  remove, no reason: ok {"action":"remove","seen":2,"reason":null}
+  delete: ok {"seen":3}
+  a default rate: ok {"defaultRate":6000} · none: ok {"defaultRate":null}

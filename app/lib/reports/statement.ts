@@ -178,6 +178,11 @@ export function costLineName(entryId: string, day: string): string {
   return `ref ${entryRef(entryId)} · ${rangeText(day, day)}`;
 }
 
+/** What a cleaning's own row is called (dispatch 37B): "Cleaning · Oct 9, 2026", by the day cleaned. Never the cleaner (Kian's ruling of 2026-10-13). */
+export function cleaningLineName(day: string): string {
+  return `Cleaning · ${rangeText(day, day)}`;
+}
+
 /**
  * One readable entry as a statement cost row. `amountCents`, when given, is what the row charges instead of the
  * entry's total now: a month redone after a later statement adjusted the entry prints only what is left after
@@ -189,16 +194,19 @@ function costRow(entry: CostEntryView, group: StatementCost['group'], amountCent
   if (entry.linesNow.kind !== 'ok' || day === null || entry.history === null) return null;
   const left = amountCents !== null && amountCents !== entry.linesNow.totalCents;
   // An office cost prints the month it belongs to, with the day it was logged in brackets: "ref 1a2b3c · Sep 2026
-  // (logged Oct 12)" (Kian's ruling of 2026-10-12); its row keeps that month. Any other entry is named by its day.
+  // (logged Oct 12)" (Kian's ruling of 2026-10-12); its row keeps that month. A cleaning (dispatch 37B) is named by
+  // the day it was cleaned and keeps its month too: the statement prints a month's cleanings as one line. Any other
+  // entry is named by its day.
   const office = officeWhen(entry);
+  const cleaning = entry.kind === 'cleaning';
   const belongs = entryMonth(entry);
-  const month = office !== null && belongs !== null ? { month: belongs } : {};
+  const month = (office !== null || cleaning) && belongs !== null ? { month: belongs } : {};
   return {
     entryId: entry.id,
     ref: entryRef(entry.id),
     day,
     kind: entry.kind,
-    description: office !== null ? `ref ${entryRef(entry.id)} · ${office}` : costLineName(entry.id, day),
+    description: office !== null ? `ref ${entryRef(entry.id)} · ${office}` : cleaning ? cleaningLineName(day) : costLineName(entry.id, day),
     itemsCents: left ? (amountCents as number) : entry.linesNow.itemsCents,
     taxCents: left ? null : entry.linesNow.taxCents,
     totalCents: left ? (amountCents as number) : entry.linesNow.totalCents,
@@ -466,7 +474,7 @@ export function buildStatement(input: StatementInputs): StatementBuild {
     // On the next month's statement, never on an earlier month finished later (Kian's ruling of 2026-10-12).
     if (month !== nextOpenMonth(charge.latest.month, finishedMonths)) continue;
     const day = entry ? sentDay(entry.createdAt) : null;
-    const description = entry && day !== null ? costLineName(entry.id, day) : null;
+    const description = entry && day !== null ? (entry.kind === 'cleaning' ? cleaningLineName(day) : costLineName(entry.id, day)) : null;
     adjustments.push({ entryId, statementId: charge.latest.reportId, printedCents: charge.cents, nowCents, deltaCents: nowCents - charge.cents, historyLength, description, printedMonth: charge.latest.month });
   }
   adjustments.sort((a, b) => a.entryId.localeCompare(b.entryId));
@@ -633,7 +641,8 @@ export interface PrintedLine {
   kind: PrintedLineKind;
   description: string;
   quantity: number;
-  rateCents: number;
+  /** null on a cleaning line whose cleanings' amounts differ (dispatch 37B): the Rate column is left empty, the Amount their total. */
+  rateCents: number | null;
   amountCents: number;
   /** The entry behind a recorded line, for "Open entry". */
   entryId: string | null;
@@ -656,10 +665,24 @@ export function lineText(line: Pick<Line, 'description' | 'from' | 'to'>): strin
  */
 export function printedLines(statement: Pick<Statement, 'lines' | 'costs' | 'adjustments' | 'fee'> & { heading?: boolean; carriedAdjustments?: StatementCarriedAdjustment[] }): PrintedLine[] {
   const rows: PrintedLine[] = statement.lines.map((line) => ({ key: line.id, kind: 'line', description: lineText(line), quantity: line.quantity, rateCents: line.rateCents, amountCents: line.amountCents, entryId: null }));
-  for (const row of statement.costs.filter((cost) => cost.group === 'month')) {
+  // A month's cleanings print as one line, "Expense - Cleaning", with the total (Kian's ruling of 2026-10-13); the cost
+  // rows keep each cleaning. Cleanings of an earlier month carried here print as one line for that month, labelled with it.
+  const cleaningLine = (group: StatementCost[], key: string, description: string) => {
+    if (group.length === 0) return;
+    const total = group.reduce((sum, row) => sum + row.totalCents, 0);
+    const equal = group.every((row) => row.totalCents === group[0].totalCents);
+    rows.push({ key, kind: 'cost', description, quantity: group.length, rateCents: equal ? -group[0].totalCents : null, amountCents: -total, entryId: null });
+  };
+  const isCleaningRow = (row: StatementCost) => row.kind === 'cleaning';
+  cleaningLine(statement.costs.filter((cost) => cost.group === 'month' && isCleaningRow(cost)), 'cleaning-month', 'Expense - Cleaning');
+  for (const row of statement.costs.filter((cost) => cost.group === 'month' && !isCleaningRow(cost))) {
     rows.push({ key: `cost-${row.entryId}`, kind: 'cost', description: `Expense - ${row.description}`, quantity: 1, rateCents: -row.totalCents, amountCents: -row.totalCents, entryId: row.entryId });
   }
-  for (const row of statement.costs.filter((cost) => cost.group === 'earlier')) {
+  const earlierCleanings = statement.costs.filter((cost) => cost.group === 'earlier' && isCleaningRow(cost));
+  for (const month of [...new Set(earlierCleanings.map((row) => row.month ?? monthOfDay(row.day)))].sort()) {
+    cleaningLine(earlierCleanings.filter((row) => (row.month ?? monthOfDay(row.day)) === month), `cleaning-${month}`, `Expense - Cleaning (from ${monthLabel(month)})`);
+  }
+  for (const row of statement.costs.filter((cost) => cost.group === 'earlier' && !isCleaningRow(cost))) {
     // An earlier month's cost says the month it came from; an office cost's row already prints it (dispatch 36).
     const from = row.kind === 'office' && row.month ? '' : ` (from ${monthLabel(monthOfDay(row.day))})`;
     rows.push({ key: `cost-${row.entryId}`, kind: 'earlier', description: `Expense - ${row.description}${from}`, quantity: 1, rateCents: -row.totalCents, amountCents: -row.totalCents, entryId: row.entryId });
@@ -860,8 +883,9 @@ const TONE_OF: Record<Standing, ReportingTone> = { finished: 'done', due: 'warni
  *   receipt, work,  an approved entry, in the month it belongs to: an office
  *   office          cost's chosen month, else the Toronto month it was sent
  *                   (`entryMonth`), the month its ledger and statement put it in
- * A logged cleaning (dispatch 37B) and a received cash payment (37E) are
- * further sources: each is added here, beside these.
+ *   cleaning        a cleaning an admin logged (dispatch 37B), in the month of
+ *                   the day cleaned: one of the entries, of kind `cleaning`
+ * A received cash payment (37E) is a further source: added here, beside these.
  */
 export function moneyMonthsByProperty(drafts: { propertyId: string; month: string; lines: readonly unknown[] }[], entries: Pick<CostEntryView, 'property' | 'status' | 'createdAt' | 'month'>[]): Map<string, string[]> {
   const months = new Map<string, Set<string>>();

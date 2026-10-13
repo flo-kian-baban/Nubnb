@@ -112,7 +112,8 @@ export function watchList(entries: CostEntryView[], today: string): CleanerPatte
   const from = windowStart(today);
   const byCleaner = new Map<string, CostEntryView[]>();
   for (const entry of entries) {
-    if (entry.kind === 'work' || entry.cleaner.id === null) continue;
+    // Receipts only: a handyman's work, an office cost and a cleaning (dispatch 37B: logged by the office) are not.
+    if (entry.kind === 'work' || entry.kind === 'cleaning' || entry.cleaner.id === null) continue;
     const day = sentDay(entry.createdAt);
     if (day === null || day < from || day > today) continue;
     const list = byCleaner.get(entry.cleaner.id) ?? [];

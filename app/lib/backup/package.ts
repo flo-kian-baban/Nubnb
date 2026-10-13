@@ -8,6 +8,7 @@
  *     README.txt, manifest.json, SHA256SUMS.txt
  *   Nubnb/<year>/<yyyy-mm Month>/
  *     <yyyy-mm> Fee income.xlsx, <yyyy-mm> Not charged.xlsx
+ *     <yyyy-mm> Cleanings.xlsx                            who cleaned, where, the amounts (dispatch 37B); never in an owner's folder
  *     Not charged receipts/<property · id6>/<day> ref <ref> - <status>.jpg
  *     Records/*.json                                      the month's documents as stored, receipt paths left out
  *     README.txt, manifest.json, SHA256SUMS.txt
@@ -27,7 +28,7 @@ import { monthLabel } from '@/app/lib/reports/model';
 import { STANDING_LABELS } from '@/app/lib/reports/statement';
 import { receiptKey, statementKey, type MonthPackageData, type PackageFolder } from './data';
 import { cleanName, distinctNames, nubnbMonthPath, packageFileName, propertyFolderName, propertyMonthPath, receiptFileName, statementFileName, workbookFileName } from './names';
-import { feeIncomeWorkbook, notChargedWorkbook, propertyWorkbook, whenWords, type FileNote } from './workbooks';
+import { cleaningsWorkbook, feeIncomeWorkbook, notChargedWorkbook, propertyWorkbook, whenWords, type FileNote } from './workbooks';
 
 export interface PackageFile {
   /** Path inside the package, from its top level: `Properties/…` or `Nubnb/…`. */
@@ -259,9 +260,15 @@ export async function buildMonthPackage(data: MonthPackageData, objects: Map<str
   own.push({ name: `${data.month} Not charged.xlsx`, data: notChargedWorkbook({ data, receipts: notChargedReceipts, madeAt }), source: { made: 'workbook' }, recordedSha256: null });
   contents.push([`${data.month} Not charged.xlsx`, 'Every entry sent in the month that its statements do not charge, with who logged it, its status and its history.']);
   if (notChargedReceipts.size > 0) contents.push(['Not charged receipts/', 'Their photos, by property.']);
+  // Cleanings (dispatch 37B): who cleaned, where, for how much, and where each is charged. Nubnb's folder only.
+  if (Object.keys(data.cleanings ?? {}).length > 0) {
+    own.push({ name: `${data.month} Cleanings.xlsx`, data: cleaningsWorkbook({ data, madeAt }), source: { made: 'workbook' }, recordedSha256: null });
+    contents.push([`${data.month} Cleanings.xlsx`, 'Every cleaning of the month, with who cleaned, the amount and the statements that charge it, and what each cleaner earned.']);
+  }
 
   const records: [string, unknown][] = [
     [`Records/cost_entries ${data.month}.json`, Object.values(data.entries)],
+    ...(Object.keys(data.cleanings ?? {}).length > 0 ? [[`Records/cleanings ${data.month}.json`, Object.values(data.cleanings)] as [string, unknown]] : []),
     [`Records/monthly_reports ${data.month}.json`, data.records.monthlyReports],
     [`Records/monthly_report_drafts ${data.month}.json`, data.records.drafts],
     [`Records/report_downloads ${data.month}.json`, data.records.downloads],

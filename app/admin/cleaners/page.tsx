@@ -30,9 +30,15 @@
  *
  * "Delete…" (Kian's ruling of 2026-10-02) deletes a cleaner or a handyman
  * for good: the confirmation names what is lost — the account, its code, any
- * signed-in phone — and how many entries they logged, which stay on the
- * ledger under the name they were logged with. A row leaves the list only
+ * signed-in phone — and how many entries they logged and cleanings they did,
+ * which stay on the ledger under the name they were logged with (dispatch
+ * 37B: a deleted cleaner's cleanings still read). A row leaves the list only
  * once the server says the account is gone.
+ *
+ * "Set rate" (dispatch 37B, Kian's ruling of 2026-10-13): each cleaner has one
+ * default rate for a cleaning. A cleaning's amount starts from what that
+ * cleaner was last paid for the property, or this rate if none; the admin
+ * changes it freely when logging. A handyman has no rate.
  *
  * No pagination. The whole collection is one response.
  */
@@ -52,6 +58,7 @@ import {
   createCleaner,
   deleteCleaner,
   fetchCleaners,
+  setDefaultRate,
   suggestCode,
   type CleanerResult,
   type CodeRequest,
@@ -116,8 +123,10 @@ function Cleaners() {
   /** The name of a create whose outcome is unknown. */
   const [unconfirmed, setUnconfirmed] = useState<string | null>(null);
   /** The one save in flight: a status, code change or delete, for one cleaner. */
-  const [saving, setSaving] = useState<{ id: string; what: "status" | "code" | "delete" } | null>(null);
+  const [saving, setSaving] = useState<{ id: string; what: "status" | "code" | "delete" | "rate" } | null>(null);
   const [editor, setEditor] = useState<CodeEditor | null>(null);
+  /** The cleaner whose default rate is being set (dispatch 37B), and what is typed. */
+  const [rateEditor, setRateEditor] = useState<{ id: string; name: string; draft: string } | null>(null);
   const [codeDraft, setCodeDraft] = useState("");
   const codeInputRef = useRef<HTMLInputElement>(null);
   const { notice, show: showNotice, clear: clearNotice } = useNotice();
@@ -324,7 +333,10 @@ function Cleaners() {
     if (busy) return;
     const who = displayName(cleaner.name);
     const role = isCleanerRole(cleaner.role) ? CLEANER_ROLE_LABELS[cleaner.role] : cleaner.role;
-    const theirs = patterns.kind === "ready" ? patterns.entries.filter((entry) => entry.cleaner.id === cleaner.id) : null;
+    const all = patterns.kind === "ready" ? patterns.entries.filter((entry) => entry.cleaner.id === cleaner.id) : null;
+    // Cleanings are logged by the office for them (dispatch 37B): counted apart from what they logged themselves.
+    const theirs = all?.filter((entry) => entry.kind !== "cleaning") ?? null;
+    const cleaned = all?.filter((entry) => entry.kind === "cleaning").length ?? 0;
     const pending = theirs?.filter((entry) => entry.status === "pending").length ?? 0;
     const entriesLine =
       theirs === null
@@ -332,9 +344,10 @@ function Cleaners() {
         : theirs.length === 0
           ? "They logged no entries."
           : `They logged ${theirs.length === 1 ? "1 entry" : `${theirs.length} entries`}${pending > 0 ? ` (${pending} pending review)` : ""}; those stay on the ledger under the name “${cleaner.name ?? who}”.`;
+    const cleaningsLine = cleaned === 0 ? null : `${cleaned === 1 ? "1 cleaning" : `${cleaned} cleanings`} done by them ${cleaned === 1 ? "stays" : "stay"}, under the same name.`;
     const yes = await ask({
       title: `Delete ${who} for good?`,
-      lines: [`${role}${cleaner.code ? `, code ${cleaner.code}` : ", no code on record"}. The code stops working at once; any signed-in phone is signed out.`, entriesLine, "The account cannot be reactivated. This cannot be undone."],
+      lines: [`${role}${cleaner.code ? `, code ${cleaner.code}` : ", no code on record"}. The code stops working at once; any signed-in phone is signed out.`, entriesLine, cleaningsLine, "The account cannot be reactivated. This cannot be undone."],
       confirm: "Delete for good",
       danger: true,
     });
@@ -359,6 +372,34 @@ function Cleaners() {
       title: `Deleted ${who}.`,
       detail: `Their code no longer works.${theirs && theirs.length > 0 ? ` ${theirs.length === 1 ? "1 entry stays" : `${theirs.length} entries stay`} on the ledger under their name.` : ""}`,
     });
+  };
+
+  /** Save a cleaner's default rate (dispatch 37B): the row changes only to what the server stored. */
+  const saveRate = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!rateEditor || busy) return;
+    const typed = rateEditor.draft.trim();
+    const match = /^\$?\s*(\d{1,4})(?:\.(\d{1,2}))?$/.exec(typed);
+    if (typed !== "" && !match) {
+      showNotice({ tone: "error", title: "Type the rate as dollars and cents, like 60.00, or leave it empty for none." });
+      return;
+    }
+    const rate = match ? `${match[1]}.${(match[2] ?? "0").padEnd(2, "0")}` : null;
+    if (rate === "0.00") {
+      showNotice({ tone: "error", title: "A rate is more than $0.00. Leave it empty for none." });
+      return;
+    }
+    clearNotice();
+    setSaving({ id: rateEditor.id, what: "rate" });
+    const result = await setDefaultRate(rateEditor.id, rate);
+    setSaving(null);
+    if (!result.ok) {
+      showNotice(result.unknown ? { tone: "warning", title: "The rate may or may not have been saved. Reload the list to see.", detail: result.title } : { tone: "error", title: result.title, detail: describeFailure(result, "Nothing was saved.") });
+      return;
+    }
+    replaceRow(result.data.cleaner);
+    setRateEditor(null);
+    showNotice({ tone: "success", title: result.data.changed ? `${rateEditor.name}'s default rate is ${rate === null ? "none" : `$${rate}`}.` : "Nothing was changed.", detail: "Cleanings already logged keep their amounts." });
   };
 
   const submitTypedCode = (event: FormEvent<HTMLFormElement>) => {
@@ -487,6 +528,27 @@ function Cleaners() {
               </form>
             )}
 
+            {rateEditor && (
+              <form className={styles.codeEditor} onSubmit={saveRate} aria-labelledby="rate-editor-title">
+                <h2 id="rate-editor-title" className={styles.codeEditorTitle}>
+                  <span>Default cleaning rate for {rateEditor.name}</span>
+                </h2>
+                <p className={styles.codeEditorNote}>A cleaning&apos;s amount starts from what they were last paid for the property, or this rate if none. Cleanings already logged keep their amounts.</p>
+                <div className={styles.codeEditorRow}>
+                  <label htmlFor="cleaner-rate" className={styles.createLabel}>
+                    Rate ($)
+                  </label>
+                  <input id="cleaner-rate" type="text" inputMode="decimal" autoComplete="off" placeholder="60.00" className={styles.codeInput} value={rateEditor.draft} onChange={(e) => setRateEditor({ ...rateEditor, draft: e.target.value })} disabled={busy} autoFocus />
+                  <button type="submit" className={`${shared.btnPrimary} ${styles.createBtn}`} disabled={busy}>
+                    {saving?.what === "rate" ? "Saving…" : "Save rate"}
+                  </button>
+                  <button type="button" className={styles.btnGhost} onClick={() => setRateEditor(null)} disabled={busy}>
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
+
             {/* ── List ── */}
             {list.cleaners.length === 0 ? (
               <div className={shared.empty}>
@@ -506,6 +568,7 @@ function Cleaners() {
                       <th>Role</th>
                       <th>Code</th>
                       <th>Status</th>
+                      <th>Rate</th>
                       <th>Last 90 days</th>
                       <th>ID</th>
                       <th className={shared.actionsHeader}>Actions</th>
@@ -528,6 +591,9 @@ function Cleaners() {
                           <td>
                             <StatusBadge status={cleaner.status} />
                           </td>
+                          <td className={styles.rateCell}>
+                            {cleaner.role !== "cleaner" ? <span className={styles.muted}>—</span> : cleaner.defaultRateCents === null ? <span className={styles.muted}>None</span> : `$${(cleaner.defaultRateCents / 100).toFixed(2)}`}
+                          </td>
                           <td className={styles.patternCell}>
                             <Pattern cleaner={cleaner} state={patterns} />
                           </td>
@@ -543,6 +609,11 @@ function Cleaners() {
                             >
                               {cleaner.code === null ? "Set code" : "Change code"}
                             </button>
+                            {cleaner.role === "cleaner" && (
+                              <button type="button" className={styles.rowAction} disabled={busy} onClick={() => setRateEditor({ id: cleaner.id, name: displayName(cleaner.name), draft: cleaner.defaultRateCents === null ? "" : (cleaner.defaultRateCents / 100).toFixed(2) })}>
+                                Set rate
+                              </button>
+                            )}
                             {/* No status action for a status that is neither: nothing to flip it to. */}
                             {next && (
                               <button

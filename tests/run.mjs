@@ -18,6 +18,7 @@ export const CHECKS = [
   { name: 'office-month', script: 'money/office-month.mjs', args: [] },
   { name: 'ledger', script: 'money/ledger.mjs', args: [] },
   { name: 'month-money', script: 'money/month-money.mjs', args: [] },
+  { name: 'cleanings', script: 'money/cleanings.mjs', args: [] },
 ];
 
 const argv = process.argv.slice(2);

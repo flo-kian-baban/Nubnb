@@ -18,6 +18,7 @@
  * Client-safe, and pure.
  */
 
+import { readCleaning } from '@/app/lib/cleanings/model';
 import { readCostEntryFields, readLinesNow, formatCents, type CostEntryFields, type HistoryEventView, type LineNow, type LineView, type LinesNow } from '@/app/lib/cleaners/model';
 import { REPORT_TIME_ZONE, whatWasBoughtText } from '@/app/lib/costs/report';
 import { monthLabel, monthOfDay, rateText, reportRef, type StatementCost } from '@/app/lib/reports/model';
@@ -34,8 +35,9 @@ export interface FileNote {
   sha256: string;
 }
 
-const KIND_WORDS: Record<string, string> = { receipt: 'Receipt', work: 'Handyman work', office: 'Office' };
-const ROLE_WORDS: Record<string, string> = { receipt: 'Cleaner', work: 'Handyman', office: 'Office' };
+const KIND_WORDS: Record<string, string> = { receipt: 'Receipt', work: 'Handyman work', office: 'Office', cleaning: 'Cleaning' };
+// A cleaning is logged by the office; who cleaned is never on what an owner receives (Kian's ruling of 2026-10-13).
+const ROLE_WORDS: Record<string, string> = { receipt: 'Cleaner', work: 'Handyman', office: 'Office', cleaning: 'Office' };
 const ACTOR_WORDS: Record<string, string> = { admin: 'Office', cleaner: 'Cleaner', handyman: 'Handyman', system: 'Automatic approval' };
 
 const whenFormat = new Intl.DateTimeFormat('en-CA', { timeZone: REPORT_TIME_ZONE, year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
@@ -85,7 +87,28 @@ function taxCell(row: Pick<StatementCost, 'taxCents'>, fields: CostEntryFields |
 function noReceiptWords(kind: string): string {
   if (kind === 'work') return 'No receipt: handyman work';
   if (kind === 'office') return 'No receipt: entered by the office';
+  if (kind === 'cleaning') return 'No receipt: a cleaning logged by the office';
   return 'No receipt on record';
+}
+
+/** A stored cleaning in the package (dispatch 37B); null when the package does not hold it or it is not in shape. */
+function cleaningOf(data: MonthPackageData, id: string) {
+  const stored = data.cleanings?.[id];
+  return stored ? readCleaning(id, stored) : null;
+}
+
+/** A cleaning's amount after the first `n` events of its history: what a statement printed. */
+export function cleaningAmountAt(cleaning: { amountCents: number; history: { action: string; before?: { amountCents?: number }; after?: { amountCents?: number } }[] }, n: number): number {
+  const changes = cleaning.history.filter((event) => event.action === 'changed' && event.after?.amountCents !== undefined);
+  let amount = changes[0]?.before?.amountCents ?? cleaning.amountCents;
+  for (const event of cleaning.history.slice(0, n)) if (event.action === 'changed' && event.after?.amountCents !== undefined) amount = event.after.amountCents;
+  return amount;
+}
+
+/** A cleaning's history as an owner's workbook prints it: what happened, by the office, and only the day and amount changed — never who cleaned or the note. */
+function cleaningHistoryRows(ref: string, cleaning: NonNullable<ReturnType<typeof cleaningOf>>, n: number): Cell[][] {
+  const words = (fields: { day?: string; amountCents?: number } | undefined) => [fields?.day, fields?.amountCents !== undefined ? formatCents(fields.amountCents) : undefined].filter(Boolean).join(', ');
+  return cleaning.history.slice(0, n).map((event) => [text(ref), text(whenWords(event.at)), text(event.action), null, null, text(ACTOR_WORDS[event.actor.role] ?? event.actor.role), null, text(words(event.before)), text(words(event.after))]);
 }
 
 const header = (labels: string[]): Cell[] => labels.map((label) => text(label, true));
@@ -132,7 +155,7 @@ export function propertyWorkbook(input: PropertyWorkbookInput): Uint8Array<Array
     ...(statement.reportFor?.address ? statement.reportFor.address.split('\n').map((line) => [null, text(line)]) : []),
     [],
     header(['Description', 'Transaction', 'Rate', 'Amount']),
-    ...(printed.length === 0 ? [[text('Nothing to report.')]] : printed.map((line) => [text(line.description), count(line.quantity), money(line.rateCents), money(line.amountCents)])),
+    ...(printed.length === 0 ? [[text('Nothing to report.')]] : printed.map((line) => [text(line.description), count(line.quantity), line.rateCents === null ? null : money(line.rateCents), money(line.amountCents)])),
     [],
     [text('Total', true), null, null, money(statement.totalCents, true)],
     // As the PDF prints it: the label and the amount deducted (T9).
@@ -190,6 +213,36 @@ export function propertyWorkbook(input: PropertyWorkbookInput): Uint8Array<Array
   };
 
   for (const row of statement.costs) {
+    // A cleaning (dispatch 37B): its amount, its day, logged by the office; never its cleaner or its note.
+    const cleaning = row.kind === 'cleaning' ? cleaningOf(data, row.entryId) : null;
+    if (row.kind === 'cleaning') {
+      const at = cleaning ? cleaningAmountAt(cleaning, row.historyLength) : null;
+      const rest = folder.elsewhere?.[row.entryId] ?? [];
+      const restCents = rest.reduce((sum, part) => sum + part.cents, 0);
+      costRows.push([
+        text(row.description),
+        day(row.day),
+        text(row.ref),
+        text(row.entryId),
+        text(KIND_WORDS.cleaning),
+        text(ROLE_WORDS.cleaning),
+        text('Cleaning'),
+        money(row.itemsCents),
+        text('None entered'),
+        money(row.totalCents),
+        text(row.corrected ? 'Yes' : ''),
+        text('Logged by the office'),
+        null,
+        text(noReceiptWords('cleaning')),
+        text(''),
+        text(row.group === 'month' ? 'This month' : `From ${monthLabel(row.month ?? monthOfDay(row.day))}`),
+        text(at === null ? 'The cleaning is not in this package' : at === row.totalCents ? 'Yes' : rest.length > 0 && at === row.totalCents + restCents ? `Yes: ${formatCents(row.totalCents)} here, the rest on ${rest.map((part) => `${monthLabel(part.month)}'s statement ${formatCents(part.cents)}`).join(', ')}` : `Differs: its history adds up to ${formatCents(at)}`),
+      ]);
+      itemRows.push([text(row.ref), text('Cleaning'), count(1), money(row.totalCents), text('')]);
+      itemsTotal += row.totalCents;
+      if (cleaning) historyRows.push(...cleaningHistoryRows(row.ref, cleaning, row.historyLength));
+      continue;
+    }
     const fields = fieldsOf(data, row.entryId);
     const lines = fields ? linesAt(fields, row.historyLength) : null;
     const events = fields ? (fields.history ?? []).slice(0, row.historyLength) : [];
@@ -252,9 +305,13 @@ export function propertyWorkbook(input: PropertyWorkbookInput): Uint8Array<Array
     const name = where ? `${where.reference?.trim() || reportRef(row.statementId)}, ${monthLabel(where.month)}` : row.printedMonth ? monthLabel(row.printedMonth) : reportRef(row.statementId);
     adjustmentRows.push([text(row.entryId.slice(0, 6)), text(row.entryId), text(name), money(row.printedCents), money(row.nowCents), money(row.deltaCents), money(-row.deltaCents)]);
     const fields = fieldsOf(data, row.entryId);
+    const adjustedCleaning = cleaningOf(data, row.entryId);
     if (fields) {
       itemsOf(row.entryId.slice(0, 6), fields, linesAt(fields, row.historyLength), adjustedItemRows, false);
       historyOf(row.entryId.slice(0, 6), fields, row.historyLength);
+    } else if (adjustedCleaning) {
+      adjustedItemRows.push([text(row.entryId.slice(0, 6)), text('Cleaning'), count(1), money(adjustedCleaning.status === 'removed' ? 0 : cleaningAmountAt(adjustedCleaning, row.historyLength)), text(adjustedCleaning.status === 'removed' ? 'Removed' : '')]);
+      historyRows.push(...cleaningHistoryRows(row.entryId.slice(0, 6), adjustedCleaning, row.historyLength));
     }
   }
   if (statement.adjustments.length === 0) adjustmentRows.push([text('No adjustments to earlier statements.')]);
@@ -376,6 +433,68 @@ export function feeIncomeWorkbook(input: FeeIncomeInput): Uint8Array<ArrayBuffer
           'Revenue takes an Airbnb claw-back off (a claw-back is never an expense). Revenue − typed expenses − recorded costs − fee − carried balances settled = Total; Total − carried = Revenue share.',
           'The fee is one printed amount. Nothing in Nubnb records whether HST applies to it.',
           'Statements: each finished statement of the month, its file in this package and its SHA-256, taken over the PDF when it was finished.',
+        ]),
+      },
+    ],
+    input.madeAt,
+  );
+}
+
+// ─── Nubnb's cleanings (dispatch 37B) ─────────────────────────
+
+export interface CleaningsInput {
+  data: MonthPackageData;
+  madeAt: Date;
+}
+
+/**
+ * Every cleaning of the month, and every one a folder's statement charges: the day, the property, who cleaned, the
+ * amount, its state, its note, and the statements that charge it; then what each cleaner earned (Kian's ruling: a
+ * cleaning is also the cleaner's earnings record). For Nubnb only: it names who cleaned. Owners' folders never do.
+ */
+export function cleaningsWorkbook(input: CleaningsInput): Uint8Array<ArrayBuffer> {
+  const { data } = input;
+  const names = new Map(data.properties.map((property) => [property.id, property.name]));
+  const all = Object.keys(data.cleanings ?? {})
+    .map((id) => cleaningOf(data, id))
+    .filter((c): c is NonNullable<ReturnType<typeof cleaningOf>> => c !== null)
+    .sort((a, b) => a.day.localeCompare(b.day) || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+  const rows: Cell[][] = [header(['Day cleaned', 'Property', 'Cleaner', 'Amount (CAD)', 'State', 'Note', 'Charged on', 'Logged (Toronto)', 'Cleaning ID'])];
+  const earned = new Map<string, { name: string; count: number; cents: number }>();
+  for (const c of all) {
+    const charges = data.cleaningCharges?.[c.id] ?? [];
+    rows.push([
+      day(c.day),
+      text(names.get(c.propertyId) ?? c.propertyNameAtEntry ?? 'Unknown property'),
+      text(c.cleanerNameAtEntry ?? 'Unknown cleaner'),
+      money(c.amountCents),
+      text(c.status === 'removed' ? 'Removed' : 'Logged'),
+      text(c.note ?? ''),
+      text(charges.length === 0 ? 'No statement yet' : charges.map((charge) => `${monthLabel(charge.month)}${charge.finished ? '' : ' (not finished)'} ${formatCents(charge.cents)}`).join('; ')),
+      text(whenWords(c.createdAt)),
+      text(c.id),
+    ]);
+    if (c.status !== 'logged' || c.day.slice(0, 7) !== data.month) continue;
+    const was = earned.get(c.cleanerId) ?? { name: c.cleanerNameAtEntry ?? 'Unknown cleaner', count: 0, cents: 0 };
+    earned.set(c.cleanerId, { name: was.name, count: was.count + 1, cents: was.cents + c.amountCents });
+  }
+  if (all.length === 0) rows.push([text(`No cleaning was logged for ${monthLabel(data.month)}.`)]);
+  const earnedRows: Cell[][] = [header(['Cleaner', 'Cleanings', 'Earned (CAD)'])];
+  for (const row of [...earned.values()].sort((a, b) => a.name.localeCompare(b.name, 'en-CA'))) earnedRows.push([text(row.name), count(row.count), money(row.cents)]);
+  if (earned.size === 0) earnedRows.push([text('Nobody cleaned this month.')]);
+  else earnedRows.push([text('Total', true), count([...earned.values()].reduce((sum, row) => sum + row.count, 0)), money([...earned.values()].reduce((sum, row) => sum + row.cents, 0), true)]);
+  return workbookBytes(
+    [
+      { name: 'Cleanings', widths: [12, 40, 24, 13, 10, 40, 40, 22, 24], rows },
+      { name: 'Earned', widths: [30, 11, 14], rows: earnedRows },
+      {
+        name: 'About',
+        widths: [120],
+        rows: aboutRows([
+          `Nubnb's cleanings for ${monthLabel(data.month)}, logged by the office. Made ${whenWords(data.madeAt)}, Toronto time.`,
+          'Every cleaning done in the month, and every cleaning of another month a statement of this month charges, with the statements that charge it.',
+          'Earned: what each cleaner’s cleanings done in the month add up to, removed ones left out. Nothing here records what was paid to them.',
+          'For Nubnb only: it names who cleaned. Owners’ folders never do.',
         ]),
       },
     ],

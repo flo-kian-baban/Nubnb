@@ -1,0 +1,66 @@
+/* The Cleanings tab (dispatch 37B): the property page's form, field and table styles, and these few of its own. */
+
+.fieldDay {
+  flex: 0 0 190px;
+}
+.fieldCleaner {
+  flex: 0 0 200px;
+}
+.fieldAmountShort {
+  flex: 0 0 140px;
+}
+/* A select that fills its field, as the property editor's do. */
+.selectFull {
+  width: 100%;
+}
+.selectFull > button {
+  flex: 1 1 auto;
+  justify-content: space-between;
+}
+.listHead {
+  margin-top: 22px;
+}
+.filters {
+  margin: 4px 0 12px;
+}
+.nowrap {
+  white-space: nowrap;
+}
+.noteCell {
+  max-width: 260px;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+}
+.chargedCell {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  font-variant-numeric: tabular-nums;
+}
+.rowActions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.removed td {
+  color: rgba(255, 255, 255, 0.45);
+}
+.struck {
+  text-decoration: line-through;
+}
+.focused td {
+  background: rgba(101, 153, 205, 0.12);
+}
+.editRow td {
+  background: rgba(255, 255, 255, 0.03);
+}
+.earned {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: baseline;
+  margin-top: 14px;
+  font-size: 13px;
+  color: #e8edf3;
+  font-variant-numeric: tabular-nums;
+}

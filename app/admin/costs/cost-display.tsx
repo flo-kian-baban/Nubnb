@@ -7,7 +7,7 @@
  * filters use.
  */
 
-import { Building2, Wrench } from "lucide-react";
+import { Building2, Sparkles, Wrench } from "lucide-react";
 import {
   ENTRY_STATUS_LABELS,
   formatCents,
@@ -71,8 +71,16 @@ export function KindBadge({ kind, compact = false }: { kind: string; compact?: b
       </span>
     );
   }
+  if (kind === "cleaning") {
+    // Dispatch 37B: a cleaning logged by the office, read by the statements as a cost.
+    return (
+      <span className={`${styles.badge} ${styles.badgeOffice}`} title="A cleaning logged by the office: the cleaner, the day cleaned, the amount">
+        <Sparkles size={11} aria-hidden /> Cleaning
+      </span>
+    );
+  }
   return (
-    <span className={`${styles.badge} ${styles.badgeOdd}`} title="Not one of receipt, work or office">
+    <span className={`${styles.badge} ${styles.badgeOdd}`} title="Not one of receipt, work, office or cleaning">
       {kind.trim() === "" ? "Empty kind" : kind}
     </span>
   );
@@ -96,12 +104,18 @@ const torontoTimeToTheSecond = new Intl.DateTimeFormat("en-CA", {
   timeStyle: "medium",
 });
 
+const torontoDay = new Intl.DateTimeFormat("en-CA", {
+  timeZone: REPORT_TIME_ZONE,
+  dateStyle: "medium",
+});
+
 /**
  * A stored timestamp, in Toronto time. One that does not parse is shown as
  * stored. `seconds` writes the time to the second, for the times PDFs were
- * exported: two made in the same minute must not read alike.
+ * exported: two made in the same minute must not read alike. `dayOnly` writes
+ * the day alone, for a cleaning: it has a day, not a time.
  */
-export function SentAt({ iso, seconds = false }: { iso: string | null; seconds?: boolean }) {
+export function SentAt({ iso, seconds = false, dayOnly = false }: { iso: string | null; seconds?: boolean; dayOnly?: boolean }) {
   if (iso === null) return <Absent />;
   const time = Date.parse(iso);
   if (!Number.isFinite(time)) {
@@ -109,7 +123,7 @@ export function SentAt({ iso, seconds = false }: { iso: string | null; seconds?:
   }
   return (
     <time dateTime={iso} title={iso}>
-      {(seconds ? torontoTimeToTheSecond : torontoTime).format(time)}
+      {(dayOnly ? torontoDay : seconds ? torontoTimeToTheSecond : torontoTime).format(time)}
     </time>
   );
 }

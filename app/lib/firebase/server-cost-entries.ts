@@ -101,6 +101,8 @@
 import { z } from 'zod';
 import type { DocumentReference, DocumentSnapshot, Transaction } from 'firebase-admin/firestore';
 import { getAdminBucket, getAdminDb } from './admin';
+import { listCleanings, listTeamRates, propertyCleanings } from './server-cleanings';
+import { cleaningEntryView } from '@/app/lib/cleanings/model';
 import { createdMonthOf } from './created-month';
 import { isDocumentId } from './server-leads';
 import type { ReadingAttachment } from '@/app/lib/cleaners/readings';
@@ -1064,16 +1066,21 @@ async function lookUpAllProperties(): Promise<Map<string, PropertyNow> | null> {
  */
 export async function listCosts(): Promise<CostsView> {
   const db = getAdminDb();
-  const [snapshot, exported, properties] = await Promise.all([
+  const [snapshot, exported, properties, cleanings, team] = await Promise.all([
     db.collection(COST_ENTRIES_COLLECTION).get(),
     db.collection(COST_REPORT_EXPORTS_COLLECTION).get(),
     lookUpAllProperties(),
+    // Cleanings (dispatch 37B): costs the statements read, each one an entry of kind `cleaning` below.
+    listCleanings(),
+    listTeamRates(),
   ]);
   const entries = snapshot.docs.map((doc) => readCostEntryFields(doc.id, doc.data()));
   const cleaners = await lookUpCleaners(distinctIds(entries.map((entry) => entry.cleanerId)));
 
   return {
-    entries: entries.map((entry) => toView(entry, cleaners, properties)).sort(newestFirst),
+    entries: [...entries.map((entry) => toView(entry, cleaners, properties)), ...cleanings.map(cleaningEntryView)].sort(newestFirst),
+    cleanings,
+    team,
     exports: exported.docs.map((doc) => readReportExport(doc.id, doc.data())).sort(newestFirst),
     properties:
       properties === null
@@ -1086,30 +1093,31 @@ export async function listCosts(): Promise<CostsView> {
 
 /**
  * Every entry of one property, newest first, with its lookups (dispatch
- * 23B: what a statement is built from). One read per entry, one per
- * distinct cleaner, one for the property's name.
+ * 23B: what a statement is built from), its cleanings among them as entries
+ * of kind `cleaning` (dispatch 37B). One read per entry and per cleaning,
+ * one per distinct cleaner, one for the property's name.
  *
  * @throws if the entries cannot be read.
  */
 export async function listPropertyEntries(propertyId: string): Promise<CostEntryView[]> {
   if (!isDocumentId(propertyId)) return [];
   const db = getAdminDb();
-  const snapshot = await db.collection(COST_ENTRIES_COLLECTION).where('propertyId', '==', propertyId).get();
+  const [snapshot, cleanings] = await Promise.all([db.collection(COST_ENTRIES_COLLECTION).where('propertyId', '==', propertyId).get(), propertyCleanings(propertyId)]);
   const entries = snapshot.docs.map((doc) => readCostEntryFields(doc.id, doc.data()));
   const [cleaners, properties] = await Promise.all([
     lookUpCleaners(distinctIds(entries.map((entry) => entry.cleanerId))),
     lookUpProperties([propertyId]),
   ]);
-  return entries.map((entry) => toView(entry, cleaners, properties)).sort(newestFirst);
+  return [...entries.map((entry) => toView(entry, cleaners, properties)), ...cleanings.map(cleaningEntryView)].sort(newestFirst);
 }
 
-/** The stored fields of one property's entries, read inside a transaction (dispatch 23B's finish step). */
+/** The stored fields of one property's entries and cleanings (dispatch 37B), read inside a transaction (dispatch 23B's finish step). */
 export async function propertyEntriesInTransaction(tx: Transaction, propertyId: string): Promise<CostEntryView[]> {
   const db = getAdminDb();
-  const snapshot = await tx.get(db.collection(COST_ENTRIES_COLLECTION).where('propertyId', '==', propertyId));
+  const [snapshot, cleanings] = await Promise.all([tx.get(db.collection(COST_ENTRIES_COLLECTION).where('propertyId', '==', propertyId)), propertyCleanings(propertyId, tx)]);
   const entries = snapshot.docs.map((doc) => readCostEntryFields(doc.id, doc.data()));
   // Names are display only: the claim compares IDs and history lengths, so the lookups can stay outside the transaction.
-  return entries.map((entry) => toView(entry, new Map(), new Map())).sort(newestFirst);
+  return [...entries.map((entry) => toView(entry, new Map(), new Map())), ...cleanings.map(cleaningEntryView)].sort(newestFirst);
 }
 
 /** One entry with the current names of its cleaner and property: two small lookups. */
@@ -1643,11 +1651,14 @@ export async function recordReportExport(claim: ReportClaim): Promise<ReportReco
         db.collection(COST_ENTRIES_COLLECTION).where('propertyId', '==', claim.propertyId),
       );
       const all = snapshot.docs.map((doc) => readCostEntryFields(doc.id, doc.data())).sort(newestFirst);
-      if (all.length === 0 && !property.exists) return { kind: 'no-such-property' } as const;
+      // The property's cleanings (dispatch 37B): the ledger lists each one, as an entry of kind `cleaning`.
+      const cleanings = (await propertyCleanings(claim.propertyId, tx)).map(cleaningEntryView);
+      if (all.length === 0 && cleanings.length === 0 && !property.exists) return { kind: 'no-such-property' } as const;
 
       // The report as buildReport (costs/report.ts) makes it: approved, placed in the period by the month rule
       // statements use (Kian's ruling of 2026-10-12, `ledgerDay`), oldest first.
-      const approved = all.filter((entry) => entry.status === 'approved' && inRange(ledgerDay(entry), claim.from, claim.to)).sort(byLedgerDay);
+      const asViews = [...all.map((entry) => toView(entry, new Map(), new Map())), ...cleanings];
+      const approved = asViews.filter((entry) => entry.status === 'approved' && inRange(ledgerDay(entry), claim.from, claim.to)).sort(byLedgerDay);
 
       const seen = new Map(claim.entries.map((entry) => [entry.id, entry.seen]));
       const asThePageSawIt =
@@ -1657,7 +1668,7 @@ export async function recordReportExport(claim: ReportClaim): Promise<ReportReco
 
       const entries: ReportExportEntry[] = [];
       for (const entry of approved) {
-        const now = readLinesNow(entry.lines, entry.history, { shape: entry.taxShape, cents: entry.taxCents });
+        const now = entry.linesNow;
         if (now.kind !== 'ok' || entry.history === null) return { kind: 'unreadable' } as const;
         entries.push({
           entryId: entry.id,
@@ -1670,7 +1681,7 @@ export async function recordReportExport(claim: ReportClaim): Promise<ReportReco
 
       // The live name, or, for a property that no longer exists, the name its newest entry recorded.
       const liveName: unknown = property.exists ? property.get('name') : undefined;
-      const recordedName = all.find((entry) => entry.propertyNameAtEntry !== null)?.propertyNameAtEntry ?? null;
+      const recordedName = all.find((entry) => entry.propertyNameAtEntry !== null)?.propertyNameAtEntry ?? cleanings.find((entry) => entry.property.nameAtEntry !== null)?.property.nameAtEntry ?? null;
       const stored: ReportExport = {
         schemaVersion: COST_REPORT_EXPORT_SCHEMA_VERSION,
         kind: 'pdf',

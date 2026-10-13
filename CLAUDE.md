@@ -447,3 +447,24 @@ no checkout. Do not build toward one unless asked.
   base is what Airbnb actually paid.** (M1)
 - **A month whose only money is a logged cleaning or a cash payment is
   owed a statement.** (M2)
+
+## Cleanings — Kian's rulings of 2026-10-13 (dispatch 37B)
+
+- **Each cleaner has one default rate. A cleaning's amount starts from the
+  amount that cleaner was last paid for that property, or their default if
+  none, and the admin can change it freely. No per-property rate table, no
+  dated rates.**
+- **Admins log every cleaning by hand: cleaner, property, date, amount, an
+  optional note. No list of bookings or checkouts to tick; no link between
+  cleanings and bookings.**
+- **On the owner's statement, a month's cleanings print as one line,
+  "Expense - Cleaning", with the total. The ledger lists each cleaning.**
+- **The cleaner is never named on anything an owner receives.**
+- **A cleaning logged after its month's statement is finished goes on the
+  next open statement, labelled with its month. A cleaning changed or
+  removed after printing is adjusted on the next month's statement — the
+  same rules costs follow.**
+- **Cleanings are a tab inside the Costs page.**
+- **A cleaning is also the cleaner's earnings record.**
+- **Finish keeps its warning when a month has Airbnb checkouts but no
+  cleaning logged — a count only.**

@@ -78,7 +78,7 @@ const MAX_CANDIDATES = 5;
 const MAX_TOKEN_EPOCH = 999_999_999;
 
 /** The only fields that leave Firestore for the list. Never `sessionEpoch` or `codeDigest`. */
-const SUMMARY_FIELDS = ['name', 'code', 'status', 'statusChangedAt', 'createdAt', 'history', 'role'] as const;
+const SUMMARY_FIELDS = ['name', 'code', 'status', 'statusChangedAt', 'createdAt', 'history', 'role', 'defaultRateCents'] as const;
 
 /** A cleaner ID as issued: a Firestore auto ID, which is what a session token can carry. */
 const AUTO_ID = /^[A-Za-z0-9]{20}$/;
@@ -420,6 +420,57 @@ export async function setCleanerStatus(
     });
   } catch (err) {
     console.error(`[cleaners] status change failed: grpc code ${grpcCode(err)}`);
+    return { kind: 'failed' };
+  }
+}
+
+// ─── Default rate (dispatch 37B) ───────────────────────────────
+
+export type SetDefaultRateResult =
+  /** `changed` is false when the cleaner already had this rate: nothing was written. */
+  | { kind: 'done'; cleaner: CleanerSummary; changed: boolean }
+  | { kind: 'not-found' }
+  /** A handyman logs work, not cleanings: no rate. */
+  | { kind: 'not-a-cleaner' }
+  | { kind: 'unreadable' }
+  | { kind: 'failed' };
+
+export const RATE_REFUSALS: Record<Exclude<SetDefaultRateResult['kind'], 'done'>, Refusal> = {
+  'not-found': { status: 404, code: 'CLEANER_NOT_FOUND', message: 'No such cleaner.', hint: 'Nothing was saved. Reload the page.' },
+  'not-a-cleaner': { status: 422, code: 'NOT_A_CLEANER', message: 'A handyman logs work, not cleanings, and has no cleaning rate.', hint: 'Nothing was saved.' },
+  unreadable: { status: 500, code: 'CLEANER_UNREADABLE', message: 'This cleaner’s stored record is not in the shape a change needs.', hint: 'Nothing was saved.' },
+  failed: { status: 502, code: 'CLEANER_SAVE_FAILED', message: 'Could not save the rate.', hint: 'It may or may not have been saved. Reload to see the stored rate.' },
+};
+
+/** "$60.00", or "none". */
+const rateWords = (cents: number | null) => (cents === null ? 'none' : `$${(cents / 100).toFixed(2)}`);
+
+/**
+ * Set a cleaner's one default rate for a cleaning, or clear it (Kian's ruling of 2026-10-13: one default rate per
+ * cleaner, no per-property rate, no dated rates). One transaction: the rate and a history event saying what it was
+ * and what it is. No cleaning already logged changes: each keeps the amount it was logged with.
+ */
+export async function setCleanerDefaultRate(id: string, cents: number | null): Promise<SetDefaultRateResult> {
+  if (!isDocumentId(id)) return { kind: 'not-found' };
+  try {
+    const db = getAdminDb();
+    const ref = db.collection(CLEANERS_COLLECTION).doc(id);
+    return await db.runTransaction(async (tx): Promise<SetDefaultRateResult> => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) return { kind: 'not-found' };
+      const stored = snap.data() ?? {};
+      if (roleOf(stored) !== 'cleaner') return { kind: 'not-a-cleaner' };
+      const was = readCleanerSummary(id, stored).defaultRateCents;
+      if (was === cents) return { kind: 'done', cleaner: readCleanerSummary(id, stored), changed: false };
+      const history: unknown = stored.history;
+      if (!Array.isArray(history)) return { kind: 'unreadable' };
+      const event: HistoryEvent = { at: new Date().toISOString(), action: 'rate_set', from: null, to: null, actor: ADMIN_ACTOR, reason: `Default cleaning rate ${rateWords(cents)} (was ${rateWords(was)})` };
+      const changes = { defaultRateCents: cents, history: [...history, event] };
+      tx.update(ref, changes);
+      return { kind: 'done', cleaner: readCleanerSummary(id, { ...stored, ...changes }), changed: true };
+    });
+  } catch (err) {
+    console.error(`[cleaners] rate change failed: grpc code ${grpcCode(err)}`);
     return { kind: 'failed' };
   }
 }

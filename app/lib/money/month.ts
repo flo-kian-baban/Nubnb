@@ -29,7 +29,9 @@
  *   typed                   a line typed on the month's draft: confirmed when typed
  *   airbnb                  a draft line an accepted Airbnb line points to (`decided.lineId`): confirmed when
  *                           accepted. A copy made by acceptance keeps its source this way, rewritten nowhere.
- * A cleaning (37B) and a cash payment (37E) are further sources of the same line.
+ *   cleaning                a cleaning an admin logged (dispatch 37B), read as an entry of kind `cleaning`
+ *                           (app/lib/cleanings/model.ts): the month of the day cleaned; confirmed when logged
+ * A cash payment (37E) is a further source of the same line.
  *
  * ── Which statement charges a cost ──
  * The current finished statements, as stored: each cost row's total and each adjustment's difference. Then each
@@ -52,7 +54,7 @@ import { buildStatement, nextOpenMonth, printedLines, statementMonthFor, stateme
 
 // ─── Sources ───────────────────────────────────────────────────
 
-export type MoneySource = 'receipt' | 'work' | 'office' | 'typed' | 'airbnb';
+export type MoneySource = 'receipt' | 'work' | 'office' | 'cleaning' | 'typed' | 'airbnb';
 
 const NONE: ReadonlySet<string> = new Set();
 
@@ -256,7 +258,7 @@ export interface MonthMoneyInputs {
 /** One cost entry that belongs to the month, and where it is charged. */
 export interface CostLine {
   entry: CostEntryView;
-  source: 'receipt' | 'work' | 'office';
+  source: 'receipt' | 'work' | 'office' | 'cleaning';
   /** confirmed: approved; waiting: pending review; setAside: rejected, removed, or a status this code does not know. */
   state: 'confirmed' | 'waiting' | 'setAside';
   /** What it adds up to now; null when its lines cannot be read. A set-aside cost counts nothing. */
@@ -315,7 +317,7 @@ export interface MonthMoney {
   alsoCharged: AlsoCharged[];
 }
 
-const sourceOf = (kind: string): CostLine['source'] => (kind === 'work' || kind === 'office' ? kind : 'receipt');
+const sourceOf = (kind: string): CostLine['source'] => (kind === 'work' || kind === 'office' || kind === 'cleaning' ? kind : 'receipt');
 const stateOf = (status: string | null): CostLine['state'] => (status === 'approved' ? 'confirmed' : status === 'pending' ? 'waiting' : 'setAside');
 
 /** The month's current finished statement, if any: the latest finished of the current ones. */

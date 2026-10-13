@@ -58,6 +58,8 @@ const EXPECTED_COLLECTIONS = [
   // Dispatch 24 (2026-10-03): unlisted properties, and the month ZIPs downloaded.
   'property_visibility',
   'month_downloads',
+  // Dispatch 37B (2026-10-13): cleanings, logged by admins.
+  'cleanings',
 ];
 
 /** Cap on the per-document subcollection probe, so a huge collection can't blow up the run. */

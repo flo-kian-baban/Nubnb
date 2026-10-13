@@ -457,3 +457,13 @@
   gap: 8px;
   padding: 22px 24px 24px;
 }
+
+.muted {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* A cleaner's default rate (dispatch 37B). */
+.rateCell {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}

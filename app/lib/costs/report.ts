@@ -268,8 +268,12 @@ export interface CostFilters {
   cleanerId: string;
 }
 
-/** Whether an entry belongs in the review queue: not approved, or approved automatically and not yet looked at. */
+/**
+ * Whether an entry belongs in the review queue: not approved, or approved automatically and not yet looked at. A
+ * cleaning never does (dispatch 37B): an admin logs it, and nothing about it waits for review.
+ */
 export function inQueue(entry: CostEntryView): boolean {
+  if (entry.kind === 'cleaning') return false;
   return entry.status !== 'approved' || awaitingLook(entry);
 }
 
@@ -442,9 +446,9 @@ export interface ReportEntry {
   placed: string;
   /** An office cost's date as it prints, "Sep 2026" and "(logged Oct 12)" (Kian's ruling of 2026-10-12); null for any other entry. */
   office: { month: string; logged: string } | null;
-  /** Who logged it: the cleaner, the handyman, or "Nubnb office". */
+  /** Who logged it: the cleaner, the handyman, or "Nubnb office" (an office cost, and a cleaning: dispatch 37B). */
   cleaner: string;
-  /** `receipt`, `work` (dispatch 24) or `office` (dispatch 23D). */
+  /** `receipt`, `work` (dispatch 24), `office` (dispatch 23D) or `cleaning` (dispatch 37B). */
   kind: string;
   lines: LineNow[];
   /** The lines added up: the items (dispatch 21). On an `in-lines` entry any tax the cleaner typed is among them. */
@@ -564,7 +568,8 @@ export function buildReport(
       day,
       placed,
       office: officeDate(entry),
-      cleaner: cleanerLabel(entry),
+      // A cleaning is logged by the office; the cleaner who did it is never named on what an owner receives (Kian's ruling of 2026-10-13).
+      cleaner: entry.kind === 'cleaning' ? 'Nubnb office' : cleanerLabel(entry),
       kind: entry.kind,
       lines: entry.linesNow.lines,
       itemsCents: entry.linesNow.itemsCents,

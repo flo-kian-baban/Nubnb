@@ -2314,3 +2314,117 @@ Kian's rulings of 2026-10-13 are in `CLAUDE.md` under *The month's money*: the o
 ### 39.4 Not exercised live
 
 - **T2–T10, M1 and M2** were checked on made-up data only (`tests/money/month-money.mjs`): the correction, the claw-back, the unlinked titles, the costs page's totals, the month ZIP's workbooks and the panel's carried column. The month ZIP was not downloaded live, because its download record is a write the guard refuses.
+
+## 40. Cleanings: dispatch 37B of the dispatch 37 plan (2026-10-13)
+
+Kian's rulings of 2026-10-13 are in `CLAUDE.md` under *Cleanings*: one default rate per cleaner, every cleaning logged by hand, one line on the statement, the cleaner never named to an owner, the late and corrected rules costs follow, a tab inside the Costs page, the earnings record, and Finish's checkouts warning. What follows is how they were built, the developer's decisions where they leave room, and how it was checked. No stored record is rewritten; `firestore.rules` and `storage.rules` are unchanged.
+
+### 40.1 What was built
+
+- **Stored:**
+  - `cleanings/{id}`, server-only: `firestore.rules`' catch-all already denies browsers.
+  - Each cleaning holds the property and cleaner (with their names at entry), the day cleaned, the amount in cents, the note, a status (`logged` or `removed`), the amount the form started from (`suggested`: last, default or none, and its cents), and its history (`logged`, `changed` with before and after, `removed`).
+  - A cleaner's one default rate is `cleaners/{id}.defaultRateCents`, set from the Team page with a `rate_set` history event. Handymen have none.
+- **Routes** (admin session, cross-site and media-type refusals, zod schemas in `app/lib/cleanings/schemas.ts`):
+  - `POST /api/admin/cleanings` logs one cleaning and answers with the month whose statement it goes on.
+  - `PATCH /api/admin/cleanings/[id]` changes or removes one; `DELETE` deletes one.
+  - `PUT /api/admin/cleaners/[id]/rate` sets or clears a default rate.
+- **How a cleaning reaches the statements:** `cleaningEntryView` (`app/lib/cleanings/model.ts`) reads it as an approved cost entry of kind `cleaning` (removed once removed), dated on its day and belonging to its day's month. Dispatch 35's and 36's rules then apply unchanged:
+  - one logged after its month is finished goes on the next open statement;
+  - one changed or removed after printing is adjusted there.
+- **The statement** (`printedLines`):
+  - a month's own cleanings print as one line, "Expense - Cleaning", with their count and total; the rate shows only when every amount is the same;
+  - cleanings of an earlier month print one line per month, "Expense - Cleaning (from September 2026)";
+  - an adjustment names the cleaning's day: "Adjustment - Cleaning · Sep 5, 2026 (reported in September 2026 as -$60.00, now -$70.00)".
+- **The ledger** lists each cleaning as a row, "Cleaning", logged by "Nubnb office", with a note saying what a cleaning entry is.
+- **The month ZIP:**
+  - the owner's workbook lists each cleaning the statement charges, logged by "Office", its history by day and amount only;
+  - Nubnb's folder gains `<month> Cleanings.xlsx` (each cleaning with who cleaned, and an Earned sheet) and `Records/cleanings <month>.json`.
+- **The Costs page** has two tabs, Costs and Cleanings (`?tab=cleanings`).
+  - The Cleanings tab's form takes the day cleaned (with Today and Yesterday), the property (searchable), the cleaner (active cleaners only), the amount and an optional note.
+  - The amount fills in when the property and cleaner are chosen, saying where it came from: "last paid for this property", "their default rate" or "type the amount".
+  - Below the form, the cleanings in the chosen dates, property and cleaner: Change (in place), Remove and Delete, all in Nubnb's own dialogs. Then the total, and "Earned in these dates" for each cleaner.
+  - The Costs tab's kind filter has "Cleanings", and a cleaning's row there opens the Cleanings tab on it.
+- **Elsewhere:**
+  - The property page's Costs tab: a cleaning row opens the Cleanings tab, and its foot links "Log cleanings" for the property and month.
+  - The Team page: a Rate column and "Set rate" for cleaners. A team member's delete confirmation counts their cleanings apart ("N cleanings done by them stay, under the same name").
+  - Finish: the checkouts warning reads a logged cleaning as a cleaning line (count only, unchanged). The property delete guard counts cleanings. `scripts/export-firestore.mjs` expects `cleanings`.
+- **Tests:** `tests/money/cleanings.mjs` (made-up data) covers:
+  - equal and differing amounts, the late cleaning, the change and the removal;
+  - no cleaner name in either statement PDF, the ledger PDF, the cleanings-only ledger Excel or an owner's ZIP folder;
+  - a deleted cleaner's cleanings;
+  - the amount the form starts from;
+  - Finish's warnings;
+  - M2's owed and empty months;
+  - the ledger PDF's split and footnote;
+  - what the routes accept.
+
+### 40.2 Decisions, not rulings
+
+- **No rules change.** Cleanings are read and written only by the server, through the Admin SDK.
+- **Logging checks the cleaner in the same transaction:** they exist, are a cleaner (not a handyman), and are active.
+  - The amount the form started from is worked out again on the server and kept beside the amount stored. The stored amount is the one the admin left.
+- **"Last paid for that property"** means that cleaner's latest cleaning there by day cleaned, removed ones left out.
+- **The day** may not be in the future or more than twelve months back, as a receipt's purchase date.
+- **A printed cleaning keeps its month.** Moving its day into another month is refused, because the adjustment would land on the wrong statement. Remove it and log it again instead.
+- **Delete** is refused while a finished statement prints the cleaning, as for a cost entry (dispatch 23H). A removed cleaning can be deleted too.
+- **A change or removal names what the page saw** (its history's length) and is refused if the cleaning changed since.
+- **Fast logging:**
+  - With no cleaner chosen, picking a property fills in its last cleaner.
+  - After logging, the day and cleaner stay and the property clears.
+  - So a week of one cleaner's cleanings is six actions each: the day (two), the property (three: open, type, pick), and Log. Seven when the amount is changed.
+- **A typed "Expense - Cleaning" line beside logged cleanings** warns at Finish: "cleaning may be charged twice".
+- **Who is named where:**
+  - owners' files never name a cleaner;
+  - the ledger says "Nubnb office" for a cleaning;
+  - the ledger Excel still names who sent a receipt, as before;
+  - an owner's workbook history carries no reasons, since a reason the admin types may name the cleaner;
+  - Nubnb's own Cleanings workbook names who cleaned.
+- **The earnings record** is "Earned in these dates" on the tab and the Earned sheet in Nubnb's month workbook: cleanings done, removed ones left out. Neither records a payment.
+- **A deleted cleaner's cleanings** read under the name at entry, marked "(deleted)" on the tab.
+- **The tab's "Charged on" column** shows only when a property is chosen: it needs that property's statements.
+- **The ledger PDF:**
+  - an entry charged on two statements wraps its "On …'s statement" note onto a second line; it was cut with "…" before, a 37A limit first seen here;
+  - a changed cleaning's footnote reads "* A cleaning marked so was changed by Nubnb after it was logged.";
+  - the receipt footnote is unchanged, and every older ledger is byte-identical.
+- **The costs list shows a cleaning's day without a time:** it has a day, not a time.
+
+### 40.3 How it was checked (2026-10-13, 11:49–12:19 Toronto)
+
+- **Byte-identical on the final code:**
+  - `node tests/run.mjs`: the five earlier checks identical; `cleanings` recorded;
+  - 40 of 40 version-3 statements (`d36/v3-hash.mjs`);
+  - dispatch 34's pure checks (dated 12 October, as recorded) and small checks over the 11 October export, identical to `a4ad705`'s output.
+- **Production held no statement, cost entry or cleaning** at the opening export (`2026-10-13T15-49-44Z`, 84 documents, identical to 37A's closing export).
+- **Live, real time** on a local build reading production: builds up to `vhWOsg7ice0xWDWYaVpOY`, 127.0.0.1:4500, a throwaway PIN, and the write guard (57 of 57 offline checks first). The test used one Unlisted `__TEST__` property, `rZUgxOs6XAkGro8XPUMQ`, and one `__TEST__` cleaner made on the Team page with a typed code and a $60.00 default rate.
+  - **Equal amounts:** Sep 5, 12 and 19, each prefilled $60.00 ("their default rate", then "last paid for this property"), logged in 8, 6 and 6 actions. September's PDF: "Expense - Cleaning · 3 · -$60.00 · -$180.00".
+  - **Late:** a Sep 28 cleaning at $75.00, logged after September was finished, said "September 2026 is finished: it goes on October 2026's statement".
+  - **Differing:** Oct 3 at $60.00 and Oct 9 at $80.00.
+  - **Corrected after printing:** Sep 5 changed to $70.00 and Sep 12 removed. October's PDF:
+
+    ```
+    Expense - Cleaning                                   2              -$140.00
+    Expense - Cleaning (from September 2026)             1    -$75.00    -$75.00
+    Adjustment - Cleaning · Sep 5, 2026 (reported in September 2026 as -$60.00, now -$70.00)   -$10.00
+    Adjustment - Cleaning · Sep 12, 2026 (reported in September 2026 as -$60.00, no longer in the ledger)   $60.00
+    ```
+  - **The ledger:** `/admin/costs` and its PDF showed "$120.00 on September 2026's statement · $225.00 on October 2026's statement" for $345.00.
+  - **No cleaner named:** neither statement PDF, the ledger PDF and Excel, nor any file of either month's owner ZIP folder holds the cleaner's name or ID (PDFs read with `pdftotext`, workbooks unzipped). The ZIP's October PDF is byte-identical to the one downloaded from the property page.
+  - **A deleted cleaner:** after the cleaner was deleted on the Team page, the API, the tab, the ledger and both finished months still read all six cleanings, under the name at entry, "(deleted)".
+  - **Delete refused:** deleting a printed cleaning was refused (`CLEANING_IN_STATEMENT`), nothing written.
+- **Found live and fixed before the end:**
+  - the form's empty note was sent as `null` and refused by the schema;
+  - the form's selects did not fill their fields;
+  - the costs list showed a cleaning at "1:00 p.m.";
+  - the ledger PDF called a changed cleaning "corrected against the receipt" and cut a two-statement note;
+  - a removed cleaning offered no Delete.
+- **Cleanup.** The guard recorded 54 writes; it refused 1, its own first refusal of the code record, and nothing landed from it.
+  - Through the app: both statements, with their PDFs and 4 download records; the 7 cleanings; the cleaner, whose code was retired; and the property, with its owner record and unlisted mark.
+  - By exact ID after an export (K13): the two drafts, the two cost-PDF records, the two month-ZIP records and the retired code.
+  - The closing export (`2026-10-13T16-19-14Z`) is byte-identical, file for file, to the opening one. Storage's 6,622 objects are identical by name and generation. The two statement PDFs stay soft-deleted until about 2026-10-20.
+
+### 40.4 Not exercised live
+
+- **Finish's checkouts warning** needs a property with Airbnb checkouts. The cleaning-twice warning and M2's owed and empty months for a cleaning-only month were also not exercised live. All three were checked on made-up data only (`tests/money/cleanings.mjs` §6–7).
+- **The Team page** was read only with codes masked and never screenshotted, so the Rate column was checked by a masked read.
+- **The property page's Costs tab** heads its column "Logged by". For a cleaning it shows who cleaned, which only admins see.

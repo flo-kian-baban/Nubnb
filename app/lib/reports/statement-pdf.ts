@@ -197,7 +197,8 @@ function paymentSummaryPdf(statement: Statement): Uint8Array<ArrayBuffer> {
     const y = flow.y;
     lines.forEach((line, i) => flow.page.text(line, COL.desc, y - i * WRAP, 'regular', 10));
     flow.page.text(String(row.quantity), COL.qty, y, 'regular', 10, 0.1, 'right');
-    flow.page.text(formatCents(row.rateCents), COL.rate, y, 'regular', 10, 0.1, 'right');
+    // A cleaning line whose amounts differ leaves the Rate column empty (dispatch 37B).
+    if (row.rateCents !== null) flow.page.text(formatCents(row.rateCents), COL.rate, y, 'regular', 10, 0.1, 'right');
     flow.page.text(formatCents(row.amountCents), COL.amount, y, 'regular', 10, 0, 'right');
     flow.page.rule(M - 6, R + 6, y - height + ROW - 7, 0.88, 0.4);
     flow.y -= height;

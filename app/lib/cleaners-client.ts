@@ -210,6 +210,24 @@ export function changeCleanerStatus(
  * Give a cleaner a new code. On success the answer's cleaner holds the new
  * code — the typed one, or the one the server drew.
  */
+/**
+ * Set a cleaner's one default rate for a cleaning (dispatch 37B, Kian's ruling of 2026-10-13), "60.00", or null for
+ * none. No cleaning already logged changes.
+ */
+export function setDefaultRate(id: string, defaultRate: string | null): Promise<CleanerResult<{ cleaner: CleanerSummary; changed: boolean }>> {
+  return call(
+    `/api/admin/cleaners/${encodeURIComponent(id)}/rate`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ defaultRate }),
+    },
+    'Saving the rate failed',
+    (data) => isRecord(data) && isCleanerSummary(data.cleaner) && data.cleaner.id === id && typeof data.changed === 'boolean',
+    ['CLEANER_SAVE_FAILED'],
+  );
+}
+
 export function changeCleanerCode(
   id: string,
   request: CodeRequest,
