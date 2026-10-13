@@ -20,6 +20,7 @@ import type {
   StatementDraftView,
 } from '@/app/lib/reports/model';
 import type { FinishClaim } from '@/app/lib/reports/statement';
+import type { EmptyFinishOutcome, EmptyMonth } from '@/app/lib/reports/empty';
 
 export type ReportResult<T> =
   | { ok: true; data: T }
@@ -194,4 +195,19 @@ export function deleteStatement(reportId: string, downloadsSeen: number): Promis
 /** A fresh 60-second link to a finished statement's PDF; one download record is made. */
 export function fetchStatementLink(reportId: string): Promise<ReportResult<{ url: string; expiresAt: string; seconds: number; download: ReportDownloadView }>> {
   return call(`/api/admin/monthly-reports/${encodeURIComponent(reportId)}/pdf`, {}, 'Opening the statement failed', (data) => isRecord(data) && typeof data.url === 'string' && data.url.startsWith('https://') && typeof data.expiresAt === 'string' && isRecord(data.download));
+}
+
+/** The month's empty statements (dispatch 36): who can be finished together, who is left out and why, the Airbnb titles unsettled. */
+export function fetchEmptyMonth(month: string): Promise<ReportResult<EmptyMonth & { today: string }>> {
+  return call(`/api/admin/monthly-reports/empty?month=${encodeURIComponent(month)}`, {}, 'Reading the empty statements failed', (data) =>
+    isRecord(data) && Array.isArray(data.eligible) && Array.isArray(data.leftOut) && Array.isArray(data.unsettled) && typeof data.today === 'string',
+  );
+}
+
+/**
+ * Finish the chosen properties' empty month, each its own statement. TITLES_UNSETTLED means nothing was finished;
+ * a failure part-way leaves the outcome unknown: some may be finished.
+ */
+export function finishEmptyMonth(month: string, items: { propertyId: string; reference: string }[]): Promise<ReportResult<{ results: EmptyFinishOutcome[] }>> {
+  return call('/api/admin/monthly-reports/empty', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ month, items }) }, 'Finishing the empty statements failed', (data) => isRecord(data) && Array.isArray(data.results), ['EMPTY_MONTH_FINISH_FAILED']);
 }

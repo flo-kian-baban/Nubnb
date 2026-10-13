@@ -27,11 +27,14 @@
  * Read by the costs page, /admin/costs, once when it opens and on Refresh. No
  * public page calls it, so it adds no function call to a renter's page view.
  *
- * POST request:  JSON `{ propertyId, description, amount, tax }`
+ * POST request:  JSON `{ propertyId, description, amount, tax, month }` — `month` the month the cost belongs to
+ *                (dispatch 36, Kian's ruling of 2026-10-12), from 2026-09 to Toronto's current month
  *                  description  1–200 characters
  *                  amount       "185.00": positive, two decimals
  *                  tax          "12.50" or null
- * POST response: 201 `{ success: true, data: { entry: CostEntryView } }`
+ * POST response: 201 `{ success: true, data: { entry: CostEntryView, statementMonth } }` — `statementMonth` the
+ *                statement it goes on: its month's, or the next open month's once that is finished; null when that
+ *                could not be read (the entry is written either way)
  *                422 ENTRY_PROPERTY_NOT_FOUND when no property has the ID
  *                502 PROPERTY_LOOKUP_FAILED (nothing written),
  *                502 ENTRY_WRITE_FAILED (may or may not have been written)
@@ -48,6 +51,8 @@ import { verifyAdminSession } from '@/app/lib/api/verify-admin';
 import { apiSuccess, apiError, apiFailure, apiValidationError, noStore } from '@/app/lib/api/safe-response';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { OfficeInputSchema, createOfficeEntry, listCosts, lookupPropertyName, type PropertyLookup } from '@/app/lib/firebase/server-cost-entries';
+import { statementMonthOfCost } from '@/app/lib/firebase/server-reports';
+import { torontoDayOf } from '@/app/lib/costs/report';
 
 /**
  * The one thing logged about a failed read: its gRPC code, as on every other
@@ -103,6 +108,11 @@ export async function POST(request: NextRequest) {
     return noStore(apiValidationError(result.error.issues.map((i) => ({ path: i.path.map(String).join('.'), message: i.message }))));
   }
   const office = result.data;
+  // A cost belongs to a month that has begun (dispatch 36): never a month after Toronto's current one.
+  const thisMonth = torontoDayOf(new Date()).slice(0, 7);
+  if (office.month > thisMonth) {
+    return noStore(apiValidationError([{ path: 'month', message: `At most the current month, ${thisMonth}` }]));
+  }
 
   // ── The property must exist ──
   let property: PropertyLookup;
@@ -119,7 +129,15 @@ export async function POST(request: NextRequest) {
   // ── Write ──
   try {
     const entry = await createOfficeEntry({ office, propertyNameAtEntry: property.name });
-    return noStore(apiSuccess({ entry }, 201));
+    // Which statement it goes on (Kian's ruling of 2026-10-12): its month's, or the next open one's once that is
+    // finished. A failed read leaves it unsaid; the entry is written either way.
+    let statementMonth: string | null = null;
+    try {
+      statementMonth = await statementMonthOfCost(office.propertyId, office.month);
+    } catch (err) {
+      console.error(`[cost-entries] the statement for an office cost could not be read: grpc code ${grpcCode(err)}`);
+    }
+    return noStore(apiSuccess({ entry, statementMonth }, 201));
   } catch (err) {
     console.error(`[cost-entries] office entry not written: grpc code ${grpcCode(err)}`);
     return noStore(apiFailure({ message: 'The cost could not be saved.', status: 502, code: 'ENTRY_WRITE_FAILED', hint: 'It may or may not have been recorded. Refresh the ledger before adding it again.' }));

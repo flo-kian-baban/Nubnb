@@ -52,6 +52,8 @@ import {
   proposedLabel,
   readEarningsLine,
   readEarningsUpload,
+  isSetAside,
+  linkState,
   readTitleLink,
   titleKeyText,
   type EarningsLine,
@@ -218,10 +220,15 @@ export async function uploadEarnings(input: { platform: IncomeChannel; month: st
       }
       const existing = lineRefs.length > 0 ? await tx.getAll(...lineRefs) : [];
       const fresh = existing.filter((snap) => !snap.exists);
+      // A title set aside as not a Nubnb property (dispatch 36, Kian's ruling of 2026-10-12): its lines are rejected.
+      const titlesHere = [...new Set(fresh.map((snap) => byId.get(snap.id)!.listingTitle))];
+      const linkSnaps = titlesHere.length > 0 ? await tx.getAll(...titlesHere.map((title) => db.collection(EARNINGS_TITLE_LINKS_COLLECTION).doc(linkIdOf(platform, title)))) : [];
+      const setAside = new Set(titlesHere.filter((_, i) => linkSnaps[i].exists && isSetAside(readTitleLink(linkSnaps[i].id, linkSnaps[i].data() ?? {}))));
       const next: EarningsUpload = { ...record, added: fresh.length, duplicates: repeatedInFile + (existing.length - fresh.length) };
       tx.create(uploadRef, next);
       for (const snap of fresh) {
         const row = byId.get(snap.id)!;
+        const aside = setAside.has(row.listingTitle);
         const line: EarningsLine = {
           schemaVersion: EARNINGS_SCHEMA_VERSION,
           platform,
@@ -237,9 +244,9 @@ export async function uploadEarnings(input: { platform: IncomeChannel; month: st
           currency: row.currency,
           evidence: row.evidence,
           remittedTaxCents: row.remittedTaxCents,
-          status: 'proposed',
-          decided: null,
-          history: [],
+          status: aside ? 'rejected' : 'proposed',
+          decided: aside ? { status: 'rejected', at: uploadedAt, actor: ADMIN_ACTOR } : null,
+          history: aside ? [{ at: uploadedAt, actor: ADMIN_ACTOR, action: 'rejected' }] : [],
         };
         tx.create(snap.ref, line);
       }
@@ -479,6 +486,57 @@ export function unlinkedTitles(uploads: Pick<EarningsUploadView, 'platform' | 'm
   return [...byKey.values()].sort((a, b) => a.month.localeCompare(b.month) || a.title.localeCompare(b.title));
 }
 
+/** A link as its history keeps it. */
+const pastLink = (link: TitleLink) => ({ propertyId: link.propertyId, ...(link.notNubnb ? { notNubnb: true as const } : {}), linkedAt: link.linkedAt, actor: link.actor });
+
+export type SetAsideResult = { kind: 'set-aside'; link: TitleLinkView; rejected: number } | { kind: 'changed-since'; propertyId: string | null } | { kind: 'failed' };
+
+/**
+ * Set a title aside as "not a Nubnb property" (dispatch 36, Kian's ruling of 2026-10-12, amending "never dropped" and
+ * "stays unlinked until an admin links it"): it stays listed and marked, leaves the gaps count, and its lines are
+ * rejected. In one transaction, refused unless the link is what the page showed (`expected`, as `linkState`): the
+ * link is written set aside, its history kept, and every proposed line under the title is rejected with an event in
+ * its history. Lines already accepted stay where they went; a finished statement is never touched. Linking the title
+ * to a property later is an ordinary link; its rejected lines can be proposed again one by one.
+ */
+export async function setTitleAside(input: { platform: IncomeChannel; title: string; expected: string | null }): Promise<SetAsideResult> {
+  const db = getAdminDb();
+  const title = normaliseTitle(input.title);
+  const ref = db.collection(EARNINGS_TITLE_LINKS_COLLECTION).doc(linkIdOf(input.platform, title));
+  try {
+    return await db.runTransaction(async (tx): Promise<SetAsideResult> => {
+      const [snap, linesSnap] = await Promise.all([tx.get(ref), tx.get(db.collection(EARNINGS_LINES_COLLECTION).where('listingTitle', '==', title))]);
+      const stored = snap.exists ? readTitleLink(snap.id, snap.data() ?? {}) : null;
+      if (snap.exists && stored === null) return { kind: 'failed' };
+      if (linkState(stored) !== input.expected) return { kind: 'changed-since', propertyId: linkState(stored) };
+      const now = new Date().toISOString();
+      let rejected = 0;
+      for (const doc of linesSnap.docs) {
+        const line = readEarningsLine(doc.id, doc.data());
+        if (!line || line.platform !== input.platform || line.status !== 'proposed') continue;
+        tx.update(doc.ref, { status: 'rejected', decided: { status: 'rejected', at: now, actor: ADMIN_ACTOR }, history: [...line.history, { at: now, actor: ADMIN_ACTOR, action: 'rejected' }] });
+        rejected += 1;
+      }
+      if (stored && isSetAside(stored)) return { kind: 'set-aside', link: stored, rejected };
+      const next: TitleLink = {
+        schemaVersion: EARNINGS_SCHEMA_VERSION,
+        platform: input.platform,
+        title,
+        propertyId: null,
+        notNubnb: true,
+        linkedAt: now,
+        actor: ADMIN_ACTOR,
+        history: stored ? [...stored.history, pastLink(stored)] : [],
+      };
+      tx.set(ref, next);
+      return { kind: 'set-aside', link: { id: ref.id, ...next }, rejected };
+    });
+  } catch (err) {
+    console.error(`[income] setting ${ref.id} aside failed: grpc code ${grpcCode(err)}`);
+    return { kind: 'failed' };
+  }
+}
+
 // ─── A title's link ─────────────────────────────────────────────
 
 export type LinkResult = { kind: 'linked'; link: TitleLinkView } | { kind: 'no-such-property' } | { kind: 'changed-since'; propertyId: string | null } | { kind: 'failed' };
@@ -497,6 +555,7 @@ export const LINK_REFUSALS: Record<Exclude<LinkResult['kind'], 'linked'>, Refusa
  * went; lines still proposed follow the link.
  */
 export async function linkTitle(input: { platform: IncomeChannel; title: string; propertyId: string; expected: string | null }): Promise<LinkResult> {
+  // `expected` is the link's state as the page showed it: a property ID, NOT_NUBNB for a title set aside, null for none.
   const db = getAdminDb();
   const title = normaliseTitle(input.title);
   const [property] = await db.getAll(db.collection('properties').doc(input.propertyId), { fieldMask: ['name'] });
@@ -507,7 +566,7 @@ export async function linkTitle(input: { platform: IncomeChannel; title: string;
       const snap = await tx.get(ref);
       const stored = snap.exists ? readTitleLink(snap.id, snap.data() ?? {}) : null;
       if (snap.exists && stored === null) return { kind: 'failed' };
-      if ((stored?.propertyId ?? null) !== input.expected) return { kind: 'changed-since', propertyId: stored?.propertyId ?? null };
+      if (linkState(stored) !== input.expected) return { kind: 'changed-since', propertyId: linkState(stored) };
       if (stored && stored.propertyId === input.propertyId) return { kind: 'linked', link: stored };
       const next: TitleLink = {
         schemaVersion: EARNINGS_SCHEMA_VERSION,
@@ -516,7 +575,7 @@ export async function linkTitle(input: { platform: IncomeChannel; title: string;
         propertyId: input.propertyId,
         linkedAt: new Date().toISOString(),
         actor: ADMIN_ACTOR,
-        history: stored ? [...stored.history, { propertyId: stored.propertyId, linkedAt: stored.linkedAt, actor: stored.actor }] : [],
+        history: stored ? [...stored.history, pastLink(stored)] : [],
       };
       tx.set(ref, next);
       return { kind: 'linked', link: { id: ref.id, ...next } };
@@ -682,12 +741,13 @@ export async function acceptLines(input: { propertyId: string; month: string; it
 
 // ─── Rejecting, and proposing again ─────────────────────────────
 
-export type DecideResult = { kind: 'decided'; line: EarningsLineView } | { kind: 'no-such-line' } | { kind: 'changed-since'; status: string } | { kind: 'still-in-statement' } | { kind: 'failed' };
+export type DecideResult = { kind: 'decided'; line: EarningsLineView } | { kind: 'no-such-line' } | { kind: 'changed-since'; status: string } | { kind: 'still-in-statement' } | { kind: 'set-aside' } | { kind: 'failed' };
 
 export const DECIDE_REFUSALS: Record<Exclude<DecideResult['kind'], 'decided'>, Refusal> = {
   'no-such-line': { status: 404, code: 'LINE_NOT_FOUND', message: 'No such line.' },
   'changed-since': { status: 409, code: 'LINES_CHANGED', message: 'This line was decided or changed since the page loaded.', hint: 'Nothing was changed. Reload the page.' },
   'still-in-statement': { status: 409, code: 'STILL_IN_STATEMENT', message: 'This line is still in its property\'s statement.', hint: 'Nothing was changed. Remove it on the property\'s page first; then it can be proposed again.' },
+  'set-aside': { status: 409, code: 'TITLE_SET_ASIDE', message: 'This line\'s title is set aside as not a Nubnb property, so its lines stay rejected.', hint: 'Nothing was changed. Link the title to a property first; then the line can be proposed again.' },
   failed: { status: 502, code: 'DECISION_FAILED', message: 'Could not record the decision.', hint: 'It may or may not have been recorded. Reload the page to see.' },
 };
 
@@ -695,7 +755,8 @@ export const DECIDE_REFUSALS: Record<Exclude<DecideResult['kind'], 'decided'>, R
  * Reject a proposed line, or propose a line again: one rejected, or one
  * accepted whose statement line has since been removed from its draft. A
  * line still in its draft is never proposed again, so it cannot reach a
- * statement twice.
+ * statement twice; nor is a line whose title is set aside as not a Nubnb
+ * property (dispatch 36), whose lines are rejected.
  */
 export async function decideLine(id: string, action: 'reject' | 'propose-again'): Promise<DecideResult> {
   const db = getAdminDb();
@@ -715,6 +776,8 @@ export async function decideLine(id: string, action: 'reject' | 'propose-again')
         return { kind: 'decided', line: { ...line, status: 'rejected', decided, history } };
       }
       if (line.status === 'proposed' || line.decided === null) return { kind: 'changed-since', status: line.status };
+      const linkSnap = await tx.get(db.collection(EARNINGS_TITLE_LINKS_COLLECTION).doc(linkIdOf(line.platform, line.listingTitle)));
+      if (linkSnap.exists && isSetAside(readTitleLink(linkSnap.id, linkSnap.data() ?? {}))) return { kind: 'set-aside' };
       if (line.decided.status === 'accepted') {
         const draftSnap = await tx.get(db.collection(MONTHLY_REPORT_DRAFTS_COLLECTION).doc(line.decided.draftId));
         const draft = draftSnap.exists ? readStatementDraft(draftSnap.id, draftSnap.data() ?? {}) : null;

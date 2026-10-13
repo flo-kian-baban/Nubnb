@@ -124,15 +124,22 @@ export function pdfFor(report: CostReport): Uint8Array<ArrayBuffer> {
   report.entries.forEach((entry, i) => {
     // A work or office entry's description, marked by kind, wraps to a second line (dispatch 24); two lines at most, the rest cut with "…".
     const work = isOneLineKind(entry.kind) ? twoLines(`${entry.kind === 'work' ? 'Work' : 'Office'}: ${whatWasBought(entry.lines).items.join(', ')}`, boughtWidth) : null;
-    const secondLine = work !== null && work.length > 1;
+    // An office cost is dated by the month it belongs to, the day it was logged in brackets under it (Kian's ruling of 2026-10-12).
+    const office = entry.office;
+    const secondLine = (work !== null && work.length > 1) || office !== null;
     if (y - (secondLine ? 12 : 0) < LOWEST_ROW) nextPage(true);
     page.text(String(i + 1), COLUMN.number, y, 'regular', 10, MUTED, 'right');
-    page.text(shortDay(entry.day), COLUMN.date, y, 'regular', 10);
+    if (office === null) {
+      page.text(shortDay(entry.day), COLUMN.date, y, 'regular', 10);
+    } else {
+      page.text(office.month, COLUMN.date, y, 'regular', 10);
+      page.text(fitted(office.logged, 'regular', 8, COLUMN.bought - 8 - COLUMN.date), COLUMN.date, y - 12, 'regular', 8, MUTED);
+    }
     if (work === null) {
       page.text(boughtCell(entry.lines, boughtWidth), COLUMN.bought, y, 'regular', 10);
     } else {
       page.text(work[0], COLUMN.bought, y, 'regular', 10);
-      if (secondLine) page.text(work[1], COLUMN.bought, y - 12, 'regular', 10);
+      if (work.length > 1) page.text(work[1], COLUMN.bought, y - 12, 'regular', 10);
     }
     page.text(entry.ref, COLUMN.ref, y, 'regular', 10, MUTED);
     page.text(formatCents(entry.itemsCents), COLUMN.items, y, 'regular', 10, 0, 'right');

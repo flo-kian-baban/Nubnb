@@ -195,17 +195,39 @@ export interface EarningsUpload {
   actor: Actor;
 }
 
-/** `earnings_title_links/{sha256(platform|title)}`: a listing title an admin linked to one property. */
+/**
+ * `earnings_title_links/{sha256(platform|title)}`: a listing title an admin linked to one property — or, since
+ * dispatch 36 (Kian's ruling of 2026-10-12, amending "never dropped" and "stays unlinked until an admin links it"),
+ * set aside as "not a Nubnb property": `propertyId` null and `notNubnb` true. A title set aside stays listed and
+ * marked, leaves the gaps count, and its lines are rejected; linking it to a property later is a link like any other.
+ */
 export interface TitleLink {
   schemaVersion: number;
   platform: IncomeChannel;
   title: string;
-  propertyId: string;
+  /** The property it is linked to; null when the title is set aside. */
+  propertyId: string | null;
+  /** Set aside as not a Nubnb property (dispatch 36); written only as true. */
+  notNubnb?: true;
   linkedAt: string;
   actor: Actor;
-  /** The links it had before, oldest first. */
-  history: { propertyId: string; linkedAt: string; actor: Actor }[];
+  /** The links it had before, oldest first; a set-aside one has propertyId null. */
+  history: { propertyId: string | null; notNubnb?: true; linkedAt: string; actor: Actor }[];
 }
+
+/** Whether a title is set aside as not a Nubnb property (dispatch 36). */
+export function isSetAside(link: Pick<TitleLink, 'propertyId' | 'notNubnb'> | null | undefined): boolean {
+  return !!link && link.notNubnb === true && link.propertyId === null;
+}
+
+/**
+ * A link's state as the page shows it and a change names what it expected (dispatch 36): the property's ID, the
+ * word "not-nubnb" for a title set aside, null for none.
+ */
+export function linkState(link: Pick<TitleLink, 'propertyId' | 'notNubnb'> | null | undefined): string | null {
+  return !link ? null : isSetAside(link) ? NOT_NUBNB : link.propertyId;
+}
+export const NOT_NUBNB = 'not-nubnb';
 
 export interface EarningsLineView extends EarningsLine {
   id: string;
@@ -390,17 +412,22 @@ export function readEarningsUpload(id: string, fields: Record<string, unknown>):
 }
 
 export function readTitleLink(id: string, fields: Record<string, unknown>): TitleLinkView | null {
-  const { schemaVersion, platform, title, propertyId, linkedAt, actor, history } = fields;
-  if (!isCents(schemaVersion) || !isIncomeChannel(platform) || !isText(title) || !isText(propertyId) || !isText(linkedAt) || !isActor(actor)) return null;
-  if (!Array.isArray(history) || !history.every((h) => isRecord(h) && isText(h.propertyId) && isText(h.linkedAt) && isActor(h.actor))) return null;
+  const { schemaVersion, platform, title, propertyId, linkedAt, actor, history, notNubnb } = fields;
+  // A title set aside (dispatch 36) has no property and says so; every other link names one.
+  const setAside = notNubnb === true && propertyId === null;
+  if (!isCents(schemaVersion) || !isIncomeChannel(platform) || !isText(title) || !(isText(propertyId) || setAside) || !isText(linkedAt) || !isActor(actor)) return null;
+  if (notNubnb !== undefined && !setAside) return null;
+  const pastOk = (h: unknown) => isRecord(h) && (isText(h.propertyId) || (h.propertyId === null && h.notNubnb === true)) && isText(h.linkedAt) && isActor(h.actor);
+  if (!Array.isArray(history) || !history.every(pastOk)) return null;
   return {
     id,
     schemaVersion,
     platform,
     title,
-    propertyId,
+    propertyId: setAside ? null : (propertyId as string),
+    ...(setAside ? { notNubnb: true as const } : {}),
     linkedAt,
     actor,
-    history: (history as Record<string, unknown>[]).map((h) => ({ propertyId: h.propertyId as string, linkedAt: h.linkedAt as string, actor: h.actor as Actor })),
+    history: (history as Record<string, unknown>[]).map((h) => ({ propertyId: (h.propertyId as string | null) ?? null, ...(h.notNubnb === true ? { notNubnb: true as const } : {}), linkedAt: h.linkedAt as string, actor: h.actor as Actor })),
   };
 }

@@ -589,18 +589,20 @@ function MonthWork(props: MonthWorkProps) {
 
   // ── Save, 800 ms after the last change; the first save on a month with nothing stored creates the draft ──
   // What reads is saved; a fee, balance or date that does not read yet is sent as last saved and stays typed here (S10).
-  const doSave = useCallback(async () => {
+  // `force` writes even what is only suggested, for Finish on a month with nothing stored (dispatch 36, S22). Answers
+  // whether the draft is stored.
+  const doSave = useCallback(async (force = false): Promise<boolean> => {
     const current = typedRef.current;
     const key = JSON.stringify(current);
-    if (key === savedRef.current) return;
+    if (key === savedRef.current && !(force && revisionRef.current === 0)) return revisionRef.current !== 0;
     const { payload, heldBack } = savablePayload(propertyId, month, revisionRef.current, current, supersedesRef.current, heldRef.current);
     const sent = JSON.stringify({ ...payload, revision: 0 });
     const empty = payload.lines.length === 0 && payload.fee === null && payload.carried === null && payload.notes === null && payload.reference === "" && payload.supersedes === null;
     // Nothing that reads has changed, or nothing is stored and nothing that reads is typed: no write, only the state.
-    if (sent === sentRef.current || (revisionRef.current === 0 && empty)) {
+    if (!(force && revisionRef.current === 0) && (sent === sentRef.current || (revisionRef.current === 0 && empty))) {
       savedRef.current = key;
       setSave(revisionRef.current === 0 || savedAtRef.current === null ? { kind: "none", heldBack } : { kind: "saved", at: savedAtRef.current, heldBack });
-      return;
+      return revisionRef.current !== 0;
     }
     setSave({ kind: "saving" });
     const result = await saveDraft(payload);
@@ -615,14 +617,15 @@ function MonthWork(props: MonthWorkProps) {
       if (kept) kept.revision = result.data.draft.revision;
       setSave({ kind: "saved", at: result.data.draft.updatedAt, heldBack });
       onDraftSaved(result.data.draft);
-      return;
+      return true;
     }
     if (result.code === "DRAFT_CHANGED" || result.code === "DRAFT_FINISHED") {
       show({ tone: "warning", title: result.code === "DRAFT_CHANGED" ? "This month's draft was changed elsewhere — another tab or another admin." : "This month's statement was finished meanwhile.", detail: "Your last change was not saved. The page reloads what is stored." });
       onReload();
-      return;
+      return false;
     }
     setSave({ kind: "failed", reason: `${result.title}${result.detail ? ` ${result.detail}` : ""}${result.status === 401 || result.status === 403 ? ` ${SESSION_HINT}` : ""}` });
+    return false;
   }, [propertyId, month, show, onReload, onDraftSaved, props.kept, keptKey]);
   const doSaveRef = useRef(doSave);
   doSaveRef.current = doSave;
@@ -713,7 +716,7 @@ function MonthWork(props: MonthWorkProps) {
 
   // ── Finish ──
   /** The Finish button: what cannot be finished is said; otherwise the dialog asks, listing what Finish warns about. */
-  const finish = () => {
+  const finish = async () => {
     if (built.kind !== "ok" || finishing || readOnly) return;
     clear();
     const problems = [...parsed.problems, ...(typed.reference.trim() === "" ? ["Give the statement a reference, like Aug-321-John"] : []), ...(isDayText(typed.reportDate) ? [] : ["Give the statement a date"])];
@@ -726,8 +729,16 @@ function MonthWork(props: MonthWorkProps) {
       show({ tone: "error", title: "The statement cannot be finished.", items: checks.refusals.map((check) => check.text) });
       return;
     }
-    if (save.kind !== "saved" || revisionRef.current === 0 || reportForState !== "saved") {
-      show({ tone: "warning", title: save.kind === "none" ? "Nothing is saved yet: type a line, a fee or a note first." : "Wait for the draft to save first.", detail: save.kind === "failed" ? save.reason : undefined });
+    // A month with nothing stored is finished straight away (dispatch 36, S22): what the page shows, its suggested
+    // reference included, is saved first. An empty month needs no note on the owner's PDF (Kian's ruling of 2026-10-12).
+    if (save.kind === "none" && revisionRef.current === 0 && reportForState === "saved") {
+      const stored = await doSaveRef.current(true);
+      if (!stored) {
+        show({ tone: "error", title: "The draft could not be saved, so the statement was not finished." });
+        return;
+      }
+    } else if (save.kind !== "saved" || revisionRef.current === 0 || reportForState !== "saved") {
+      show({ tone: "warning", title: "Wait for the draft to save first.", detail: save.kind === "failed" ? save.reason : undefined });
       return;
     }
     setAcknowledged(false);

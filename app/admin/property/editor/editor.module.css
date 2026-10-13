@@ -1314,6 +1314,15 @@
     animation: none;
   }
 }
+/* A list to work through (dispatch 36): wider, the body scrolls between a fixed head and foot. */
+.dialogWide {
+  max-width: 760px;
+  max-height: calc(100vh - 32px);
+}
+.dialogWide .dialogBody {
+  overflow-y: auto;
+  padding-bottom: 12px;
+}
 .dialogHead {
   display: flex;
   align-items: center;

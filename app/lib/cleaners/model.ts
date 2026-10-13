@@ -641,6 +641,12 @@ export interface CostEntryFields {
   kind: string;
   /** The auto-approval record (dispatch 24); null when the entry was not approved automatically, or predates it. */
   autoApproved: AutoApprovedView | null;
+  /**
+   * The month an office cost was logged for, yyyy-mm (dispatch 36, Kian's ruling of 2026-10-12: it belongs to a
+   * month the admin picks); null on every other entry, and on an office cost logged before, which belong to the
+   * month of the day they were sent.
+   */
+  month: string | null;
 }
 
 /**
@@ -683,6 +689,8 @@ export interface CostEntryView {
   kind: string;
   /** Set when the entry was approved automatically (dispatch 24). */
   autoApproved: AutoApprovedView | null;
+  /** The month an office cost was logged for (dispatch 36); null when the entry belongs to the month of the day it was sent. */
+  month: string | null;
 }
 
 /**
@@ -1108,6 +1116,8 @@ export function readCostEntryFields(id: string, fields: Record<string, unknown>)
     // Absent means receipt (dispatch 24), on every entry written before the field existed.
     kind: fields.kind === undefined || fields.kind === null ? 'receipt' : fieldText(fields.kind) ?? 'receipt',
     autoApproved: readAutoApproved(fields.autoApproved),
+    // Written on an office cost since dispatch 36; anything that is not a month reads as none.
+    month: typeof fields.month === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(fields.month) ? fields.month : null,
   };
 }
 

@@ -115,6 +115,15 @@ export function linkTitle(input: { channel: IncomeChannel; title: string; proper
   return call('/api/admin/income/links', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }, 'Linking the title failed', (data) => isRecord(data) && isRecord(data.link), ['LINK_WRITE_FAILED']);
 }
 
+/**
+ * Set a title aside as not a Nubnb property (dispatch 36, Kian's ruling of 2026-10-12): it stays listed and marked,
+ * leaves the gaps count, and its proposed lines are rejected (`rejected`, how many). `expected` is the link's state
+ * as the page showed it (`linkState`).
+ */
+export function setTitleAside(input: { channel: IncomeChannel; title: string; expected: string | null }): Promise<IncomeResult<{ link: TitleLinkView; rejected: number }>> {
+  return call('/api/admin/income/links', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...input, notNubnb: true }) }, 'Setting the title aside failed', (data) => isRecord(data) && isRecord(data.link) && typeof data.rejected === 'number', ['LINK_WRITE_FAILED']);
+}
+
 /** Accept lines into the property's draft; `description` and `amount` only when the admin changed them. */
 export function acceptIncomeLines(input: { propertyId: string; month: string; lines: { id: string; description?: string; amount?: string }[] }): Promise<IncomeResult<{ draft: StatementDraftView; lines: EarningsLineView[] }>> {
   return call('/api/admin/income/lines/accept', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }, 'Accepting failed', (data) => isRecord(data) && isDraft(data.draft) && Array.isArray(data.lines) && data.lines.every(isLine), ['ACCEPT_FAILED']);

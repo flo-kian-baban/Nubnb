@@ -70,6 +70,7 @@ import {
   INCOME_SOURCES,
   STATEMENTS_FROM_DEFAULT,
   STATEMENT_LIMITS,
+  currentReports,
   feeComputed,
   isDayText,
   isMonth,
@@ -94,7 +95,7 @@ import {
   type StatementDraftSummary,
   type StatementDraftView,
 } from '@/app/lib/reports/model';
-import { buildStatement, chargedBy, moneyMonthsByProperty, printedBy, sameClaim, type FinishClaim, type Statement } from '@/app/lib/reports/statement';
+import { buildStatement, chargedBy, moneyMonthsByProperty, printedBy, sameClaim, statementMonthFor, type FinishClaim, type Statement } from '@/app/lib/reports/statement';
 import { statementPdf } from '@/app/lib/reports/statement-pdf';
 
 const CONTROL_CHARACTER = /\p{Cc}/u;
@@ -362,6 +363,17 @@ export async function readPropertyStatements(propertyId: string): Promise<Proper
   return { propertyName: name, createdMonth: facts.createdMonth, reports, drafts, downloads, management, unreadable };
 }
 
+/**
+ * The statement a cost belonging to `month` goes on (Kian's ruling of 2026-10-12, dispatch 36): that month's, or,
+ * when the property's statement for it is already finished, the next open month's. The office-cost route names it.
+ *
+ * @throws if the read fails.
+ */
+export async function statementMonthOfCost(propertyId: string, month: string): Promise<string> {
+  const reports = await propertyReports(propertyId);
+  return statementMonthFor(month, new Set(currentReports(reports).map((report) => report.month)));
+}
+
 // ─── The draft ─────────────────────────────────────────────────
 
 export type SaveDraftResult =
@@ -433,6 +445,49 @@ export async function saveDraft(input: DraftInput): Promise<SaveDraftResult> {
     });
   } catch (err) {
     console.error(`[reports] draft save for ${ref.id} failed: grpc code ${grpcCode(err)}`);
+    return { kind: 'failed' };
+  }
+}
+
+/**
+ * Write the empty draft an empty month is finished from (dispatch 36, the Statements panel's "finish empty months"):
+ * the reference and the date, and nothing else. A draft already stored must still be empty — no lines, fee, balance,
+ * notes or correction — and not finished; it keeps its creation time and moves to the next revision. Answers the
+ * revision to finish at.
+ */
+export async function writeEmptyDraft(propertyId: string, month: string, reference: string, reportDate: string): Promise<{ kind: 'saved'; revision: number } | { kind: 'not-empty' } | { kind: 'failed' }> {
+  const db = getAdminDb();
+  const ref = db.collection(MONTHLY_REPORT_DRAFTS_COLLECTION).doc(draftId(propertyId, month));
+  try {
+    return await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      const stored = snap.exists ? readStatementDraft(snap.id, snap.data() ?? {}) : null;
+      if (snap.exists && stored === null) return { kind: 'failed' as const };
+      if (stored && (stored.finishedAs !== null || stored.lines.length > 0 || stored.fee !== null || stored.carried !== null || (stored.notes ?? '') !== '' || stored.supersedes !== null)) return { kind: 'not-empty' as const };
+      const now = new Date().toISOString();
+      const next: StatementDraft = {
+        schemaVersion: MONTHLY_REPORT_DRAFT_SCHEMA_VERSION,
+        propertyId,
+        month,
+        reference,
+        reportDate,
+        lines: [],
+        fee: null,
+        carried: null,
+        notes: null,
+        supersedes: null,
+        revision: (stored?.revision ?? 0) + 1,
+        createdAt: stored?.createdAt ?? now,
+        updatedAt: now,
+        finishedAs: null,
+        finishedRevision: null,
+      };
+      if (stored) tx.set(ref, next);
+      else tx.create(ref, next);
+      return { kind: 'saved' as const, revision: next.revision };
+    });
+  } catch (err) {
+    console.error(`[reports] empty draft ${ref.id} not written: grpc code ${grpcCode(err)}`);
     return { kind: 'failed' };
   }
 }

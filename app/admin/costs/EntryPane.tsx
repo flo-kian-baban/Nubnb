@@ -71,8 +71,9 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { AlertTriangle, Ban, Check, CircleMinus, Eye, Plus, Trash2, X } from "lucide-react";
 import { NoticeBanner, useNotice, type Notice } from "../components/Notice";
-import { currentReports, displayRef, monthLabel, monthOfDay, type MonthlyReportView } from "@/app/lib/reports/model";
+import { currentReports, displayRef, monthLabel, type MonthlyReportView } from "@/app/lib/reports/model";
 import type { PropertyStatements } from "@/app/lib/reports-client";
+import { statementMonthFor } from "@/app/lib/reports/statement";
 import { changeEntryLine, changeEntryTax, deleteEntry, markEntrySeen, setEntryStatus, type CostResult, type EntryChange } from "@/app/lib/costs-client";
 import {
   ENTRY_STATUS_LABELS,
@@ -88,9 +89,9 @@ import {
 import { distributionText, splitText, type CleanerPattern } from "@/app/lib/costs/patterns";
 import {
   cleanerLabel,
+  entryMonth,
   longDay,
   propertyLabel,
-  sentDay,
   shortDay,
   torontoDayOf,
   type EntryPdfState,
@@ -832,8 +833,8 @@ function StatementLinks({ entry, statements }: { entry: CostEntryView; statement
   const page = propertyId === null ? null : `/admin/property?id=${encodeURIComponent(propertyId)}`;
   /** The property's page on a month: where that month's statement is written and previewed (dispatch 23F). */
   const editor = (month: string) => `/admin/property?id=${encodeURIComponent(propertyId ?? "")}&month=${month}`;
-  const day = sentDay(entry.createdAt);
-  const month = day === null ? null : monthOfDay(day);
+  // The month it belongs to (dispatch 36): an office cost's chosen month, else the month of the day it was sent.
+  const month = entryMonth(entry);
 
   let statement: ReactNode;
   if (propertyId === null) {
@@ -869,11 +870,13 @@ function StatementLinks({ entry, statements }: { entry: CostEntryView; statement
         </>
       );
     } else if (entry.status === "approved") {
-      statement = month ? (
+      // Its month's statement, or the next open one's once that is finished (Kian's ruling of 2026-10-12).
+      const goesOn = month ? statementMonthFor(month, new Set(currentReports(reports).map((r) => r.month))) : null;
+      statement = month && goesOn ? (
         <>
-          Not yet in a finished statement: it belongs to {monthLabel(month)}’s, or to a later one as a late entry.{" "}
-          <Link href={editor(month)} prefetch={false} className={styles.linkButton}>
-            Open {monthLabel(month)}’s statement
+          Not yet in a finished statement: {goesOn === month ? `it belongs to ${monthLabel(month)}’s.` : `it belongs to ${monthLabel(month)}, which is finished, so it goes on ${monthLabel(goesOn)}’s.`}{" "}
+          <Link href={editor(goesOn)} prefetch={false} className={styles.linkButton}>
+            Open {monthLabel(goesOn)}’s statement
           </Link>
         </>
       ) : (

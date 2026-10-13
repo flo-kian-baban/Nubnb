@@ -32,7 +32,7 @@
  */
 
 import { formatCents, type CostEntryView } from '@/app/lib/cleaners/model';
-import { entryRef, sentDay } from '@/app/lib/costs/report';
+import { entryMonth, entryRef, officeWhen, sentDay } from '@/app/lib/costs/report';
 import {
   INCOME_SOURCE_LABELS,
   addMonths,
@@ -44,7 +44,6 @@ import {
   lastClosedMonth,
   monthLabel,
   monthOfDay,
-  monthRange,
   monthWordStyles,
   monthsBetween,
   rangeText,
@@ -184,12 +183,17 @@ function costRow(entry: CostEntryView, group: StatementCost['group'], amountCent
   const day = sentDay(entry.createdAt);
   if (entry.linesNow.kind !== 'ok' || day === null || entry.history === null) return null;
   const left = amountCents !== null && amountCents !== entry.linesNow.totalCents;
+  // An office cost prints the month it belongs to, with the day it was logged in brackets: "ref 1a2b3c · Sep 2026
+  // (logged Oct 12)" (Kian's ruling of 2026-10-12); its row keeps that month. Any other entry is named by its day.
+  const office = officeWhen(entry);
+  const belongs = entryMonth(entry);
+  const month = office !== null && belongs !== null ? { month: belongs } : {};
   return {
     entryId: entry.id,
     ref: entryRef(entry.id),
     day,
     kind: entry.kind,
-    description: costLineName(entry.id, day),
+    description: office !== null ? `ref ${entryRef(entry.id)} · ${office}` : costLineName(entry.id, day),
     itemsCents: left ? (amountCents as number) : entry.linesNow.itemsCents,
     taxCents: left ? null : entry.linesNow.taxCents,
     totalCents: left ? (amountCents as number) : entry.linesNow.totalCents,
@@ -197,6 +201,7 @@ function costRow(entry: CostEntryView, group: StatementCost['group'], amountCent
     historyLength: entry.history.length,
     receiptSha256: entry.receipts?.[0]?.sha256 ?? null,
     group,
+    ...month,
   };
 }
 
@@ -307,6 +312,14 @@ export function nextOpenMonth(latestMonth: string, finishedMonths: ReadonlySet<s
   return month;
 }
 
+/**
+ * The statement something belonging to `month` goes on (Kian's ruling of 2026-10-12, dispatch 36): that month's,
+ * or, when it is already finished, the next month's — the next open one.
+ */
+export function statementMonthFor(month: string, finishedMonths: ReadonlySet<string>): string {
+  return finishedMonths.has(month) ? nextOpenMonth(month, finishedMonths) : month;
+}
+
 /** The current statement of a month, if any: the latest finished of the current ones. */
 function currentOf(current: MonthlyReportView[], month: string): MonthlyReportView | null {
   return current.filter((report) => report.month === month).sort((a, b) => b.finishedAt.localeCompare(a.finishedAt))[0] ?? null;
@@ -391,7 +404,6 @@ export function uncarriedDebts(reports: MonthlyReportView[], month: string): Unc
  */
 export function buildStatement(input: StatementInputs): StatementBuild {
   const { propertyId, month, draft, management } = input;
-  const range = monthRange(month);
   const { from: firstMonth } = statementMonths(management);
   const mine = input.entries.filter((entry) => entry.property.id === propertyId);
   const supersedingId = draft?.supersedes?.reportId ?? null;
@@ -407,15 +419,18 @@ export function buildStatement(input: StatementInputs): StatementBuild {
     // An entry another current statement charged only through adjustments is the redone month's to print, whatever it is now (dispatch 35).
     const charge = listed.has(entry.id) ? undefined : charges.get(entry.id);
     if (entry.status !== 'approved' && !charge) continue;
-    const day = sentDay(entry.createdAt);
-    if (day === null) continue;
-    const inMonth = day >= range.from && day <= range.to;
-    const earlier = day < range.from && monthOfDay(day) >= firstMonth;
+    // The month it belongs to (dispatch 36): an office cost's chosen month, else the month of the day it was sent.
+    const belongs = entryMonth(entry);
+    if (belongs === null) continue;
+    const inMonth = belongs === month;
+    const earlier = belongs < month && belongs >= firstMonth;
     if (!inMonth && !earlier) continue;
     if (listed.has(entry.id)) {
       if (inMonth) reportedElsewhere.push(entry.id);
       continue;
     }
+    // An earlier month's cost goes on its own month's statement, or, once that is finished, on the next one (Kian's ruling of 2026-10-12).
+    if (earlier && statementMonthFor(belongs, finishedMonths) !== month) continue;
     // What is left after the later statements' adjustments: what the latest of them printed it as, less what they charged.
     const left = charge ? charge.latest.printedCents - charge.cents : null;
     if (left === 0) continue;
@@ -491,7 +506,7 @@ export function buildStatement(input: StatementInputs): StatementBuild {
       carried,
       carriedAdjustments,
       ...sums,
-      pendingLeftOut: mine.filter((entry) => entry.status === 'pending' && (sentDay(entry.createdAt) ?? '') >= range.from && (sentDay(entry.createdAt) ?? '') <= range.to).length,
+      pendingLeftOut: mine.filter((entry) => entry.status === 'pending' && entryMonth(entry) === month).length,
       notes: draft?.notes ?? null,
       supersedes,
       heading: true,
@@ -640,7 +655,9 @@ export function printedLines(statement: Pick<Statement, 'lines' | 'costs' | 'adj
     rows.push({ key: `cost-${row.entryId}`, kind: 'cost', description: `Expense - ${row.description}`, quantity: 1, rateCents: -row.totalCents, amountCents: -row.totalCents, entryId: row.entryId });
   }
   for (const row of statement.costs.filter((cost) => cost.group === 'earlier')) {
-    rows.push({ key: `cost-${row.entryId}`, kind: 'earlier', description: `Expense - ${row.description} (from ${monthLabel(monthOfDay(row.day))})`, quantity: 1, rateCents: -row.totalCents, amountCents: -row.totalCents, entryId: row.entryId });
+    // An earlier month's cost says the month it came from; an office cost's row already prints it (dispatch 36).
+    const from = row.kind === 'office' && row.month ? '' : ` (from ${monthLabel(monthOfDay(row.day))})`;
+    rows.push({ key: `cost-${row.entryId}`, kind: 'earlier', description: `Expense - ${row.description}${from}`, quantity: 1, rateCents: -row.totalCents, amountCents: -row.totalCents, entryId: row.entryId });
   }
   for (const row of statement.adjustments) {
     const what = row.description?.trim() ? row.description : `entry ${row.entryId.slice(0, 6)}`;
@@ -840,8 +857,9 @@ export function moneyMonthsByProperty(drafts: { propertyId: string; month: strin
   for (const draft of drafts) if (draft.lines.length > 0) add(draft.propertyId, draft.month);
   for (const entry of entries) {
     if (entry.status !== 'approved' || entry.property.id === null) continue;
-    const day = sentDay(entry.createdAt);
-    if (day !== null) add(entry.property.id, monthOfDay(day));
+    // The month it belongs to (dispatch 36): an office cost's chosen month, else the month it was sent.
+    const belongs = entryMonth(entry);
+    if (belongs !== null) add(entry.property.id, belongs);
   }
   return new Map([...months].map(([propertyId, set]) => [propertyId, [...set].sort()]));
 }
@@ -1094,7 +1112,6 @@ export function looseEnds(
   management: PropertyManagementView[],
   nameOf: (propertyId: string) => string,
 ): LooseEnds {
-  const range = monthRange(month);
   const byProperty = new Map<string, CostEntryView[]>();
   for (const entry of entries) {
     if (entry.property.id === null) continue;
@@ -1106,14 +1123,14 @@ export function looseEnds(
   for (const [propertyId, list] of byProperty) {
     // An excluded property owes no statement, so nothing of it is a loose end of one.
     if (isExcludedFromReporting(records.get(propertyId))) continue;
-    const pending = list.filter((entry) => entry.status === 'pending' && (sentDay(entry.createdAt) ?? '') >= range.from && (sentDay(entry.createdAt) ?? '') <= range.to).length;
+    const pending = list.filter((entry) => entry.status === 'pending' && entryMonth(entry) === month).length;
     if (pending > 0) out.pending.push({ propertyId, propertyName: nameOf(propertyId), count: pending });
     const mine = current.filter((report) => report.propertyId === propertyId);
     const listed = new Set(mine.flatMap((report) => report.entryIds));
     const { from: firstMonth } = statementMonths(records.get(propertyId) ?? null);
     const late = list.filter((entry) => {
-      const day = sentDay(entry.createdAt);
-      return entry.status === 'approved' && day !== null && day <= range.to && monthOfDay(day) >= firstMonth && !listed.has(entry.id);
+      const belongs = entryMonth(entry);
+      return entry.status === 'approved' && belongs !== null && belongs <= month && belongs >= firstMonth && !listed.has(entry.id);
     }).length;
     if (late > 0) out.late.push({ propertyId, propertyName: nameOf(propertyId), count: late });
     const byId = new Map(list.map((entry) => [entry.id, entry]));

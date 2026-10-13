@@ -420,3 +420,21 @@ no checkout. Do not build toward one unless asked.
 - **A redone month prints what it first charged; any change after the
   later statement goes to the next month.** Kian's confirmation of
   2026-10-12.
+
+## Office costs, empty months and Airbnb titles — Kian's rulings of 2026-10-12 (dispatch 36)
+
+- **An office cost belongs to a month the admin picks, defaulting to the
+  month on screen. A cost for a month already finished goes on the next
+  statement, and the notice names it.**
+- **Empty months can be finished together from the Statements panel.**
+  Each property still gets its own statement, PDF and reference, the
+  reference suggested from its last one. It refuses while any Airbnb title
+  in that month's file is neither linked nor set aside.
+- **An Airbnb title can be marked "not a Nubnb property".** It stays listed
+  and marked, leaves the gaps count, and its lines are rejected. This
+  amends "never dropped" and "stays unlinked until an admin links it".
+- **An empty month finishes without needing a note on the owner's PDF.**
+- **An office cost prints the month it belongs to, with the day it was
+  logged in brackets: "Sep 2026 (logged Oct 12)".**
+- **The ledger's Excel and PDF exports place costs by the same month rule
+  as statements.**

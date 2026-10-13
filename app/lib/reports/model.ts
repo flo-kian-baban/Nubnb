@@ -460,6 +460,8 @@ export interface StatementCost {
   receiptSha256: string | null;
   /** Sent in the statement's month, or an earlier month and not previously reported. */
   group: 'month' | 'earlier';
+  /** An office cost's month, on rows written since dispatch 36: the month it belongs to, which its description prints. */
+  month?: string;
 }
 
 /** An entry an earlier statement printed that has since changed or left the ledger. */
@@ -770,7 +772,12 @@ function readCost(value: unknown): StatementCost | null {
   if (!isText(entryId) || !isText(ref) || !isDayText(day) || !isText(kind) || !isText(description)) return null;
   if (!isCents(itemsCents) || !(taxCents === null || isCents(taxCents)) || !isCents(totalCents) || typeof corrected !== 'boolean') return null;
   if (!isCents(historyLength) || !isTextOrNull(receiptSha256) || (group !== 'month' && group !== 'earlier')) return null;
-  return { entryId, ref, day, kind, description, itemsCents, taxCents, totalCents, corrected, historyLength, receiptSha256, group };
+  const row: StatementCost = { entryId, ref, day, kind, description, itemsCents, taxCents, totalCents, corrected, historyLength, receiptSha256, group };
+  if ('month' in value) {
+    if (!isMonth(value.month)) return null;
+    row.month = value.month;
+  }
+  return row;
 }
 
 function readAdjustment(value: unknown): StatementAdjustment | null {

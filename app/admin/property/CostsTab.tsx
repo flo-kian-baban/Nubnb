@@ -13,9 +13,10 @@
  * entries, newest first: when sent, who logged it, what was bought, the
  * total. Each is marked when it has changed since the newest cost PDF for
  * its day, and, once the month's statement is finished, when it no longer
- * adds up to what the statement printed. Under them, what else the
- * statement carries: entries of earlier months not reported before, and
- * adjustments to earlier statements.
+ * adds up to what the statement printed, or when the statement does not
+ * print it: then the mark names the statement it goes on (dispatch 36).
+ * Under them, what else the statement carries: entries of earlier months not
+ * reported before, and adjustments to earlier statements.
  *
  * Clicking an entry opens it here, in place of the list: the costs page's
  * pane, with its receipt, its lines, its corrections and its history
@@ -32,12 +33,12 @@ import type { Notice } from "../components/Notice";
 import { useAsk } from "../components/AskDialog";
 import { recordPdfExport } from "@/app/lib/costs-client";
 import { formatCents, type CostEntryView, type ReportExportView } from "@/app/lib/cleaners/model";
-import { buildReport, cleanerLabel, deletedSincePdf, entryPdfState, periodLabel, readPdfRecords, reportFileName, sentDay, shortDay, type EntryPdfState } from "@/app/lib/costs/report";
+import { buildReport, cleanerLabel, deletedSincePdf, entryMonth, entryPdfState, officeWhen, periodLabel, readPdfRecords, reportFileName, sentDay, shortDay, type EntryPdfState } from "@/app/lib/costs/report";
 import { watchList } from "@/app/lib/costs/patterns";
 import { pdfFor } from "@/app/lib/costs/pdf";
 import { workbookFor } from "@/app/lib/costs/xlsx";
-import { monthLabel, monthRange, type MonthlyReportView } from "@/app/lib/reports/model";
-import { printedLines, type AnyStatement } from "@/app/lib/reports/statement";
+import { currentReports, monthLabel, monthRange, type MonthlyReportView } from "@/app/lib/reports/model";
+import { printedLines, statementMonthFor, type AnyStatement } from "@/app/lib/reports/statement";
 import { EntryPane, type PropertyStatementsState } from "../costs/EntryPane";
 import { KindBadge, whenText } from "../costs/cost-display";
 import { AddCostForm } from "./AddCostForm";
@@ -76,10 +77,8 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
   /** Questions in Nubnb's own dialog (Kian's ruling of 2026-10-12: no native browser dialogs in the admin). */
   const { ask, dialog } = useAsk();
   const range = monthRange(month);
-  const inMonth = (entry: CostEntryView) => {
-    const day = sentDay(entry.createdAt);
-    return day !== null && day >= range.from && day <= range.to;
-  };
+  /** The month's entries: an office cost by the month it was logged for (dispatch 36), any other by the day it was sent. */
+  const inMonth = (entry: CostEntryView) => entryMonth(entry) === month;
   const mine = entries.filter((entry) => entry.property.id === propertyId);
   /** The month's approved entries, newest first. */
   const approved = mine.filter((entry) => entry.status === "approved" && inMonth(entry)).sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "") || a.id.localeCompare(b.id));
@@ -97,6 +96,16 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
     () => deletedSincePdf(pdfRecords, entries, propertyId).filter(({ record }) => record.from <= range.to && record.to >= range.from),
     [pdfRecords, entries, propertyId, range.from, range.to],
   );
+  /**
+   * Where an approved entry of the month goes when the month's finished statement does not print it (dispatch 36,
+   * Kian's ruling of 2026-10-12): the statement that printed it since, or else the next open month's.
+   */
+  const elsewhere = useMemo(() => {
+    if (!finishedReport || statements.kind !== "ready") return null;
+    const current = currentReports(statements.data.reports);
+    const next = statementMonthFor(month, new Set(current.map((report) => report.month)));
+    return (entryId: string) => current.find((report) => report.month !== month && report.entryIds.includes(entryId))?.month ?? next;
+  }, [finishedReport, statements, month]);
   /** What the finished statement printed for each entry it carried, so a later change shows. */
   const printed = useMemo(() => (finishedReport ? new Map(finishedReport.costs.map((cost) => [cost.entryId, cost.totalCents])) : null), [finishedReport]);
   /** What else the statement carries: earlier-month entries and adjustments, as it prints them. */
@@ -218,7 +227,7 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
         </span>
       </div>
 
-      {adding && <AddCostForm propertyId={propertyId} onAdded={onEntryAdded} onClose={() => setAdding(false)} show={show} />}
+      {adding && <AddCostForm propertyId={propertyId} month={month} today={today} onAdded={onEntryAdded} onClose={() => setAdding(false)} show={show} />}
 
       {pending > 0 && (
         <p className={styles.noteWarn} role="status">
@@ -255,7 +264,7 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
               const wasPrinted = printed?.get(entry.id);
               return (
                 <tr key={entry.id} className={styles.rowClick} onClick={() => onOpenEntry(entry.id)}>
-                  {/* The cost is named by the day it was submitted (Kian, 2026-10-01): what was bought is in the entry it opens. */}
+                  {/* The cost is named by the day it was submitted (Kian, 2026-10-01), an office cost by its month and the day it was logged (Kian's ruling of 2026-10-12): what was bought is in the entry it opens. */}
                   <td className={styles.costWhen}>
                     <button
                       type="button"
@@ -265,7 +274,7 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
                         onOpenEntry(entry.id);
                       }}
                     >
-                      {day ? shortDay(day) : "—"}
+                      {officeWhen(entry) ?? (day ? shortDay(day) : "—")}
                     </button>
                   </td>
                   <td>
@@ -279,6 +288,11 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
                           {now.corrected ? "✎ " : ""}
                           {formatCents(now.totalCents)}
                         </span>
+                        {printed !== null && wasPrinted === undefined && elsewhere !== null && (
+                          <span className={styles.costMark} title={`${monthLabel(month)}'s statement was finished without it: it goes on ${monthLabel(elsewhere(entry.id))}'s.`}>
+                            on {monthLabel(elsewhere(entry.id))}’s statement
+                          </span>
+                        )}
                         {wasPrinted !== undefined && wasPrinted !== now.totalCents && (
                           <span className={`${styles.costMark} ${styles.costMarkWarn}`} title={`The finished statement printed this entry at ${formatCents(wasPrinted)}.`}>
                             statement says {formatCents(wasPrinted)}

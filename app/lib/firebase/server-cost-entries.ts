@@ -104,7 +104,7 @@ import { getAdminBucket, getAdminDb } from './admin';
 import { createdMonthOf } from './created-month';
 import { isDocumentId } from './server-leads';
 import type { ReadingAttachment } from '@/app/lib/cleaners/readings';
-import { inRange, sentDay } from '@/app/lib/costs/report';
+import { byLedgerDay, inRange, ledgerDay } from '@/app/lib/costs/report';
 import { MONTHLY_REPORTS_COLLECTION } from '@/app/lib/reports/model';
 import {
   ADMIN_ACTOR,
@@ -347,6 +347,12 @@ export const OfficeInputSchema = z.strictObject({
     .transform(toCents)
     .pipe(z.number().positive('The amount must be more than $0.00').max(LIMITS.LINE_TOTAL_MAX_CENTS, 'At most $999,999.99')),
   tax: TaxInputSchema,
+  /**
+   * The month the cost belongs to (dispatch 36, Kian's ruling of 2026-10-12: a month the admin picks, the page
+   * offering the month on screen). From September 2026, the first statement month, to the current one: the route
+   * checks the upper bound against Toronto's today.
+   */
+  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'A month, like 2026-09').refine((m) => m >= '2026-09', 'Statements begin with September 2026'),
 });
 
 export type OfficeInput = z.output<typeof OfficeInputSchema>;
@@ -907,6 +913,8 @@ export async function createOfficeEntry(input: NewOfficeEntry): Promise<CostEntr
     statusReason: null,
     history: [submitted, approved],
     autoApproved: null,
+    // The month it belongs to (dispatch 36): its statement is that month's, or the next open one's once that is finished.
+    month: office.month,
   };
   await ref.create(document);
   return viewOne(ref.id, document);
@@ -1015,6 +1023,7 @@ function toView(
     taxShape: entry.taxShape,
     kind: entry.kind,
     autoApproved: entry.autoApproved,
+    month: entry.month,
   };
 }
 
@@ -1636,10 +1645,9 @@ export async function recordReportExport(claim: ReportClaim): Promise<ReportReco
       const all = snapshot.docs.map((doc) => readCostEntryFields(doc.id, doc.data())).sort(newestFirst);
       if (all.length === 0 && !property.exists) return { kind: 'no-such-property' } as const;
 
-      // The report as buildReport (costs/report.ts) makes it: approved, sent in the period, oldest first.
-      const approved = all
-        .filter((entry) => entry.status === 'approved' && inRange(sentDay(entry.createdAt), claim.from, claim.to))
-        .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '') || a.id.localeCompare(b.id));
+      // The report as buildReport (costs/report.ts) makes it: approved, placed in the period by the month rule
+      // statements use (Kian's ruling of 2026-10-12, `ledgerDay`), oldest first.
+      const approved = all.filter((entry) => entry.status === 'approved' && inRange(ledgerDay(entry), claim.from, claim.to)).sort(byLedgerDay);
 
       const seen = new Map(claim.entries.map((entry) => [entry.id, entry.seen]));
       const asThePageSawIt =

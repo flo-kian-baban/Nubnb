@@ -92,6 +92,63 @@ export function sentDay(iso: string | null): string | null {
   return Number.isFinite(time) ? torontoDayOf(new Date(time)) : null;
 }
 
+/**
+ * The month an entry belongs to, yyyy-mm: the month an office cost was logged for (dispatch 36, Kian's ruling of
+ * 2026-10-12), else the month of the Toronto day it was sent. null when neither can be read. Statements, the
+ * owed-months rule and the loose ends place an entry by this; the ledger and its exports by `ledgerDay`, which
+ * follows it.
+ */
+export function entryMonth(entry: { createdAt: string | null; month?: string | null }): string | null {
+  if (entry.month) return entry.month;
+  const day = sentDay(entry.createdAt);
+  return day === null ? null : day.slice(0, 7);
+}
+
+/** The last day of a month, yyyy-mm-dd. */
+function lastDayOf(month: string): string {
+  const [y, m] = month.split('-').map(Number);
+  return `${month}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0')}`;
+}
+
+/**
+ * The day the ledger places an entry on (Kian's ruling of 2026-10-12: the ledger's Excel and PDF exports place
+ * costs by the same month rule as statements): the day it was sent, or, for an office cost logged for an earlier
+ * month, that month's last day. A month's ledger then holds what its statement holds, and any two periods that
+ * meet still hold each entry once. null when the sent day cannot be read.
+ */
+export function ledgerDay(entry: { createdAt: string | null; month?: string | null }): string | null {
+  const day = sentDay(entry.createdAt);
+  if (day === null) return null;
+  const month = entryMonth(entry);
+  if (month === null || month === day.slice(0, 7)) return day;
+  // A month after the one it was sent in is refused when it is logged; were one stored, its first day.
+  return month < day.slice(0, 7) ? lastDayOf(month) : `${month}-01`;
+}
+
+/**
+ * How an office cost is dated wherever it prints (Kian's ruling of 2026-10-12): the month it belongs to, the day it
+ * was logged in brackets — "Sep 2026" and "(logged Oct 12)", the day's year added when it is not the month's. null
+ * for any other kind of entry, which is dated by the day it was sent, and when the day cannot be read.
+ */
+export function officeDate(entry: { kind?: string; createdAt: string | null; month?: string | null }): { month: string; logged: string } | null {
+  if (entry.kind !== 'office') return null;
+  const day = sentDay(entry.createdAt);
+  const month = entryMonth(entry);
+  if (day === null || month === null) return null;
+  const [dy, dm, dd] = day.split('-');
+  const [my, mm] = month.split('-');
+  return {
+    month: `${MONTHS_SHORT[Number(mm) - 1]} ${my}`,
+    logged: `(logged ${MONTHS_SHORT[Number(dm) - 1]} ${Number(dd)}${dy === my ? '' : `, ${dy}`})`,
+  };
+}
+
+/** "Sep 2026 (logged Oct 12)": an office cost's date on one line; null for any other entry. */
+export function officeWhen(entry: { kind?: string; createdAt: string | null; month?: string | null }): string | null {
+  const date = officeDate(entry);
+  return date === null ? null : `${date.month} ${date.logged}`;
+}
+
 /** A real calendar day written yyyy-mm-dd: 2026-02-30 is not one. */
 export function isDay(value: string): boolean {
   const match = DAY.exec(value);
@@ -226,7 +283,7 @@ export function matchesFilters(entry: CostEntryView, filters: CostFilters): bool
   return (
     (filters.propertyId === '' || entry.property.id === filters.propertyId) &&
     matchesStatus(entry, filters.status) &&
-    inRange(sentDay(entry.createdAt), filters.from, filters.to) &&
+    inRange(ledgerDay(entry), filters.from, filters.to) &&
     (filters.kind === '' || entry.kind === filters.kind) &&
     (filters.cleanerId === '' || entry.cleaner.id === filters.cleanerId)
   );
@@ -372,6 +429,10 @@ export interface ReportEntry {
   ref: string;
   /** The Toronto day it was sent. */
   day: string;
+  /** The day the ledger places it on (`ledgerDay`): the day sent, or an office cost's month's last day (dispatch 36). */
+  placed: string;
+  /** An office cost's date as it prints, "Sep 2026" and "(logged Oct 12)" (Kian's ruling of 2026-10-12); null for any other entry. */
+  office: { month: string; logged: string } | null;
   /** Who logged it: the cleaner, the handyman, or "Nubnb office". */
   cleaner: string;
   /** `receipt`, `work` (dispatch 24) or `office` (dispatch 23D). */
@@ -415,6 +476,11 @@ export type ReportBuild =
   /** Approved entries in the period whose lines or date cannot be read. No report is made. */
   | { kind: 'unreadable'; entryIds: string[] };
 
+/** Oldest first by the day the ledger places them on, then by when they were sent: the order a report lists entries in. */
+export function byLedgerDay(a: { createdAt: string | null; month?: string | null; id: string }, b: { createdAt: string | null; month?: string | null; id: string }): number {
+  return (ledgerDay(a) ?? '').localeCompare(ledgerDay(b) ?? '') || (a.createdAt ?? '').localeCompare(b.createdAt ?? '') || a.id.localeCompare(b.id);
+}
+
 /**
  * One property's report for one period: its approved entries, oldest first,
  * and their total. An open start is the property's first entry; an open end
@@ -430,10 +496,9 @@ export function buildReport(
   knownName: string | null = null,
 ): ReportBuild {
   const forProperty = all.filter((entry) => entry.property.id === propertyId);
-  const inPeriod = forProperty.filter((entry) => inRange(sentDay(entry.createdAt), from, to));
-  const approved = inPeriod
-    .filter((entry) => entry.status === 'approved')
-    .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '') || a.id.localeCompare(b.id));
+  // Placed by the month rule statements use (Kian's ruling of 2026-10-12): an office cost by the month it belongs to.
+  const inPeriod = forProperty.filter((entry) => inRange(ledgerDay(entry), from, to));
+  const approved = inPeriod.filter((entry) => entry.status === 'approved').sort(byLedgerDay);
 
   const unreadable = approved
     .filter((entry) => entry.linesNow.kind !== 'ok' || sentDay(entry.createdAt) === null)
@@ -443,11 +508,14 @@ export function buildReport(
   const entries: ReportEntry[] = [];
   for (const entry of approved) {
     const day = sentDay(entry.createdAt);
-    if (entry.linesNow.kind !== 'ok' || day === null) continue; // refused above
+    const placed = ledgerDay(entry);
+    if (entry.linesNow.kind !== 'ok' || day === null || placed === null) continue; // refused above
     entries.push({
       id: entry.id,
       ref: entryRef(entry.id),
       day,
+      placed,
+      office: officeDate(entry),
       cleaner: cleanerLabel(entry),
       kind: entry.kind,
       lines: entry.linesNow.lines,
@@ -461,21 +529,21 @@ export function buildReport(
 
   const today = torontoDayOf(now);
   const firstDay = forProperty
-    .map((entry) => sentDay(entry.createdAt))
+    .map((entry) => ledgerDay(entry))
     .filter((day): day is string => day !== null)
     .sort()[0];
   // An open end is today, but never a day before the last entry in the
   // report: on a computer whose clock is behind, "today" would otherwise end
   // the period before its own entries, and a PDF's period is what the server
   // checks its entries against when it records it.
-  const lastDay = entries[entries.length - 1]?.day;
+  const lastDay = entries[entries.length - 1]?.placed;
 
   return {
     kind: 'ok',
     report: {
       propertyId,
       propertyName: forProperty[0] ? propertyLabel(forProperty[0]) : (knownName ?? 'Unknown property'),
-      from: from || entries[0]?.day || firstDay || today,
+      from: from || entries[0]?.placed || firstDay || today,
       to: to || (lastDay !== undefined && lastDay > today ? lastDay : today),
       entries,
       itemsCents: entries.reduce((sum, entry) => sum + entry.itemsCents, 0),
@@ -665,11 +733,9 @@ export function comparePdf(record: PdfRecord, all: CostEntryView[]): PdfComparis
     (entry) =>
       entry.property.id === record.propertyId &&
       entry.status === 'approved' &&
-      inRange(sentDay(entry.createdAt), record.from, record.to),
+      inRange(ledgerDay(entry), record.from, record.to),
   );
-  const added = now
-    .filter((entry) => !listed.has(entry.id))
-    .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '') || a.id.localeCompare(b.id));
+  const added = now.filter((entry) => !listed.has(entry.id)).sort(byLedgerDay);
 
   const amountsMatch = added.length === 0 && changes.every((change) => change.since.kind === 'corrected');
   return {
@@ -740,7 +806,7 @@ export function entryPdfState(entry: CostEntryView, records: PdfRecord[]): Entry
   }
   if (appearances.length === 0) return null;
 
-  const day = sentDay(entry.createdAt);
+  const day = ledgerDay(entry);
   const covering =
     day === null
       ? appearances[0].record

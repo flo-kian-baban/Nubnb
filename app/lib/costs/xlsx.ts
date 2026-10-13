@@ -15,7 +15,8 @@
  *             row per entry that keeps its tax apart; then the total
  *
  * Dates are real Excel dates and amounts real numbers, so both sort and add
- * up in Excel. The totals are written as values worked out in whole cents,
+ * up in Excel; an office cost's date is text, the month it belongs to and the
+ * day it was logged (dispatch 36). The totals are written as values worked out in whole cents,
  * not as formulas, so the file says exactly what the page and the PDF say.
  *
  * Client-safe, and pure: a report in, bytes out.
@@ -35,6 +36,11 @@ function lineNote(line: LineNow): string {
 function taxCell(entry: CostReport['entries'][number]): Cell {
   if (entry.taxShape === 'in-lines') return text('in items');
   return entry.taxCents === null ? text('none') : money(entry.taxCents);
+}
+
+/** An entry's date cell: the day it was sent, a real date; an office cost's month and the day it was logged, "Sep 2026 (logged Oct 12)" (Kian's ruling of 2026-10-12). */
+function when(entry: CostReport['entries'][number]): Cell {
+  return entry.office === null ? day(entry.day) : text(`${entry.office.month} ${entry.office.logged}`);
 }
 
 function quantity(value: LineNow['quantity']): Cell {
@@ -60,7 +66,7 @@ export function workbookFor(report: CostReport): Uint8Array<ArrayBuffer> {
     ...(report.entries.length === 0
       ? [[text('No approved costs in this period.')]]
       : report.entries.map((entry) => [
-          day(entry.day),
+          when(entry),
           text(entry.ref),
           text(entry.id),
           text(isEntryKind(entry.kind) ? ENTRY_KIND_LABELS[entry.kind] : entry.kind),
@@ -96,7 +102,7 @@ export function workbookFor(report: CostReport): Uint8Array<ArrayBuffer> {
     ),
     ...report.entries.flatMap((entry) => [
       ...entry.lines.map((line) => [
-        day(entry.day),
+        when(entry),
         text(entry.ref),
         text(line.name ?? ''),
         quantity(line.quantity),
@@ -105,7 +111,7 @@ export function workbookFor(report: CostReport): Uint8Array<ArrayBuffer> {
       ]),
       // The entry's tax, apart from its items (dispatch 21), so the sheet's rows add up to the total.
       ...(entry.taxShape === 'field' && entry.taxCents !== null
-        ? [[day(entry.day), text(entry.ref), text('Tax'), null, money(entry.taxCents), text('Tax')]]
+        ? [[when(entry), text(entry.ref), text('Tax'), null, money(entry.taxCents), text('Tax')]]
         : []),
     ]),
     [text('Total', true), null, null, null, money(report.totalCents, true)],

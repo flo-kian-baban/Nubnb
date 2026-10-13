@@ -7,6 +7,9 @@
  *   - properties with a check-in in the month on their calendar and no line
  *     for the month, in their statement or proposed;
  *   - linked titles missing from the month's file.
+ * A title set aside as "not a Nubnb property" (dispatch 36, Kian's ruling of
+ * 2026-10-12) stays in the titles, marked; it is in none of the gaps, and
+ * proposes nothing for review.
  *
  * The Income page and the property page's Income tab read the same lines:
  * a statement's lines are its draft's, and nothing is copied between them.
@@ -101,7 +104,7 @@ export function monthView(input: MonthInputs): MonthView {
   for (const line of input.lines) {
     if (line.status !== 'proposed') continue;
     const link = linkOf(input.links, line.platform, line.listingTitle);
-    if (!link) continue;
+    if (!link || link.propertyId === null) continue;
     const group = groups.get(link.propertyId) ?? { propertyId: link.propertyId, name: names.get(link.propertyId) ?? 'A deleted property', finished: statements.get(link.propertyId)?.finished ?? false, lines: [], amountCents: 0 };
     group.lines.push(line);
     group.amountCents += line.amountCents;
@@ -143,7 +146,7 @@ export function monthView(input: MonthInputs): MonthView {
   const uploadedPlatforms = new Set(input.uploads.map((u) => u.platform));
   const inFiles = new Set(input.uploads.flatMap((u) => u.titles.map((t) => `${u.platform}|${t.title}`)));
   const missing = input.links
-    .filter((link) => uploadedPlatforms.has(link.platform) && !inFiles.has(`${link.platform}|${link.title}`))
+    .filter((link): link is TitleLinkView & { propertyId: string } => link.propertyId !== null && uploadedPlatforms.has(link.platform) && !inFiles.has(`${link.platform}|${link.title}`))
     .map((link) => ({ link, name: names.get(link.propertyId) ?? null, lastSeen: input.lastSeen[link.id] ?? null }));
 
   return { titles, review, rejected, removed, accepted, byProperty, gaps: { unlinked, checkIns, missing } };

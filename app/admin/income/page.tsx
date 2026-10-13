@@ -47,9 +47,10 @@ import { amountField, readAmount } from "../costs/cost-display";
 import { formatCents } from "@/app/lib/cleaners/model";
 import { torontoDayOf } from "@/app/lib/costs/report";
 import { STATEMENTS_FROM_DEFAULT, STATEMENT_LIMITS, addMonths, dateText, isMonth, lastClosedMonth, monthLabel, monthOfDay, monthsBetween } from "@/app/lib/reports/model";
-import { INCOME_CHANNEL_LABELS, proposedLabel, shortDay, type EarningsLineView, type EarningsUploadView } from "@/app/lib/income/model";
-import { monthView, suggestedProperty, type ReviewGroup, type TitleRow } from "@/app/lib/income/month";
-import { acceptIncomeLines, decideIncomeLine, fetchIncomeMonth, fetchUploadFileLink, linkTitle, uploadIncomeFile, type IncomeMonth, type IncomeResult } from "@/app/lib/income-client";
+import { INCOME_CHANNEL_LABELS, isSetAside, linkState, proposedLabel, shortDay, type EarningsLineView, type EarningsUploadView } from "@/app/lib/income/model";
+import { linkOf, monthView, suggestedProperty, type ReviewGroup, type TitleRow } from "@/app/lib/income/month";
+import { acceptIncomeLines, decideIncomeLine, fetchIncomeMonth, fetchUploadFileLink, linkTitle, setTitleAside, uploadIncomeFile, type IncomeMonth, type IncomeResult } from "@/app/lib/income-client";
+import { useAsk } from "../components/AskDialog";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
 
@@ -101,6 +102,8 @@ function IncomePageInner() {
   const [changing, setChanging] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const { notice, show, clear } = useNotice();
+  /** Questions in Nubnb's own dialog (Kian's ruling of 2026-10-12: no native browser dialogs in the admin). */
+  const { ask, dialog } = useAsk();
 
   // ── The read: on opening, on each month, on Refresh and after an upload ──
   useEffect(() => {
@@ -243,7 +246,7 @@ function IncomePageInner() {
     if (busy || propertyId === "") return;
     clear();
     setBusy(`link:${row.title}`);
-    const result = await linkTitle({ channel: row.platform, title: row.title, propertyId, expected: row.link?.propertyId ?? null });
+    const result = await linkTitle({ channel: row.platform, title: row.title, propertyId, expected: linkState(row.link) });
     setBusy(null);
     if (!result.ok) {
       failed(result, result.status === 409);
@@ -253,6 +256,28 @@ function IncomePageInner() {
     setRead((prev) => (prev.kind === "ready" ? { kind: "ready", data: { ...prev.data, links: [...prev.data.links.filter((l) => l.id !== linked.id), linked].sort((a, b) => a.title.localeCompare(b.title)) } } : prev));
     setChanging(null);
     show({ tone: "success", title: `"${row.title}" is linked to ${names.get(propertyId) ?? "the property"}.` });
+  };
+
+  // ── Set a title aside: not a Nubnb property (dispatch 36, Kian's ruling of 2026-10-12) ──
+  const setAside = async (row: TitleRow) => {
+    if (busy) return;
+    const proposed = data ? data.lines.filter((line) => line.platform === row.platform && line.listingTitle === row.title && line.status === "proposed").length : 0;
+    const yes = await ask({
+      title: `Is “${row.title}” not a Nubnb property?`,
+      lines: [`It stays listed here, marked, and leaves the gaps.${proposed > 0 ? ` Its ${plural(proposed, "proposed line", "proposed lines")} ${proposed === 1 ? "is" : "are"} rejected, and so are its lines in later files.` : " Its lines in later files are rejected."}`, "Linking it to a property later is a link like any other."],
+      confirm: "Not a Nubnb property",
+    });
+    if (!yes) return;
+    clear();
+    setBusy(`aside:${row.title}`);
+    const result = await setTitleAside({ channel: row.platform, title: row.title, expected: linkState(row.link) });
+    setBusy(null);
+    if (!result.ok) {
+      failed(result, result.status === 409);
+      return;
+    }
+    reread();
+    show({ tone: "success", title: `"${row.title}" is set aside as not a Nubnb property.`, detail: result.data.rejected > 0 ? `${plural(result.data.rejected, "line was", "lines were")} rejected.` : undefined });
   };
 
   // ── The kept file ──
@@ -429,6 +454,9 @@ function IncomePageInner() {
                             <button type="button" className={styles.btnGhost} disabled={busy !== null || choiceFor(row) === ""} onClick={() => link(row, choiceFor(row))}>
                               {busy === `link:${row.title}` ? "Linking…" : "Link"}
                             </button>
+                            <button type="button" className={styles.btnGhost} disabled={busy !== null} onClick={() => void setAside(row)}>
+                              {busy === `aside:${row.title}` ? "Setting aside…" : "Not a Nubnb property"}
+                            </button>
                           </span>
                         </li>
                       ))}
@@ -597,9 +625,14 @@ function IncomePageInner() {
                             {view.rejected.map((line) =>
                               lineRow(
                                 line,
-                                <button type="button" className={styles.btnGhost} disabled={busy !== null || editing !== null} onClick={() => decide(line, "propose-again")}>
-                                  {busy === `propose-again:${line.id}` ? "Proposing…" : "Propose again"}
-                                </button>,
+                                // A set-aside title's lines stay rejected (Kian's ruling of 2026-10-12): linking the title comes first.
+                                isSetAside(linkOf(data.links, line.platform, line.listingTitle)) ? (
+                                  <span className={styles.muted}>Not a Nubnb property</span>
+                                ) : (
+                                  <button type="button" className={styles.btnGhost} disabled={busy !== null || editing !== null} onClick={() => decide(line, "propose-again")}>
+                                    {busy === `propose-again:${line.id}` ? "Proposing…" : "Propose again"}
+                                  </button>
+                                ),
                                 `${proposedLabel(line)} · ${line.listingTitle}`,
                               ),
                             )}
@@ -670,7 +703,8 @@ function IncomePageInner() {
                 <summary className={styles.blockHead}>
                   <h2 className={styles.blockTitle}>Titles · {view.titles.length}</h2>
                   <span className={styles.blockFigure}>
-                    {view.titles.filter((t) => t.link).length} linked · {formatCents(view.titles.reduce((sum, t) => sum + t.amountCents, 0))}
+                    {view.titles.filter((t) => t.link && !isSetAside(t.link)).length} linked
+                    {view.titles.some((t) => isSetAside(t.link)) && <> · {view.titles.filter((t) => isSetAside(t.link)).length} not a Nubnb property</>} · {formatCents(view.titles.reduce((sum, t) => sum + t.amountCents, 0))}
                   </span>
                 </summary>
                 <div className={shared.tableContainer}>
@@ -696,8 +730,10 @@ function IncomePageInner() {
                               <td className={styles.cellWhat}>
                                 {changing === key ? (
                                   <AdminSelect label={`Property for ${row.title}`} className={styles.propertySelect} value={choiceFor(row)} onChange={(value) => setChoice(row, value)} groups={propertyOptions} searchable />
+                                ) : isSetAside(row.link) ? (
+                                  <span className={styles.muted}>Not a Nubnb property</span>
                                 ) : row.link ? (
-                                  (names.get(row.link.propertyId) ?? "a deleted property")
+                                  (names.get(row.link.propertyId ?? "") ?? "a deleted property")
                                 ) : (
                                   <span className={styles.noteWarn}>Not linked</span>
                                 )}
@@ -719,7 +755,7 @@ function IncomePageInner() {
                                       className={styles.btnGhost}
                                       disabled={busy !== null}
                                       onClick={() => {
-                                        if (row.link) setChoice(row, row.link.propertyId);
+                                        if (row.link) setChoice(row, row.link.propertyId ?? "");
                                         setChanging(key);
                                       }}
                                     >
@@ -740,6 +776,7 @@ function IncomePageInner() {
           </>
         ) : null}
       </main>
+      {dialog}
     </div>
   );
 }

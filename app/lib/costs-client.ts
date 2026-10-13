@@ -219,7 +219,8 @@ export function fetchCosts(): Promise<CostResult<CostsView>> {
 
 /**
  * Add a cost from the office (dispatch 23D): a description and an amount,
- * optionally tax, as typed ("185.00"), for one property. The answer's entry
+ * optionally tax, as typed ("185.00"), for one property and the month it
+ * belongs to (dispatch 36); the answer names the statement it goes on. The answer's entry
  * is approved on creation and marked `office`. ENTRY_WRITE_FAILED means it
  * may or may not have been written: the page says so and offers Refresh
  * rather than sending it again.
@@ -229,7 +230,9 @@ export function createOfficeEntry(request: {
   description: string;
   amount: string;
   tax: string | null;
-}): Promise<CostResult<{ entry: CostEntryView }>> {
+  /** The month it belongs to (dispatch 36). */
+  month: string;
+}): Promise<CostResult<{ entry: CostEntryView; statementMonth: string | null }>> {
   return call(
     '/api/admin/cost-entries',
     {

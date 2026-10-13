@@ -23,13 +23,18 @@
  * sort past due first, then due, then open, then finished. Under the line,
  * the months other than the one shown that hold statements past due, each a
  * way to that month.
+ *
+ * For a closed month, "Finish empty" opens the list of properties whose month
+ * has nothing to report and can be finished together (dispatch 36,
+ * EmptyMonthDialog.tsx), each its own statement.
  */
 
-import { useMemo, useState, type MouseEvent } from "react";
+import { useMemo, useState, type ComponentProps, type MouseEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, Download, RefreshCw, X } from "lucide-react";
+import { CheckCheck, ChevronLeft, ChevronRight, Download, RefreshCw, X } from "lucide-react";
 import { NoticeBanner, useNotice } from "./Notice";
+import { EmptyMonthDialog } from "./EmptyMonthDialog";
 import { StandingBadge, propertyMonthHref } from "./StatementStatus";
 import { fetchStatementLink, type TrackerData } from "@/app/lib/reports-client";
 import { formatCents } from "@/app/lib/cleaners/model";
@@ -64,6 +69,7 @@ export function StatementsPanel({ data, statuses, month, today, onMonth, onClose
   const { notice, show, clear } = useNotice();
   const [linking, setLinking] = useState<string | null>(null);
   const [zipStep, setZipStep] = useState<MonthZipStep | null>(null);
+  const [emptyOpen, setEmptyOpen] = useState(false);
 
   const rows = useMemo<TrackerRow[]>(() => trackerRows({ month, today, ...data }), [data, month, today]);
   const counts = useMemo(() => trackerCounts(rows), [rows]);
@@ -119,6 +125,26 @@ export function StatementsPanel({ data, statuses, month, today, onMonth, onClose
     router.push(propertyMonthHref(propertyId, month));
   };
 
+  /** The empty statements were finished (dispatch 36): what became of each, said once, and the rows read again. */
+  const emptyFinished = (outcome: Parameters<ComponentProps<typeof EmptyMonthDialog>["onFinished"]>[0]) => {
+    setEmptyOpen(false);
+    if ("unknown" in outcome) {
+      show({ ...outcome.unknown, detail: [outcome.unknown.detail, "Some may have been finished. The rows are read again."].filter(Boolean).join(" ") });
+      onRefresh();
+      return;
+    }
+    const name = (id: string) => outcome.names.get(id) ?? "A property";
+    const finished = outcome.results.filter((r) => r.outcome === "finished");
+    const notFinished = outcome.results.filter((r): r is Extract<typeof r, { why: string }> => r.outcome !== "finished");
+    show({
+      tone: notFinished.length > 0 ? "warning" : "success",
+      title: `${finished.length === 1 ? "1 empty statement" : `${finished.length} empty statements`} finished for ${monthLabel(month)}.`,
+      detail: notFinished.length > 0 ? `${notFinished.length === 1 ? "1 was" : `${notFinished.length} were`} not:` : undefined,
+      items: notFinished.map((r) => `${name(r.propertyId)} — ${r.why}`),
+    });
+    onRefresh();
+  };
+
   const thisMonth = monthOfDay(today);
   const monthWord = month === lastClosedMonth(today) ? "last closed month" : month === thisMonth ? "current month" : month > thisMonth ? "not started yet" : "closed";
   const unreadable = data.unreadable.reports + data.unreadable.drafts;
@@ -135,6 +161,12 @@ export function StatementsPanel({ data, statuses, month, today, onMonth, onClose
         </button>
         <span className={styles.note}>{monthWord}</span>
         <div className={styles.headRight}>
+          {month < thisMonth && (
+            <button type="button" className={styles.headBtn} onClick={() => setEmptyOpen(true)} title={`Finish every property whose ${monthLabel(month)} has nothing to report, each its own statement`}>
+              <CheckCheck size={15} aria-hidden />
+              Finish empty
+            </button>
+          )}
           <button
             type="button"
             className={styles.headBtn}
@@ -155,6 +187,7 @@ export function StatementsPanel({ data, statuses, month, today, onMonth, onClose
       </div>
 
       <NoticeBanner notice={notice} onDismiss={clear} className={shared.pageNotice} />
+      {emptyOpen && <EmptyMonthDialog month={month} onClose={() => setEmptyOpen(false)} onFinished={emptyFinished} />}
 
       <p className={`${styles.line} ${counts.pastDue > 0 ? styles.linePastDue : counts.due > 0 ? styles.lineAlert : ""}`}>
         <strong>{counts.finished} of {counts.owed}</strong> statements finished

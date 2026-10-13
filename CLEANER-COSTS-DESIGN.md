@@ -2157,3 +2157,79 @@ Kian's rulings of 2026-10-12 are in `CLAUDE.md` under *Corrections*. This sectio
 - **Byte-identical**: five in-order statements (a cost and an earlier-month cost, an adjustment and a carried balance, a second adjustment, a correction redoing nothing earlier, a December preview) hash the same under `33270e3` and this code; the 40 version-3 statements of §36 still match `2793e84`.
 - **Live, on a local build** (`XtgjjWq2OyHu3d_pVt96a`, 127.0.0.1:4500, throwaway PIN, the write guard) on the Unlisted `__TEST__ d35 corrections`, with November and December reached by the address (a statement may be made for any month): October finished at −$150.00 with two $100.00 office costs; one corrected to $150.00, the other removed (Nubnb's dialog); November finished with +$50.00, −$100.00 and October's $150.00 carried; October deleted (the dialog naming November) and finished again — $100.00 and $100.00, what is left; corrected (the dialog naming November) with $80.00 revenue, closing at −$120.00; December's preview settled the carry: +$30.00. 42 writes through the guard, none refused. Cleanup: November and the correction deleted through the app; the corrected October statement, which the app cannot delete while its correction is open, and the three drafts deleted by exact ID after an export (K13); the two entries and the property through the app's dialogs. Opening and closing exports byte-identical (84 documents); Storage's 6,622 objects identical by name and generation.
 - **Not exercised live:** out-of-order finishing and a deleted source carry (pure only: an entry's day cannot be set through the routes); the finish refusal when a carried balance's source changes after the page loaded (read from the code: the claim carries it); the Team page's code and delete dialogs (opened and cancelled only for Deactivate, so no code was read); the costs pages' "Download anyway" (no pending entry exists).
+
+## 38. The office-cost month, empty months together and the title mark: C3 and Step 3 of the dispatch 31 plan (dispatch 36, 2026-10-12)
+
+Kian's rulings of 2026-10-12 are in `CLAUDE.md` under *Office costs, empty months and Airbnb titles*, the two on printing and the ledger included. What follows is how they were built, the developer's decisions where they leave room, and how it was checked.
+
+### 38.1 What was built
+
+- **The office-cost month (C3).** "Log a cost" asks "For the month", the month on screen first. The entry stores `month`. The route refuses a month after Toronto's current one and answers which statement the cost goes on (`statementMonthOfCost`); the notice names it: "Logged $5.00 for September 2026, approved. September 2026 is finished: it goes on October 2026's statement." `entryMonth` (the stored month, else the month sent) places an entry for the statements, the owed months, the loose ends, the property page's Costs tab, the entry pane and the month ZIP; `statementMonthFor` says which statement takes it.
+- **How an office cost prints** (`officeWhen`): "ref EffGwj · Sep 2026 (logged Oct 12)" on a statement row; in the ledger PDF the date column says "Sep 2026" with "(logged Oct 12)" under it; the Excel sheets write the same words in the date column; the Costs tab lists it that way.
+- **The ledger places costs by the statements' month rule** (`ledgerDay`): the ledger's period filter, its PDF and Excel, the server's check when it records a PDF, and the comparisons against recorded PDFs. On September's Costs tab, an entry the finished statement did not print is marked "on October 2026's statement".
+- **Empty months together (Step 3).**
+  - `reports/empty.ts` (pure) decides the list.
+  - `server-empty-months.ts` reads what it needs and finishes.
+  - `GET` and `POST /api/admin/monthly-reports/empty` serve it.
+  - `EmptyMonthDialog` is opened by "Finish empty" on the Statements panel for a month that has ended. It shows the properties that can be finished, each with a tick and its reference, then those left out with why, and a block naming the unsettled titles with the way to the Income page.
+- **The title mark.** "Not a Nubnb property" on the Income page's unlinked titles, asked in Nubnb's dialog. The link is stored with no property and `notNubnb: true`. The title's proposed lines are rejected then and in every later file (the upload rejects them as it records them). The title stays in the titles table, marked, and its heading counts it apart: "0 linked · 1 not a Nubnb property". It is in none of the gaps, and Finish and the bulk finish count it as settled. A rejected line under it shows the mark instead of "Propose again", and the server refuses that too (409 `TITLE_SET_ASIDE`).
+- **S22.** On the property page, Finish on a month with nothing stored saves what the page shows, its suggested reference included, then asks. An empty month needs no note.
+
+### 38.2 Decisions, not rulings
+
+- **The months offered** run from September 2026 to the current month. A month on screen outside that range starts the field at its nearer end.
+- **An earlier month's cost waits for its own month's statement while that month is open,** and goes on the next open month's once it is finished. Before, whichever later statement was finished first took it. Statements finished in month order are unchanged.
+- **"Sep 2026 (logged Oct 12)"** uses short month names, and adds the year to the logged day only when it differs: "Dec 2026 (logged Jan 5, 2027)".
+  - It applies to every office cost: one logged for its own month prints "Oct 2026 (logged Oct 12)", and one written before dispatch 36 belongs to the month it was sent.
+  - Finished statements print what they stored.
+  - On an earlier month's row, the office cost drops "(from September 2026)", since the row already prints its month.
+  - The review queue (`/admin/costs`) keeps the time sent.
+- **For a period that is not a whole month,** an office cost logged for an earlier month sits on that month's last day. A month's ledger then holds what its statement holds, and two periods that meet hold each entry once.
+- **The empty list** takes Due and Past due months, skipping excluded properties. It leaves a property out for the first of these:
+  - the rulings' two, said together when both apply (no Report For name; calendar check-ins the month's file does not hold);
+  - a draft with anything typed but its reference and date;
+  - Airbnb lines waiting;
+  - a cost, adjustment or carried balance;
+  - any other Finish warning but "No NuBNB fee". An empty statement goes out unread, so it goes only when nothing needs a look.
+- **References and ticks in the dialog.** The reference is the draft's if one was typed, else suggested from the property's last statement before the month; with neither, it is typed in the dialog. Every listed property starts ticked, and Finish is disabled while a ticked one has no reference.
+- **The finish** writes each confirmed property's draft empty, with today's date and the typed reference, then finishes it as any statement.
+  - The server reads the list again first: a property no longer on it is answered as left out with why.
+  - An unsettled title finishes nothing.
+  - One property failing does not stop the others; the answer lists each.
+- **A set-aside title** keeps the lines it had accepted before. Linking it later is an ordinary link; the link's history keeps the set-aside.
+- **Kian confirmed four of these on 2026-10-13:** both of the rulings' reasons said together, set-aside titles counted apart, a late cost marked on a finished month's Costs tab, and the "(logged …)" formats.
+
+### 38.3 How it was checked (2026-10-12 and 13, 22:05–23:56 Toronto)
+
+- **Pure** (`pure.mjs`, made-up data):
+  - C3 in each order: September open, September finished before the cost was logged, September and October finished, logged for its own month, written before dispatch 36.
+  - `ledgerDay` and the exports for September, October, 15 September to 15 October, and open; the September PDF and Excel read back.
+  - The title mark in `monthView` and `unlinkedTitles`.
+  - `emptyMonth` as of 1 November over fourteen kinds of property.
+- **Byte-identical with the earlier code:**
+  - the in-order chains, with `509499d`;
+  - the dispatch 35 acceptance output;
+  - 40 of 40 version-3 statements, with `2793e84`;
+  - a ledger's PDF and Excel without an office cost, for a month and an open period, with `509499d`.
+- **Live on real time** (build `hIlPbQboiV6u9jXBTz9NB`, 127.0.0.1:4500, throwaway PIN, the write guard), on Unlisted `__TEST__` properties:
+  - A September cost logged on 12 October from September's page landed on September; October's costs said None.
+  - After September was finished, a September cost picked on October's page went on October, named in the notice.
+  - T5's October, untouched and showing "Nothing saved yet", finished straight from Finish with its suggested reference: no lines, no note.
+- **Live with the server's clock at 1 November 2026** (builds up to `vnghCXWywTx7P_s8h-2ME`):
+  - A made-up October file with one `__TEST__` title was uploaded through the app. October's list then held T1, T2 and one real property ("Corner Penthouse l Tall Ceiling", the only real one with a Report For name). 44 real properties were left out for no Report For name, and 16 for that and October check-ins the file does not hold; T3 for no Report For name, T4 for its costs.
+  - The finish was refused, 409 `TITLES_UNSETTLED`, with nothing written. The title was set aside on the Income page ("1 line was rejected", gaps 17 → 16).
+  - T1 and T2 were finished together, as `Oct-T1-TEST` and the suggested `Oct-T2-TEST`. T3, sent too, was answered as left out. Both PDFs' SHA-256 match their documents, and they read "Nothing to report this month.", dated Nov 1, 2026, with no note.
+  - "Propose again" on the set-aside line was refused (409).
+  - T4's September Costs tab and both its exports listed the two September costs as "Sep 2026 (logged Oct 12)". The PDF's record was accepted by the server (`cost_report_exports`). October's statement printed "Expense - ref EffGwj · Sep 2026 (logged Oct 12)".
+  - The panel's dialog was opened for September and cancelled. The browser's own clock read 13 October, so October's button did not show.
+- **The clock.** A preload (`clock-preload.cjs`) shifted `new Date()` and `Date.now()` only for callers in the app's compiled code. It reads the raw call sites, which Next's source maps would otherwise rename, and skips Next's own `Date` wrapper. Google's auth and gRPC kept real time.
+- **Cleanup.** The guard saw 86 writes over the whole test, the app's cleanup included, and refused none.
+  - Through the app: six statements with their PDFs, the two entries, and the five properties, which took their owner records and unlisted marks with them.
+  - By exact ID after an export (K13): six drafts, the upload, its line, the title link, the PDF record, and the kept CSV.
+  - The closing export (`2026-10-13T03-56-13Z`) is byte-identical, file for file, to the opening one (`2026-10-13T02-06-38Z`, 84 documents). Storage's 6,622 objects are identical by name and generation.
+
+### 38.4 Not exercised live
+
+- **October's dialog in the browser.** Kian checks it on 1 November, before any real statement is finished with it. "Corner Penthouse l Tall Ceiling" will be on it, ticked, until it is unticked or given a reference.
+- **The month ZIP's placement** of an office cost (pure only).
+- **The `/admin/costs` ledger's date filter** with an office cost (the same function as the exports; not opened).

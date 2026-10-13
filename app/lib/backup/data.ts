@@ -21,13 +21,12 @@
  */
 
 import { readCostEntryFields, readLinesNow, type CostEntryView } from '@/app/lib/cleaners/model';
-import { sentDay } from '@/app/lib/costs/report';
+import { entryMonth } from '@/app/lib/costs/report';
 import {
   currentReports,
   inStatementScope,
   isExcludedFromReporting,
   lineFromIncomeRow,
-  monthRange,
   type MonthlyReportView,
   type PropertyManagementView,
   type ReportDownloadView,
@@ -141,6 +140,7 @@ export function entryViewOf(id: string, stored: Record<string, unknown>): CostEn
     taxShape: entry.taxShape,
     kind: entry.kind,
     autoApproved: entry.autoApproved,
+    month: entry.month,
   };
 }
 
@@ -224,16 +224,13 @@ export interface Selection {
  */
 export function selectMonthPackage(input: SelectInputs): Selection {
   const { month, today } = input;
-  const range = monthRange(month);
   const views = new Map(input.entries.map(({ id, stored }) => [id, entryViewOf(id, stored)]));
   const storedEntries = new Map(input.entries.map(({ id, stored }) => [id, stored]));
   const allReports = input.reports.map((r) => r.view);
   const current = currentReports(allReports);
   const management = new Map(input.management.map((m) => [m.view.propertyId, m.view]));
-  const inMonth = (entry: CostEntryView) => {
-    const day = sentDay(entry.createdAt);
-    return day !== null && day >= range.from && day <= range.to;
-  };
+  // An office cost by the month it was logged for (dispatch 36), any other entry by the day it was sent.
+  const inMonth = (entry: CostEntryView) => entryMonth(entry) === month;
   // A month with accepted income or approved costs in it is owed whenever the property was added (Kian's ruling of 2026-10-04).
   const money = moneyMonthsByProperty(input.drafts.map((d) => d.view), [...views.values()]);
 
