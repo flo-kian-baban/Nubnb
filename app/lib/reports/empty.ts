@@ -30,7 +30,8 @@
 import type { CostEntryView } from '@/app/lib/cleaners/model';
 import { finishChecks } from './checks';
 import { currentReports, inStatementScope, isExcludedFromReporting, monthLabel, type MonthlyReportView, type PropertyManagementView, type StatementDraftView } from './model';
-import { buildStatement, moneyMonthsByProperty, monthStanding, nothingToReport, referenceSuggestion } from './statement';
+import { moneyMonthsByProperty, monthStanding, nothingToReport, referenceSuggestion } from './statement';
+import { monthMoney } from '@/app/lib/money/month';
 
 /** A property whose empty month can be finished, with the reference suggested from its last statement (null when it has none to follow). */
 export interface EmptyCandidate {
@@ -128,16 +129,17 @@ export function emptyMonth(input: EmptyInputs): EmptyMonth {
     }
     const last = current.filter((report) => report.month < month).sort((a, b) => b.month.localeCompare(a.month) || b.finishedAt.localeCompare(a.finishedAt))[0] ?? null;
     const reference = draft?.reference.trim() || referenceSuggestion(last, month);
-    const built = buildStatement({
+    // The month's money (dispatch 37A): the statement the empty draft would issue, as Finish builds it.
+    const built = monthMoney({
       propertyId: property.id,
       propertyName: name,
       month,
       entries: input.entries,
       reports,
-      draft: { reference: reference ?? '', reportDate: today, lines: [], fee: null, carried: null, notes: null, supersedes: null },
+      draft: { reference: reference ?? '', reportDate: today, lines: [], fee: null, carried: null, notes: null, supersedes: null, finishedAs: null },
       management: record,
-    });
-    if (built.kind !== 'ok') {
+    }).build;
+    if (built === null || built.kind !== 'ok') {
       leave('An approved cost cannot be added up.');
       continue;
     }

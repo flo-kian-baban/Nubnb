@@ -11,8 +11,13 @@
  * Nothing about the data changes: the same one read, GET
  * /api/admin/monthly-reports, and the same pure functions (reports/
  * statement.ts) give the line at the top, the rows and the loose ends. A
- * finished row shows what the statement printed, how many times its PDF
- * link was made and when last, and Download PDF; a replaced statement is
+ * row's figures are the month's money's (dispatch 37A, worked out on the
+ * server with the read): a finished row shows what the statement printed,
+ * how many times its PDF link was made and when last, and Download PDF; a
+ * row not finished shows its draft as it stands, marked so; a correction
+ * being written is said beside the statement as sent. Income − Costs − Fee −
+ * Carried is the Revenue share on every row: the carried balance and any
+ * carried balance settled have their column (T7). A replaced statement is
  * listed under its row, marked, with the reason.
  *
  * Each row's badge is the month's standing in Nubnb's cycle (dispatch 23G,
@@ -41,6 +46,8 @@ import { formatCents } from "@/app/lib/cleaners/model";
 import { addMonths, displayRef, lastClosedMonth, monthLabel, monthName, monthOfDay, type ReportDownloadView } from "@/app/lib/reports/model";
 import { downloadMonthZip, type MonthZipStep } from "@/app/lib/backup/download";
 import { looseEnds, trackerCounts, trackerRows, type ReportingStatus, type TrackerRow } from "@/app/lib/reports/statement";
+import { carriedAllCents, payableText } from "@/app/lib/money/month";
+import type { PanelFigures } from "@/app/lib/reports-client";
 import { SentAt, whenText } from "../costs/cost-display";
 import shared from "../page.module.css";
 import styles from "./StatementsPanel.module.css";
@@ -227,6 +234,7 @@ export function StatementsPanel({ data, statuses, month, today, onMonth, onClose
                 <th className={styles.num}>Income</th>
                 <th className={styles.num}>Costs</th>
                 <th className={styles.num}>Fee</th>
+                <th className={styles.num} title="The carried balance, and any carried balance settled on this statement">Carried</th>
                 <th className={styles.num}>Revenue share</th>
                 <th>Exported</th>
                 <th />
@@ -234,7 +242,7 @@ export function StatementsPanel({ data, statuses, month, today, onMonth, onClose
             </thead>
             <tbody>
               {rows.map((row) => (
-                <PanelRow key={row.propertyId} row={row} month={month} linking={linking} onDownload={download} onOpen={openRow} />
+                <PanelRow key={row.propertyId} row={row} month={month} money={data.figures?.[month]?.[row.propertyId] ?? null} linking={linking} onDownload={download} onOpen={openRow} />
               ))}
             </tbody>
           </table>
@@ -273,12 +281,15 @@ export function StatementsPanel({ data, statuses, month, today, onMonth, onClose
 function PanelRow({
   row,
   month,
+  money,
   linking,
   onDownload,
   onOpen,
 }: {
   row: TrackerRow;
   month: string;
+  /** The row's figures, the month's money's; null when the month has nothing to show. */
+  money: PanelFigures | null;
   linking: string | null;
   onDownload: (reportId: string) => void;
   onOpen: (event: MouseEvent<HTMLTableRowElement>, propertyId: string) => void;
@@ -312,10 +323,27 @@ function PanelRow({
             )}
           </span>
         </td>
-        <td className={styles.num}>{live ? formatCents(live.incomeCents) : <span className={styles.muted}>—</span>}</td>
-        <td className={styles.num}>{live ? formatCents(live.costsCents) : <span className={styles.muted}>—</span>}</td>
-        <td className={styles.num}>{live ? formatCents(live.feeCents) : <span className={styles.muted}>—</span>}</td>
-        <td className={styles.num}>{live ? (live.payableCents < 0 ? `${formatCents(live.payableCents)} owed to NuBNB` : formatCents(live.payableCents)) : <span className={styles.muted}>—</span>}</td>
+        {money === null ? (
+          <>
+            <td className={styles.num}><span className={styles.muted}>—</span></td>
+            <td className={styles.num}><span className={styles.muted}>—</span></td>
+            <td className={styles.num}><span className={styles.muted}>—</span></td>
+            <td className={styles.num}><span className={styles.muted}>—</span></td>
+            <td className={styles.num}><span className={styles.muted}>—</span></td>
+          </>
+        ) : (
+          <>
+            {/* Amounts, named by their column (T9); a row not finished is its draft as it stands, said in grey. */}
+            <td className={`${styles.num} ${money.asItStands ? styles.muted : ""}`} title={money.asItStands ? "As it stands: not finished" : undefined}>{formatCents(money.figures.revenueCents)}</td>
+            <td className={`${styles.num} ${money.asItStands ? styles.muted : ""}`}>{formatCents(money.figures.costsCents)}</td>
+            <td className={`${styles.num} ${money.asItStands ? styles.muted : ""}`}>{formatCents(money.figures.feeCents)}</td>
+            <td className={`${styles.num} ${money.asItStands ? styles.muted : ""}`}>{carriedAllCents(money.figures) === 0 ? <span className={styles.muted}>—</span> : formatCents(carriedAllCents(money.figures))}</td>
+            <td className={`${styles.num} ${money.asItStands ? styles.muted : ""}`}>
+              {payableText(money.figures.payableCents)}
+              {money.correction && <span className={styles.note}> · correction {payableText(money.correction.payableCents)}</span>}
+            </td>
+          </>
+        )}
         <td>
           {live ? (
             row.downloads === 0 ? (
@@ -343,7 +371,7 @@ function PanelRow({
       {replaced.map(({ report, replacedBy }) => (
         <tr key={report.id}>
           <td />
-          <td colSpan={6}>
+          <td colSpan={7}>
             <span className={`${shared.stateBadge} ${shared.stateReplaced}`}>Replaced</span>{" "}
             <span className={styles.note}>
               <span className={styles.mono}>{displayRef(report)}</span>, finished <SentAt iso={report.finishedAt} />, replaced on {whenText(replacedBy!.finishedAt)} by{" "}

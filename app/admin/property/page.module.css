@@ -580,6 +580,14 @@ textarea.reasonInput {
 .costsFoot {
   margin: 12px 0 0;
 }
+/* Where the month's costs are charged, under the head (dispatch 37A, T1): one plain line, the figures tabular. */
+.costSplit {
+  margin: -4px 0 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #e8edf3;
+  font-variant-numeric: tabular-nums;
+}
 .listTable {
   width: 100%;
   border-collapse: collapse;

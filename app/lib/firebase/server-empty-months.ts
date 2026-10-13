@@ -17,7 +17,7 @@ import { getAdminDb } from './admin';
 import { isDocumentId } from './server-leads';
 import { listCosts } from './server-cost-entries';
 import { listManagement } from './server-management';
-import { readIncomeMonth, unlinkedTitles } from './server-income';
+import { readIncomeMonth, unlinkedTitlesFromLines } from './server-income';
 import { FINISH_REFUSALS, finishStatement, writeEmptyDraft } from './server-reports';
 import { torontoDayOf } from '@/app/lib/costs/report';
 import { monthView } from '@/app/lib/income/month';
@@ -49,7 +49,8 @@ export async function readEmptyMonth(month: string): Promise<EmptyMonthRead> {
   const drafts = draftsSnap.docs.map((doc) => readStatementDraft(doc.id, doc.data())).filter((draft): draft is StatementDraftView => draft !== null);
   // The month's file, as the Income page reads it: lines waiting by property, check-ins with nothing in the file, titles unsettled.
   const view = monthView({ uploads: income.uploads, lines: income.lines, links: income.links, lastSeen: income.lastSeen, properties: income.properties, statements: income.statements, calendar: income.calendar });
-  const unsettled: UnsettledTitle[] = unlinkedTitles(income.uploads, income.links)
+  // Counted from the month's stored lines, each row once (dispatch 37A, T3): as the Income page and Finish count them.
+  const unsettled: UnsettledTitle[] = unlinkedTitlesFromLines(income.lines, income.links)
     .filter((title) => title.month === month)
     .map(({ title, rows, amountCents }) => ({ title, rows, amountCents }));
   const data = emptyMonth({

@@ -4,7 +4,9 @@
  * The Income tab (dispatch 23F): the month's lines, as the statement prints
  * them. A line is a description, its dates, a quantity and a rate; the
  * amount is quantity × rate (Kian's ruling of 2026-10-01), computed and
- * shown. A line with a negative rate is an expense.
+ * shown. A typed line with a negative rate is an expense; an Airbnb line
+ * below zero, a claw-back, takes revenue off and is never an expense (Kian's
+ * ruling M1, 2026-10-13). The head's figures are the month's money's.
  *
  * Asked the way the Costs tab asks for a cost (Kian, 2026-10-02): the one
  * action in the block's head, "Add a line", opens a labelled form under it;
@@ -32,14 +34,17 @@ import { formatCents } from "@/app/lib/cleaners/model";
 import { STATEMENT_LIMITS, isDayText, lineAmount, rangeText } from "@/app/lib/reports/model";
 import { lineDetailsText } from "@/app/lib/reports/statement";
 import { readAmount } from "../costs/cost-display";
+import type { Figures } from "@/app/lib/money/month";
 import { centsOf, newId, readQuantity, type LineDraft, type Typed } from "./statement-form";
 import styles from "./page.module.css";
 
 interface Props {
   typed: Typed;
   readOnly: boolean;
-  /** The revenue and the typed expenses, as the statement adds them up; null when it cannot be built. */
-  sums: { incomeCents: number; expensesCents: number } | null;
+  /** The revenue and the typed expenses, as the month's money gives them (dispatch 37A: an Airbnb claw-back takes revenue off, Kian's ruling M1); null when it cannot be built. */
+  figures: Pick<Figures, "revenueCents" | "airbnbCents" | "expensesCents"> | null;
+  /** While a correction is written: the statement as sent, beside it. */
+  sent: Pick<Figures, "revenueCents" | "expensesCents"> | null;
   onChange: (next: Typed) => void;
   show: (notice: Notice) => void;
   /** The month's lines from the platforms' files: each accepted line's file and row, by line id; how many wait on the Income page; whether they could be read. */
@@ -64,7 +69,13 @@ function figuresOf(line: Pick<LineDraft, "quantity" | "rate">) {
   return { quantity, rateCents, amountCents: rateCents !== null && quantity !== null ? lineAmount(quantity, rateCents) : null };
 }
 
-export function IncomeTab({ typed, readOnly, sums, onChange, show, files }: Props) {
+/** "$2,000.00 revenue, Airbnb $1,900.00 · $60.00 expenses": Airbnb's part named when other revenue sits beside it. */
+function incomeWords(figures: Pick<Figures, "revenueCents" | "airbnbCents" | "expensesCents">): string {
+  const airbnb = figures.airbnbCents !== 0 && figures.airbnbCents !== figures.revenueCents ? `, Airbnb ${formatCents(figures.airbnbCents)}` : "";
+  return `${formatCents(figures.revenueCents)} revenue${airbnb} · ${formatCents(figures.expensesCents)} expenses`;
+}
+
+export function IncomeTab({ typed, readOnly, figures, sent, onChange, show, files }: Props) {
   const [editing, setEditing] = useState<Editing | null>(null);
   /** Questions in Nubnb's own dialog (Kian's ruling of 2026-10-12: no native browser dialogs in the admin). */
   const { ask, dialog } = useAsk();
@@ -118,7 +129,10 @@ export function IncomeTab({ typed, readOnly, sums, onChange, show, files }: Prop
     <section className={styles.block} aria-label="Income">
       <div className={styles.blockHead}>
         <h3 className={styles.blockTitle}>Income</h3>
-        <span className={styles.blockTotal}>{sums ? `${formatCents(sums.incomeCents)} revenue · ${formatCents(sums.expensesCents)} expenses` : "—"}</span>
+        <span className={styles.blockTotal}>
+          {figures ? incomeWords(figures) : "—"}
+          {sent && <span className={styles.note}> · as sent {formatCents(sent.revenueCents)} revenue · {formatCents(sent.expensesCents)} expenses</span>}
+        </span>
         {!readOnly && (
           <span className={styles.blockActions}>
             <button type="button" className={styles.btnPrimary} onClick={openNew} disabled={editing !== null || full} title={full ? `A statement holds at most ${STATEMENT_LIMITS.LINES_MAX} lines` : undefined}>

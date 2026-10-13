@@ -24,6 +24,8 @@ export interface MonthStatement {
   revision: number | null;
   finished: boolean;
   lines: Line[];
+  /** While a correction is written: the lines of the statement it replaces, as sent (dispatch 37A). */
+  sent: Line[] | null;
 }
 
 /** What GET /api/admin/income answers. */

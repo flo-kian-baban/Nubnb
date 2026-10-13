@@ -1,0 +1,7 @@
+{
+ "September: a cost, an August cost from earlier, closing below zero": "2191a9c2c64d207bcb49235fa11ec0bf3d491e4a6f436de86f417d6775bb7bd2",
+ "October: the correction as an adjustment, September's balance carried": "61e9150a105cd1e3e5cf42ca474ee13f780780eff4cdf4626d235a942464367f",
+ "November: a second adjustment, measured from October": "f21bc545c26d5e3c399ca2eb30e83ed12a68c4f734c7c339fb6c8a624f46cf10",
+ "November corrected, nothing before it redone": "d5222a505c0cb22a04708bba6110acdf8b68d76db28fdb4a509752960989396a",
+ "December preview: nothing to carry": "491b5e6ae32fd6a04d99d41468445cab4c567110d9b1bfb51794ace8ec3f5ce6"
+}

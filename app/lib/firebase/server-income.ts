@@ -292,6 +292,11 @@ export interface MonthStatement {
   finished: boolean;
   /** The draft's lines: what the property page's Income tab shows and the statement prints. */
   lines: Line[];
+  /**
+   * While a correction is written (the draft replaces the month's finished statement): that statement's lines, as
+   * sent. The month's figures are the statement the owner holds; the correction's are said beside (dispatch 37A, T2).
+   */
+  sent: Line[] | null;
 }
 
 export interface IncomeMonth {
@@ -379,12 +384,14 @@ export async function readIncomeMonth(month: string): Promise<IncomeMonth> {
       continue;
     }
     withDraft.add(draft.propertyId);
-    statements.push({ propertyId: draft.propertyId, draftId: draft.id, revision: draft.revision, finished: draft.finishedAs !== null, lines: draft.lines });
+    // A correction in progress: the statement it replaces, as sent (dispatch 37A, T2).
+    const replaced = draft.finishedAs === null && draft.supersedes !== null ? (current.find((report) => report.id === draft.supersedes?.reportId) ?? null) : null;
+    statements.push({ propertyId: draft.propertyId, draftId: draft.id, revision: draft.revision, finished: draft.finishedAs !== null, lines: draft.lines, sent: replaced ? replaced.lines : null });
   }
   for (const report of current) {
     if (withDraft.has(report.propertyId)) continue;
     withDraft.add(report.propertyId);
-    statements.push({ propertyId: report.propertyId, draftId: null, revision: null, finished: true, lines: report.lines });
+    statements.push({ propertyId: report.propertyId, draftId: null, revision: null, finished: true, lines: report.lines, sent: null });
   }
 
   const days: string[] = [];
@@ -430,7 +437,8 @@ export async function readPropertyIncome(propertyId: string): Promise<{ lines: E
   const [linksSnap, uploadsSnap] = await Promise.all([db.collection(EARNINGS_TITLE_LINKS_COLLECTION).get(), db.collection(EARNINGS_UPLOADS_COLLECTION).get()]);
   const links = linksSnap.docs.map((doc) => readTitleLink(doc.id, doc.data())).filter((link): link is TitleLinkView => link !== null);
   const titles = links.filter((link) => link.propertyId === propertyId).map((link) => link.title);
-  const unlinked = unlinkedTitles(
+  // Their rows and totals from the stored lines, each row once (dispatch 37A, T3), as the Income page counts them.
+  const unlinked = await readUnlinkedTitles(
     uploadsSnap.docs.map((doc) => readEarningsUpload(doc.id, doc.data())).filter((upload): upload is EarningsUploadView => upload !== null),
     links,
   );
@@ -484,6 +492,33 @@ export function unlinkedTitles(uploads: Pick<EarningsUploadView, 'platform' | 'm
     }
   }
   return [...byKey.values()].sort((a, b) => a.month.localeCompare(b.month) || a.title.localeCompare(b.title));
+}
+
+/**
+ * The titles no link names, their rows and totals counted from the stored lines (dispatch 37A, T3): each row once,
+ * however many of the month's files held it, as the Income page counts them. A file's own summary counts a row
+ * again in every file that repeats it.
+ */
+export function unlinkedTitlesFromLines(lines: Pick<EarningsLineView, 'platform' | 'month' | 'listingTitle' | 'amountCents'>[], links: Pick<TitleLinkView, 'platform' | 'title'>[]): UnlinkedTitle[] {
+  const linked = new Set(links.map((link) => titleKeyText(link.platform, link.title)));
+  const byKey = new Map<string, UnlinkedTitle>();
+  for (const line of lines) {
+    const key = titleKeyText(line.platform, line.listingTitle);
+    if (linked.has(key)) continue;
+    const was = byKey.get(`${line.month}|${key}`);
+    byKey.set(`${line.month}|${key}`, { month: line.month, title: normaliseTitle(line.listingTitle), rows: (was?.rows ?? 0) + 1, amountCents: (was?.amountCents ?? 0) + line.amountCents });
+  }
+  return [...byKey.values()].sort((a, b) => a.month.localeCompare(b.month) || a.title.localeCompare(b.title));
+}
+
+/** The titles in the files that no link names, their totals from the stored lines: the files say which titles, the lines how much. @throws if a read fails. */
+async function readUnlinkedTitles(uploads: EarningsUploadView[], links: TitleLinkView[]): Promise<UnlinkedTitle[]> {
+  const candidates = [...new Set(unlinkedTitles(uploads, links).map((title) => title.title))];
+  if (candidates.length === 0) return [];
+  const db = getAdminDb();
+  const snaps = await Promise.all(Array.from({ length: Math.ceil(candidates.length / 30) }, (_, i) => db.collection(EARNINGS_LINES_COLLECTION).where('listingTitle', 'in', candidates.slice(i * 30, i * 30 + 30)).get()));
+  const lines = snaps.flatMap((snap) => snap.docs.map((doc) => readEarningsLine(doc.id, doc.data())).filter((line): line is EarningsLineView => line !== null));
+  return unlinkedTitlesFromLines(lines, links);
 }
 
 /** A link as its history keeps it. */

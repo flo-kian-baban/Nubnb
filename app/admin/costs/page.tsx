@@ -38,14 +38,23 @@
  * PDF, that it lists an entry since deleted.
  *
  * ── What counts ──
- * Approved and pending entries count in totals, shown apart; rejected and
- * removed ones stay in the table, marked, and count nowhere. An entry whose
- * lines cannot be read is counted apart and never added in. Amounts are the
- * lines as they now stand, corrections applied, plus the tax (linesNow).
+ * Approved and pending entries count in totals, shown apart and never added
+ * together (dispatch 37A, T5): the totals' Approved, the ledger's line and
+ * Items bought's approved total are one figure, its tax included. Rejected
+ * and removed ones stay in the table, marked, and count nowhere. An entry
+ * whose lines cannot be read is counted apart and never added in. Amounts
+ * are the lines as they now stand, corrections applied, plus the tax
+ * (linesNow).
+ *
+ * ── Where each is charged (dispatch 37A, T1) ──
+ * With a property chosen, its statements are read, and the month's money
+ * says which statements charge each entry (`costCharges`): an entry charged
+ * on another month's statement than its own is marked, in the list, in the
+ * ledger's line and in its PDF and Excel, as the statements say.
  *
  * ── Dates ──
  * The day an entry was sent, in Toronto time; the app records no purchase
- * date.
+ * date. An office cost is placed by the month it is for (dispatch 36).
  *
  * ── Reports ──
  * One property over the dates chosen, approved entries only: the PDF goes to
@@ -113,6 +122,7 @@ import { PinGate } from "../components/PinGate";
 import { NoticeBanner, useNotice, type Notice } from "../components/Notice";
 import { fetchCosts, markEntrySeen, recordPdfExport } from "@/app/lib/costs-client";
 import { fetchPropertyStatements } from "@/app/lib/reports-client";
+import { monthLabel } from "@/app/lib/reports/model";
 import {
   ENTRY_STATUSES,
   ENTRY_STATUS_LABELS,
@@ -132,6 +142,7 @@ import {
   cleanerLabel,
   countedItems,
   deletedSincePdf,
+  entryMonth,
   entryPdfState,
   inQueue,
   isDay,
@@ -154,6 +165,7 @@ import { workbookFor } from "@/app/lib/costs/xlsx";
 import { Absent, FieldText } from "../leads/lead-display";
 import { EntryStatusBadge, KindBadge, SentAt, quantityText, whenText } from "./cost-display";
 import { EntryPane, type PropertyStatementsState } from "./EntryPane";
+import { costCharges, chargesByMonth, chargedElsewhere, type Charge } from "@/app/lib/money/month";
 import { useAsk } from "../components/AskDialog";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
@@ -437,6 +449,25 @@ function Costs() {
   useEffect(() => {
     if (selectedPropertyId !== null && selectedPropertyId !== "" && !requestedStatements.current.has(selectedPropertyId)) loadStatements(selectedPropertyId);
   }, [selectedPropertyId, loadStatements, attempt]);
+  /** The chosen property's statements too (dispatch 37A): where each of its entries is charged, for the list, the ledger's line and its exports. */
+  useEffect(() => {
+    if (filters.propertyId !== "" && !requestedStatements.current.has(filters.propertyId)) loadStatements(filters.propertyId);
+  }, [filters.propertyId, loadStatements, attempt]);
+  const chosenStatements = useMemo<PropertyStatementsState | null>(() => (oneProperty ? (statementsByProperty[filters.propertyId] ?? { kind: "loading" }) : null), [oneProperty, statementsByProperty, filters.propertyId]);
+  /** Every statement that charges each of the chosen property's entries; null until its statements are read. */
+  const charges = useMemo<Map<string, Charge[]> | null>(
+    () => (chosenStatements?.kind === "ready" ? costCharges({ propertyId: filters.propertyId, entries, reports: chosenStatements.data.reports, management: chosenStatements.data.management }) : null),
+    [chosenStatements, filters.propertyId, entries],
+  );
+  /** A ledger's split by statement, as its PDF prints it: only when an entry shown is charged on another month's statement (T1). */
+  const ledgerSplit = useMemo(() => {
+    if (!ledger || charges === null) return null;
+    const shownApproved = visible.filter((entry) => entry.status === "approved" && entry.linesNow.kind === "ok");
+    if (!shownApproved.some((entry) => chargedElsewhere(entryMonth(entry), charges.get(entry.id) ?? []))) return null;
+    const rows = chargesByMonth(shownApproved.flatMap((entry) => charges.get(entry.id) ?? []));
+    const total = shownApproved.reduce((sum, entry) => sum + (entry.linesNow.kind === "ok" ? entry.linesNow.totalCents : 0), 0);
+    return { rows, unchargedCents: total - rows.reduce((sum, row) => sum + row.cents, 0) };
+  }, [ledger, charges, visible]);
   // An entry named in the address, once the list is there: its row at the top, open under it.
   useEffect(() => {
     const id = linkedEntry.current;
@@ -478,7 +509,16 @@ function Costs() {
   const exportReport = async (kind: "pdf" | "xlsx") => {
     if (list.kind !== "ready" || !oneProperty || propertyName === null || recording) return;
     clear();
-    const built = buildReport(list.entries, filters.propertyId, filters.from, filters.to, new Date(), propertyName);
+    // The report says which statements charge each entry (T1): it waits for the property's statements.
+    if (charges === null) {
+      show(
+        chosenStatements?.kind === "error"
+          ? { tone: "error", title: "The property's statements could not be read, so the report cannot say where each cost is charged. Nothing was downloaded.", detail: `${chosenStatements.title} Refresh to try again.` }
+          : { tone: "warning", title: "The property's statements are still being read. Try again in a moment." },
+      );
+      return;
+    }
+    const built = buildReport(list.entries, filters.propertyId, filters.from, filters.to, new Date(), propertyName, charges);
     if (built.kind === "unreadable") {
       show({
         tone: "error",
@@ -770,7 +810,7 @@ function Costs() {
                   max={today}
                   onChange={(range) => setFilter(range)}
                   presets={RANGE_PRESETS.map((preset) => ({ ...preset, ...presetRange(preset.key, today) }))}
-                  note="Dates are the day an entry was sent, in Toronto time."
+                  note="Dates are the day an entry was sent, in Toronto time; an office cost is placed in the month it is for."
                 />
                 <span className={shared.resultCount}>
                   {visible.length} of {inScope.length}
@@ -787,6 +827,12 @@ function Costs() {
                     ? "No approved costs in these dates."
                     : `${totals.all.entries === 1 ? "1 approved entry" : `${totals.all.entries} approved entries`} · ${formatCents(totals.all.approvedCents)}${totals.all.approvedTaxCents > 0 ? ` · tax ${formatCents(totals.all.approvedTaxCents)}` : ""}`}
                   {totals.all.unreadable > 0 && <span className={styles.noteWarn}> · {totals.all.unreadable} cannot be added up</span>}
+                  {ledgerSplit && (
+                    <span className={styles.ledgerSplit}>
+                      {ledgerSplit.rows.map((row) => `${formatCents(row.cents)} on ${monthLabel(row.month)}’s statement`).join(" · ")}
+                      {ledgerSplit.unchargedCents !== 0 && ` · ${formatCents(ledgerSplit.unchargedCents)} on no statement`}
+                    </span>
+                  )}
                 </span>
                 {propertyName !== null && (
                   <span className={styles.formRow}>
@@ -918,6 +964,7 @@ function Costs() {
                                   isOpen={entry.id === selectedId}
                                   showProperty={!oneProperty}
                                   pdf={pdfStates.get(entry.id) ?? null}
+                                  charges={charges?.get(entry.id) ?? null}
                                   seen={group.key === "unseen" ? { marking: marking !== null, busy: marking === entry.id, onSeen: () => markSeen([entry]) } : null}
                                   onToggle={toggle}
                                 />
@@ -970,9 +1017,8 @@ function Costs() {
                         <th>Property</th>
                         <th className={styles.num}>Entries</th>
                         <th className={styles.num}>Approved</th>
-                        <th className={styles.num}>Pending</th>
-                        <th className={styles.num}>Counted</th>
                         <th className={styles.num}>of which tax</th>
+                        <th className={styles.num}>Pending, apart</th>
                         <th>Not counted</th>
                       </tr>
                     </thead>
@@ -1030,6 +1076,7 @@ function EntryRow({
   isOpen,
   showProperty,
   pdf,
+  charges,
   seen,
   onToggle,
 }: {
@@ -1037,6 +1084,8 @@ function EntryRow({
   isOpen: boolean;
   showProperty: boolean;
   pdf: EntryPdfState | null;
+  /** The statements that charge it, when its property's statements are read (dispatch 37A). */
+  charges: Charge[] | null;
   /** In the queue's first group: the Seen button, and whether a mark is under way. */
   seen: { marking: boolean; busy: boolean; onSeen: () => void } | null;
   onToggle: (id: string) => void;
@@ -1085,6 +1134,12 @@ function EntryRow({
         <TotalCell entry={entry} />
         {/* Under the total it is about, so it is in view wherever the total is. */}
         <PdfMark state={pdf} />
+        {/* Charged on another month's statement than its own (dispatch 37A, T1): which. */}
+        {charges !== null && chargedElsewhere(entryMonth(entry), charges) && (
+          <span className={styles.pdfMark} title="The statements that charge it (the month's money)">
+            {chargesByMonth(charges).map((row) => `${monthLabel(row.month)}’s statement`).join(" · ")}
+          </span>
+        )}
       </td>
       <td className={styles.colFit}>
         <span className={styles.statusCell}>
@@ -1124,7 +1179,7 @@ function EntryRow({
   );
 }
 
-/** One row of the totals: what counts, apart, and what does not, in words. */
+/** One row of the totals: approved, pending apart, and what does not count, in words. */
 function TotalsRow({ label, totals, strong = false }: { label: string; totals: Totals; strong?: boolean }) {
   const notCounted = [
     totals.rejected > 0 ? `${totals.rejected} rejected` : null,
@@ -1135,10 +1190,10 @@ function TotalsRow({ label, totals, strong = false }: { label: string; totals: T
     <tr className={strong ? styles.totalsAll : undefined}>
       <td>{label}</td>
       <td className={styles.num}>{totals.entries}</td>
+      {/* Approved and pending apart, never added together (dispatch 37A, T5): Approved is the ledger's figure, tax included. */}
       <td className={styles.num}>{formatCents(totals.approvedCents)}</td>
-      <td className={styles.num}>{formatCents(totals.pendingCents)}</td>
-      <td className={styles.num}>{formatCents(totals.approvedCents + totals.pendingCents)}</td>
-      <td className={styles.num}>{formatCents(totals.approvedTaxCents + totals.pendingTaxCents)}</td>
+      <td className={styles.num}>{formatCents(totals.approvedTaxCents)}</td>
+      <td className={styles.num}>{totals.pending > 0 ? formatCents(totals.pendingCents) : <span className={styles.muted}>—</span>}</td>
       <td>
         {notCounted.length > 0 ? notCounted.join(", ") : <span className={styles.muted}>None</span>}
         {totals.unreadable > 0 && (
@@ -1250,7 +1305,11 @@ function ItemsTable({
       </div>
     );
   }
-  const total = rows.reduce((sum, row) => sum + row.line.lineTotalCents, 0);
+  // Approved and pending apart (T5): the approved total, its tax rows included, is the ledger's figure.
+  const approvedRows = rows.filter((row) => row.status === "approved");
+  const pendingRows = rows.filter((row) => row.status !== "approved");
+  const total = approvedRows.reduce((sum, row) => sum + row.line.lineTotalCents, 0);
+  const pendingTotal = pendingRows.reduce((sum, row) => sum + row.line.lineTotalCents, 0);
   return (
     <div className={`${shared.tableContainer} ${styles.tableScroll}`}>
       <table className={shared.table}>
@@ -1272,7 +1331,7 @@ function ItemsTable({
             >
               <td className={styles.whenCell}>{row.day ? shortDay(row.day) : <Absent />}</td>
               <td className={styles.nameCell}>
-                <FieldText value={row.line.name} />
+                {row.tax !== undefined ? <span className={styles.muted}>Tax</span> : <FieldText value={row.line.name} />}
                 {row.line.origin === "added" && (
                   <span className={`${styles.badge} ${styles.badgeAdded}`}>Added by admin</span>
                 )}
@@ -1291,11 +1350,20 @@ function ItemsTable({
         <tfoot>
           <tr className={styles.totalsAll}>
             <td />
-            <td>Total, {rows.length === 1 ? "1 line" : `${rows.length} lines`}</td>
+            <td>Approved, {approvedRows.length === 1 ? "1 line" : `${approvedRows.length} lines`}</td>
             <td />
             <td className={styles.num}>{formatCents(total)}</td>
             <td />
           </tr>
+          {pendingRows.length > 0 && (
+            <tr>
+              <td />
+              <td className={styles.muted}>Pending, apart, {pendingRows.length === 1 ? "1 line" : `${pendingRows.length} lines`}</td>
+              <td />
+              <td className={`${styles.num} ${styles.muted}`}>{formatCents(pendingTotal)}</td>
+              <td />
+            </tr>
+          )}
         </tfoot>
       </table>
     </div>

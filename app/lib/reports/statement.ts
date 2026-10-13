@@ -4,8 +4,9 @@
  * same numbers (dispatch 23B; the Payment Summary of dispatch 23E).
  *
  * ── Which entries a statement carries ──
- * An entry belongs to the Toronto month it was sent in, the ledger's rule
- * (sentDay). A statement for a month carries the property's approved
+ * An entry belongs to the month an office cost was logged for (dispatch 36),
+ * else to the Toronto month it was sent in (`entryMonth`, the rule the ledger
+ * follows too). A statement for a month carries the property's approved
  * entries sent in that month; then approved entries sent in an earlier
  * month, on or after the property's first statement month, that no current
  * statement of the property lists; then every entry a current statement
@@ -27,6 +28,10 @@
  * the fee is its amount. Total = revenue − expenses − recorded − fee, and
  * Your Revenue Share = total − the carried balance. Negative is owed to
  * NuBNB. Nothing is stored here: the finish step stores what it printed.
+ * The revenue and expenses split here (by sign) is what a finished report
+ * stores; the figures every page shows are the month's money's
+ * (app/lib/money/month.ts), which places an Airbnb claw-back in the revenue
+ * (Kian's ruling M1). The Total and the Revenue Share are the same either way.
  *
  * Client-safe: model.ts, the cost model and the ledger's day functions.
  */
@@ -845,19 +850,27 @@ const TONE_OF: Record<Standing, ReportingTone> = { finished: 'done', due: 'warni
 /**
  * The months each property has money in, by property ID, oldest first (Kian's
  * ruling of 2026-10-04: a property owes a statement for any month in which it
- * has accepted income or approved costs, regardless of when it was added).
- * Income: a line on the month's statement draft, typed by an admin or
- * accepted from a platform's file; a proposed line is on no draft. Costs: an
- * approved entry, in the Toronto month it was sent (`sentDay`), the month
- * its ledger and its statement put it in.
+ * has accepted income or approved costs, regardless of when it was added; and
+ * of 2026-10-13, M2: a month whose only money is a logged cleaning or a cash
+ * payment is owed a statement). A month counts when it holds any confirmed
+ * line of the month's money (app/lib/money/month.ts), whatever its source:
+ *   typed, airbnb   a line on the month's statement draft, typed by an admin
+ *                   or accepted from a platform's file; a proposed line is on
+ *                   no draft
+ *   receipt, work,  an approved entry, in the month it belongs to: an office
+ *   office          cost's chosen month, else the Toronto month it was sent
+ *                   (`entryMonth`), the month its ledger and statement put it in
+ * A logged cleaning (dispatch 37B) and a received cash payment (37E) are
+ * further sources: each is added here, beside these.
  */
-export function moneyMonthsByProperty(drafts: { propertyId: string; month: string; lines: readonly unknown[] }[], entries: Pick<CostEntryView, 'property' | 'status' | 'createdAt'>[]): Map<string, string[]> {
+export function moneyMonthsByProperty(drafts: { propertyId: string; month: string; lines: readonly unknown[] }[], entries: Pick<CostEntryView, 'property' | 'status' | 'createdAt' | 'month'>[]): Map<string, string[]> {
   const months = new Map<string, Set<string>>();
   const add = (propertyId: string, month: string) => months.set(propertyId, (months.get(propertyId) ?? new Set<string>()).add(month));
+  // Lines on the month's draft: typed, or accepted from a platform's file.
   for (const draft of drafts) if (draft.lines.length > 0) add(draft.propertyId, draft.month);
+  // Approved cost entries, in the month they belong to.
   for (const entry of entries) {
     if (entry.status !== 'approved' || entry.property.id === null) continue;
-    // The month it belongs to (dispatch 36): an office cost's chosen month, else the month it was sent.
     const belongs = entryMonth(entry);
     if (belongs !== null) add(entry.property.id, belongs);
   }

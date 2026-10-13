@@ -364,24 +364,33 @@ export function totalsByProperty(entries: CostEntryView[]): { rows: PropertyTota
 
 // ─── Items ─────────────────────────────────────────────────────
 
-/** One line bought, with the entry it is on. */
+/** One line bought, with the entry it is on; or, `tax` set, the entry's tax kept apart from its items. */
 export interface ItemRow {
   entryId: string;
   day: string | null;
   status: string | null;
   line: LineNow;
+  /** The entry's tax as its own row (dispatch 37A, T5), so the rows add up to what the entries count. */
+  tax?: number;
 }
 
 /**
  * Every line that counts, from the entries given, in their order: what was
- * bought for a house, and what each line cost as printed.
+ * bought for a house, and what each line cost as printed; then each entry's
+ * tax, where it keeps it apart from its items (dispatch 21), as its own row,
+ * so the rows add up to the entries' totals (dispatch 37A, T5).
  */
 export function countedItems(entries: CostEntryView[]): ItemRow[] {
   const rows: ItemRow[] = [];
   for (const entry of entries) {
     if (!countsInTotals(entry.status) || entry.linesNow.kind !== 'ok') continue;
+    const day = sentDay(entry.createdAt);
     for (const line of entry.linesNow.lines) {
-      rows.push({ entryId: entry.id, day: sentDay(entry.createdAt), status: entry.status, line });
+      rows.push({ entryId: entry.id, day, status: entry.status, line });
+    }
+    const { taxShape, taxCents, lines } = entry.linesNow;
+    if (taxShape === 'field' && taxCents !== null) {
+      rows.push({ entryId: entry.id, day, status: entry.status, line: { index: lines.length, name: 'Tax', quantity: null, lineTotalCents: taxCents, origin: 'sent', earlier: [] }, tax: taxCents });
     }
   }
   return rows;
@@ -446,7 +455,22 @@ export interface ReportEntry {
   /** Items plus tax. */
   totalCents: number;
   corrected: boolean;
+  /**
+   * The statements that charge it, when any is not its own month's (dispatch 37A, T1): a cost logged for a month
+   * whose statement was already finished goes on the next open one, and the ledger says so. Absent otherwise.
+   */
+  chargedOn?: ChargedOn[];
 }
+
+/** One statement's part of what a ledger's entries add up to: its month, whether it is finished, and how much. */
+export interface ChargedOn {
+  month: string;
+  finished: boolean;
+  cents: number;
+}
+
+/** What a statement charged or will charge for a cost, as the month's money gives it (app/lib/money/month.ts, `costCharges`). */
+export type ChargesByEntry = ReadonlyMap<string, readonly { month: string; reportId: string | null; cents: number }[]>;
 
 export interface CostReport {
   propertyId: string;
@@ -464,6 +488,12 @@ export interface CostReport {
   taxInLines: boolean;
   totalCents: number;
   generatedAt: Date;
+  /**
+   * Present when an entry is charged on another month's statement (dispatch 37A, T1): the period's total by the
+   * statement that charges it, oldest first, and what no statement charges. The PDF and the workbook print it.
+   */
+  byStatement?: ChargedOn[];
+  unchargedCents?: number;
 }
 
 export type ReportBuild =
@@ -481,11 +511,26 @@ export function byLedgerDay(a: { createdAt: string | null; month?: string | null
   return (ledgerDay(a) ?? '').localeCompare(ledgerDay(b) ?? '') || (a.createdAt ?? '').localeCompare(b.createdAt ?? '') || a.id.localeCompare(b.id);
 }
 
+/** Charges added up by the statement month, oldest first. */
+function chargedOn(charges: readonly { month: string; reportId: string | null; cents: number }[]): ChargedOn[] {
+  const byMonth = new Map<string, ChargedOn>();
+  for (const charge of charges) {
+    const was = byMonth.get(charge.month);
+    byMonth.set(charge.month, { month: charge.month, finished: (was?.finished ?? false) || charge.reportId !== null, cents: (was?.cents ?? 0) + charge.cents });
+  }
+  return [...byMonth.values()].sort((a, b) => a.month.localeCompare(b.month));
+}
+
 /**
  * One property's report for one period: its approved entries, oldest first,
  * and their total. An open start is the property's first entry; an open end
  * is today. `knownName` is the property's name for a property that has no
- * entry to take it from.
+ * entry to take it from. `charges`, the month's money's (dispatch 37A), say
+ * which statements charge each entry: an entry charged on another month's
+ * statement than its own is marked, and the total split by statement, so
+ * the ledger an owner holds says what the statements say (T1). Without
+ * them, or when every entry is on its own month's statement, the report is
+ * as it was.
  */
 export function buildReport(
   all: CostEntryView[],
@@ -494,6 +539,7 @@ export function buildReport(
   to: string,
   now: Date,
   knownName: string | null = null,
+  charges?: ChargesByEntry,
 ): ReportBuild {
   const forProperty = all.filter((entry) => entry.property.id === propertyId);
   // Placed by the month rule statements use (Kian's ruling of 2026-10-12): an office cost by the month it belongs to.
@@ -510,6 +556,8 @@ export function buildReport(
     const day = sentDay(entry.createdAt);
     const placed = ledgerDay(entry);
     if (entry.linesNow.kind !== 'ok' || day === null || placed === null) continue; // refused above
+    const own = entryMonth(entry);
+    const its = charges?.get(entry.id) ?? [];
     entries.push({
       id: entry.id,
       ref: entryRef(entry.id),
@@ -524,8 +572,11 @@ export function buildReport(
       taxShape: entry.linesNow.taxShape,
       totalCents: entry.linesNow.totalCents,
       corrected: entry.linesNow.corrected,
+      ...(its.some((charge) => charge.month !== own) ? { chargedOn: chargedOn(its) } : {}),
     });
   }
+  // The period's total by statement, only when an entry is charged on another month's statement (T1).
+  const split = charges !== undefined && entries.some((entry) => entry.chargedOn !== undefined) ? chargedOn(entries.flatMap((entry) => charges.get(entry.id) ?? [])) : null;
 
   const today = torontoDayOf(now);
   const firstDay = forProperty
@@ -551,6 +602,9 @@ export function buildReport(
       taxInLines: entries.some((entry) => entry.taxShape === 'in-lines'),
       totalCents: entries.reduce((sum, entry) => sum + entry.totalCents, 0),
       generatedAt: now,
+      ...(split !== null
+        ? { byStatement: split, unchargedCents: entries.reduce((sum, entry) => sum + entry.totalCents, 0) - split.reduce((sum, row) => sum + row.cents, 0) }
+        : {}),
     },
     pendingLeftOut: inPeriod.filter((entry) => entry.status === 'pending').length,
   };
@@ -567,6 +621,25 @@ export function reportFileName(report: CostReport, extension: 'pdf' | 'xlsx'): s
       .replace(/^-+|-+$/g, '')
       .slice(0, 60) || 'property';
   return `nubnb-costs-${slug}-${report.from}-to-${report.to}.${extension}`;
+}
+
+/** "October 2026". */
+const monthWords = (month: string) => `${MONTHS_LONG[Number(month.slice(5, 7)) - 1]} ${month.slice(0, 4)}`;
+
+/**
+ * Where an entry charged on another month's statement is charged (dispatch 37A, T1): "On October 2026's
+ * statement", or each statement with its part when more than one charges it.
+ */
+export function chargedOnText(chargedOn: readonly ChargedOn[]): string {
+  if (chargedOn.length === 1) return `On ${monthWords(chargedOn[0].month)}'s statement`;
+  return `On ${chargedOn.map((row) => `${monthWords(row.month)}'s statement ${formatCents(row.cents)}`).join(', ')}`;
+}
+
+/** The period total by statement, under the total: "September 2026's statement $100.00 · October 2026's statement $50.00". */
+export function byStatementText(byStatement: readonly ChargedOn[], unchargedCents: number): string {
+  const parts = byStatement.map((row) => `${monthWords(row.month)}'s statement ${formatCents(row.cents)}`);
+  if (unchargedCents !== 0) parts.push(`on no statement ${formatCents(unchargedCents)}`);
+  return `Charged on: ${parts.join(' · ')}`;
 }
 
 // ─── A PDF that went out, against the ledger now ───────────────

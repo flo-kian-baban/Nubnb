@@ -19,7 +19,11 @@
  *              Rejected lines, and lines accepted and since removed from the
  *              statement, can be proposed again.
  *   By property  each property's lines for the month as its statement holds
- *              them, linking to its page.
+ *              them, linking to its page; its figures the month's money's
+ *              (dispatch 37A): revenue with Airbnb's part (a claw-back takes
+ *              revenue off, Kian's ruling M1), typed expenses, what still
+ *              waits apart, and a correction in progress said beside the
+ *              statement as sent.
  *   Titles     every listing title in the month's lines, its link, and a way
  *              to change a link.
  *
@@ -187,7 +191,9 @@ function IncomePageInner() {
     setRead((prev) => {
       if (prev.kind !== "ready") return prev;
       const byId = new Map(answer.lines.map((line) => [line.id, line]));
-      const statement = { propertyId: answer.draft.propertyId, draftId: answer.draft.id, revision: answer.draft.revision, finished: false, lines: answer.draft.lines };
+      // Accepted into a correction, the statement as sent stays beside it (dispatch 37A).
+      const sent = prev.data.statements.find((s) => s.propertyId === answer.draft.propertyId)?.sent ?? null;
+      const statement = { propertyId: answer.draft.propertyId, draftId: answer.draft.id, revision: answer.draft.revision, finished: false, lines: answer.draft.lines, sent };
       const statements = prev.data.statements.some((s) => s.propertyId === statement.propertyId) ? prev.data.statements.map((s) => (s.propertyId === statement.propertyId ? statement : s)) : [...prev.data.statements, statement];
       return { kind: "ready", data: { ...prev.data, lines: prev.data.lines.map((line) => byId.get(line.id) ?? line), statements } };
     });
@@ -645,7 +651,7 @@ function IncomePageInner() {
               )}
             </section>
 
-            {/* ── By property: the statements' lines, as the property page shows them ── */}
+            {/* ── By property: the statements' lines, figured by the month's money as the property page figures them (dispatch 37A) ── */}
             <section className={styles.block} aria-label="By property">
               <div className={styles.blockHead}>
                 <h2 className={styles.blockTitle}>By property</h2>
@@ -665,7 +671,9 @@ function IncomePageInner() {
                           <th className={styles.num}>Lines</th>
                           <th className={styles.num}>From a file</th>
                           <th className={styles.num}>Revenue</th>
+                          <th className={styles.num}>of which Airbnb</th>
                           <th className={styles.num}>Expenses</th>
+                          <th className={styles.num} title="Lines under its titles still to review: in no statement until accepted">Waiting</th>
                           <th className={styles.colFit}>Statement</th>
                         </tr>
                       </thead>
@@ -683,10 +691,18 @@ function IncomePageInner() {
                             </td>
                             <td className={styles.num}>{row.lines}</td>
                             <td className={styles.num}>{row.fromFile}</td>
-                            <td className={styles.num}>{formatCents(row.revenueCents)}</td>
-                            <td className={styles.num}>{formatCents(row.expensesCents)}</td>
+                            <td className={styles.num}>
+                              {formatCents(row.revenueCents)}
+                              {row.correction && <span className={styles.muted}> · correction {formatCents(row.correction.revenueCents)}</span>}
+                            </td>
+                            <td className={styles.num}>{row.airbnbCents === 0 ? <span className={styles.muted}>—</span> : formatCents(row.airbnbCents)}</td>
+                            <td className={styles.num}>
+                              {formatCents(row.expensesCents)}
+                              {row.correction && row.correction.expensesCents !== row.expensesCents && <span className={styles.muted}> · correction {formatCents(row.correction.expensesCents)}</span>}
+                            </td>
+                            <td className={styles.num}>{row.waitingCents === 0 ? <span className={styles.muted}>—</span> : <span className={styles.muted}>{formatCents(row.waitingCents)}</span>}</td>
                             <td className={styles.colFit}>
-                              <span className={`${styles.badge} ${row.finished ? styles.badgeDone : ""}`}>{row.finished ? "Finished" : "Draft"}</span>
+                              <span className={`${styles.badge} ${row.finished ? styles.badgeDone : ""}`}>{row.correction ? "Finished · correcting" : row.finished ? "Finished" : "Draft"}</span>
                             </td>
                           </tr>
                         ))}
@@ -704,7 +720,7 @@ function IncomePageInner() {
                   <h2 className={styles.blockTitle}>Titles · {view.titles.length}</h2>
                   <span className={styles.blockFigure}>
                     {view.titles.filter((t) => t.link && !isSetAside(t.link)).length} linked
-                    {view.titles.some((t) => isSetAside(t.link)) && <> · {view.titles.filter((t) => isSetAside(t.link)).length} not a Nubnb property</>} · {formatCents(view.titles.reduce((sum, t) => sum + t.amountCents, 0))}
+                    {view.titles.some((t) => isSetAside(t.link)) && <> · {view.titles.filter((t) => isSetAside(t.link)).length} not a Nubnb property</>} · {formatCents(view.titles.reduce((sum, t) => sum + t.amountCents, 0))} as in the file
                   </span>
                 </summary>
                 <div className={shared.tableContainer}>

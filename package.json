@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node tests/run.mjs"
   },
   "dependencies": {
     "@sparticuz/chromium-min": "^143.0.4",

@@ -13,11 +13,17 @@
  *
  * The Income page and the property page's Income tab read the same lines:
  * a statement's lines are its draft's, and nothing is copied between them.
+ * Their figures are the month's money's (dispatch 37A): `incomeFigures`, the
+ * function the property page's figures come from, places each line by its
+ * source, so an Airbnb claw-back takes revenue off and is never an expense
+ * (Kian's ruling M1). While a correction is written, a property's figures are
+ * the statement as sent, the correction's beside them (T2).
  *
  * Pure and client-safe.
  */
 
 import type { Line } from '@/app/lib/reports/model';
+import { airbnbLineIdsOf, incomeFigures } from '@/app/lib/money/month';
 import { lineInDraft, normaliseTitle, type EarningsLineView, type EarningsUploadView, type IncomeChannel, type TitleLinkView } from './model';
 
 /** What the month's read holds, as this module needs it. */
@@ -27,7 +33,7 @@ export interface MonthInputs {
   links: TitleLinkView[];
   lastSeen: Record<string, string>;
   properties: { id: string; name: string }[];
-  statements: { propertyId: string; finished: boolean; lines: Line[] }[];
+  statements: { propertyId: string; finished: boolean; lines: Line[]; sent?: Line[] | null }[];
   calendar: { checkIns: { propertyId: string; days: string[] }[] };
 }
 
@@ -55,9 +61,17 @@ export interface PropertyIncomeRow {
   lines: number;
   /** Lines that came from a file, accepted. */
   fromFile: number;
+  /** The month's money's revenue: Airbnb's lines, claw-backs taken off, and typed lines above zero (M1). */
   revenueCents: number;
+  /** What Airbnb paid, in that revenue. */
+  airbnbCents: number;
+  /** Typed lines below zero, as an amount. */
   expensesCents: number;
+  /** Lines under its titles still waiting for review, added up: apart, in no statement until accepted. */
+  waitingCents: number;
   finished: boolean;
+  /** While a correction is written: its revenue and expenses; the row's are the statement as sent. */
+  correction: { revenueCents: number; expensesCents: number } | null;
 }
 
 export interface MonthView {
@@ -75,8 +89,6 @@ export interface MonthView {
     missing: { link: TitleLinkView; name: string | null; lastSeen: string | null }[];
   };
 }
-
-const sum = (values: number[]) => values.reduce((total, value) => total + value, 0);
 
 /** The link a line's title has, if any. */
 export function linkOf(links: TitleLinkView[], platform: IncomeChannel, title: string): TitleLinkView | null {
@@ -121,19 +133,28 @@ export function monthView(input: MonthInputs): MonthView {
     (statement && lineInDraft(statement.lines, line.decided.lineId) ? accepted : removed).push(line);
   }
 
-  // ── By property: the month's statements with lines, as the property page's Income tab adds them up ──
+  // ── By property: the month's statements with lines, figured by the month's money (dispatch 37A) ──
   const fromFileIds = new Set(accepted.map((line) => (line.decided?.status === 'accepted' ? line.decided.lineId : '')));
+  const airbnbLineIds = airbnbLineIdsOf(input.lines);
   const byProperty = input.statements
-    .filter((s) => s.lines.length > 0)
-    .map((s) => ({
-      propertyId: s.propertyId,
-      name: names.get(s.propertyId) ?? null,
-      lines: s.lines.length,
-      fromFile: s.lines.filter((line) => fromFileIds.has(line.id)).length,
-      revenueCents: sum(s.lines.filter((line) => line.amountCents > 0).map((line) => line.amountCents)),
-      expensesCents: -sum(s.lines.filter((line) => line.amountCents < 0).map((line) => line.amountCents)),
-      finished: s.finished,
-    }))
+    .filter((s) => s.lines.length > 0 || (s.sent?.length ?? 0) > 0)
+    .map((s) => {
+      // The statement the owner holds: as sent while a correction is written, else the draft's (T2).
+      const held = incomeFigures(s.sent ?? s.lines, airbnbLineIds);
+      const correction = s.sent ? incomeFigures(s.lines, airbnbLineIds) : null;
+      return {
+        propertyId: s.propertyId,
+        name: names.get(s.propertyId) ?? null,
+        lines: s.lines.length,
+        fromFile: s.lines.filter((line) => fromFileIds.has(line.id)).length,
+        revenueCents: held.revenueCents,
+        airbnbCents: held.airbnbCents,
+        expensesCents: held.expensesCents,
+        waitingCents: groups.get(s.propertyId)?.amountCents ?? 0,
+        finished: s.finished || s.sent !== null && s.sent !== undefined,
+        correction: correction ? { revenueCents: correction.revenueCents, expensesCents: correction.expensesCents } : null,
+      };
+    })
     .sort((a, b) => (a.name ?? '￿').localeCompare(b.name ?? '￿'));
 
   // ── Gaps ──

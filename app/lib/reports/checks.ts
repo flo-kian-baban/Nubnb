@@ -74,6 +74,11 @@ export interface CheckInputs {
   income: IncomeFacts | null;
   /** Today, yyyy-mm-dd in Toronto. */
   today: string;
+  /**
+   * The month's revenue as the month's money gives it (dispatch 37A, Kian's ruling M1: an Airbnb claw-back takes
+   * revenue off), the figure the page shows beside the fee's base. Absent: the statement's own split by sign.
+   */
+  revenueCents?: number;
 }
 
 /** A line that charges cleaning: its description says so ("Expense - Cleaning", as the reports NuBNB sends have it). */
@@ -124,8 +129,9 @@ export function finishChecks(input: CheckInputs): FinishChecks {
   else if (s.fee.amountCents === 0) warnings.push({ key: 'fee-zero', text: 'The NuBNB fee is $0.00: it does not print.', tab: 'details' });
   const mismatch = feeLabelMismatch(s.fee);
   if (s.fee && mismatch) warnings.push({ key: 'fee-label', text: `The fee's label works out to ${formatCents(mismatch.labelCents)}; its amount is ${formatCents(s.fee.amountCents)}.`, tab: 'details' });
-  if (s.fee && s.fee.baseCents !== null && typeof s.fee.baseRevenueCents === 'number' && s.fee.baseRevenueCents !== s.incomeCents) {
-    warnings.push({ key: 'fee-base', text: `Lines changed since the fee's base was typed: revenue was ${formatCents(s.fee.baseRevenueCents)}, now ${formatCents(s.incomeCents)}; the base is ${formatCents(s.fee.baseCents)}.`, tab: 'details' });
+  const revenueCents = input.revenueCents ?? s.incomeCents;
+  if (s.fee && s.fee.baseCents !== null && typeof s.fee.baseRevenueCents === 'number' && s.fee.baseRevenueCents !== revenueCents) {
+    warnings.push({ key: 'fee-base', text: `Lines changed since the fee's base was typed: revenue was ${formatCents(s.fee.baseRevenueCents)}, now ${formatCents(revenueCents)}; the base is ${formatCents(s.fee.baseCents)}.`, tab: 'details' });
   }
 
   // ── The carried balance (S3, S2) ──

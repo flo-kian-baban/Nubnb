@@ -7,6 +7,14 @@
  * A property's workbook names nobody on Nubnb's team: who logged a cost is a
  * role. Nubnb's own workbooks name them.
  *
+ * Every figure is the month's money's (dispatch 37A, the folder's `figures`):
+ * a statement's rows are printed as the PDF prints them, its carried balance
+ * included (T9); the Costs sheet's recorded total takes in the adjustments,
+ * as the fee workbook's Recorded costs does (T6); a cost a redone month
+ * charges only part of says where the rest is charged, and its items add up
+ * to what this statement charges (T6); an office cost says the month it
+ * belongs to (T10); the fee workbook has the carried balances settled (T7).
+ *
  * Client-safe, and pure.
  */
 
@@ -14,6 +22,7 @@ import { readCostEntryFields, readLinesNow, formatCents, type CostEntryFields, t
 import { REPORT_TIME_ZONE, whatWasBoughtText } from '@/app/lib/costs/report';
 import { monthLabel, monthOfDay, rateText, reportRef, type StatementCost } from '@/app/lib/reports/model';
 import { STANDING_LABELS, closingWords, printedLines } from '@/app/lib/reports/statement';
+import { figuresOf } from '@/app/lib/money/month';
 import { count, day, money, text, workbookBytes, type Cell } from '@/app/lib/xlsx/core';
 import type { MonthPackageData, NotCharged, PackageFolder } from './data';
 
@@ -126,7 +135,8 @@ export function propertyWorkbook(input: PropertyWorkbookInput): Uint8Array<Array
     ...(printed.length === 0 ? [[text('Nothing to report.')]] : printed.map((line) => [text(line.description), count(line.quantity), money(line.rateCents), money(line.amountCents)])),
     [],
     [text('Total', true), null, null, money(statement.totalCents, true)],
-    ...(statement.carried ? [[text(statement.carried.label || 'Carried balance'), null, null, money(-statement.carried.amountCents)]] : []),
+    // As the PDF prints it: the label and the amount deducted (T9).
+    ...(statement.carried ? [[text(statement.carried.label || 'Carried balance'), null, null, money(statement.carried.amountCents)]] : []),
     [text(closing.label, true), null, null, money(statement.payableCents, true)],
     [],
     ...facts([
@@ -134,7 +144,7 @@ export function propertyWorkbook(input: PropertyWorkbookInput): Uint8Array<Array
       ['Fee rate', statement.fee?.rateBasisPoints != null ? text(rateText(statement.fee.rateBasisPoints)) : null],
       ['Fee base', statement.fee && statement.fee.rateBasisPoints !== null && statement.fee.baseCents !== null ? money(statement.fee.baseCents) : null],
       ['Fee as computed', statement.fee && statement.fee.computedCents !== null ? money(statement.fee.computedCents) : null],
-      ['Fee as printed', statement.fee ? money(statement.fee.amountCents) : null],
+      ['Fee, deducted', statement.fee ? money(statement.fee.amountCents) : null],
       ['Overwritten', statement.fee ? text(statement.fee.overwritten ? 'Yes' : 'No') : null],
       ['Notes', statement.notes ? text(statement.notes) : null],
       ['Entries pending when finished', folder.kind === 'finished' ? count(statement.pendingLeftOut) : null],
@@ -185,6 +195,10 @@ export function propertyWorkbook(input: PropertyWorkbookInput): Uint8Array<Array
     const events = fields ? (fields.history ?? []).slice(0, row.historyLength) : [];
     const files = input.receipts.get(row.entryId) ?? [];
     const recomputed = lines?.kind === 'ok' ? lines.totalCents : null;
+    // A month redone after a later statement adjusted the cost charges only what is left (dispatch 35): the rest is on those statements (T6).
+    const rest = folder.elsewhere?.[row.entryId] ?? [];
+    const restCents = rest.reduce((sum, part) => sum + part.cents, 0);
+    const restWords = rest.map((part) => `${monthLabel(part.month)}'s statement ${formatCents(part.cents)}`).join(', ');
     costRows.push([
       text(printedFor.get(row.entryId) ?? row.description),
       day(row.day),
@@ -201,14 +215,35 @@ export function propertyWorkbook(input: PropertyWorkbookInput): Uint8Array<Array
       fields?.purchasedOn ? day(fields.purchasedOn) : null,
       text(files.length > 0 ? files.map((file) => file.name).join(', ') : noReceiptWords(row.kind)),
       text(row.receiptSha256 ?? ''),
-      text(row.group === 'month' ? 'This month' : `From ${monthLabel(monthOfDay(row.day))}`),
-      text(recomputed === null ? 'The entry is not in this package' : recomputed === row.totalCents ? 'Yes' : `Differs: its history adds up to ${formatCents(recomputed)}`),
+      // The month it belongs to: an office cost's own (T10), any other the month it was sent.
+      text(row.group === 'month' ? 'This month' : `From ${monthLabel(row.month ?? monthOfDay(row.day))}`),
+      text(
+        recomputed === null
+          ? 'The entry is not in this package'
+          : recomputed === row.totalCents
+            ? 'Yes'
+            : rest.length > 0 && recomputed === row.totalCents + restCents
+              ? `Yes: ${formatCents(row.totalCents)} here, the rest on ${restWords}`
+              : `Differs: its history adds up to ${formatCents(recomputed)}`,
+      ),
     ]);
-    if (fields && lines) itemsOf(row.ref, fields, lines, itemRows, true);
+    if (fields && lines) {
+      itemsOf(row.ref, fields, lines, itemRows, true);
+      // Its items add up to the whole cost; what other statements charge is taken off, so the sheet adds up to this statement's (T6).
+      if (lines.kind === 'ok' && rest.length > 0 && recomputed === row.totalCents + restCents) {
+        for (const part of rest) itemRows.push([text(row.ref), text(`Charged on ${monthLabel(part.month)}'s statement`), null, money(-part.cents), text('Not in this statement')]);
+        itemsTotal -= restCents;
+      }
+    }
     if (fields) historyOf(row.ref, fields, row.historyLength);
   }
   if (statement.costs.length === 0) costRows.push([text('No recorded costs.')]);
   else costRows.push([text('Total', true), null, null, null, null, null, null, money(statement.costs.reduce((s, r) => s + r.itemsCents, 0), true), money(statement.costs.reduce((s, r) => s + (r.taxCents ?? 0), 0), true), money(statement.costs.reduce((s, r) => s + r.totalCents, 0), true)]);
+  // The recorded costs, as the fee workbook and the statement count them: the costs above and the adjustments' differences (T6).
+  if (statement.adjustments.length > 0) {
+    costRows.push([text('Adjustments to earlier statements (see Adjustments)'), null, null, null, null, null, null, null, null, money(statement.adjustments.reduce((s, r) => s + r.deltaCents, 0))]);
+    costRows.push([text('Recorded costs', true), null, null, null, null, null, null, null, null, money(statement.recordedCents, true)]);
+  }
 
   // ── Adjustments ──
   const adjustmentRows: Cell[][] = [header(['Ref', 'Entry ID', 'Printed in', 'Printed (CAD)', 'Now (CAD)', 'Change (CAD)', 'On this statement (CAD)'])];
@@ -275,18 +310,20 @@ export function feeIncomeWorkbook(input: FeeIncomeInput): Uint8Array<ArrayBuffer
   const { data } = input;
   const folders = new Map(data.folders.map((folder) => [folder.propertyId, folder]));
   const rows: Cell[][] = [
-    header(['Property', 'Property ID', 'Standing', 'Draft in progress', 'Statement', 'Report ID', 'Finished (Toronto)', 'Revenue (CAD)', 'Typed expenses (CAD)', 'Recorded costs (CAD)', 'Fee base (CAD)', 'Fee rate', 'Fee as computed (CAD)', 'Fee as printed (CAD)', 'Overwritten', 'Total (CAD)', 'Carried (CAD)', 'Revenue share (CAD)', 'Owed to NuBNB (CAD)', 'Downloads recorded']),
+    header(['Property', 'Property ID', 'Standing', 'Draft in progress', 'Statement', 'Report ID', 'Finished (Toronto)', 'Revenue (CAD)', 'of which Airbnb (CAD)', 'Typed expenses (CAD)', 'Recorded costs (CAD)', 'Fee base (CAD)', 'Fee rate', 'Fee as computed (CAD)', 'Fee, deducted (CAD)', 'Overwritten', 'Carried balances settled (CAD)', 'Total (CAD)', 'Carried (CAD)', 'Revenue share (CAD)', 'Owed to NuBNB (CAD)', 'Downloads recorded']),
   ];
   const sums = { fee: 0, revenue: 0, payable: 0, owed: 0, finished: 0 };
   for (const property of data.properties) {
     const folder = folders.get(property.id);
     const finished = folder?.kind === 'finished' && folder.report ? folder : null;
     const s = finished?.statement ?? null;
-    if (s && finished?.report) {
-      sums.fee += s.feeCents;
-      sums.revenue += s.incomeCents;
-      if (s.payableCents >= 0) sums.payable += s.payableCents;
-      else sums.owed += -s.payableCents;
+    // The month's money's figures (dispatch 37A): an Airbnb claw-back takes revenue off (M1).
+    const f = finished ? (finished.figures ?? (s ? figuresOf(s) : null)) : null;
+    if (s && f && finished?.report) {
+      sums.fee += f.feeCents;
+      sums.revenue += f.revenueCents;
+      if (f.payableCents >= 0) sums.payable += f.payableCents;
+      else sums.owed += -f.payableCents;
       sums.finished += 1;
     }
     rows.push([
@@ -297,23 +334,26 @@ export function feeIncomeWorkbook(input: FeeIncomeInput): Uint8Array<ArrayBuffer
       text(s?.reference ?? ''),
       text(finished?.report?.id ?? ''),
       text(finished?.report ? whenWords(finished.report.finishedAt) : ''),
-      s ? money(s.incomeCents) : null,
-      s ? money(s.expensesCents) : null,
-      s ? money(s.recordedCents) : null,
+      f ? money(f.revenueCents) : null,
+      f ? money(f.airbnbCents) : null,
+      f ? money(f.expensesCents) : null,
+      f ? money(f.recordedCents) : null,
       s?.fee && s.fee.rateBasisPoints !== null && s.fee.baseCents !== null ? money(s.fee.baseCents) : null,
       s?.fee?.rateBasisPoints != null ? text(rateText(s.fee.rateBasisPoints)) : null,
       s?.fee && s.fee.computedCents !== null ? money(s.fee.computedCents) : null,
-      s ? money(s.feeCents) : null,
+      f ? money(f.feeCents) : null,
       s?.fee ? text(s.fee.overwritten ? 'Yes' : 'No') : null,
-      s ? money(s.totalCents) : null,
-      s ? money(s.carriedCents) : null,
-      s ? money(s.payableCents) : null,
-      s && s.payableCents < 0 ? money(-s.payableCents) : null,
+      // Settled carried balances have their column, so the row adds up: Revenue − expenses − costs − fee − settled = Total (T7).
+      f ? money(f.carriedAdjustmentCents) : null,
+      f ? money(f.totalCents) : null,
+      f ? money(f.carriedCents) : null,
+      f ? money(f.payableCents) : null,
+      f && f.payableCents < 0 ? money(-f.payableCents) : null,
       finished?.report ? count(finished.report.downloads.length) : null,
     ]);
   }
   rows.push([]);
-  rows.push([text(`Finished statements: ${sums.finished}`, true), null, null, null, null, null, null, money(sums.revenue, true), null, null, null, null, null, money(sums.fee, true), null, null, null, money(sums.payable, true), money(sums.owed, true)]);
+  rows.push([text(`Finished statements: ${sums.finished}`, true), null, null, null, null, null, null, money(sums.revenue, true), null, null, null, null, null, null, money(sums.fee, true), null, null, null, null, money(sums.payable, true), money(sums.owed, true)]);
 
   const statementRows: Cell[][] = [header(['Property', 'Statement', 'Report ID', 'Finished (Toronto)', 'File in this package', 'Bytes', 'SHA-256'])];
   for (const folder of data.folders) {
@@ -325,7 +365,7 @@ export function feeIncomeWorkbook(input: FeeIncomeInput): Uint8Array<ArrayBuffer
 
   return workbookBytes(
     [
-      { name: 'Fees', widths: [40, 24, 22, 10, 22, 24, 22, 14, 14, 14, 14, 9, 14, 14, 11, 14, 14, 14, 14, 10], rows },
+      { name: 'Fees', widths: [40, 24, 22, 10, 22, 24, 22, 14, 14, 14, 14, 14, 9, 14, 14, 11, 16, 14, 14, 14, 14, 10], rows },
       { name: 'Statements', widths: [40, 22, 24, 22, 90, 10, 66], rows: statementRows },
       {
         name: 'About',
@@ -333,6 +373,7 @@ export function feeIncomeWorkbook(input: FeeIncomeInput): Uint8Array<ArrayBuffer
         rows: aboutRows([
           `Nubnb's fee income for ${monthLabel(data.month)}, as the statements printed it. Made ${whenWords(data.madeAt)}, Toronto time.`,
           'Every property has a row. The figures are those of a finished statement; a property with none shows its standing alone.',
+          'Revenue takes an Airbnb claw-back off (a claw-back is never an expense). Revenue − typed expenses − recorded costs − fee − carried balances settled = Total; Total − carried = Revenue share.',
           'The fee is one printed amount. Nothing in Nubnb records whether HST applies to it.',
           'Statements: each finished statement of the month, its file in this package and its SHA-256, taken over the PDF when it was finished.',
         ]),

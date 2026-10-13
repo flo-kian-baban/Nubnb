@@ -4,19 +4,25 @@
  * The Costs tab (dispatch 23F): log a cost, and see the month's approved
  * entries — the ledger of dispatch 21, bound to the month.
  *
- * The block's head: how many approved entries the month holds and what
- * they add up to, with the month's Excel and PDF beside it (Kian's ruling
- * of 2026-09-30: a property's costs come with both exports), and Log a cost
- * (dispatch 23D), which opens its form under the head, as the Income tab's
- * does (Kian, 2026-10-02). Under it, a warning when entries sent in the month are
- * still pending — they are in no statement until reviewed — then the
- * entries, newest first: when sent, who logged it, what was bought, the
- * total. Each is marked when it has changed since the newest cost PDF for
- * its day, and, once the month's statement is finished, when it no longer
- * adds up to what the statement printed, or when the statement does not
- * print it: then the mark names the statement it goes on (dispatch 36).
- * Under them, what else the statement carries: entries of earlier months not
- * reported before, and adjustments to earlier statements.
+ * Its figures are the month's money's (dispatch 37A, app/lib/money/month.ts;
+ * Kian's ruling of 2026-10-13: every page showing a property-month's figures
+ * reads them through the one calculation). The block's head: how many
+ * approved entries the month holds and what they add up to, and, when any of
+ * them is charged on another month's statement, which statements charge
+ * them and how much — "$100.00 on September 2026's statement · $50.00 on
+ * October 2026's" (T1) — with the month's Excel and PDF beside it (Kian's
+ * ruling of 2026-09-30: a property's costs come with both exports), and Log a
+ * cost (dispatch 23D), which opens its form under the head, as the Income
+ * tab's does (Kian, 2026-10-02). Under it, a warning when entries sent in the
+ * month are still pending — they are in no statement until reviewed — then
+ * the entries, newest first: when sent, who logged it, the total. Each is
+ * marked when it has changed since the newest cost PDF for its day, and when
+ * a statement other than its month's charges it, or charges it a different
+ * amount: the mark names each statement and its part. An entry removed or
+ * rejected after a statement printed it stays listed, marked, with what was
+ * charged and given back, so the head adds up to the statements. Under them,
+ * what else the month's statement charges: entries of earlier months, and
+ * adjustments to earlier statements, as cost amounts (T9).
  *
  * Clicking an entry opens it here, in place of the list: the costs page's
  * pane, with its receipt, its lines, its corrections and its history
@@ -33,12 +39,12 @@ import type { Notice } from "../components/Notice";
 import { useAsk } from "../components/AskDialog";
 import { recordPdfExport } from "@/app/lib/costs-client";
 import { formatCents, type CostEntryView, type ReportExportView } from "@/app/lib/cleaners/model";
-import { buildReport, cleanerLabel, deletedSincePdf, entryMonth, entryPdfState, officeWhen, periodLabel, readPdfRecords, reportFileName, sentDay, shortDay, type EntryPdfState } from "@/app/lib/costs/report";
+import { buildReport, cleanerLabel, deletedSincePdf, entryPdfState, officeWhen, periodLabel, readPdfRecords, reportFileName, sentDay, shortDay, type EntryPdfState } from "@/app/lib/costs/report";
 import { watchList } from "@/app/lib/costs/patterns";
 import { pdfFor } from "@/app/lib/costs/pdf";
 import { workbookFor } from "@/app/lib/costs/xlsx";
-import { currentReports, monthLabel, monthRange, type MonthlyReportView } from "@/app/lib/reports/model";
-import { printedLines, statementMonthFor, type AnyStatement } from "@/app/lib/reports/statement";
+import { monthLabel, monthRange } from "@/app/lib/reports/model";
+import { chargesByMonth, type Charge, type CostLine, type MonthMoney } from "@/app/lib/money/month";
 import { EntryPane, type PropertyStatementsState } from "../costs/EntryPane";
 import { KindBadge, whenText } from "../costs/cost-display";
 import { AddCostForm } from "./AddCostForm";
@@ -55,10 +61,10 @@ interface Props {
   entries: CostEntryView[];
   /** Every recorded cost PDF. */
   exports: ReportExportView[];
-  /** The statement as it stands for the month, for what else it carries; null when it cannot be built. */
-  statement: AnyStatement | null;
-  /** The finished statement for the month, when there is one: what it printed for each entry. */
-  finishedReport: MonthlyReportView | null;
+  /** The month's money (dispatch 37A): its cost lines, where each is charged, and what else its statement charges. */
+  money: MonthMoney;
+  /** Every statement that charges each of the property's entries, for the month's Excel and PDF. */
+  charges: ReadonlyMap<string, Charge[]>;
   /** The property's statements, for the open entry's "Property and statement" section. */
   statements: PropertyStatementsState;
   openEntryId: string | null;
@@ -71,22 +77,35 @@ interface Props {
   show: (notice: Notice) => void;
 }
 
-export function CostsTab({ propertyId, propertyName, month, today, entries, exports, statement, finishedReport, statements, openEntryId, onOpenEntry, onEntryChanged, onEntryDeleted, onEntryAdded, onExportRecorded, show }: Props) {
+/**
+ * Where a cost line is charged, in words, when that is not simply its own month's statement at what it adds up to
+ * now: "on October 2026's statement", or each statement with its part. null otherwise.
+ */
+function chargeWords(line: CostLine, month: string): string | null {
+  const parts = chargesByMonth(line.charges);
+  if (line.state === "confirmed" && parts.length === 1 && parts[0].month === month && parts[0].cents === line.nowCents) return null;
+  if (parts.length === 0) return line.state === "confirmed" ? "on no statement" : null;
+  if (parts.length === 1 && parts[0].cents === line.nowCents) return `on ${monthLabel(parts[0].month)}’s statement`;
+  return parts.map((part) => `${monthLabel(part.month)}’s statement ${formatCents(part.cents)}`).join(" · ");
+}
+
+export function CostsTab({ propertyId, propertyName, month, today, entries, exports, money, charges, statements, openEntryId, onOpenEntry, onEntryChanged, onEntryDeleted, onEntryAdded, onExportRecorded, show }: Props) {
   const [recording, setRecording] = useState(false);
   const [adding, setAdding] = useState(false);
   /** Questions in Nubnb's own dialog (Kian's ruling of 2026-10-12: no native browser dialogs in the admin). */
   const { ask, dialog } = useAsk();
   const range = monthRange(month);
-  /** The month's entries: an office cost by the month it was logged for (dispatch 36), any other by the day it was sent. */
-  const inMonth = (entry: CostEntryView) => entryMonth(entry) === month;
-  const mine = entries.filter((entry) => entry.property.id === propertyId);
-  /** The month's approved entries, newest first. */
-  const approved = mine.filter((entry) => entry.status === "approved" && inMonth(entry)).sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "") || a.id.localeCompare(b.id));
-  const pending = mine.filter((entry) => entry.status === "pending" && inMonth(entry)).length;
-  const readable = approved.filter((entry) => entry.linesNow.kind === "ok");
-  const totalCents = readable.reduce((sum, entry) => sum + (entry.linesNow.kind === "ok" ? entry.linesNow.totalCents : 0), 0);
-  const taxCents = readable.reduce((sum, entry) => sum + (entry.linesNow.kind === "ok" ? (entry.linesNow.taxCents ?? 0) : 0), 0);
-  const unreadable = approved.length - readable.length;
+  const totals = money.costTotals;
+  /**
+   * The month's cost lines, newest first: the approved ones, and any removed or rejected one a statement charged
+   * (listed so the head adds up to what the statements say).
+   */
+  const shown = useMemo(
+    () => money.costs.filter((line) => line.state === "confirmed" || (line.state === "setAside" && line.charges.length > 0)).sort((a, b) => (b.entry.createdAt ?? "").localeCompare(a.entry.createdAt ?? "") || a.entry.id.localeCompare(b.entry.id)),
+    [money.costs],
+  );
+  /** The head's split by statement, when the month's costs are not all on its own statement (T1). */
+  const split = totals.byStatement.some((row) => row.month !== month) || totals.unchargedCents !== 0 ? totals.byStatement : null;
 
   /** The recorded cost PDFs, and how each entry stands beside the newest for its day. */
   const pdfRecords = useMemo(() => readPdfRecords(exports).records, [exports]);
@@ -96,25 +115,14 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
     () => deletedSincePdf(pdfRecords, entries, propertyId).filter(({ record }) => record.from <= range.to && record.to >= range.from),
     [pdfRecords, entries, propertyId, range.from, range.to],
   );
-  /**
-   * Where an approved entry of the month goes when the month's finished statement does not print it (dispatch 36,
-   * Kian's ruling of 2026-10-12): the statement that printed it since, or else the next open month's.
-   */
-  const elsewhere = useMemo(() => {
-    if (!finishedReport || statements.kind !== "ready") return null;
-    const current = currentReports(statements.data.reports);
-    const next = statementMonthFor(month, new Set(current.map((report) => report.month)));
-    return (entryId: string) => current.find((report) => report.month !== month && report.entryIds.includes(entryId))?.month ?? next;
-  }, [finishedReport, statements, month]);
-  /** What the finished statement printed for each entry it carried, so a later change shows. */
-  const printed = useMemo(() => (finishedReport ? new Map(finishedReport.costs.map((cost) => [cost.entryId, cost.totalCents])) : null), [finishedReport]);
-  /** What else the statement carries: earlier-month entries and adjustments, as it prints them. */
-  const alsoCarried = useMemo(() => (statement && !statement.legacy ? printedLines({ lines: [], costs: statement.costs.filter((cost) => cost.group === "earlier"), adjustments: statement.adjustments, fee: null }) : []), [statement]);
+  /** What else the month's statement charges: earlier months' entries and adjustments, as cost amounts. */
+  const alsoCharged = money.alsoCharged;
   const patterns = useMemo(() => watchList(entries, today), [entries, today]);
 
   const exportReport = async (kind: "pdf" | "xlsx") => {
     if (recording) return;
-    const built = buildReport(entries, propertyId, range.from, range.to, new Date(), propertyName);
+    // Each entry with the statements that charge it, so an entry charged on another month's statement is marked (T1).
+    const built = buildReport(entries, propertyId, range.from, range.to, new Date(), propertyName, charges);
     if (built.kind === "unreadable") {
       show({ tone: "error", title: "This report cannot be made while an approved entry in it cannot be read.", detail: `Open ${built.entryIds.length === 1 ? "entry" : "entries"} ${built.entryIds.join(", ")} to see why. Nothing was downloaded.` });
       return;
@@ -208,8 +216,8 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
       <div className={styles.blockHead}>
         <h3 className={styles.blockTitle}>Approved costs</h3>
         <span className={styles.blockTotal}>
-          {approved.length === 0 ? "None" : `${approved.length === 1 ? "1 entry" : `${approved.length} entries`} · ${formatCents(totalCents)}${taxCents > 0 ? ` · tax ${formatCents(taxCents)}` : ""}`}
-          {unreadable > 0 && <span className={styles.noteWarn}> · {unreadable} cannot be added up</span>}
+          {totals.count === 0 ? "None" : `${totals.count === 1 ? "1 entry" : `${totals.count} entries`} · ${formatCents(totals.cents)}${totals.taxCents > 0 ? ` · tax ${formatCents(totals.taxCents)}` : ""}`}
+          {totals.unreadable > 0 && <span className={styles.noteWarn}> · {totals.unreadable} cannot be added up</span>}
         </span>
         <span className={styles.blockActions}>
           <button type="button" className={styles.btnGhost} disabled={recording} onClick={() => exportReport("xlsx")} title={`Approved entries of ${monthLabel(month)}, as a workbook`}>
@@ -227,11 +235,18 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
         </span>
       </div>
 
+      {split && (
+        <p className={styles.costSplit} role="status">
+          {split.map((row) => `${formatCents(row.cents)} on ${monthLabel(row.month)}’s statement${row.month === month ? "" : row.finished ? "" : ", not yet finished"}`).join(" · ")}
+          {totals.unchargedCents !== 0 && ` · ${formatCents(totals.unchargedCents)} on no statement`}
+        </p>
+      )}
+
       {adding && <AddCostForm propertyId={propertyId} month={month} today={today} onAdded={onEntryAdded} onClose={() => setAdding(false)} show={show} />}
 
-      {pending > 0 && (
+      {totals.waiting.count > 0 && (
         <p className={styles.noteWarn} role="status">
-          {pending === 1 ? "1 entry" : `${pending} entries`} sent in {monthLabel(month)} {pending === 1 ? "is" : "are"} pending and in no statement until reviewed.{" "}
+          {totals.waiting.count === 1 ? "1 entry" : `${totals.waiting.count} entries`} sent in {monthLabel(month)} {totals.waiting.count === 1 ? "is" : "are"} pending and in no statement until reviewed.{" "}
           <Link href={`/admin/costs?property=${encodeURIComponent(propertyId)}`} prefetch={false} className={styles.linkButton}>
             Review
           </Link>
@@ -247,7 +262,7 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
         </p>
       ))}
 
-      {approved.length === 0 && alsoCarried.length === 0 ? null : (
+      {shown.length === 0 && alsoCharged.length === 0 ? null : (
         <table className={styles.listTable}>
           <thead>
             <tr>
@@ -257,11 +272,12 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
             </tr>
           </thead>
           <tbody>
-            {approved.map((entry) => {
+            {shown.map((line) => {
+              const { entry } = line;
               const day = sentDay(entry.createdAt);
               const now = entry.linesNow;
               const pdf = pdfStateOf(entry);
-              const wasPrinted = printed?.get(entry.id);
+              const where = chargeWords(line, month);
               return (
                 <tr key={entry.id} className={styles.rowClick} onClick={() => onOpenEntry(entry.id)}>
                   {/* The cost is named by the day it was submitted (Kian, 2026-10-01), an office cost by its month and the day it was logged (Kian's ruling of 2026-10-12): what was bought is in the entry it opens. */}
@@ -282,48 +298,46 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
                     <KindBadge kind={entry.kind} />
                   </td>
                   <td className={styles.num}>
-                    {now.kind === "ok" ? (
-                      <>
-                        <span title={now.corrected ? `Corrected; sent as ${formatCents(now.sentTotalCents)}` : undefined}>
-                          {now.corrected ? "✎ " : ""}
-                          {formatCents(now.totalCents)}
-                        </span>
-                        {printed !== null && wasPrinted === undefined && elsewhere !== null && (
-                          <span className={styles.costMark} title={`${monthLabel(month)}'s statement was finished without it: it goes on ${monthLabel(elsewhere(entry.id))}'s.`}>
-                            on {monthLabel(elsewhere(entry.id))}’s statement
-                          </span>
-                        )}
-                        {wasPrinted !== undefined && wasPrinted !== now.totalCents && (
-                          <span className={`${styles.costMark} ${styles.costMarkWarn}`} title={`The finished statement printed this entry at ${formatCents(wasPrinted)}.`}>
-                            statement says {formatCents(wasPrinted)}
-                          </span>
-                        )}
-                        {pdf !== null && pdf.latest !== "same" && pdf.latest !== "not-listed" && (
-                          <span className={`${styles.costMark} ${pdf.latest === "corrected" ? "" : styles.costMarkWarn}`} title={`The cost PDF exported ${whenText(pdf.lastListed.record.createdAt)} shows this entry at ${formatCents(pdf.lastListed.printed.totalCents)}.`}>
-                            {pdf.latest === "corrected" ? "corrected since PDF" : "changed since PDF"}
-                          </span>
-                        )}
-                      </>
+                    {line.state === "setAside" ? (
+                      <span className={`${styles.costMark} ${styles.costMarkWarn}`} title="It no longer counts: what the statements charged for it is given back on the next open one.">
+                        {entry.status ?? "set aside"}
+                      </span>
+                    ) : now.kind === "ok" ? (
+                      <span title={now.corrected ? `Corrected; sent as ${formatCents(now.sentTotalCents)}` : undefined}>
+                        {now.corrected ? "✎ " : ""}
+                        {formatCents(now.totalCents)}
+                      </span>
                     ) : (
                       <span className={styles.noteWarn} title={now.reason}>
                         Cannot add up
+                      </span>
+                    )}
+                    {where !== null && (
+                      <span className={`${styles.costMark} ${line.charges.some((charge) => charge.month !== month) ? "" : styles.costMarkWarn}`} title="The statements that charge it, and their part (the month's money).">
+                        {where}
+                      </span>
+                    )}
+                    {pdf !== null && pdf.latest !== "same" && pdf.latest !== "not-listed" && (
+                      <span className={`${styles.costMark} ${pdf.latest === "corrected" ? "" : styles.costMarkWarn}`} title={`The cost PDF exported ${whenText(pdf.lastListed.record.createdAt)} shows this entry at ${formatCents(pdf.lastListed.printed.totalCents)}.`}>
+                        {pdf.latest === "corrected" ? "corrected since PDF" : "changed since PDF"}
                       </span>
                     )}
                   </td>
                 </tr>
               );
             })}
-            {alsoCarried.length > 0 && (
+            {alsoCharged.length > 0 && (
               <tr className={styles.costGroup}>
                 <td colSpan={3}>Also in this statement</td>
               </tr>
             )}
-            {alsoCarried.map((row) => (
+            {alsoCharged.map((row) => (
               <tr key={row.key} className={row.entryId ? styles.rowClick : undefined} onClick={row.entryId ? () => onOpenEntry(row.entryId) : undefined}>
                 <td colSpan={2} className={styles.costWhat}>
                   {row.description}
                 </td>
-                <td className={styles.num}>{formatCents(row.amountCents)}</td>
+                {/* A cost as an amount, as the entries above it (T9); below zero, money given back. */}
+                <td className={styles.num}>{formatCents(row.cents)}</td>
               </tr>
             ))}
           </tbody>

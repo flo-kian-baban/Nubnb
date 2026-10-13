@@ -15,6 +15,14 @@
  *              the four months before the current one, it, and the two after
  *   Right, the statement preview, always visible, on every tab.
  *
+ * ── One calculation (dispatch 37A) ──
+ * Every figure the page shows for the month — the preview, the tabs' heads,
+ * the revenue beside the fee's base, Finish, the Costs tab's lines and where
+ * each is charged — is the month's money's (app/lib/money/month.ts; Kian's
+ * ruling of 2026-10-13: no page computes its own). The page works out each
+ * entry's statements once for the property, and which lines came from an
+ * accepted Airbnb line from the property's lines (Kian's ruling M1).
+ *
  * ── The preview shows the month as it stands ──
  * Before anything is created, the preview is what the statement would be:
  * the approved costs already recorded, nothing typed yet, the totals. There
@@ -78,7 +86,6 @@ import {
   STATEMENTS_FROM_DEFAULT,
   STATEMENT_LIMITS,
   addMonths,
-  currentReports,
   displayRef,
   inStatementScope, isExcludedFromReporting,
   isClosedMonth,
@@ -92,7 +99,8 @@ import {
   type ReportFor,
   type StatementDraftView,
 } from "@/app/lib/reports/model";
-import { STANDING_LABELS, buildStatement, laterReferences, moneyMonthsByProperty, previousStatement, propertyMonthState, propertyMonths, reportingStatus, statementOf, type AnyStatement, type FinishClaim, type PropertyMonthRow } from "@/app/lib/reports/statement";
+import { STANDING_LABELS, laterReferences, moneyMonthsByProperty, previousStatement, propertyMonthState, propertyMonths, reportingStatus, statementOf, type FinishClaim, type PropertyMonthRow } from "@/app/lib/reports/statement";
+import { airbnbLineIdsOf, costCharges, frozenStatement, monthMoney, type Charge } from "@/app/lib/money/month";
 import { statementPdf } from "@/app/lib/reports/statement-pdf";
 import { checkoutsInMonth, finishChecks, type IncomeFacts } from "@/app/lib/reports/checks";
 import type { PropertyStatementsState } from "../costs/EntryPane";
@@ -279,6 +287,10 @@ function PropertyPageInner() {
 
   const data = statements.kind === "ready" ? statements.data : null;
   const costData = costs.kind === "ready" ? costs.data : null;
+  /** Every statement that charges each of the property's entries (dispatch 37A): one working-out for every month. */
+  const charges = useMemo(() => (data && costData ? costCharges({ propertyId, entries: costData.entries, reports: data.reports, management: data.management }) : null), [data, costData, propertyId]);
+  /** The statement lines that came from an accepted Airbnb line (Kian's ruling M1: a claw-back takes revenue off). */
+  const airbnbLineIds = useMemo(() => airbnbLineIdsOf(fromFiles.kind === "ready" ? fromFiles.data.lines : []), [fromFiles]);
 
   // ── The months ──
   /** The months this property has accepted income or approved costs in: owed whenever it was added (Kian's ruling of 2026-10-04). */
@@ -363,7 +375,7 @@ function PropertyPageInner() {
               <span>Retry</span>
             </button>
           </div>
-        ) : loading || !data || !costData || !months || !monthNow || !status ? (
+        ) : loading || !data || !costData || !months || !monthNow || !status || !charges ? (
           <div className={shared.loading}>
             <div className={shared.spinner} />
             <p>Loading the property…</p>
@@ -426,6 +438,8 @@ function PropertyPageInner() {
                 onMonth={setMonth}
                 fromFiles={fromFiles}
                 kept={keptMonths}
+                charges={charges}
+                airbnbLineIds={airbnbLineIds}
               />
             </div>
           </>
@@ -473,6 +487,10 @@ interface MonthWorkProps {
   fromFiles: Read<FromFiles>;
   /** Each month's typing, kept while another month is open (dispatch 34, S10). */
   kept: Map<string, KeptMonth>;
+  /** Every statement that charges each of the property's entries (dispatch 37A). */
+  charges: ReadonlyMap<string, Charge[]>;
+  /** The statement lines that came from an accepted Airbnb line. */
+  airbnbLineIds: ReadonlySet<string>;
 }
 
 /**
@@ -484,9 +502,8 @@ interface MonthWorkProps {
 function MonthWork(props: MonthWorkProps) {
   const { propertyId, month, today, tab, entries, exports, reports, draft, management, downloads, show, clear, onReload, onDraftSaved, onReportFinished, onManagement, onDownloaded } = props;
 
-  // ── The month's finished statement, if any ──
-  const live = useMemo(() => currentReports(reports).filter((r) => r.month === month).sort((a, b) => b.finishedAt.localeCompare(a.finishedAt))[0] ?? null, [reports, month]);
-  const finishedReport: MonthlyReportView | null = draft ? (draft.finishedAs !== null ? (reports.find((r) => r.id === draft.finishedAs) ?? live) : null) : live;
+  // ── The month's finished statement, if any (the month's money's rule) ──
+  const finishedReport: MonthlyReportView | null = useMemo(() => frozenStatement(reports, month, draft), [reports, month, draft]);
   const readOnly = finishedReport !== null;
   const previous = useMemo(() => previousStatement(reports, month), [reports, month]);
   const versions = useMemo(() => propertyMonthState({ propertyId, month, today, inScope: true, reports, drafts: draft ? [{ propertyId, month, updatedAt: draft.updatedAt, finishedAs: draft.finishedAs, superseding: draft.supersedes !== null }] : [] }).reports, [propertyId, month, today, reports, draft]);
@@ -536,27 +553,31 @@ function MonthWork(props: MonthWorkProps) {
   // ── The statement as it stands ──
   const parsed = useMemo(() => toDraft(typed), [typed]);
   const shownReportFor: ReportFor | null = reportFor.name.trim() === "" ? null : { name: reportFor.name.trim(), address: reportFor.address };
-  const built = useMemo(() => {
+  /** The month's money (dispatch 37A): the statement as it stands or as finished, its figures, and its costs. */
+  const money = useMemo(() => {
     // A record not saved yet starts its statements where every property's do (dispatch 34, S18: it read "2026-10" and left September's costs out of the preview).
     const record = management ? { ...management, reportFor: shownReportFor } : shownReportFor ? { id: propertyId, schemaVersion: 0, propertyId, reportFor: shownReportFor, owners: [], statementsFrom: STATEMENTS_FROM_DEFAULT, statementsUntil: null, defaultFeeRateBasisPoints: null, defaultFee: null, setAt: "" } : null;
-    return buildStatement({
+    return monthMoney({
       propertyId,
       propertyName: props.propertyName,
       month,
       entries,
       reports,
-      draft: { reference: typed.reference.trim(), reportDate: typed.reportDate, lines: parsed.lines, fee: parsed.fee, carried: parsed.carried, notes: typed.notes.trim() || null, supersedes },
+      // A finished month reads as stored; any other, as typed.
+      draft: finishedReport ? draft : { reference: typed.reference.trim(), reportDate: typed.reportDate, lines: parsed.lines, fee: parsed.fee, carried: parsed.carried, notes: typed.notes.trim() || null, supersedes, finishedAs: null },
       management: record,
+      airbnbLineIds: props.airbnbLineIds,
+      charges: props.charges,
     });
     // shownReportFor is derived from reportFor; comparing the object would redraw on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [propertyId, props.propertyName, month, entries, reports, parsed, typed.reference, typed.reportDate, typed.notes, supersedes, reportFor.name, reportFor.address, management]);
-  const statement: AnyStatement | null = useMemo(() => {
-    if (finishedReport) return statementOf(finishedReport, reports);
-    return built.kind === "ok" ? built.statement : null;
-  }, [finishedReport, reports, built]);
-  /** The figures the tabs show: the frozen statement's once finished, else the live build's. */
-  const sums = finishedReport ? (finishedReport.legacy ? null : finishedReport) : built.kind === "ok" ? built.statement : null;
+  }, [propertyId, props.propertyName, month, entries, reports, parsed, typed.reference, typed.reportDate, typed.notes, supersedes, reportFor.name, reportFor.address, management, finishedReport, draft, props.airbnbLineIds, props.charges]);
+  /** The draft built as it stands; null while the month is finished and not being corrected. */
+  const built = money.build;
+  const statement = money.statement;
+  /** The figures the tabs show: the statement on screen (the correction's while one is written); and, beside a correction, the statement as sent. */
+  const figures = money.correction ?? money.figures;
+  const sentFigures = money.correcting ? money.figures : null;
 
   /**
    * The lines from the platforms' files (dispatch 27): which of the month's lines an admin accepted from a
@@ -582,7 +603,7 @@ function MonthWork(props: MonthWorkProps) {
   }, [props.fromFiles, files.pending, month]);
 
   /** What Finish checks (dispatch 34, Kian's rulings of 2026-10-12): refused only without a Report For name; everything else warns. */
-  const checks = useMemo(() => (built.kind === "ok" && !readOnly ? finishChecks({ statement: built.statement, reports, entries, income: incomeFacts, today }) : null), [built, readOnly, reports, entries, incomeFacts, today]);
+  const checks = useMemo(() => (built?.kind === "ok" && !readOnly ? finishChecks({ statement: built.statement, reports, entries, income: incomeFacts, today, revenueCents: figures?.revenueCents }) : null), [built, readOnly, reports, entries, incomeFacts, today, figures]);
   /** The later statements that adjusted or carried from the month's finished one: the Delete and Correct dialogs name them (Kian's ruling of 2026-10-12). */
   const later = useMemo(() => (finishedReport ? laterReferences(finishedReport, reports) : []), [finishedReport, reports]);
   const laterWords = later.map(({ report, adjusted, carried }) => `${displayRef(report)} (${monthLabel(report.month)}) ${[adjusted ? "adjusted its costs" : null, carried ? "carried its balance" : null].filter(Boolean).join(" and ")}`);
@@ -717,7 +738,7 @@ function MonthWork(props: MonthWorkProps) {
   // ── Finish ──
   /** The Finish button: what cannot be finished is said; otherwise the dialog asks, listing what Finish warns about. */
   const finish = async () => {
-    if (built.kind !== "ok" || finishing || readOnly) return;
+    if (built?.kind !== "ok" || finishing || readOnly) return;
     clear();
     const problems = [...parsed.problems, ...(typed.reference.trim() === "" ? ["Give the statement a reference, like Aug-321-John"] : []), ...(isDayText(typed.reportDate) ? [] : ["Give the statement a date"])];
     if (problems.length > 0) {
@@ -747,7 +768,7 @@ function MonthWork(props: MonthWorkProps) {
 
   /** Finish and issue, once the dialog is answered. */
   const finishConfirmed = async () => {
-    if (built.kind !== "ok" || finishing || readOnly) return;
+    if (built?.kind !== "ok" || finishing || readOnly) return;
     setAsking(null);
     setFinishing(true);
     const claim: FinishClaim = built.claim;
@@ -872,7 +893,8 @@ function MonthWork(props: MonthWorkProps) {
   };
 
   const monthOpen = !isClosedMonth(month, today);
-  const approvedInMonth = built.kind === "ok" ? built.statement.costs.filter((c) => c.group === "month").length : null;
+  /** The Costs tab's count: the month's approved costs, as its head counts them (T8). */
+  const approvedInMonth = money.costTotals.count;
 
   return (
     <div className={styles.work}>
@@ -888,7 +910,7 @@ function MonthWork(props: MonthWorkProps) {
           ))}
         </div>
 
-        {built.kind === "unreadable" && (
+        {built?.kind === "unreadable" && (
           <p className={styles.noteWarn} role="alert">
             An approved entry this statement would carry cannot be added up ({built.entryIds.join(", ")}). Open it under Costs; no statement can be made until it reads.
           </p>
@@ -904,8 +926,8 @@ function MonthWork(props: MonthWorkProps) {
               today={today}
               entries={entries}
               exports={exports}
-              statement={statement}
-              finishedReport={finishedReport}
+              money={money}
+              charges={props.charges}
               statements={props.statementsState}
               openEntryId={props.entryId}
               onOpenEntry={props.onEntry}
@@ -916,7 +938,7 @@ function MonthWork(props: MonthWorkProps) {
               show={show}
             />
           )}
-          {tab === "income" && <IncomeTab typed={typed} readOnly={readOnly} sums={sums} onChange={change} show={show} files={files} />}
+          {tab === "income" && <IncomeTab typed={typed} readOnly={readOnly} figures={figures} sent={sentFigures} onChange={change} show={show} files={files} />}
           {tab === "details" && (
             <DetailsTab
               typed={typed}
@@ -928,11 +950,11 @@ function MonthWork(props: MonthWorkProps) {
               finishedReport={finishedReport}
               previous={previous}
               management={management}
-              carriedCents={finishedReport ? (finishedReport.legacy ? null : finishedReport.carried ? finishedReport.carriedCents : null) : built.kind === "ok" && built.statement.carried ? built.statement.carried.amountCents : (parsed.carried?.amountCents ?? null)}
+              carriedCents={finishedReport ? (finishedReport.legacy ? null : finishedReport.carried ? finishedReport.carriedCents : null) : built?.kind === "ok" && built.statement.carried ? built.statement.carried.amountCents : (parsed.carried?.amountCents ?? null)}
               reports={reports}
               month={month}
               carriedAdjustments={statement && !statement.legacy ? statement.carriedAdjustments : []}
-              revenueCents={sums ? sums.incomeCents : null}
+              revenue={figures}
               heldBack={save.kind === "saved" || save.kind === "none" ? (save.heldBack ?? []) : []}
             />
           )}
@@ -948,8 +970,8 @@ function MonthWork(props: MonthWorkProps) {
               supersedes={readOnly ? null : supersedes}
               save={save}
               reportForState={reportForState}
-              payableCents={sums ? sums.payableCents : null}
-              buildable={built.kind === "ok"}
+              payableCents={figures ? figures.payableCents : null}
+              buildable={built?.kind === "ok"}
               finishing={finishing}
               onFinish={finish}
               onCorrect={correct}
@@ -973,12 +995,12 @@ function MonthWork(props: MonthWorkProps) {
       <div className={styles.side}>
         <div className={styles.preview} aria-label="The statement as a PDF">
           <PdfPages bytes={statement ? previewBytes : null} label={`${monthLabel(month)} statement`} />
-          {!statement && <div className={styles.previewEmpty}>{built.kind === "unreadable" ? "No statement until every approved entry can be added up." : "No statement to show."}</div>}
+          {!statement && <div className={styles.previewEmpty}>{built?.kind === "unreadable" ? "No statement until every approved entry can be added up." : "No statement to show."}</div>}
         </div>
       </div>
 
       {/* ── Finish: what it warns about, and the one extra confirmation while anything does ── */}
-      {asking === "finish" && built.kind === "ok" && checks && (
+      {asking === "finish" && built?.kind === "ok" && checks && (
         <Dialog
           title={`Finish and issue # ${typed.reference.trim()}?`}
           onClose={() => setAsking(null)}

@@ -20,6 +20,7 @@ import type {
   StatementDraftView,
 } from '@/app/lib/reports/model';
 import type { FinishClaim } from '@/app/lib/reports/statement';
+import type { Figures } from '@/app/lib/money/month';
 import type { EmptyFinishOutcome, EmptyMonth } from '@/app/lib/reports/empty';
 
 export type ReportResult<T> =
@@ -35,6 +36,15 @@ export interface TrackerData {
   properties: { id: string; name: string | null; createdMonth?: string | null; moneyMonths?: string[] }[];
   entries: CostEntryView[];
   unreadable: { reports: number; drafts: number; downloads: number };
+  /** The panel's figures by month and property, the month's money's (dispatch 37A). */
+  figures: Record<string, Record<string, PanelFigures>>;
+}
+
+/** One property-month's figures for the Statements panel: the statement the owner holds, or the draft as it stands; a correction's beside it. */
+export interface PanelFigures {
+  figures: Figures;
+  correction: Figures | null;
+  asItStands: boolean;
 }
 
 export interface StatementBundle {

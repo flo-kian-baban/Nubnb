@@ -1,0 +1,80 @@
+═══ 1. C3 · an office cost logged on 12 October for September ($85.00), beside a cleaner cost sent 12 October ($20.00) ═══
+  entryMonth: office 2026-09 · cleaner (no month field) 2026-10 · the office view's month field: "2026-09"
+  moneyMonthsByProperty: [["TESTPROPc3aaaaaaaaa1",["2026-09","2026-10"]]]
+
+  a) Nothing finished.
+     statementMonthFor(2026-09, {}) = 2026-09
+    September preview:
+      Expense - ref TESTEN · Sep 2026 (logged Oct 12)  -$85.00
+    October preview:
+      Expense - ref TESTEN · Oct 12, 2026  -$20.00
+
+  b) September finished on 5 October, before the cost was logged; then October.
+     statementMonthFor(2026-09, {2026-09}) = 2026-10
+    October preview:
+      Expense - ref TESTEN · Oct 12, 2026  -$20.00
+      Expense - ref TESTEN · Sep 2026 (logged Oct 12)  -$85.00
+    October's cost rows as stored: [{"entryId":"TESTENTRYoffice0sep1","group":"earlier","day":"2026-10-12","month":"2026-09","totalCents":8500,"description":"ref TESTEN · Sep 2026 (logged Oct 12)"},{"entryId":"TESTENTRYcleaner0oct","group":"month","day":"2026-10-12","totalCents":2000,"description":"ref TESTEN · Oct 12, 2026"}]
+
+  c) September and October finished, October without it (finished first, say); then November.
+     statementMonthFor(2026-09, {2026-09, 2026-10}) = 2026-11
+    October as finished:
+      Expense - ref TESTEN · Oct 12, 2026  -$20.00
+    November preview:
+      Expense - ref TESTEN · Sep 2026 (logged Oct 12)  -$85.00
+
+  d) The same cost logged for October (month 2026-10) with September finished: October, as its own month.
+    October preview:
+      Expense - ref TESTEN · Oct 2026 (logged Oct 12)  -$85.00
+      Expense - ref TESTEN · Oct 12, 2026  -$20.00
+
+  e) An office cost written before dispatch 36 (no month field), sent 12 October: October, by the day sent.
+    entryMonth = 2026-10; September preview:
+      (no rows)
+    October preview:
+      Expense - ref TESTEN · Oct 2026 (logged Oct 12)  -$85.00
+
+  f) The month ZIP (selectMonthPackage) on 12 October: which month's folder lists the September office cost.
+    2026-09: entries named ["TESTENTRYoffice0sep1"] · folders [{"property":"TESTPROPc3aaaaaaaaa1","entries":[]}]
+    2026-10: entries named ["TESTENTRYcleaner0oct"] · folders [{"property":"TESTPROPc3aaaaaaaaa1","entries":[]}]
+
+  g) The ledger (Kian's ruling of 2026-10-12: exports place costs by the statements' month rule).
+    ledgerDay: office for September, logged 12 Oct → 2026-09-30 · cleaner sent 12 Oct → 2026-10-12 · office for October → 2026-10-12
+    officeWhen: "Sep 2026 (logged Oct 12)" · for October: "Oct 2026 (logged Oct 12)" · a cleaner entry: null · logged 5 Jan 2027 for Dec 2026: "Dec 2026 (logged Jan 5, 2027)"
+    2026-09-01 – 2026-09-30: 2026-09-01 – 2026-09-30 · TESTENTRYoffice0sep1 placed 2026-09-30 dated Sep 2026 (logged Oct 12) $85.00 · total $85.00
+    2026-10-01 – 2026-10-31: 2026-10-01 – 2026-10-31 · TESTENTRYcleaner0oct placed 2026-10-12 dated 2026-10-12 $20.00 · total $20.00
+    2026-09-15 – 2026-10-15: 2026-09-15 – 2026-10-15 · TESTENTRYoffice0sep1 placed 2026-09-30 dated Sep 2026 (logged Oct 12) $85.00 | TESTENTRYcleaner0oct placed 2026-10-12 dated 2026-10-12 $20.00 · total $105.00
+    (open) – (open): 2026-09-30 – 2026-10-12 · TESTENTRYoffice0sep1 placed 2026-09-30 dated Sep 2026 (logged Oct 12) $85.00 | TESTENTRYcleaner0oct placed 2026-10-12 dated 2026-10-12 $20.00 · total $105.00
+    ledger-september.pdf 0bb442f17a256cd8a91ca16b83a10b468923fc20c1d12c9a7838f55b991f30dd · ledger-september.xlsx de2369f1786adc0a19c83d6f005e1806ee9ff1d883a1e0553c8cea68f572de4f
+
+═══ 2. The title mark · an October file with three titles: one linked, one set aside, one neither ═══
+  titles: [{"title":"__TEST__ Gone Cottage","rows":2,"amount":"$745.73","link":"not-nubnb","setAside":true},{"title":"__TEST__ Linked Loft","rows":1,"amount":"$500.00","link":"TESTPROPlinkedaaaaa1","setAside":false},{"title":"__TEST__ Unknown Flat","rows":1,"amount":"$200.00","link":null,"setAside":false}]
+  to review: [{"property":"TESTPROPlinkedaaaaa1","lines":1,"amount":"$500.00"}]
+  rejected: 2 (__TEST__ Gone Cottage, __TEST__ Gone Cottage)
+  gaps.unlinked: ["__TEST__ Unknown Flat"]
+  gaps.missing: ["__TEST__ Old Name"]  (the set-aside title absent from the file is not "missing")
+  unlinkedTitles (what the bulk finish refuses on): [{"month":"2026-10","title":"__TEST__ Unknown Flat","rows":1,"amountCents":20000}]
+
+═══ 3. emptyMonth · as of 1 November 2026, October (Due) and September (Past due) ═══
+
+  October 2026:
+    eligible (3):
+      A · empty, last statement Sept-321-Ann · due · reference "Oct-321-Ann"
+      B · added in October, no statement yet · due · reference null
+      M · empty draft, reference typed · due · reference "Oct-M-typed"
+    left out (8):
+      C · no Report For · No Report For name.
+      D · calendar stays not in the file · Its calendar shows check-ins in October 2026 that the month's Airbnb file does not hold.
+      E · draft with a line · A draft is in progress.
+      F · Airbnb lines waiting · 2 Airbnb lines wait on the Income page.
+      G · an office cost for October · It has costs, an adjustment or a carried balance to settle.
+      K · September closed owing NuBNB · September 2026 closed owing NuBNB $300.00; this statement does not carry it.
+      L · a pending entry · 1 entry sent in October 2026 is still pending and not in it.
+      N · a September cost on October (September finished) · It has costs, an adjustment or a carried balance to settle.
+    unsettled: [{"title":"__TEST__ Unknown Flat","rows":1,"amountCents":20000}]
+
+  September 2026:
+    eligible (1):
+      I · October finished · pastDue · reference null
+    left out (0):
+    unsettled: [{"title":"__TEST__ Unknown Flat","rows":1,"amountCents":20000}]

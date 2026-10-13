@@ -44,7 +44,10 @@
  * ── What is never done ──
  * A finished report is never updated, and deleted only as above; a draft is
  * never deleted; no entry is written. The stored money figures are what was
- * printed and are never read back into a total.
+ * printed. Since dispatch 37A no page reads them as figures: every page reads
+ * the month's money (app/lib/money/month.ts), which takes a finished
+ * statement's Total, carried balance and Revenue Share from its rows as
+ * printed and places its lines' revenue by source (Kian's ruling M1).
  */
 
 import { createHash } from 'crypto';
@@ -70,11 +73,14 @@ import {
   INCOME_SOURCES,
   STATEMENTS_FROM_DEFAULT,
   STATEMENT_LIMITS,
+  addMonths,
   currentReports,
   feeComputed,
   isDayText,
   isMonth,
   lineAmount,
+  monthOfDay,
+  monthsBetween,
   lineFromIncomeRow,
   readMonthlyReport,
   readPropertyManagement,
@@ -95,7 +101,9 @@ import {
   type StatementDraftSummary,
   type StatementDraftView,
 } from '@/app/lib/reports/model';
-import { buildStatement, chargedBy, moneyMonthsByProperty, printedBy, sameClaim, statementMonthFor, type FinishClaim, type Statement } from '@/app/lib/reports/statement';
+import { buildStatement, chargedBy, moneyMonthsByProperty, nothingToReport, printedBy, sameClaim, statementMonthFor, type FinishClaim, type Statement } from '@/app/lib/reports/statement';
+import { airbnbLineIdsOf, costCharges, monthMoney, type Figures } from '@/app/lib/money/month';
+import { EARNINGS_LINES_COLLECTION, readEarningsLine } from '@/app/lib/income/model';
 import { statementPdf } from '@/app/lib/reports/statement-pdf';
 
 const CONTROL_CHARACTER = /\p{Cc}/u;
@@ -828,6 +836,16 @@ export async function deleteFinishedStatement(reportId: string, input: { downloa
 
 // ─── The tracker ───────────────────────────────────────────────
 
+/**
+ * One property-month's figures for the Statements panel (dispatch 37A): the month's money's, the statement the owner
+ * holds (finished), or the draft as it stands (`asItStands`); and beside a correction being written, its figures.
+ */
+export interface PanelFigures {
+  figures: Figures;
+  correction: Figures | null;
+  asItStands: boolean;
+}
+
 export interface TrackerData {
   reports: MonthlyReportSummary[];
   drafts: StatementDraftSummary[];
@@ -838,6 +856,12 @@ export interface TrackerData {
   entries: CostEntryView[];
   /** Documents left out because they are not in the written shape. */
   unreadable: { reports: number; drafts: number; downloads: number };
+  /**
+   * The panel's figures by month and property (dispatch 37A), worked out by the month's money: every month from
+   * September 2026 to the next one, and any month a statement or draft names; a property-month only when it has a
+   * statement, a draft, or something to report.
+   */
+  figures: Record<string, Record<string, PanelFigures>>;
 }
 
 export function summarise(report: MonthlyReportView): MonthlyReportSummary {
@@ -854,21 +878,27 @@ export function summarise(report: MonthlyReportView): MonthlyReportSummary {
  */
 export async function readTracker(): Promise<TrackerData> {
   const db = getAdminDb();
-  const [reportsSnap, draftsSnap, downloadsSnap, management, costs] = await Promise.all([
+  const [reportsSnap, draftsSnap, downloadsSnap, management, costs, acceptedSnap] = await Promise.all([
     db.collection(MONTHLY_REPORTS_COLLECTION).get(),
     db.collection(MONTHLY_REPORT_DRAFTS_COLLECTION).get(),
     db.collection(REPORT_DOWNLOADS_COLLECTION).get(),
     listManagement(),
     listCosts(),
+    // The accepted Airbnb lines: which statement lines are Airbnb's, for the panel's revenue (Kian's ruling M1).
+    db.collection(EARNINGS_LINES_COLLECTION).where('status', '==', 'accepted').get(),
   ]);
   const unreadable = { reports: 0, drafts: 0, downloads: 0 };
   const reports: MonthlyReportSummary[] = [];
+  const fullReports: MonthlyReportView[] = [];
   for (const doc of reportsSnap.docs) {
     const report = readMonthlyReport(doc.id, doc.data());
-    if (report) reports.push(summarise(report));
-    else unreadable.reports += 1;
+    if (report) {
+      reports.push(summarise(report));
+      fullReports.push(report);
+    } else unreadable.reports += 1;
   }
   const drafts: StatementDraftSummary[] = [];
+  const fullDrafts: StatementDraftView[] = [];
   /** Which drafts hold lines, for the months with money in them; the summaries carry no lines. */
   const withLines: { propertyId: string; month: string; lines: unknown[] }[] = [];
   for (const doc of draftsSnap.docs) {
@@ -876,6 +906,7 @@ export async function readTracker(): Promise<TrackerData> {
     if (draft) {
       drafts.push({ id: draft.id, propertyId: draft.propertyId, month: draft.month, revision: draft.revision, updatedAt: draft.updatedAt, finishedAs: draft.finishedAs, superseding: draft.supersedes !== null });
       withLines.push({ propertyId: draft.propertyId, month: draft.month, lines: draft.lines });
+      fullDrafts.push(draft);
     } else unreadable.drafts += 1;
   }
   const downloads: ReportDownloadView[] = [];
@@ -888,5 +919,45 @@ export async function readTracker(): Promise<TrackerData> {
   // A month with accepted income or approved costs is owed whenever the property was added (Kian's ruling of 2026-10-04).
   const money = moneyMonthsByProperty(withLines, costs.entries);
   const properties = costs.properties.map((property) => ({ ...property, moneyMonths: money.get(property.id) ?? [] }));
-  return { reports, drafts, downloads, management, properties, entries: costs.entries, unreadable };
+  const airbnbLineIds = airbnbLineIdsOf(acceptedSnap.docs.map((doc) => readEarningsLine(doc.id, doc.data())).filter((line) => line !== null));
+  const figures = panelFigures({ today: torontoDayOf(new Date()), properties, entries: costs.entries, reports: fullReports, drafts: fullDrafts, management, airbnbLineIds });
+  return { reports, drafts, downloads, management, properties, entries: costs.entries, unreadable, figures };
+}
+
+/**
+ * The Statements panel's figures (dispatch 37A): for each month it can show — from September 2026 to the month after
+ * this one, and any month a statement or draft names — each property's month's money. Only a property-month with a
+ * statement, a draft or something to report is kept, so the answer stays small.
+ */
+export function panelFigures(input: {
+  today: string;
+  properties: { id: string; name: string | null }[];
+  entries: CostEntryView[];
+  reports: MonthlyReportView[];
+  drafts: StatementDraftView[];
+  management: PropertyManagementView[];
+  airbnbLineIds: ReadonlySet<string>;
+}): Record<string, Record<string, PanelFigures>> {
+  const thisMonth = monthOfDay(input.today);
+  const named = [...input.reports.map((report) => report.month), ...input.drafts.map((draft) => draft.month)];
+  const months = [...new Set([...monthsBetween(STATEMENTS_FROM_DEFAULT, addMonths(thisMonth, 1)), ...named])].sort();
+  const records = new Map(input.management.map((record) => [record.propertyId, record]));
+  const out: Record<string, Record<string, PanelFigures>> = {};
+  for (const property of input.properties) {
+    const entries = input.entries.filter((entry) => entry.property.id === property.id);
+    const reports = input.reports.filter((report) => report.propertyId === property.id);
+    const drafts = input.drafts.filter((draft) => draft.propertyId === property.id);
+    const management = records.get(property.id) ?? null;
+    if (entries.length === 0 && reports.length === 0 && drafts.length === 0) continue;
+    const charges = costCharges({ propertyId: property.id, entries, reports, management });
+    for (const month of months) {
+      const draft = drafts.find((d) => d.month === month) ?? null;
+      const one = monthMoney({ propertyId: property.id, propertyName: property.name?.trim() || 'Unnamed property', month, entries, reports, draft, management, airbnbLineIds: input.airbnbLineIds, charges });
+      if (one.figures === null || one.held === null) continue;
+      const empty = one.held.legacy ? false : nothingToReport(one.held);
+      if (one.report === null && draft === null && empty) continue;
+      (out[month] ??= {})[property.id] = { figures: one.figures, correction: one.correction, asItStands: one.report === null };
+    }
+  }
+  return out;
 }

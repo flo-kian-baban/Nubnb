@@ -22,7 +22,11 @@
  *
  * Dispatch 34: the month's revenue is shown beside the base, never filled in,
  * and the revenue when the base was typed is kept with the fee, so Finish can
- * warn once the lines change (S6); Report For says when the PDF will cut it
+ * warn once the lines change (S6). Since dispatch 37A the revenue is the
+ * month's money's: an Airbnb claw-back takes it off, and what Airbnb actually
+ * paid is said beside it (Kian's ruling M1: the fee base is what Airbnb
+ * actually paid). The fee reads as an amount deducted, as the carried balance
+ * does (T9); Report For says when the PDF will cut it
  * short (S25); the carried balance reads as the PDF prints it, the amount
  * deducted (S17); a fee or balance not saved because it does not read yet
  * says so (S10).
@@ -31,6 +35,7 @@
 import { formatCents } from "@/app/lib/cleaners/model";
 import { STATEMENT_LIMITS, monthLabel, type MonthlyReportView, type PropertyManagementView, type StatementCarriedAdjustment } from "@/app/lib/reports/model";
 import { carriedFromMonth, feeRateSuggestion, uncarriedDebts } from "@/app/lib/reports/statement";
+import type { IncomeFigures } from "@/app/lib/money/month";
 import { reportForCut } from "@/app/lib/reports/statement-pdf";
 import { amountField, readAmount } from "../costs/cost-display";
 import { feeNow, rateField, type FeeDraft, type HeldPart, type ReportForDraft, type Typed } from "./statement-form";
@@ -55,13 +60,14 @@ interface Props {
   month: string;
   /** Carried balances this statement settles (dispatch 35). */
   carriedAdjustments: StatementCarriedAdjustment[];
-  /** The month's revenue, the positive lines, as the statement adds it up; null when it cannot be built. */
-  revenueCents: number | null;
+  /** The month's revenue and what Airbnb paid, as the month's money gives them (dispatch 37A, M1); null when the statement cannot be built. */
+  revenue: Pick<IncomeFigures, "revenueCents" | "airbnbCents"> | null;
   /** Parts not saved because they do not read yet (dispatch 34, S10). */
   heldBack: HeldPart[];
 }
 
-export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForState, onReportFor, finishedReport, previous, management, carriedCents, reports, month, carriedAdjustments, revenueCents, heldBack }: Props) {
+export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForState, onReportFor, finishedReport, previous, management, carriedCents, reports, month, carriedAdjustments, revenue, heldBack }: Props) {
+  const revenueCents = revenue?.revenueCents ?? null;
   const fee = typed.fee ? feeNow(typed.fee) : null;
   const setFee = (patch: Partial<FeeDraft>) => typed.fee && onChange({ ...typed, fee: { ...typed.fee, ...patch } });
   /** The earlier months that closed owing NuBNB and that no statement carries (Kian's ruling: offered until one does). */
@@ -102,7 +108,8 @@ export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForStat
         <div className={styles.blockHead}>
           <h3 className={styles.blockTitle}>Management fee</h3>
           {!readOnly && heldBack.includes("fee") && <span className={styles.noteWarn}>Not saved until complete</span>}
-          <span className={styles.blockTotal}>{fee?.amountCents != null ? formatCents(-fee.amountCents) : typed.fee ? "—" : "None"}</span>
+          {/* An amount, named, as the carried balance reads (dispatch 37A, T9); the PDF's row prints it below zero. */}
+          <span className={styles.blockTotal}>{fee?.amountCents != null ? `${formatCents(fee.amountCents)} deducted` : typed.fee ? "—" : "None"}</span>
           {!readOnly && (
             <span className={styles.blockActions}>
               {typed.fee ? (
@@ -142,7 +149,12 @@ export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForStat
               />
               {!readOnly && fee.baseMissing && <span className={styles.noteWarn}>type the base the rate applies to</span>}
               {/* Shown beside the base, never filled into it (dispatch 26: the base has no default). */}
-              {!readOnly && revenueCents !== null && <span className={styles.note}>revenue {formatCents(revenueCents)}</span>}
+              {!readOnly && revenue !== null && (
+                <span className={styles.note}>
+                  revenue {formatCents(revenue.revenueCents)}
+                  {revenue.airbnbCents !== 0 && ` · Airbnb paid ${formatCents(revenue.airbnbCents)}`}
+                </span>
+              )}
             </div>
             <div className={`${styles.field} ${styles.fieldAmount}`}>
               <label className={styles.fieldLabel} htmlFor="fee-amount">Amount</label>

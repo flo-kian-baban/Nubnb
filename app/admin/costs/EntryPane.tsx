@@ -73,7 +73,7 @@ import { AlertTriangle, Ban, Check, CircleMinus, Eye, Plus, Trash2, X } from "lu
 import { NoticeBanner, useNotice, type Notice } from "../components/Notice";
 import { currentReports, displayRef, monthLabel, type MonthlyReportView } from "@/app/lib/reports/model";
 import type { PropertyStatements } from "@/app/lib/reports-client";
-import { statementMonthFor } from "@/app/lib/reports/statement";
+import { costCharges } from "@/app/lib/money/month";
 import { changeEntryLine, changeEntryTax, deleteEntry, markEntrySeen, setEntryStatus, type CostResult, type EntryChange } from "@/app/lib/costs-client";
 import {
   ENTRY_STATUS_LABELS,
@@ -826,7 +826,9 @@ export function EntryPane({ entry, pdf, pattern, statements, onChanged, onDelete
  * The way to the entry's property page, and to the statement it went into
  * (dispatch 23D): the current statement that printed it, with a replaced one
  * or an adjustment named; or, when none has, where it will go — its month's
- * statement, or a later one as a late entry — or why it goes into none.
+ * statement, or a later one as a late entry — or why it goes into none. Where
+ * it goes, and where a change since goes, are the month's money's (dispatch
+ * 37A, `costCharges`): the statement the Costs tab and the ledger name.
  */
 function StatementLinks({ entry, statements }: { entry: CostEntryView; statements: PropertyStatementsState | null }) {
   const propertyId = entry.property.id;
@@ -844,8 +846,11 @@ function StatementLinks({ entry, statements }: { entry: CostEntryView; statement
   } else if (statements.kind === "error") {
     statement = <span className={styles.noteWarn}>Its statement could not be looked up: {statements.title}</span>;
   } else {
-    const { reports } = statements.data;
+    const { reports, management } = statements.data;
     const current = new Set(currentReports(reports).map((r) => r.id));
+    /** The open months that will charge it: the month's money's (dispatch 37A). */
+    const pending = (costCharges({ propertyId, entries: [entry], reports, management }).get(entry.id) ?? []).filter((charge) => charge.reportId === null);
+    const change = pending.find((charge) => charge.kind === "adjustment") ?? null;
     const printed = reports.filter((r) => r.entryIds.includes(entry.id)).sort((a, b) => b.finishedAt.localeCompare(a.finishedAt));
     const live = printed.find((r) => current.has(r.id)) ?? null;
     const adjusted = reports.filter((r) => current.has(r.id) && r.adjustments.some((a) => a.entryId === entry.id)).sort((a, b) => b.finishedAt.localeCompare(a.finishedAt));
@@ -858,6 +863,14 @@ function StatementLinks({ entry, statements }: { entry: CostEntryView; statement
             Open the statement
           </Link>
           {replacedCount > 0 && <span className={styles.muted}> · also in {replacedCount === 1 ? "a statement" : `${replacedCount} statements`} since replaced</span>}
+          {change && (
+            <>
+              <br />A change of {formatCents(change.cents)} since goes on {monthLabel(change.month)}’s statement.{" "}
+              <Link href={editor(change.month)} prefetch={false} className={styles.linkButton}>
+                Open it
+              </Link>
+            </>
+          )}
         </>
       );
     } else if (printed.length > 0) {
@@ -870,8 +883,8 @@ function StatementLinks({ entry, statements }: { entry: CostEntryView; statement
         </>
       );
     } else if (entry.status === "approved") {
-      // Its month's statement, or the next open one's once that is finished (Kian's ruling of 2026-10-12).
-      const goesOn = month ? statementMonthFor(month, new Set(currentReports(reports).map((r) => r.month))) : null;
+      // Its month's statement, or the next open one's once that is finished (Kian's ruling of 2026-10-12), as the month's money places it.
+      const goesOn = pending.find((charge) => charge.kind === "cost")?.month ?? null;
       statement = month && goesOn ? (
         <>
           Not yet in a finished statement: {goesOn === month ? `it belongs to ${monthLabel(month)}’s.` : `it belongs to ${monthLabel(month)}, which is finished, so it goes on ${monthLabel(goesOn)}’s.`}{" "}
@@ -879,6 +892,8 @@ function StatementLinks({ entry, statements }: { entry: CostEntryView; statement
             Open {monthLabel(goesOn)}’s statement
           </Link>
         </>
+      ) : month ? (
+        <>Not in a statement: it belongs to {monthLabel(month)}, before this property&apos;s statements begin, and that month&apos;s statement is finished.</>
       ) : (
         <>Not yet in a finished statement, and its day cannot be read.</>
       );

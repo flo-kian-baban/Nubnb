@@ -2233,3 +2233,84 @@ Kian's rulings of 2026-10-12 are in `CLAUDE.md` under *Office costs, empty month
 - **October's dialog in the browser.** Kian checks it on 1 November, before any real statement is finished with it. "Corner Penthouse l Tall Ceiling" will be on it, ticked, until it is unticked or given a reference.
 - **The month ZIP's placement** of an office cost (pure only).
 - **The `/admin/costs` ledger's date filter** with an office cost (the same function as the exports; not opened).
+
+## 39. One calculation per property-month: dispatch 37A of the dispatch 37 plan (2026-10-13)
+
+Kian's rulings of 2026-10-13 are in `CLAUDE.md` under *The month's money*: the one calculation, M1 (claw-backs) and M2 (money months). What follows is how they were built, the developer's decisions where they leave room, and how it was checked. Nothing stored changes: no record is rewritten, finishing stores the same shape and values, and every printed statement is byte-identical.
+
+### 39.1 What was built
+
+- **The month's money** (`app/lib/money/month.ts`, pure and client-safe):
+  - `monthMoney` for one property and month: the statement (frozen when finished, built live otherwise), the figures of the statement the owner holds, the correction's figures beside them while one is written, the statement's lines with their source, the month's cost lines with every statement that charges each, their totals, and what the statement charges for other months.
+  - `buildStatement` stays the statement's arithmetic. The preview, Finish's claim and every byte printed are its, unchanged; the month's money is built around it.
+  - `figuresOf` and `incomeFigures` place each line by its source (M1); `costCharges` says which statements charge each cost; `frozenStatement` is the property page's rule for "finished", now in one place; `airbnbLineIdsOf` reads which draft lines came from an accepted Airbnb line (`decided.lineId`).
+- **Every reader switched** (plan §5.1; T-numbers are the plan's):
+
+| Reader | Now reads | Closes |
+|---|---|---|
+| Property page: preview, Finish, Income tab head, revenue beside the fee base, Finish tab's Revenue Share | `monthMoney` | T4 |
+| Property page: Costs tab head, its split by statement, row marks, "Also in this statement", the tab's count | `monthMoney`'s cost lines and charges | T1, T8, T9 |
+| Ledger: Costs tab and `/admin/costs` exports, the ledger's line and rows | `buildReport` with `costCharges` | T1 |
+| Entry pane: "Property and statement" | `costCharges` | T1 |
+| Costs page totals and Items bought | approved and pending apart, tax rows | T5 |
+| Home: Statements panel rows | `monthMoney` on the server, in the tracker's read (`panelFigures`) | T2, T4, T7 |
+| Income page: By property | `incomeFigures`, the statement as sent beside a correction | T2, T4 |
+| Finish's unlinked-titles check, empty months' unsettled titles | stored lines (`unlinkedTitlesFromLines`) | T3 |
+| Month ZIP: folders and workbooks | `monthMoney` in `selectMonthPackage` | T4, T6, T7, T9, T10 |
+| Empty months | `monthMoney` | — |
+| Owed months | `moneyMonthsByProperty`, documented as M2 | — |
+
+- **Stale comments corrected:** the month rule described as "the day sent" (`statement.ts`, its head and the money-months rule), "stored figures are never read back into a total" (`server-reports.ts`), the base "prefilled from the revenue lines" (`model.ts`), and the costs page's date note.
+- **Tests in the repository** (`tests/`, made-up data only): dispatch 35's acceptance scenarios and chains (`money/corrections.mjs`), dispatch 36's checks (`money/office-month.mjs`) and ledger hashes (`money/ledger.mjs`), and this dispatch's walk through T1–T10, M1 and M2 (`money/month-money.mjs`). `node tests/run.mjs` (or `npm test`) compares each output with `tests/expected/`, byte for byte. The production-data scripts of dispatches 34–36 went to `~/Backups/Nubnb/dispatch-34-36/`, outside the repository.
+
+### 39.2 Decisions, not rulings
+
+- **What finishing stores is unchanged.** A report still stores `incomeCents` and `expensesCents` split by sign. Pages read the month's money instead, which takes Total, carried balance and Revenue Share from the statement as printed and places its lines by source. The two splits differ only for a claw-back; the Total never does.
+- **Which line is Airbnb's:** a draft line an accepted Airbnb line points to (`decided.lineId`), or a line loaded from a row written before dispatch 23D whose `source` is `airbnb`. Line IDs survive a correction. Every other line is typed.
+- **Revenue** is every Airbnb line, claw-backs taken off, plus typed lines above zero. **Expenses** are typed lines below zero. A typed negative line stays an expense: M1 names Airbnb's claw-backs.
+- **Beside the fee's base:** the revenue, and "Airbnb paid $…" when the month has Airbnb lines. Neither fills the base in (dispatch 26).
+- **The fee-base check** compares the base's revenue with the month's money's revenue. A fee saved before 37A stored the revenue split by sign; with a claw-back in the month it would warn once. Production held no draft at the build.
+- **While a correction is written,** the month's figures are the statement as sent. The correction's figures are said beside them on the panel ("correction $…"), the Income page ("correction $…", "Finished · correcting") and the property page's Income tab ("as sent …"). The property page still edits and previews the correction.
+- **The Statements panel** shows a month not finished as it stands, greyed, so a cost charged on an open month's statement is visible there. It gained a Carried column: the carried balance and any carried balance settled, together, so Income − Costs − Fee − Carried is the Revenue share on every row. The server works the figures out in the tracker's one read, for every month from September 2026 to the next month and any month a statement or draft names.
+- **A figure is an amount, named; a statement's rows keep the statement's signs (T9).**
+  - The Details tab's fee reads "$400.00 deducted", as the carried balance did.
+  - The workbook's Statement sheet prints the carried balance as the PDF does.
+  - "Fee as printed" became "Fee, deducted".
+  - The Costs tab's "Also in this statement" lists cost amounts, below zero for money given back.
+- **Where a cost is charged** (`costCharges`): the current finished statements' cost rows and adjustments, then each month not yet finished built as its statement is. An entry's charges add up to what it now adds up to.
+  - A cost removed or rejected after a statement printed it stays on the Costs tab, marked, so the head's split adds up to the statements.
+  - The split shows only when some cost is not on its own month's statement.
+- **The ledger PDF and Excel** mark an entry and split the total only when an entry is charged on another month's statement; every other ledger is byte-identical. `/admin/costs` reads the chosen property's statements, and waits for them before an export. A failed read refuses the export, so a ledger can never go out without its marks.
+- **T5.** The totals table's "Counted" (approved + pending) is gone: Approved, its tax, and Pending apart. Items bought lists each entry's tax as a row; its approved total is the ledger's figure, pending apart.
+- **T6.** The Costs sheet adds "Adjustments to earlier statements" and "Recorded costs" rows when there are adjustments. A cost a redone month charges only part of reads "Yes: $X here, the rest on …". Its items carry a "Charged on …'s statement" row, so they add up to what the statement charges.
+- **T7.** The fee workbook gained "Carried balances settled (CAD)" and "of which Airbnb (CAD)".
+- **T3.** Which titles are unlinked still comes from the files' summaries; how many rows and how much comes from the stored lines.
+- **Reads added:** the tracker reads the accepted Airbnb lines (`status == accepted`). The month ZIP reads the month's Airbnb lines. Finish's check reads the stored lines of unlinked titles. No other read changed.
+- **Not built: O1, fewer reads.** The plan's "pages read one property's or one month's records" and the reads counted before and after were not done. The property page still reads every cost entry; its entry pane's cleaner pattern (`watchList`) needs every entry of that cleaner, so narrowing the read changes what it says. Kian to say whether it comes in a later dispatch.
+- **The loose ends** under the panel are counts, unchanged.
+
+### 39.3 How it was checked (2026-10-13, 09:45–10:28 Toronto)
+
+- **Before building:** the repository's tests, generated at `a4ad705`, reproduce dispatches 35 and 36's recorded outputs exactly. One line differs: `office-month` prints its ledger files' SHA-256 where it used to write the files, and the hashes are those of the files d36 wrote.
+- **After building, byte-identical:**
+  - `node tests/run.mjs`: the four earlier checks identical; `month-money` recorded;
+  - 40 of 40 version-3 statements (`d36/v3-hash.mjs`, from the archive);
+  - dispatch 34's pure and small checks over the 11 October export, identical to `a4ad705`'s output.
+- **Production held no statement** at the opening export (`2026-10-13T14-20-08Z`, 84 documents, byte-identical to dispatch 36's closing export), so no stored statement was re-rendered.
+- **Live, real time** (build `-UmEESTl0KI2slkqDLh4X`, 127.0.0.1:4500, throwaway PIN, the write guard: 41 of 41 offline checks first). One Unlisted `__TEST__` property, `6q4CWmkws0rsC0vBmwQI`:
+  - a $100.00 office cost for September; September finished as `Sept-TEST-D37A`; then a $50.00 office cost for September, which went on October's statement, the notice naming it;
+  - September's Costs tab: "2 entries · $150.00", "$100.00 on September 2026's statement · $50.00 on October 2026's statement, not yet finished", the $50.00 row marked, the tab's count 2;
+  - September's ledger PDF, read back: the $50.00 entry "On October 2026's statement", and "Charged on: September 2026's statement $100.00 · October 2026's statement $50.00";
+  - September's statement, downloaded from Storage: one row, −$100.00, its SHA-256 the one recorded at finish;
+  - the home panel: September Costs $100.00 (finished), October Costs $50.00 (as it stands);
+  - October's Costs tab: "Also in this statement … $50.00"; its preview, −$50.00;
+  - `/admin/costs`, the property's September ledger: the same split and mark;
+  - the entry pane: "it belongs to September 2026, which is finished, so it goes on October 2026's".
+- **Cleanup.** The guard saw 21 writes, the app's cleanup included, and refused none.
+  - Through the app: the statement with its PDF and its download record, both entries, and the property, which took its owner record and unlisted mark with it.
+  - By exact ID after an export (K13): the September draft and the cost PDF's record.
+  - The closing export (`2026-10-13T14-27-26Z`) is byte-identical, file for file, to the opening one. Storage's 6,622 objects are identical by name and generation. The statement's PDF stays soft-deleted until about 2026-10-20.
+
+### 39.4 Not exercised live
+
+- **T2–T10, M1 and M2** were checked on made-up data only (`tests/money/month-money.mjs`): the correction, the claw-back, the unlinked titles, the costs page's totals, the month ZIP's workbooks and the panel's carried column. The month ZIP was not downloaded live, because its download record is a write the guard refuses.

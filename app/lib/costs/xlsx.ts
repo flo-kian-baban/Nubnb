@@ -23,7 +23,7 @@
  */
 
 import { count, day, money, text, workbookBytes, type Cell } from '@/app/lib/xlsx/core';
-import { generatedLabel, periodLabel, whatWasBoughtText, type CostReport } from './report';
+import { chargedOnText, generatedLabel, periodLabel, whatWasBoughtText, type CostReport } from './report';
 import { ENTRY_KIND_LABELS, isEntryKind, type LineNow } from '@/app/lib/cleaners/model';
 
 /** What a line's note says: whether an admin corrected it or added it. */
@@ -58,11 +58,15 @@ export function workbookFor(report: CostReport): Uint8Array<ArrayBuffer> {
     [],
   ];
 
+  // An entry charged on another month's statement is marked, and the total split by statement (dispatch 37A, T1);
+  // a workbook with no such entry is as it was.
+  const split = report.byStatement ?? null;
   const entries: Cell[][] = [
     ...heading('Approved entries only'),
-    ['Date sent', 'Ref', 'Entry ID', 'Kind', 'Logged by', 'What was bought / work done', 'Lines', 'Items (CAD)', 'Tax (CAD)', 'Total (CAD)', 'Corrected'].map(
-      (h) => text(h, true),
-    ),
+    [
+      ...['Date sent', 'Ref', 'Entry ID', 'Kind', 'Logged by', 'What was bought / work done', 'Lines', 'Items (CAD)', 'Tax (CAD)', 'Total (CAD)', 'Corrected'],
+      ...(split ? ['Charged on'] : []),
+    ].map((h) => text(h, true)),
     ...(report.entries.length === 0
       ? [[text('No approved costs in this period.')]]
       : report.entries.map((entry) => [
@@ -77,6 +81,7 @@ export function workbookFor(report: CostReport): Uint8Array<ArrayBuffer> {
           taxCell(entry),
           money(entry.totalCents),
           text(entry.corrected ? 'Yes' : ''),
+          ...(split ? [text(entry.chargedOn ? chargedOnText(entry.chargedOn) : '')] : []),
         ])),
     [
       text('Period total', true),
@@ -90,6 +95,12 @@ export function workbookFor(report: CostReport): Uint8Array<ArrayBuffer> {
       money(report.taxCents, true),
       money(report.totalCents, true),
     ],
+    ...(split
+      ? [
+          ...split.map((row) => [text(`Charged on ${chargedOnText([row]).slice('On '.length)}`), null, null, null, null, null, null, null, null, money(row.cents)]),
+          ...((report.unchargedCents ?? 0) !== 0 ? [[text('Charged on no statement'), null, null, null, null, null, null, null, null, money(report.unchargedCents ?? 0)]] : []),
+        ]
+      : []),
     ...(report.taxInLines
       ? [[text('Entries marked "in items" were sent before tax was its own field: any tax the cleaner typed is a line among their items, and inside their Items amount.')]]
       : []),
@@ -119,7 +130,7 @@ export function workbookFor(report: CostReport): Uint8Array<ArrayBuffer> {
 
   return workbookBytes(
     [
-      { name: 'Entries', widths: [13, 9, 24, 9, 22, 60, 7, 13, 12, 13, 11], rows: entries },
+      { name: 'Entries', widths: [13, 9, 24, 9, 22, 60, 7, 13, 12, 13, 11, ...(split ? [40] : [])], rows: entries },
       { name: 'Items', widths: [13, 9, 40, 20, 26, 16], rows: items },
     ],
     report.generatedAt,

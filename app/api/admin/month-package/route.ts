@@ -9,7 +9,8 @@
  *
  * - `package`: which properties have a folder, the statement each holds (the
  *   current finished one, or the statement as it stands, worked out by the
- *   same `buildStatement` the editor runs), only the entries they name and the
+ *   month's money, over the same `buildStatement` the editor runs) and its
+ *   figures (dispatch 37A), only the entries they name and the
  *   entries sent in the month, and the stored documents for `Records/`, the
  *   Storage path of each receipt left out (paths never leave the server).
  * - `links`: a 60-second signed link for each receipt and statement PDF, by
@@ -47,6 +48,8 @@ import {
   readStatementDraft,
 } from '@/app/lib/reports/model';
 import { selectMonthPackage, type SelectInputs } from '@/app/lib/backup/data';
+import { airbnbLineIdsOf } from '@/app/lib/money/month';
+import { EARNINGS_LINES_COLLECTION, readEarningsLine } from '@/app/lib/income/model';
 import { createdMonthOf } from '@/app/lib/firebase/created-month';
 
 /** The one thing logged about a Firestore or Storage error: its code. */
@@ -76,13 +79,15 @@ export async function GET(request: NextRequest) {
   let selection: ReturnType<typeof selectMonthPackage>;
   const madeAt = new Date();
   try {
-    const [properties, entries, reports, drafts, downloads, management] = await Promise.all([
+    const [properties, entries, reports, drafts, downloads, management, earnings] = await Promise.all([
       db.collection('properties').select('name').get(),
       db.collection(COST_ENTRIES_COLLECTION).get(),
       db.collection(MONTHLY_REPORTS_COLLECTION).get(),
       db.collection(MONTHLY_REPORT_DRAFTS_COLLECTION).where('month', '==', month).get(),
       db.collection(REPORT_DOWNLOADS_COLLECTION).where('month', '==', month).get(),
       db.collection(PROPERTY_MANAGEMENT_COLLECTION).get(),
+      // The month's Airbnb lines: which statement lines are Airbnb's, for the workbooks' revenue (dispatch 37A, Kian's ruling M1).
+      db.collection(EARNINGS_LINES_COLLECTION).where('month', '==', month).get(),
     ]);
     const input: SelectInputs = {
       month,
@@ -107,6 +112,7 @@ export async function GET(request: NextRequest) {
         const view = readPropertyManagement(doc.id, doc.data());
         return view ? [{ view, stored: doc.data() }] : [];
       }),
+      airbnbLineIds: airbnbLineIdsOf(earnings.docs.map((doc) => readEarningsLine(doc.id, doc.data())).filter((line) => line !== null)),
     };
     selection = selectMonthPackage(input);
   } catch (err) {

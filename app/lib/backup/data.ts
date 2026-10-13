@@ -8,10 +8,12 @@
  * `selectMonthPackage` runs where every entry and statement can be read (the
  * admin route today, the backup's function next): an unfinished month's
  * statement depends on every entry and statement of its property, and the
- * same `buildStatement` the editor's preview and the finish step run works it
- * out. What it returns is bounded by the month — its statements, the entries
- * they name, the entries sent in it — and is what the browser builds the
- * files from (package.ts).
+ * month's money (dispatch 37A, app/lib/money/month.ts) works it out — the
+ * same `buildStatement` the editor's preview and the finish step run — with
+ * the figures every workbook prints, so no sheet adds money up itself. What
+ * it returns is bounded by the month — its statements, the entries they
+ * name, the entries sent in it — and is what the browser builds the files
+ * from (package.ts).
  *
  * Kian's rulings of 2026-10-03 apply: no versions (only a month's current
  * statement is in it; a corrected one replaces the old), nothing deleted kept
@@ -32,7 +34,8 @@ import {
   type ReportDownloadView,
   type StatementDraftView,
 } from '@/app/lib/reports/model';
-import { buildStatement, moneyMonthsByProperty, monthStanding, statementOf, type AnyStatement, type Standing, type Statement } from '@/app/lib/reports/statement';
+import { moneyMonthsByProperty, monthStanding, type AnyStatement, type Standing, type Statement } from '@/app/lib/reports/statement';
+import { costCharges, monthMoney, type Figures } from '@/app/lib/money/month';
 
 export const MONTH_PACKAGE_SCHEMA_VERSION = 1;
 
@@ -61,6 +64,13 @@ export interface PackageFolder {
   draftUpdatedAt: string | null;
   /** The Payment Summary as finished, or as it stands. */
   statement: Statement;
+  /** The statement's figures, the month's money's (dispatch 37A): what the workbooks print. null when no statement can be worked out. */
+  figures: Figures | null;
+  /**
+   * For a cost the statement charges only part of (a month redone after a later statement adjusted it): the other
+   * statements that charge the rest, by entry ID (dispatch 37A, T6). Absent for every other cost.
+   */
+  elsewhere: Record<string, { month: string; cents: number }[]>;
   /** An approved entry that could not be added up: no statement can be worked out; said in the README. */
   unreadable: string[];
 }
@@ -205,6 +215,8 @@ export interface SelectInputs {
   drafts: { view: StatementDraftView; stored: Record<string, unknown> }[];
   /** The month's download records, read, with their stored documents. */
   downloads: { view: ReportDownloadView; stored: Record<string, unknown> }[];
+  /** The statement lines that came from accepted Airbnb lines (Kian's ruling M1); absent, every line reads as typed. */
+  airbnbLineIds?: ReadonlySet<string>;
   /** Every management record, read, with its stored document. */
   management: { view: PropertyManagementView; stored: Record<string, unknown> }[];
 }
@@ -250,15 +262,17 @@ export function selectMonthPackage(input: SelectInputs): Selection {
     const draft = input.drafts.find((d) => d.view.propertyId === property.id && d.view.month === month && d.view.finishedAs === null)?.view ?? null;
     const standing = monthStanding({ month, today, owed: inStatementScope(record, month, property.createdMonth ?? null, money.get(property.id) ?? []), finished: live !== null, excluded: isExcludedFromReporting(record) });
 
-    let statement: Statement | null = null;
-    let unreadable: string[] = [];
-    if (live) {
-      statement = asStatement(statementOf(live, reportsOfProperty));
-    } else {
-      const entries = [...views.values()].filter((entry) => entry.property.id === property.id);
-      const built = buildStatement({ propertyId: property.id, propertyName: name, month, entries, reports: reportsOfProperty, draft, management: record });
-      if (built.kind === 'ok') statement = built.statement;
-      else unreadable = built.entryIds;
+    // The month's money (dispatch 37A): the current finished statement, also while a correction of it is written; else the draft as it stands.
+    const entriesOfProperty = [...views.values()].filter((entry) => entry.property.id === property.id);
+    const charges = costCharges({ propertyId: property.id, entries: entriesOfProperty, reports: reportsOfProperty, management: record });
+    const its = monthMoney({ propertyId: property.id, propertyName: name, month, entries: entriesOfProperty, reports: reportsOfProperty, draft, management: record, airbnbLineIds: input.airbnbLineIds, charges });
+    const statement: Statement | null = its.held ? asStatement(its.held) : null;
+    const unreadable: string[] = its.held === null && its.build?.kind === 'unreadable' ? its.build.entryIds : [];
+    // A cost the statement charges only part of: the other statements that charge the rest (T6).
+    const elsewhere: Record<string, { month: string; cents: number }[]> = {};
+    for (const row of statement?.costs ?? []) {
+      const others = (charges.get(row.entryId) ?? []).filter((charge) => charge.month !== month);
+      if (others.length > 0) elsewhere[row.entryId] = others.map((charge) => ({ month: charge.month, cents: charge.cents }));
     }
 
     const hasCosts = statement !== null && (statement.costs.length > 0 || statement.adjustments.length > 0);
@@ -291,7 +305,7 @@ export function selectMonthPackage(input: SelectInputs): Selection {
           .sort((a, b) => a.at.localeCompare(b.at)),
       };
     }
-    folders.push({ propertyId: property.id, propertyName: name, standing, kind: live ? 'finished' : draft ? 'draft' : 'none', report, draftUpdatedAt: live ? null : (draft?.updatedAt ?? null), statement: folderStatement, unreadable });
+    folders.push({ propertyId: property.id, propertyName: name, standing, kind: live ? 'finished' : draft ? 'draft' : 'none', report, draftUpdatedAt: live ? null : (draft?.updatedAt ?? null), statement: folderStatement, figures: its.figures, elsewhere, unreadable });
   }
 
   // Entries sent in the month that the month's statements do not charge: Nubnb's folder.

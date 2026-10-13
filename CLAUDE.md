@@ -438,3 +438,12 @@ no checkout. Do not build toward one unless asked.
   logged in brackets: "Sep 2026 (logged Oct 12)".**
 - **The ledger's Excel and PDF exports place costs by the same month rule
   as statements.**
+
+## The month's money — Kian's rulings of 2026-10-13 (dispatch 37A)
+
+- **Every page showing a property-month's figures reads them through the
+  one calculation. No page computes its own.**
+- **Airbnb claw-backs count as less revenue, never as expenses. The fee
+  base is what Airbnb actually paid.** (M1)
+- **A month whose only money is a logged cleaning or a cash payment is
+  owed a statement.** (M2)

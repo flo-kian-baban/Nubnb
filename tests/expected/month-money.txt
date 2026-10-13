@@ -1,0 +1,52 @@
+═══ T1 · a $100.00 receipt sent 15 Sep; September finished 5 Oct; a $50.00 office cost logged 12 Oct for September ═══
+  charges: receipt 2026-09 finished cost $100.00 · office 2026-10 open cost $50.00
+  (a) Costs tab, September: 2 entries · $150.00 · by statement: 2026-09 $100.00 · 2026-10 (open) $50.00 · badge 2
+        TESTENTRYt1receipt01 confirmed now $100.00 · 2026-09 finished cost $100.00
+        TESTENTRYt1office001 confirmed now $50.00 · 2026-10 open cost $50.00
+  (b) Ledger PDF/Excel, 1–30 Sep: 2 entries · $150.00 · Charged on: September 2026's statement $100.00 · October 2026's statement $50.00
+        TESTENTRYt1receipt01 $100.00 (its own month)
+        TESTENTRYt1office001 $50.00 On October 2026's statement
+        PDF 85c391b40e82d714 holds "On October 2026's statement": true · "Charged on: September 2026's statement $100.00": true · Excel a682f21d4c5fa778
+  (c) September's statement as sent: recorded $100.00; month's money figures: revenue $2,000.00 (Airbnb $0.00) · expenses $0.00 · recorded $100.00 · fee $0.00 · settled carried $0.00 · total $1,900.00 · carried $0.00 · share $1,900.00
+  (d) October's statement as it stands: Expense - ref TESTEN · Sep 2026 (logged Oct 12) -$50.00 · also charged on the Costs tab: Expense - ref TESTEN · Sep 2026 (logged Oct 12) $50.00
+  (e) Home panel: September costs $100.00 (as it stands: false) · October costs $50.00 (as it stands: true)
+  (f) A ledger whose entries are all on their own month's statement is as before: true
+
+═══ T2 · September finished at $2,000.00 revenue; a correction adds $100.00 of revenue ═══
+  month's money: correcting true · figures (as sent) revenue $2,000.00 · correction revenue $2,100.00 · the page previews the correction
+  home panel: revenue $2,000.00 · correction $2,100.00
+  Income page, By property: revenue $2,000.00 · correction $2,100.00 · badge finished
+
+═══ T3 · an unlinked title in two October files that share one row ═══
+  the files' own summaries (before): [{"month":"2026-10","title":"__TEST__ Unknown Flat","rows":3,"amountCents":55000}]
+  the stored lines (Finish, the empty months, the Income page): [{"month":"2026-10","title":"__TEST__ Unknown Flat","rows":2,"amountCents":35000}]
+
+═══ T4 · M1 · Airbnb $1,000.00 and a −$200.00 Resolution Adjustment; a typed $300.00 revenue line and a −$60.00 cleaning ═══
+  the statement's own split (stored at finish, by sign): income $1,300.00 · expenses $260.00 · total $880.00
+  the month's money: revenue $1,100.00 (Airbnb $800.00) · expenses $60.00 · recorded $0.00 · fee $160.00 · settled carried $0.00 · total $880.00 · carried $0.00 · share $880.00
+  sources: Revenue - Oct 2–9, 2026 airbnb | Resolution Adjustment - Oct 2–9, 2026 airbnb | Revenue - direct stay typed | Expense - Cleaning typed
+  Finish, base typed beside revenue $1,100.00: warns [date] (with the split by sign: [fee-base, date])
+  the PDF, with the Airbnb lines known and without: 67571c536d76191a and 67571c536d76191a (identical: true)
+
+═══ T5 · an approved $56.50 receipt ($50.00 + $6.50 tax) and a pending $20.00 one ═══
+  totals: approved $56.50 (tax $6.50) · pending apart $20.00
+  ledger line: $56.50 · Items bought, approved: $56.50 (rows: Supplies $50.00 approved; Tax $6.50 tax approved; Supplies $20.00 pending)
+  Costs tab: 1 entry · $56.50 · tax $6.50 · waiting 1 · $20.00
+
+═══ T6 · September redone after October adjusted its cost; T10 · a September office cost charged on October; T9 · a carried balance ═══
+  September as redone: cost row $100.00; the rest elsewhere: {"TESTENTRYt6receipt01":[{"month":"2026-10","cents":5000}]}
+  its workbook says "Yes: $100.00 here, the rest on October 2026's statement $50.00": true · says "Differs": false · lists "Charged on October 2026's statement" under Items: true
+  October's workbook: "From September 2026" true · "From October 2026" false · "Recorded costs" row true · carried as printed (+359.96) true · as before (−359.96) false
+  October's figures: revenue $1,000.00 (Airbnb $0.00) · expenses $0.00 · recorded $90.00 · fee $0.00 · settled carried $0.00 · total $910.00 · carried $359.96 · share $550.04
+  fee workbook: "Carried balances settled (CAD)" true · "Fee, deducted (CAD)" true · "of which Airbnb (CAD)" true
+
+═══ T7 · a carried balance and a carried balance settled: Income − Costs − Fee − Carried = Revenue share ═══
+  2026-09: income $1,000.00 − costs $1,200.00 − fee $0.00 − carried $0.00 = -$200.00 · revenue share -$200.00
+  2026-10: income $3,000.00 − costs $0.00 − fee $0.00 − carried $359.96 = $2,640.04 · revenue share $2,640.04
+  2026-11: income $500.00 − costs $0.00 − fee $0.00 − carried -$159.96 = $659.96 · revenue share $659.96
+
+═══ T8 · September finished with one cost; a second approved for September afterwards ═══
+  head 2 entries; the tab's count is the same figure (2); the statement's own cost rows: 1
+
+═══ M2 · the months with money ═══
+  [["TESTPROPt4aaaaaaaaaa",["2026-10"]],["TESTPROPt1aaaaaaaaaa",["2026-09"]],["TESTPROPt5aaaaaaaaaa",["2026-10"]]]

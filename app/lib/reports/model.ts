@@ -20,8 +20,8 @@
  * a quantity, a rate and an amount, and the code multiplies quantity by rate
  * (Kian's ruling of 2026-10-01: the one place code computes money); an
  * amount may be negative — expenses and the fee are negative lines. The fee
- * is a rate the admin picks, applied to a base prefilled from the revenue
- * lines; the admin may overwrite the amount, and the rate, the amount and
+ * is a rate the admin picks, applied to a base the admin types (it has no
+ * default, dispatch 26); the admin may overwrite the amount, and the rate, the amount and
  * whether it was overwritten are stored. The carried balance is a typed
  * amount, never written automatically. The reconciliation is in statement.ts.
  *
@@ -359,10 +359,12 @@ export interface Fee {
   /** Whether amountCents differs from computedCents. */
   overwritten: boolean;
   /**
-   * The month's revenue (the positive lines) when the base was last typed
-   * (dispatch 34, S6): Finish warns when the lines have changed since. Never
-   * used to fill the base in. Absent on a fee saved before, or whose base was
-   * never typed on this page.
+   * The month's revenue when the base was last typed, as the page showed it
+   * beside the base (dispatch 34, S6): Finish warns when the lines have
+   * changed since. Since dispatch 37A it is the month's money's revenue, an
+   * Airbnb claw-back taken off (Kian's ruling M1); before, the positive lines.
+   * Never used to fill the base in. Absent on a fee saved before, or whose
+   * base was never typed on this page.
    */
   baseRevenueCents?: number | null;
 }

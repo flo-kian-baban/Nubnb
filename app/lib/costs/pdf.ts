@@ -25,7 +25,7 @@
 
 import { formatCents, isOneLineKind, type LineNow } from '@/app/lib/cleaners/model';
 import { ELLIPSIS, MARGIN, MUTED, Page, RIGHT, assemble, fitted, widthOf, winAnsi, wrapped } from '@/app/lib/pdf/core';
-import { generatedLabel, periodLabel, shortDay, whatWasBought, type CostReport } from './report';
+import { byStatementText, chargedOnText, generatedLabel, periodLabel, shortDay, whatWasBought, type CostReport } from './report';
 
 /**
  * A work entry's description on at most two lines (dispatch 24): as many
@@ -94,6 +94,7 @@ function taxText(entry: CostReport['entries'][number]): string {
 
 const entriesLabel = (count: number) => (count === 0 ? 'No entries' : count === 1 ? '1 entry' : `${count} entries`);
 
+
 /** The report's bytes. */
 export function pdfFor(report: CostReport): Uint8Array<ArrayBuffer> {
   const period = periodLabel(report.from, report.to);
@@ -126,8 +127,12 @@ export function pdfFor(report: CostReport): Uint8Array<ArrayBuffer> {
     const work = isOneLineKind(entry.kind) ? twoLines(`${entry.kind === 'work' ? 'Work' : 'Office'}: ${whatWasBought(entry.lines).items.join(', ')}`, boughtWidth) : null;
     // An office cost is dated by the month it belongs to, the day it was logged in brackets under it (Kian's ruling of 2026-10-12).
     const office = entry.office;
-    const secondLine = (work !== null && work.length > 1) || office !== null;
-    if (y - (secondLine ? 12 : 0) < LOWEST_ROW) nextPage(true);
+    // An entry charged on another month's statement says which, under what was bought (dispatch 37A, T1).
+    const charged = entry.chargedOn ? fitted(chargedOnText(entry.chargedOn), 'regular', 8, boughtWidth) : null;
+    const boughtLines = (work?.length ?? 1) + (charged !== null ? 1 : 0);
+    const extraLines = Math.max(office !== null ? 1 : 0, boughtLines - 1);
+    const secondLine = extraLines > 0;
+    if (y - extraLines * 12 < LOWEST_ROW) nextPage(true);
     page.text(String(i + 1), COLUMN.number, y, 'regular', 10, MUTED, 'right');
     if (office === null) {
       page.text(shortDay(entry.day), COLUMN.date, y, 'regular', 10);
@@ -146,7 +151,8 @@ export function pdfFor(report: CostReport): Uint8Array<ArrayBuffer> {
     page.text(taxText(entry), COLUMN.tax, y, 'regular', 10, entry.taxShape === 'field' && entry.taxCents !== null ? 0 : MUTED, 'right');
     page.text(formatCents(entry.totalCents), AMOUNT_RIGHT, y, 'regular', 10, 0, 'right');
     if (entry.corrected) page.text('*', AMOUNT_RIGHT + 1.5, y, 'regular', 10);
-    const rowHeight = secondLine ? ROW + 12 : ROW;
+    if (charged !== null) page.text(charged, COLUMN.bought, y - (boughtLines - 1) * 12, 'regular', 8, MUTED);
+    const rowHeight = secondLine ? ROW + extraLines * 12 : ROW;
     page.rule(MARGIN, RIGHT, y - rowHeight + ROW - 7, 0.9, 0.4);
     y -= rowHeight;
   });
@@ -166,11 +172,17 @@ export function pdfFor(report: CostReport): Uint8Array<ArrayBuffer> {
     ...(report.entries.some((entry) => entry.kind === 'office')
       ? ['An entry marked "Office:" was added by Nubnb\'s office, with no receipt: Items is the amount entered.']
       : []),
+    ...(report.byStatement
+      ? ['An entry marked with a statement belongs to this period but is charged on that month\'s statement: its own month\'s statement was already finished when it was logged or changed.']
+      : []),
     'Each entry is one receipt, one piece of work, or one cost the office entered. Items is the sum of the amounts the receipt prints for each line, Tax is the receipt\'s tax, and Total is the two together; quantities are never multiplied.',
   ].flatMap((note) => wrapped(note, 'regular', 8.5, RIGHT - MARGIN));
 
+  // The period's total by statement (dispatch 37A, T1), under the total, only when an entry is charged on another month's.
+  const split = report.byStatement ? wrapped(byStatementText(report.byStatement, report.unchargedCents ?? 0), 'regular', 9.5, RIGHT - COLUMN.date) : [];
+  const splitHeight = split.length * 13;
   let top = y + ROW - 9;
-  if (top - 18 - 26 - (notes.length - 1) * 11.5 < MARGIN) {
+  if (top - 18 - splitHeight - 26 - (notes.length - 1) * 11.5 < MARGIN) {
     nextPage(false);
     top = 706;
   }
@@ -182,7 +194,8 @@ export function pdfFor(report: CostReport): Uint8Array<ArrayBuffer> {
   page.text(formatCents(report.taxCents), COLUMN.tax, base, 'regular', 9.5, MUTED, 'right');
   page.text(amount, AMOUNT_RIGHT, base, 'bold', 11, 0, 'right');
   page.text('Period total', COLUMN.ref, base, 'bold', 11, 0);
-  let noteY = base - 26;
+  split.forEach((line, i) => page.text(line, COLUMN.date, base - 16 - i * 13, 'regular', 9.5, 0));
+  let noteY = base - 26 - splitHeight;
   for (const line of notes) {
     page.text(line, MARGIN, noteY, 'regular', 8.5, 0.4);
     noteY -= 11.5;

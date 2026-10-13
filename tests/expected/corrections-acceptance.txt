@@ -1,0 +1,71 @@
+═══ 1. A $100.00 cost (sent 15 Sep) printed in September; corrected to $150.00; October prints the +$50.00; September redone ═══
+  September finished: 2026-09 …0002 · revenue share $1,900.00
+      Revenue  $2,000.00
+      Expense - ref TESTEN · Sep 15, 2026  -$100.00
+  October finished: 2026-10 …0004 · revenue share $950.00
+      Revenue  $1,000.00
+      Adjustment - ref TESTEN · Sep 15, 2026 (reported in September 2026 as -$100.00, now -$150.00)  -$50.00
+  laterReferences(September): [["2026-10","adjusted"]]
+  (a) September deleted, then finished again: 2026-09 …0005 · revenue share $1,900.00
+      Revenue  $2,000.00
+      Expense - ref TESTEN · Sep 15, 2026  -$100.00
+  CHARGED FOR THE COST across the current statements: $150.00 (the cost is $150.00)
+  November: 0 adjustment(s) for it
+  (b) September corrected instead: 2026-09 …0006 · revenue share $1,900.00
+      Revenue  $2,000.00
+      Expense - ref TESTEN · Sep 15, 2026  -$100.00
+  CHARGED FOR THE COST across the current statements: $150.00
+  November: 0 adjustment(s) for it
+  (c) corrected again to $170.00 after October, then September finished again: 2026-09 …0007 · revenue share $1,900.00
+      Revenue  $2,000.00
+      Expense - ref TESTEN · Sep 15, 2026  -$100.00
+  November:
+      Adjustment - ref TESTEN · Sep 15, 2026 (reported in October 2026 as -$150.00, now -$170.00)  -$20.00
+  CHARGED once November is finished: $170.00 (the cost is $170.00)
+
+═══ 2. A $100.00 cost printed in September, removed afterwards; October gives it back; September redone ═══
+  October finished: 2026-10 …0012 · revenue share $1,100.00
+      Revenue  $1,000.00
+      Adjustment - ref TESTEN · Sep 16, 2026 (reported in September 2026 as -$100.00, no longer in the ledger)  $100.00
+  September deleted, then finished again: 2026-09 …0013 · revenue share $1,900.00
+      Revenue  $2,000.00
+      Expense - ref TESTEN · Sep 16, 2026  -$100.00
+  NET FOR THE REMOVED COST across the current statements: $0.00
+  November: 0 adjustment(s) for it
+
+═══ 3. October finished first (a $40.00 cost sent 5 Oct); the cost removed; then the overdue September finished ═══
+  October finished: 2026-10 …0015 · revenue share $960.00
+      Revenue  $1,000.00
+      Expense - ref TESTEN · Oct 5, 2026  -$40.00
+  September finished after October: 2026-09 …0017 · revenue share $500.00
+      Revenue  $500.00
+  November:
+      Adjustment - ref TESTEN · Oct 5, 2026 (reported in October 2026 as -$40.00, no longer in the ledger)  $40.00
+  December, if finished before November: 0 adjustment(s) — November carries it
+
+═══ 4. September closes at −$359.96; October carries it; September corrected to close at −$200.00 ═══
+  September finished: 2026-09 …0020 · revenue share -$359.96
+      Revenue  $1,000.00
+      Expense - Repairs  -$1,359.96
+  offered for October: [{"fromMonth":"2026-09","fromReportId":"…0020","amountCents":35996,"label":"Balance From September"}]
+  September corrected: 2026-09 …0023 · revenue share -$200.00
+      Revenue  $1,000.00
+      Expense - Repairs  -$1,200.00
+  (a) October still a draft carrying it: carried $200.00 (stored in the draft: $359.96), revenue share $2,800.00
+  (b) October finished, carrying it, before the correction: 2026-10 …0026 · revenue share $2,640.04 · carried $359.96
+      Revenue  $3,000.00
+  laterReferences(September): [["2026-10","carried"]]
+      September corrected afterwards; November finished: 2026-11 …0031 · revenue share $659.96
+      Revenue  $500.00
+      Adjustment - Balance From September (carried in October 2026 as $359.96, now $200.00)  $159.96
+  DEDUCTED FOR SEPTEMBER'S BALANCE in all: $200.00 (September now closes at -$200.00)
+  November's PDF, the adjustment as the owner reads it: Adjustment - Balance From September (carried in October 2026 as $359.96, now $200.00)  $159.96
+  December: 0 carried adjustment(s)
+  (c) September deleted after October carried it: November Balance From September: carried $359.96, now $0.00, gives back $359.96
+      September finished again at -$200.00: December Balance From September: deducted so far $0.00, now $200.00, deducts $200.00
+      DEDUCTED in all: $200.00; offered again in December: 0
+
+═══ 5. September closes at −$359.96; October finished without carrying it ═══
+  offered in November: [["2026-09",35996]]
+  offered in December, November not carrying it either: [["2026-09",35996]]
+  December carries it ($359.96); offered in January: []
