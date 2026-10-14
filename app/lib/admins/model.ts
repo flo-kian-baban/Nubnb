@@ -19,21 +19,28 @@
  *   - (night) the main admin sets each admin's PIN when adding them and can
  *     change any ordinary admin's; Nubnb no longer generates PINs; an admin
  *     can still change their own; main admins see every admin's PIN, their
- *     own included, on the Admins page; PINs are stored readably; admin PINs
- *     stay six digits; the Add an admin dialog opens on Admin.
+ *     own included, on the Admins page; PINs are stored readably; the Add an
+ *     admin dialog opens on Admin;
+ *   - (late night) admin PINs are four digits; no admin PIN may equal any
+ *     cleaner code ever issued, current or retired, and no cleaner code may
+ *     be an admin PIN; twenty wrong PINs from one connection in a Toronto day
+ *     lock it until a main admin lifts it; the too-easy list is the cleaner
+ *     codes' own.
  *
  * ── The PIN's states ──
  *   readable   the PIN as chosen, stored readably: `{ state, value }`; its
- *              `admin_pins/{PIN}` document finds the admin at sign-in
+ *              `admin_pins/{PIN}` document finds the admin at sign-in. A
+ *              value of six digits (set the night before PINs became four)
+ *              no longer signs in, and is reported as kept before ('set')
  *   shared     a main admin put back on the shared PIN, ADMIN_PIN, by the
  *              recovery script (or the first main admin of an empty database):
  *              signing in with it leads straight to setting their own PIN
  *   set        the evening's generated PINs, kept as a lookup key only
  *   own,       dispatch 38's first version, chosen PINs kept as salted hashes
  *   temporary
- *              None of the last three signs in any more: a session holding one
- *              is asked to set its PIN, checked against that one document;
- *              nothing writes them any more
+ *              None of the last three signs in any more, nor sets a new PIN:
+ *              a main admin sets an ordinary admin's, and a main admin on one
+ *              goes through the recovery script; nothing writes them any more
  *
  * ── Who did it ──
  * An admin's action records `{ role: 'admin', id, name }` (adminActor). A
@@ -42,7 +49,7 @@
  * "an admin".
  */
 
-import type { Actor, ActorView } from '@/app/lib/cleaners/model';
+import { isTooEasyCode, type Actor, type ActorView } from '@/app/lib/cleaners/model';
 
 // ─── Collections ───────────────────────────────────────────────
 
@@ -57,8 +64,11 @@ export const ADMIN_SIGNIN_LOCKS_COLLECTION = 'admin_signin_locks';
 /** One document per admin write that succeeded: who, when, which route. Server-only. */
 export const ADMIN_ACTIONS_COLLECTION = 'admin_actions';
 
-/** 3: PINs set by the main admin or the admin, stored readably (2026-10-13, night). 2: generated, found by lookup (evening). 1: dispatch 38's first version. */
-export const ADMIN_SCHEMA_VERSION = 3;
+/**
+ * 4: four-digit PINs (2026-10-13, late night). 3: PINs set by the main admin or the admin, stored readably (night).
+ * 2: generated, found by lookup (evening). 1: dispatch 38's first version.
+ */
+export const ADMIN_SCHEMA_VERSION = 4;
 export const ADMIN_ACTION_SCHEMA_VERSION = 1;
 
 // ─── Levels ────────────────────────────────────────────────────
@@ -83,12 +93,12 @@ export const FIRST_MAIN_ADMIN_NAME = 'Kian';
 
 // ─── PINs ──────────────────────────────────────────────────────
 
-/** Every PIN Nubnb generates: six digits. */
-export const PIN_LENGTH = 6;
-export const PIN_PATTERN = /^[0-9]{6}$/;
+/** An admin PIN: four digits (Kian's ruling of 2026-10-13, late night), the same as a cleaner code. */
+export const PIN_LENGTH = 4;
+export const PIN_PATTERN = /^[0-9]{4}$/;
 
-/** What sign-in takes: six digits, or four for the shared PIN, which is four digits today. */
-export const SIGN_IN_PIN_PATTERN = /^(?:[0-9]{4}|[0-9]{6})$/;
+/** What sign-in takes: four digits, an admin's PIN or the shared PIN. */
+export const SIGN_IN_PIN_PATTERN = PIN_PATTERN;
 
 export const PIN_STATES = ['readable', 'shared', 'set', 'own', 'temporary'] as const;
 export type PinState = (typeof PIN_STATES)[number];
@@ -100,77 +110,109 @@ export function isPinState(value: unknown): value is PinState {
 /** Whether a PIN is stored readably. Anything else is set again before its admin goes on (the gate's Set your PIN). */
 export const isReadablePin = (state: string | null | undefined): boolean => state === 'readable';
 
-/** Every run of six consecutive digits in `digits`: 012345 … 456789 for ascending. */
-function runsIn(digits: string): string[] {
-  return Array.from({ length: digits.length - PIN_LENGTH + 1 }, (_, start) => digits.slice(start, start + PIN_LENGTH));
-}
+/** Whether a PIN state is one kept before: it signs in no more, and its holder cannot set their own (model.ts, above). */
+export const isKeptBefore = (state: string | null | undefined): boolean => state === 'set' || state === 'own' || state === 'temporary';
 
 /**
- * The PINs never accepted: the ten of one digit (000000 … 999999) and the ten
- * straight runs (012345 … 456789, 987654 … 543210) — the first anyone would
- * try, as with cleaner codes.
+ * The PINs never accepted: the cleaner codes' reserved list (Kian's ruling: the
+ * too-easy list for four digits is the one cleaner codes already use) — the
+ * ten of one digit, the seven ascending runs and the seven descending.
  */
-const TOO_EASY_PINS: ReadonlySet<string> = new Set([
-  ...'0123456789'.split('').map((digit) => digit.repeat(PIN_LENGTH)),
-  ...runsIn('0123456789'),
-  ...runsIn('9876543210'),
-]);
-
 export function isTooEasyPin(pin: string): boolean {
-  return TOO_EASY_PINS.has(pin);
+  return isTooEasyCode(pin);
 }
 
-/** Why a PIN cannot be set, by its shape alone, or null. Whether another admin holds it is the server's to say. */
+/** Why a PIN cannot be set, by its shape alone, or null. Whether another admin or a cleaner code holds it is the server's to say. */
 export function pinProblem(pin: string): string | null {
-  if (!PIN_PATTERN.test(pin)) return 'Six digits.';
+  if (!PIN_PATTERN.test(pin)) return 'Four digits.';
   if (isTooEasyPin(pin)) return 'Too easy to guess: choose another.';
   return null;
 }
 
 // ─── The connection lock ───────────────────────────────────────
 
-/** Wrong PINs in a row from one connection before sign-in from it locks. */
+/** Tries in a row from one connection before sign-in from it locks for fifteen minutes. */
 export const MAX_WRONG_TRIES = 5;
 export const LOCK_MINUTES = 15;
 export const LOCK_MS = LOCK_MINUTES * 60_000;
+/** Tries from one connection in a Toronto day before it locks until a main admin lifts it (Kian's ruling, late night). */
+export const DAILY_TRIES = 20;
 
-/** What a connection's lock document holds. */
-export interface LockState {
-  /** Wrong PINs since the last right one or the last lock. */
-  failedTries: number;
-  /** ISO-8601 UTC: when the lock ends; null, or a past time, when none holds. */
-  lockedUntil: string | null;
+/** The warning before the try that locks: "One more wrong PIN locks sign-in from here for 15 minutes." (or until lifted). */
+export function lastTryWords(what: string, untilLifted: boolean): string {
+  return `One more ${what} locks sign-in from here ${untilLifted ? 'until a main admin lifts it' : `for ${LOCK_MINUTES} minutes`}.`;
 }
 
-/** The end of the lock holding at `nowMs`, or null when none holds. */
-export function lockHolding(state: LockState, nowMs: number): string | null {
+/**
+ * What a connection's lock document holds. A try is a wrong PIN, a change of
+ * one's own PIN, or a cleaner code an admin types: each could tell its maker a
+ * PIN (server-admins.ts).
+ */
+export interface LockState {
+  /** Tries in a row since the last right PIN or the last lock. */
+  failedTries: number;
+  /** ISO-8601 UTC: when the fifteen-minute lock ends; null, or a past time, when none holds. */
+  lockedUntil: string | null;
+  /** The Toronto day `dayTries` counts, yyyy-mm-dd; null before the first try. */
+  dayKey: string | null;
+  /** Tries in that Toronto day, right PINs between them notwithstanding. */
+  dayTries: number;
+  /** Twenty tries in one Toronto day: locked until a main admin lifts it. */
+  capped: boolean;
+}
+
+/** An empty lock: no try yet. */
+export const NO_LOCK: LockState = { failedTries: 0, lockedUntil: null, dayKey: null, dayTries: 0, capped: false };
+
+const torontoParts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Toronto', year: 'numeric', month: '2-digit', day: '2-digit' });
+
+/** The Toronto calendar day of an instant, yyyy-mm-dd. */
+export function torontoDayOf(nowMs: number): string {
+  const parts = Object.fromEntries(torontoParts.formatToParts(new Date(nowMs)).map((part) => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+/** The lock holding at `nowMs`: `until` its end, or null when it holds until a main admin lifts it. Null when none holds. */
+export function lockHolding(state: LockState, nowMs: number): { until: string | null } | null {
+  if (state.capped) return { until: null };
   if (state.lockedUntil === null) return null;
   const until = Date.parse(state.lockedUntil);
-  return Number.isFinite(until) && until > nowMs ? state.lockedUntil : null;
+  return Number.isFinite(until) && until > nowMs ? { until: state.lockedUntil } : null;
 }
 
 export type TryOutcome =
   | { kind: 'right'; next: LockState }
-  /** Wrong, and `triesLeft` more wrong PINs are allowed before the lock. */
-  | { kind: 'wrong'; next: LockState; triesLeft: number }
-  /** Wrong, and this was the fifth: locked until `lockedUntil`. */
-  | { kind: 'locked-now'; next: LockState; lockedUntil: string };
+  /** Counted, and `triesLeft` more are allowed before a lock: the fifteen minutes, or, `untilLifted`, the day's twentieth. */
+  | { kind: 'wrong'; next: LockState; triesLeft: number; untilLifted: boolean }
+  /** Counted, and this was the fifth in a row: locked until `lockedUntil`. */
+  | { kind: 'locked-now'; next: LockState; lockedUntil: string }
+  /** Counted, and this was the twentieth of the Toronto day: locked until a main admin lifts it. */
+  | { kind: 'capped-now'; next: LockState };
 
 /**
  * What a try does to a connection's lock, when no lock holds at `nowMs` (a
- * try during a lock is refused before this, unchecked and uncounted). A right
- * PIN clears the count. A wrong one adds to it, and the fifth in a row locks
- * sign-in from that connection for fifteen minutes from that try and starts
- * the count again from nothing.
+ * try during a lock is refused before this, unchecked and uncounted).
+ *
+ * A right PIN clears the tries in a row, not the day's. Anything else counts:
+ * the fifth in a row locks the connection for fifteen minutes from that try
+ * and starts the row again; the twentieth in a Toronto day locks it until a
+ * main admin lifts it (Kian's rulings of 2026-10-13: five wrong PINs, 15
+ * minutes; twenty in a Toronto day).
  */
 export function afterTry(state: LockState, right: boolean, nowMs: number): TryOutcome {
-  if (right) return { kind: 'right', next: { failedTries: 0, lockedUntil: null } };
+  const today = torontoDayOf(nowMs);
+  const dayTries = state.dayKey === today ? Math.max(0, Math.floor(state.dayTries)) : 0;
+  if (right) return { kind: 'right', next: { failedTries: 0, lockedUntil: null, dayKey: today, dayTries, capped: false } };
+  const day = dayTries + 1;
+  if (day >= DAILY_TRIES) return { kind: 'capped-now', next: { failedTries: 0, lockedUntil: null, dayKey: today, dayTries: day, capped: true } };
   const tries = Math.max(0, Math.floor(state.failedTries)) + 1;
   if (tries >= MAX_WRONG_TRIES) {
     const lockedUntil = new Date(nowMs + LOCK_MS).toISOString();
-    return { kind: 'locked-now', next: { failedTries: 0, lockedUntil }, lockedUntil };
+    return { kind: 'locked-now', next: { failedTries: 0, lockedUntil, dayKey: today, dayTries: day, capped: false }, lockedUntil };
   }
-  return { kind: 'wrong', next: { failedTries: tries, lockedUntil: null }, triesLeft: MAX_WRONG_TRIES - tries };
+  const rowLeft = MAX_WRONG_TRIES - tries;
+  const dayLeft = DAILY_TRIES - day;
+  return { kind: 'wrong', next: { failedTries: tries, lockedUntil: null, dayKey: today, dayTries: day, capped: false }, triesLeft: Math.min(rowLeft, dayLeft), untilLifted: dayLeft <= rowLeft };
 }
 
 /**
@@ -357,7 +399,10 @@ export interface AdminSummary {
 export interface SignInLockView {
   /** The keyed hash the lock is kept under. */
   id: string;
-  lockedUntil: string;
+  /** When the fifteen-minute lock ends; null when it holds until lifted. */
+  lockedUntil: string | null;
+  /** Twenty tries in a Toronto day: until a main admin lifts it. */
+  capped: boolean;
   lastFailedAt: string | null;
 }
 

@@ -15,10 +15,11 @@
  * POST request:  `{ name, level: 'main' | 'admin', pin }`
  * POST response: 201 `{ admin: AdminSummary }`. 409 ADMIN_NAME_TAKEN when the
  *                name, case and spacing aside, is another admin's; 409
- *                ADMIN_PIN_TAKEN when another admin holds the PIN; 422 for a
- *                name not allowed, or a PIN that is not six digits, is too
- *                easy, or is the shared PIN. 502: it may or may not have been
- *                added.
+ *                ADMIN_PIN_TAKEN when another admin holds the PIN, 409
+ *                ADMIN_PIN_IS_A_CODE when a cleaner code, current or retired,
+ *                is those digits (late night); 422 for a name not allowed, or
+ *                a PIN that is not four digits, is too easy, or is the shared
+ *                PIN. 502: it may or may not have been added.
  *
  * A refused admin (403 MAIN_ADMIN_ONLY) gets nothing, the list included.
  */
@@ -27,7 +28,7 @@ import { NextRequest } from 'next/server';
 import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiError, apiFailure, apiSuccess, apiValidationError, noStore } from '@/app/lib/api/safe-response';
 import { sharedPinMatches } from '@/app/lib/admins/pin';
-import { PIN_IS_SHARED, PIN_TAKEN } from '@/app/lib/admins/responses';
+import { PIN_IS_A_CODE, PIN_IS_SHARED, PIN_TAKEN } from '@/app/lib/admins/responses';
 import { NewAdminSchema } from '@/app/lib/admins/schemas';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { createAdmin, listAdmins } from '@/app/lib/firebase/server-admins';
@@ -71,7 +72,7 @@ export const POST = adminRoute(
       if (outcome.kind === 'name-taken') {
         return noStore(apiFailure({ status: 409, code: 'ADMIN_NAME_TAKEN', message: 'Another admin has that name.', hint: 'Names are matched without regard to case or spacing. Nothing was added.' }));
       }
-      if (outcome.kind === 'pin-taken') return noStore(apiFailure({ ...PIN_TAKEN, hint: 'Choose another. Nothing was added.' }));
+      if (outcome.kind === 'pin-taken') return noStore(apiFailure({ ...(outcome.by === 'code' ? PIN_IS_A_CODE : PIN_TAKEN), hint: 'Choose another. Nothing was added.' }));
       console.log(`[admins] ${actor.id} added ${outcome.admin.id} as ${parsed.data.level}`);
       return noStore(apiSuccess({ admin: outcome.admin }, 201));
     } catch (err) {

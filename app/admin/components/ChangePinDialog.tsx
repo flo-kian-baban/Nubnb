@@ -1,8 +1,9 @@
 "use client";
 
 /**
- * Change PIN, from the admin's own menu (Kian's rulings of 2026-10-13, night:
- * an admin can still change their own PIN; PINs stay unique and six digits).
+ * Change PIN, from the admin's own menu (Kian's rulings of 2026-10-13: an
+ * admin can still change their own PIN; PINs stay unique (night); four
+ * digits, never a cleaner code current or retired (late night)).
  * The current PIN first, then the new one twice, all in masked boxes (PIN
  * boxes mask their digits). A wrong current PIN counts toward this
  * connection's lock, and so does every change: a PIN refused because another
@@ -15,7 +16,7 @@ import { Dialog } from "../property/editor/controls";
 import ed from "../property/editor/editor.module.css";
 import gate from "./PinGate.module.css";
 import { PinBoxes } from "./PinBoxes";
-import { changeOwnPin, lockTimeWords } from "@/app/lib/admins-client";
+import { changeOwnPin, isLockedAnswer, lockTimeWords } from "@/app/lib/admins-client";
 import { PIN_LENGTH, SIGN_IN_PIN_PATTERN, pinProblem, type SignedInAdminView } from "@/app/lib/admins/model";
 
 interface Props {
@@ -59,11 +60,13 @@ export function ChangePinDialog({ admin, onChanged, onClose }: Props) {
       onChanged(result.data);
       return;
     }
-    if (result.status === 429 && result.lockedUntil) setError(`Sign-in from here is locked until ${lockTimeWords(result.lockedUntil)}.`);
+    // The server's warning before the try that locks, which names the lock: fifteen minutes, or until lifted.
+    const lastTry = result.hint?.match(/One more [^.]*\./)?.[0];
+    if (isLockedAnswer(result)) setError(`Sign-in from here is locked until ${lockTimeWords(result.lockedUntil)}.`);
     else if (result.code === "ADMIN_CURRENT_PIN_WRONG") {
-      setError(result.hint?.startsWith("One more") ? "That is not your current PIN. One more try locks sign-in from here for 15 minutes." : "That is not your current PIN.");
+      setError(lastTry ? `That is not your current PIN. ${lastTry}` : "That is not your current PIN.");
       setCurrent("");
-    } else if (result.code === "ADMIN_PIN_TAKEN") setError(result.hint?.includes("One more") ? "Another admin has that PIN: choose another. One more try locks sign-in from here for 15 minutes." : "Another admin has that PIN: choose another.");
+    } else if (result.code === "ADMIN_PIN_TAKEN") setError(lastTry ? `That PIN is taken: choose another. ${lastTry}` : "That PIN is taken: choose another.");
     else setError(result.unknown ? `${result.title} It may or may not have changed.` : result.title);
   };
 

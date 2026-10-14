@@ -504,7 +504,6 @@ no checkout. Do not build toward one unless asked.
   Two levels to start: main admin and admin.
 - **Every admin action records which admin did it, from now on. Records made
   before keep "admin".**
-- **Admin PINs are 6 digits.**
 - **Sessions are signed with their own secret, no longer the PIN.** This
   retires the accepted risk that the PIN doubles as the signing key.
 - **PIN boxes mask their digits.** Kian's ruling of 2026-10-13, after the
@@ -539,10 +538,27 @@ shown once, and a sign-in with the shared PIN giving a generated PIN.
   change their own PIN.**
 - **Main admins can see every admin's PIN, their own included, on the Admins
   page. PINs are stored readably.**
-- **Admin PINs stay six digits.**
 - **PINs stay unique, sign-in stays PIN only, and the connection lock
   stays.**
 - **The Add an admin dialog opens on Admin, not Main admin.**
+
+## Admin PINs and cleaner codes — Kian's rulings of 2026-10-13 (late night)
+
+These replace the rulings they change: six-digit admin PINs.
+
+- **Admin PINs are four digits.**
+- **No admin PIN may equal any cleaner code ever issued, current or
+  retired, and no cleaner code may be issued or changed to any admin PIN.
+  Both doors check the same index.**
+- **The connection lock stays (five wrong PINs, 15 minutes). Twenty wrong
+  PINs from one connection in a Toronto day lock it until a main admin
+  lifts it.**
+- **Everything else from tonight stands: main admins set and see every PIN,
+  sign-in by PIN alone, unique PINs, Admin as the default level.**
+- **The "too easy" list for four digits is the one cleaner codes already
+  use, and ADMIN_PIN stays refused as any admin's own PIN.**
+- **Kian's account: the recovery script puts him on the shared PIN, and Set
+  your PIN takes four digits.**
 
 ## Admin header — Kian's ruling of 2026-10-13 (evening)
 

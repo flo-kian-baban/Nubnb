@@ -2984,3 +2984,174 @@ They replace the evening's generated PINs, shown once, and its sign-in with the 
 - **The first main admin of an empty database:** production has one.
 - **Two changes of one's own PIN at the same moment,** and a change racing a sign-in.
 - **Production:** Kian's own Set your PIN after the deploy is his to do.
+
+## 45. Four-digit admin PINs, never a cleaner code: Kian's rulings of 2026-10-13 (late night)
+
+Kian's rulings are in `CLAUDE.md` under *Admin PINs and cleaner codes*:
+- admin PINs are four digits;
+- no admin PIN may equal any cleaner code ever issued, current or retired, and no cleaner code may be issued or changed to any admin PIN; both doors check the same index;
+- the connection lock stays (five wrong PINs, 15 minutes), and twenty wrong PINs from one connection in a Toronto day lock it until a main admin lifts it;
+- everything else from the night stands: main admins set and see every PIN, sign-in by PIN alone, unique PINs, Admin as the default level;
+- the too-easy list is the one cleaner codes use, and ADMIN_PIN stays refused as any admin's own PIN;
+- Kian's account: the recovery script puts him on the shared PIN, and Set your PIN takes four digits.
+
+They replace the six digits of dispatch 38 and of the night. `firestore.rules` and `storage.rules` are unchanged.
+
+### 45.1 The design, as reported before building
+
+- **Production, read only:**
+  - Kian's document is `own` (the first version's chosen PIN, a salted hash), epoch 2, last signed in 22:21:18Z on 13 October;
+  - `admin_pins` is empty;
+  - one lock record holds 3 wrong PINs at 03:10Z on 14 October, not locked; it was left alone;
+  - `cleaner_codes` holds 10 documents, 2 current and 8 retired, all four digits.
+- **No collisions:** no admin PIN is stored readably, so none can equal a code, and the shared PIN equals no code.
+- **The two indexes, checked in one transaction.**
+  - An admin PIN stays `admin_pins/{PIN}`, and a cleaner code `cleaner_codes/{code}`.
+  - Every write that hands out four digits reads both documents for those digits in its transaction before it writes:
+    - adding an admin, setting an admin's PIN, an admin changing their own;
+    - a typed or drawn cleaner code, at creation or in a change.
+  - Firestore's transactions lock what they read, missing documents included. A PIN and a code for the same digits written at the same moment therefore conflict, and the retried one sees the other.
+  - "Both doors check the same index" was read as both doors reading the same pair of documents. If one collection was meant, admin PINs can move into `cleaner_codes`.
+- **A consequence reported then.** A refusal because an admin holds the digits tells whoever typed them that admin's PIN. Typed cleaner codes therefore count on the typist's connection lock, as one's own PIN changes do (§45.3).
+
+### 45.2 What was built
+
+- **The library.**
+  - `admins/model.ts`:
+    - `PIN_LENGTH` 4;
+    - `isTooEasyPin` is the cleaner codes' `isTooEasyCode`;
+    - `DAILY_TRIES` 20; the lock state gains `dayKey`, `dayTries` and `capped`; `torontoDayOf`;
+    - `afterTry` checks the day's twentieth before the fifth in a row; a right PIN clears the tries in a row, not the day's;
+    - `lockHolding` returns `{ until: null }` while capped;
+    - a try's `untilLifted` says which lock the next one brings, and `lastTryWords` puts it in words.
+  - `admins/pin.ts`: only `samePin`, the connection's keyed hash, and the shared PIN, which must be four digits. The first version's and the evening's checks are gone.
+  - `firebase/server-admins.ts`:
+    - `countTry`, `readConnectionLock` and `adminPinHolds`, shared with the cleaner side;
+    - sign-in by the four-digit PIN's index;
+    - `createAdmin`, `setAdminPin` and `changeOwnPin` read `cleaner_codes/{PIN}` as well;
+    - a PIN kept before (the first version's, the evening's, the night's six digits) no longer signs in, and its holder cannot change it themselves.
+  - `firebase/server-cleaners.ts`:
+    - every code handed out reads `admin_pins/{code}`;
+    - a typed code, at creation or in a change, is one transaction: an ordinary admin's lock, the refusals, the try counted whatever the answer, then the write;
+    - a drawn code that is an admin's PIN is drawn again.
+- **Routes:**
+  - 409 `ADMIN_PIN_IS_A_CODE` when adding an admin or setting a PIN;
+  - one's own change answers 409 `ADMIN_PIN_TAKEN` "That PIN is taken." for an admin's PIN and a cleaner code alike, and 409 `ADMIN_PIN_KEPT_BEFORE` for a PIN kept before;
+  - the cleaner routes answer 422 `CLEANER_CODE_IS_ADMIN_PIN` "That is an admin PIN." for the shared PIN and every admin's, and 429 when an ordinary admin's connection is locked;
+  - a lock until lifted is 429 with `lockedUntil: null`, `capped: true` and no Retry-After;
+  - the warning before the locking try names its lock.
+- **Pages:**
+  - the gate: four masked boxes that go by themselves;
+  - Set your PIN takes four digits, the shared PIN carried over; a PIN kept before shows "Your PIN is from before" with Sign out and what to do;
+  - Change PIN shows the server's warning;
+  - the Admins page:
+    - "Needs a new PIN" for a PIN kept before;
+    - "Until lifted" on a capped connection;
+    - the Add dialog's PIN field takes four digits.
+- **Script:** the recovery script deletes a six-digit index entry too, and its words ask for four digits: `ADMIN_PIN` in Vercel, then one's own. It reads no `ADMIN_PIN` itself.
+- **Schema:** new admin documents carry `schemaVersion: 4`.
+- **Tests:** `admin-accounts` re-recorded:
+  - the 24 too-easy codes;
+  - four-digit comparisons;
+  - the day, the cap and Toronto's midnight;
+  - which lock the warning names.
+
+### 45.3 Decisions, not rulings
+
+- **An ordinary admin's typed cleaner code counts on their connection's lock,** whatever the answer, successes included.
+  - A refusal names an admin's PIN, and a success says the digits are not one.
+  - The Team page's Generate fills the field, so every new member arrives typed. Five in a row from one connection lock its sign-in for 15 minutes; the admin's session keeps working.
+  - Drawn codes and a cleaner's own code typed again are not counted.
+- **A main admin's typed codes are not counted.** Main admins see every admin's PIN, so a refusal tells them nothing. This came after checking the Team page; Kian adds team members as a main admin.
+- **The day's twenty counts what the five in a row counts:** wrong PINs, changes of one's own PIN (Kian confirmed the night's) and an ordinary admin's typed codes.
+  - A right PIN between them does not reset the day.
+  - Lift clears both counts.
+  - The tries in a row carry over midnight.
+- **What each admin is told:**
+  - a main admin adding or setting a PIN is told it is a cleaner code;
+  - an admin choosing their own PIN is told only that it is taken.
+- **A PIN kept before** (none readable in production) shows "Needs a new PIN" on the Admins page and "Your PIN is from before" at the gate:
+  - a main admin goes through the recovery script;
+  - an ordinary admin's PIN is set by a main admin.
+
+### 45.4 Before deploying
+
+1. Nothing new to set. `ADMIN_PIN` must be four digits in Vercel, as it is in `.env.local`. Vercel's value cannot be read from here.
+2. **Kian's way in after the deploy:** export, then `node scripts/admin-recover.mjs Kian --write`, then the shared PIN alone at `/admin`, then Set your PIN with four digits.
+   - His session from 22:21Z on 13 October, if he still has it, opens on "Your PIN is from before".
+   - The 3 wrong PINs at 03:10Z still stand on that connection: two more wrong ones there lock it for 15 minutes, and a right PIN clears them.
+3. No rules deploy.
+
+### 45.5 How it was checked (2026-10-13, 23:31 – 2026-10-14, 00:07 Toronto)
+
+- **The setup.** A local build reading production, with throwaway keys and a four-digit throwaway `ADMIN_PIN`, behind the write guard. The guard took four-digit `admin_pins` IDs and three test codes: A to be current, B retired, C drawn.
+  - The guard's tests passed 56 of 56 offline.
+  - The opening export was `2026-10-14T03-31-52Z`, and the opening Storage inventory was taken at 03:32Z.
+  - Two admins were seeded: a main admin on four readable digits, and `__TEST__ Legacy`, a main admin shaped as Kian's document.
+  - Builds:
+    - `MSzFvqjVhEr9MRlC5HeLz`: checks 1–3;
+    - `IV8VRuztOKJRYSizJMFor`: checks 4–5, with the warning fix;
+    - `LVI7uxQXzuqVgz2urRGrv`: checks 6–8;
+    - `lVBHx5LTo55X-99ie-kmI`, the final build with main admins' codes not counted: checks 9 and 10.
+- **The checks:**
+  1. **Four digits:** a four-digit PIN signed in with 4 reads, and a six-digit PIN got 401. The gate showed four masked boxes that went by themselves. The Add dialog opened on Admin, with a four-digit field; Ada was added and signed in.
+  2. **A typed code is counted:** Ada created Cleo with B, then changed it to A, so B is retired and A current; her connection counted 2.
+     - The first attempt was refused by the guard: Ada's address was missing from its list. The transaction wrote nothing, the address was added, and it was run again.
+  3. **A PIN refused because a code holds it:**
+     - A (current) and B (retired), adding an admin and setting Ada's PIN: 409 `ADMIN_PIN_IS_A_CODE`, 0 writes;
+     - Ada choosing either: 409 "That PIN is taken.", counted;
+     - the Add dialog showed "A cleaner code, current or retired, is those four digits."
+  4. **A code refused because an admin holds it:**
+     - Ada typed the main admin's PIN for a new cleaner, then her own and the main admin's for Cleo: 422 "That is an admin PIN." each, counted 3, nothing written;
+     - a drawn create forced to draw the main admin's PIN first skipped it ("admin PIN candidate skipped") and issued C, uncounted.
+  5. **Kian's path, on Legacy:**
+     - the Admins page read "Needs a new PIN" on Kian's and Legacy's rows;
+     - Legacy's session opened on "Your PIN is from before", with nothing behind it;
+     - the recovery script refused Ada, ran dry, then wrote: shared PIN, epoch 3;
+     - the shared PIN at the gate went by itself to Set your PIN, with only New PIN and New PIN again, four boxes each;
+     - four masked digits later Legacy was in;
+     - afterwards: readable, epoch 4, an index entry; the old session got 401, the shared PIN 401, the new PIN 200;
+     - Legacy was on the shared PIN for 18.0 s at most.
+  6. **The Admins page** at 1280, 1400 and 1700 px: no sideways scroll, every button whole. "Needs a new PIN" takes 3, 2 and 2 lines.
+     - A first version kept it on one line, which cut "Remove…" off at 1280 px; that was dropped.
+  7. **The earlier checks:**
+     - Ada was refused all 8 main-admin routes and wrote nothing;
+     - no PIN reached her session or her pages;
+     - Bo, promoted, saw four-digit PINs and none for Kian;
+     - 12 attempts on main admins' accounts got 409, three of them on Kian's, and a PIN for oneself through the Admins route got 409;
+     - a PIN-signed session from before dispatch 38 got 401;
+     - a name change was recorded;
+     - a new admin was written with schema 4.
+  8. **The lock and the cap,** after Toronto's midnight so that one day held every try:
+     - **Five in a row:** the fourth warned "for 15 minutes"; the fifth got 429 with Retry-After 900; the right PIN during the lock got 429 with one read; Lift, then 200.
+     - **Ada's Change PIN dialog:** the fourth wrong current PIN warned of the 15 minutes.
+     - **The cap, on the browsers' connection:** four wrong PINs and a right one, three times, then two wrong.
+       - The gate showed the 19th try's "One more wrong PIN locks sign-in from here until a main admin lifts it."
+       - The 20th showed "Twenty tries today. Locked until a main admin lifts it." with the boxes disabled.
+       - The right PIN then got 429 with `lockedUntil: null`, `capped: true` and no Retry-After.
+       - The Admins page showed "Until lifted"; Lift cleared it, and the gate signed in.
+     - **Midnight:** a connection with 2 tries on the 13th went to 3 in a row and 1 for the 14th.
+  9. **Whose codes count, on the final build:**
+     - Ada's typed success and refusal were counted;
+     - the main admin's typed success (Eli, with A) and two refusals read no lock and wrote none;
+     - on the Team page, the New team member dialog showed "That is an admin PIN." for each: the main admin's left no try, Ada's left one.
+  10. **Removal and sign out:**
+      - the three cleaners were deleted, each retiring its code;
+      - Ada, Bo and Cy were removed: their sessions and PINs got 401, and a freed PIN was set again for Fay, then removed;
+      - Legacy and the test main admin removed themselves;
+      - sign out cleared the cookie.
+- **Unchanged:**
+  - the seven other test suites are identical to their recorded outputs;
+  - `tsc` is clean outside stale `.next/` files;
+  - lint on `app`, `scripts` and `tests` has the baseline's 10 problems.
+- **Cleanup.** The guard recorded 150 writes: 149 allowed, the 1 refusal above, none to Kian's document or name.
+  - Through the app: every test admin, name, PIN entry and cleaner.
+  - By exact ID after export `2026-10-14T04-05-25Z`: 24 activity lines, 3 retired test codes and 7 lock documents, 34 of 34.
+  - The closing export `2026-10-14T04-06-10Z` is byte-identical to the opening one, file for file, Kian's lock record included. Storage's 6,622 objects have the same names and generations.
+
+### 45.6 Not exercised live
+
+- A PIN and a code for the same digits written at the same moment.
+- `ADMIN_PIN` of another length in Vercel. The recovery script checks only the local one; production would then refuse the shared PIN until Vercel's is four digits.
+- **Production:** Kian's recovery and Set your PIN are his to do.
+- Statements were not re-rendered: no money or statement code changed.

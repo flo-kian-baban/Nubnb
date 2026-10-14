@@ -3,7 +3,7 @@
  * carrying anything else is refused, not trimmed. Since Kian's rulings of
  * 2026-10-13 (night) the main admin sets each admin's PIN, and an admin can
  * change their own: those bodies carry a PIN, which is never logged or echoed.
- * A PIN must be six digits and not too easy (model.ts, pinProblem); whether
+ * A PIN must be four digits and not too easy (model.ts, pinProblem); whether
  * another admin holds it, or it is the shared PIN, is the route's to say.
  */
 

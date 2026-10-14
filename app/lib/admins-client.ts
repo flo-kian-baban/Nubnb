@@ -28,8 +28,9 @@ export type AdminResult<T> =
       title: string;
       detail?: string;
       code?: string;
-      /** On a locked connection (429 ADMIN_SIGN_IN_LOCKED): when the lock ends, and whether this try locked it. */
-      lockedUntil?: string;
+      /** On a locked connection (429 ADMIN_SIGN_IN_LOCKED): when the lock ends (null: until a main admin lifts it), and whether this try locked it. */
+      lockedUntil?: string | null;
+      capped?: boolean;
       lockedNow?: boolean;
       /** The route's hint alone, unjoined: the sign-in shows it under its one line. */
       hint?: string;
@@ -63,7 +64,8 @@ async function call<T>(url: string, init: RequestInit, action: string, pick: (da
       detail: failure.detail,
       code,
       hint: typeof body.hint === 'string' ? body.hint : undefined,
-      lockedUntil: typeof body.lockedUntil === 'string' ? body.lockedUntil : undefined,
+      lockedUntil: typeof body.lockedUntil === 'string' ? body.lockedUntil : body.lockedUntil === null ? null : undefined,
+      capped: body.capped === true,
       lockedNow: body.lockedNow === true,
       unknown: (res.status >= 500 && !(body.success === false && typeof body.error === 'string')) || code?.endsWith('_UNCONFIRMED') === true,
     };
@@ -145,9 +147,13 @@ export const setAdminPin = (id: string, pin: string) => call(`/api/admin/admins/
 export const removeAdmin = (id: string) =>
   call(`/api/admin/admins/${encodeURIComponent(id)}`, { method: 'DELETE' }, 'Removing the admin', (data) => (isRecord(data) && isRecord(data.removed) ? true : null));
 
-/** A lock's end as the sign-in shows it: "4:32 pm", in this browser's time. */
-export function lockTimeWords(iso: string): string {
+/** A lock's end as the sign-in shows it: "4:32 pm", in this browser's time; "a main admin lifts it" for the day's cap. */
+export function lockTimeWords(iso: string | null): string {
+  if (iso === null) return 'a main admin lifts it';
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return 'later';
   return date.toLocaleTimeString('en-CA', { hour: 'numeric', minute: '2-digit' }).replace('a.m.', 'am').replace('p.m.', 'pm');
 }
+
+/** Whether a failed answer is a locked connection: 429 with when it ends, or with no end (the day's cap). */
+export const isLockedAnswer = (result: { status: number; lockedUntil?: string | null }): result is { status: 429; lockedUntil: string | null } => result.status === 429 && result.lockedUntil !== undefined;

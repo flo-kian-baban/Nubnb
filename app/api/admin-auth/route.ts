@@ -7,7 +7,8 @@
  * no name is typed, and the PIN identifies the admin. Five wrong PINs from
  * one connection lock sign-in from that connection for fifteen minutes —
  * rate limiting, for admin sign-in only — and the connection is kept only as
- * a keyed hash. Sessions are signed with their own secret,
+ * a keyed hash. Late night: PINs are four digits, and twenty tries from one
+ * connection in a Toronto day lock it until a main admin lifts it. Sessions are signed with their own secret,
  * ADMIN_SESSION_SECRET, never the PIN (app/lib/admins/session.ts).
  *
  * Sign-in, in order:
@@ -17,7 +18,7 @@
  *      (503);
  *   3. the body must be exactly `{ pin: string }`, or 400. It holds a PIN, so
  *      it is never logged nor echoed;
- *   4. a PIN that is not four or six digits is refused with no read (401);
+ *   4. a PIN that is not four digits is refused with no read (401);
  *   5. signIn (server-admins.ts): a locked connection is refused before
  *      anything else is read; otherwise the PIN's own `admin_pins` document
  *      finds its admin (Kian's rulings of 2026-10-13, night: PINs are stored
@@ -27,13 +28,15 @@
  *             signed in with the shared PIN is on `shared`, and the gate has
  *             them set their PIN before anything else
  *        401  ADMIN_SIGN_IN_REFUSED "Wrong PIN." — the try before the lock
- *             carries the warning as its hint
+ *             carries the warning as its hint, naming which lock follows
  *        409  SHARED_PIN_AMBIGUOUS: more than one main admin is on the
  *             shared PIN, so it cannot say which
  *        429  ADMIN_SIGN_IN_LOCKED with `lockedUntil` and Retry-After: the
- *             fifth wrong PIN (`lockedNow: true`), or any try while this
- *             connection is locked, the right PIN included, which is neither
- *             checked nor counted
+ *             fifth wrong PIN in a row (`lockedNow: true`), or any try while
+ *             this connection is locked, the right PIN included, which is
+ *             neither checked nor counted; the Toronto day's twentieth try
+ *             locks it until lifted (`lockedUntil: null`, `capped: true`, no
+ *             Retry-After)
  *        503  ADMIN_AUTH_NOT_CONFIGURED or ADMIN_AUTH_UNAVAILABLE: never
  *             access on an error
  *
@@ -49,7 +52,7 @@
 import { z } from 'zod';
 import { apiError, apiFailure, apiSuccess, noStore } from '@/app/lib/api/safe-response';
 import { connectionOf } from '@/app/lib/admins/connection';
-import { LOCK_MINUTES, SIGN_IN_PIN_PATTERN } from '@/app/lib/admins/model';
+import { SIGN_IN_PIN_PATTERN, lastTryWords } from '@/app/lib/admins/model';
 import { lockedResponse, signedInView } from '@/app/lib/admins/responses';
 import { ADMIN_AUTH_NOT_CONFIGURED, getAdminPinKey, getAdminSessionKey } from '@/app/lib/admins/secrets';
 import { ADMIN_AUTH_UNAVAILABLE, clearAdminSessionCookie, createAdminToken, setAdminSessionCookie, verifyAdminSession } from '@/app/lib/admins/session';
@@ -95,7 +98,7 @@ export async function POST(request: Request) {
       return noStore(
         apiFailure({
           ...SIGN_IN_REFUSED,
-          ...(outcome.triesLeft === 1 ? { hint: `One more wrong PIN locks sign-in from here for ${LOCK_MINUTES} minutes.` } : {}),
+          ...(outcome.triesLeft === 1 ? { hint: lastTryWords('wrong PIN', outcome.untilLifted) } : {}),
         }),
       );
     case 'locked':

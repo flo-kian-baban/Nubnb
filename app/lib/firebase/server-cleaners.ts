@@ -19,6 +19,16 @@
  * account holds now is refused (codeAvailability). Sign-in needs both: the
  * code's document, not retired, and a cleaner who still points at that code.
  *
+ * Admin PINs are four digits too, and by Kian's rulings of 2026-10-13 (late
+ * night) no code may be an admin PIN, nor any admin PIN a code ever issued:
+ * every transaction that gives out a code reads the digits' `admin_pins`
+ * document as well (server-admins.ts, adminPinHolds) and refuses, or draws
+ * again, when an admin holds them. A code an ordinary admin types is a try on
+ * their connection's sign-in lock, whatever the answer: a refusal because an
+ * admin holds it would tell them that admin's PIN, so typing codes is kept no
+ * faster than guessing at the admin door. A main admin's is not counted: main
+ * admins see every admin's PIN already (CodeTyper).
+ *
  * ── What never leaves ──
  * `sessionEpoch` never reaches a response, nor does a version 1 cleaner's
  * `codeDigest`: listCleaners selects only the summary fields, and the other
@@ -49,6 +59,7 @@
  */
 
 import { getAdminDb } from './admin';
+import { adminPinHolds, countTry, readConnectionLock } from './server-admins';
 import { isDocumentId } from './server-leads';
 import { generateCandidate, reservedReason, type ReservedReason } from '@/app/lib/cleaners/codes';
 import {
@@ -108,8 +119,9 @@ export interface Released {
 
 /**
  * Whether `code` can be given to `forId` now (Kian's ruling of 2026-10-02:
- * a code is free whenever no active account holds it), from reads inside
- * the caller's transaction. `taken` names the active holder; `free` says
+ * a code is free whenever no active account holds it; of 2026-10-13: never an
+ * admin's PIN), from reads inside the caller's transaction. `admin-pin` when
+ * an admin holds the digits; `taken` names the active holder; `free` says
  * whether the document exists (then it is overwritten, not created) and
  * which deactivated account, if any, still points at it and must let go.
  */
@@ -118,7 +130,9 @@ async function codeAvailability(
   db: ReturnType<typeof getAdminDb>,
   code: string,
   forId: string,
-): Promise<{ kind: 'taken'; holder: string | null } | { kind: 'free'; exists: boolean; holder: { ref: FirebaseFirestore.DocumentReference; fields: Record<string, unknown> } | null }> {
+): Promise<{ kind: 'admin-pin' } | { kind: 'taken'; holder: string | null } | { kind: 'free'; exists: boolean; holder: { ref: FirebaseFirestore.DocumentReference; fields: Record<string, unknown> } | null }> {
+  // An admin's PIN is never a code (Kian's ruling of 2026-10-13, late night).
+  if (await adminPinHolds(tx, code)) return { kind: 'admin-pin' };
   const issued = await tx.get(db.collection(CLEANER_CODES_COLLECTION).doc(code));
   if (!issued.exists) return { kind: 'free', exists: false, holder: null };
   if (issued.get('retiredAt') != null) return { kind: 'free', exists: true, holder: null };
@@ -204,9 +218,22 @@ export async function listCleaners(): Promise<CleanerSummary[]> {
 
 // ─── Issue ─────────────────────────────────────────────────────
 
+/**
+ * Who typed a code, for their connection's sign-in lock: an ordinary admin's
+ * typed code is a try on `connection`; a main admin's is not counted, since
+ * main admins see every admin's PIN already and a refusal tells them nothing.
+ */
+export type CodeTyper = { counted: true; connection: string } | { counted: false };
+
 export type IssueCleanerResult =
-  /** Written. The cleaner's code is on `cleaner.code`. */
-  | { kind: 'created'; cleaner: CleanerSummary; released: Released | null }
+  /** Written. The cleaner's code is on `cleaner.code`. `lockedUntil`: this typed code was the try that locked the connection (null: until lifted). */
+  | { kind: 'created'; cleaner: CleanerSummary; released: Released | null; lockedUntil?: string | null }
+  /** The typed code is an admin's PIN. Counted on the connection. Nothing else was written. */
+  | { kind: 'admin-pin' }
+  /** Sign-in from this connection is locked, so codes cannot be typed from it (`now`: this try locked it). */
+  | { kind: 'locked'; lockedUntil: string | null; now: boolean }
+  /** A typed code needs to know who typed it: an ordinary admin's needs their connection, and ADMIN_PIN_KEY to know it. Nothing was read or written. */
+  | { kind: 'not-configured' }
   /** No admin PIN to keep codes clear of. Nothing was read or written. */
   | { kind: 'admin-pin-missing' }
   /** The database could not be reached. Nothing was written. */
@@ -256,18 +283,22 @@ function newCleaner(name: string, role: CleanerRole, code: string, now: string, 
  * one of the few readers of it besides the admin session module. It is only
  * compared against codes.
  *
- * A typed code is refused before anything is read when it is the admin PIN
- * or on the reserved list, and refused by the transaction when it was ever
- * issued — the same refusals as a code change (setCleanerCode). The
- * transaction reads the code's document, then `create()`s it and the
- * cleaner: all or nothing.
+ * A typed code goes through one transaction that reads an ordinary admin's
+ * connection lock first (refused while it holds), then decides: the admin PIN
+ * or the reserved list, an admin's PIN, a code an active account holds — the
+ * same refusals as a code change (setCleanerCode) — and counts the try on the
+ * connection whatever the answer (Kian's rulings of 2026-10-13, late night). A
+ * main admin's is neither held by the lock nor counted (CodeTyper).
+ * It then `create()`s the code's document (or takes a retired one over) and
+ * the cleaner: all or nothing.
  *
- * A drawn code is written in one batch of two `create()` calls: all or
- * nothing, and refused outright if the code's document already exists. Of
- * two concurrent issuances of the same code, exactly one wins. A refused
- * candidate wrote nothing, so the next is tried, up to five. Any other
- * failure stops at once: the batch may have landed, and retrying could
- * create the cleaner twice.
+ * A drawn code is written in one transaction too, that reads the digits'
+ * admin PIN entry and `create()`s the code's document and the cleaner: all or
+ * nothing, and refused outright if the code's document already exists. Of two
+ * concurrent issuances of the same code, exactly one wins. A refused candidate
+ * wrote nothing, so the next is tried, up to five. Any other failure stops at
+ * once: the write may have landed, and retrying could create the cleaner
+ * twice.
  */
 export async function issueCleaner(
   actor: Actor,
@@ -275,12 +306,12 @@ export async function issueCleaner(
   role: CleanerRole,
   adminPin: string | undefined,
   typed: string | null = null,
+  typer: CodeTyper | null = null,
 ): Promise<IssueCleanerResult> {
   if (!adminPin) return { kind: 'admin-pin-missing' };
   if (typed !== null) {
     if (!CODE_PATTERN.test(typed)) return { kind: 'not-a-code' };
-    const reason = reservedReason(typed, adminPin);
-    if (reason) return { kind: 'reserved', reason };
+    if (typer === null) return { kind: 'not-configured' };
   }
 
   let db: ReturnType<typeof getAdminDb>;
@@ -291,7 +322,7 @@ export async function issueCleaner(
     return { kind: 'unavailable' };
   }
 
-  if (typed !== null) return issueTyped(db, name, role, typed, actor);
+  if (typed !== null && typer !== null) return issueTyped(db, name, role, typed, actor, adminPin, typer);
 
   for (let n = 1; n <= MAX_CANDIDATES; n++) {
     const code = generateCandidate();
@@ -304,12 +335,15 @@ export async function issueCleaner(
     const now = new Date().toISOString();
     const cleaner = newCleaner(name, role, code, now, actor);
 
+    let written: boolean;
     try {
-      await db
-        .batch()
-        .create(db.collection(CLEANER_CODES_COLLECTION).doc(code), codeRecord(cleanerRef.id, now))
-        .create(cleanerRef, cleaner)
-        .commit();
+      written = await db.runTransaction(async (tx) => {
+        // An admin's PIN is never drawn (Kian's ruling of 2026-10-13, late night).
+        if (await adminPinHolds(tx, code)) return false;
+        tx.create(db.collection(CLEANER_CODES_COLLECTION).doc(code), codeRecord(cleanerRef.id, now));
+        tx.create(cleanerRef, cleaner);
+        return true;
+      });
     } catch (err) {
       if (isAlreadyExists(err)) {
         // Refused whole: nothing was written. Draw again.
@@ -318,6 +352,10 @@ export async function issueCleaner(
       }
       console.error(`[cleaners] create not confirmed: grpc code ${grpcCode(err)}`);
       return { kind: 'unconfirmed' };
+    }
+    if (!written) {
+      console.warn(`[cleaners] admin PIN candidate skipped (candidate ${n}/${MAX_CANDIDATES})`);
+      continue;
     }
 
     return { kind: 'created', cleaner: readCleanerSummary(cleanerRef.id, cleaner), released: null };
@@ -328,10 +366,12 @@ export async function issueCleaner(
 }
 
 /**
- * Create a cleaner holding the code the admin typed, already checked against
- * the PIN and the reserved list. The code is refused only while an active
- * account holds it (Kian's ruling of 2026-10-02); a replaced code, a deleted
- * account's or a deactivated account's is taken over.
+ * Create a cleaner holding the code the admin typed, in one transaction: an
+ * ordinary admin's connection lock first, then the refusals — the admin PIN or
+ * the reserved list, an admin's PIN, a code an active account holds (Kian's
+ * ruling of 2026-10-02: a replaced code, a deleted account's or a deactivated
+ * account's is taken over) — and their try counted on the connection whatever
+ * the answer. A main admin's is not counted (CodeTyper).
  */
 async function issueTyped(
   db: ReturnType<typeof getAdminDb>,
@@ -339,17 +379,27 @@ async function issueTyped(
   role: CleanerRole,
   code: string,
   actor: Actor,
+  adminPin: string,
+  typer: CodeTyper,
 ): Promise<IssueCleanerResult> {
   const cleanerRef = db.collection(CLEANERS_COLLECTION).doc();
   try {
     return await db.runTransaction(async (tx): Promise<IssueCleanerResult> => {
-      const available = await codeAvailability(tx, db, code, cleanerRef.id);
-      if (available.kind === 'taken') return available;
-      const now = new Date().toISOString();
+      const nowMs = Date.now();
+      const lock = typer.counted ? await readConnectionLock(tx, typer.connection, nowMs) : null;
+      if (lock?.holding) return { kind: 'locked', lockedUntil: lock.holding.until, now: false };
+      const reason = reservedReason(code, adminPin);
+      const available = reason ? null : await codeAvailability(tx, db, code, cleanerRef.id);
+      // ── Writes ── An ordinary admin's try counts, whatever the answer.
+      const counted = lock ? countTry(tx, lock.ref, lock.lock, nowMs) : null;
+      const refusal: IssueCleanerResult | null = reason ? { kind: 'reserved', reason } : available?.kind === 'admin-pin' ? { kind: 'admin-pin' } : available?.kind === 'taken' ? available : null;
+      if (refusal) return counted?.kind === 'locked' ? counted : refusal;
+      if (!available || available.kind !== 'free') return { kind: 'unconfirmed' };
+      const now = new Date(nowMs).toISOString();
       const cleaner = newCleaner(name, role, code, now, actor);
       const released = takeCode(tx, db, code, cleanerRef.id, now, available, actor);
       tx.create(cleanerRef, cleaner);
-      return { kind: 'created', cleaner: readCleanerSummary(cleanerRef.id, cleaner), released };
+      return { kind: 'created', cleaner: readCleanerSummary(cleanerRef.id, cleaner), released, ...(counted?.kind === 'locked' ? { lockedUntil: counted.lockedUntil } : {}) };
     });
   } catch (err) {
     // The code's document appeared between the read and the commit: nothing was written.
@@ -486,7 +536,13 @@ export type NewCode = { kind: 'typed'; code: string } | { kind: 'generate' };
 
 export type SetCleanerCodeResult =
   /** `changed` is false when the typed code already was theirs: nothing was written. `released`: a deactivated account that held the code and let it go. */
-  | { kind: 'done'; cleaner: CleanerSummary; changed: boolean; released: Released | null }
+  | { kind: 'done'; cleaner: CleanerSummary; changed: boolean; released: Released | null; lockedUntil?: string | null }
+  /** The typed code is an admin's PIN. Counted on the connection. Nothing else was written. */
+  | { kind: 'admin-pin' }
+  /** Sign-in from this connection is locked, so codes cannot be typed from it (`now`: this try locked it). */
+  | { kind: 'locked'; lockedUntil: string | null; now: boolean }
+  /** A typed code needs the connection, and ADMIN_PIN_KEY to know it. Nothing was read or written. */
+  | { kind: 'not-configured' }
   /** No cleaner has this ID. */
   | { kind: 'not-found' }
   /** The typed code is not four digits. Nothing was read or written. */
@@ -530,15 +586,15 @@ export async function setCleanerCode(
   id: string,
   request: NewCode,
   adminPin: string | undefined,
+  typer: CodeTyper | null = null,
 ): Promise<SetCleanerCodeResult> {
   if (!isDocumentId(id)) return { kind: 'not-found' };
   if (!adminPin) return { kind: 'admin-pin-missing' };
 
   if (request.kind === 'typed') {
     if (!CODE_PATTERN.test(request.code)) return { kind: 'not-a-code' };
-    const reason = reservedReason(request.code, adminPin);
-    if (reason) return { kind: 'reserved', reason };
-    return writeCode(actor, id, request.code, 'typed');
+    if (typer === null) return { kind: 'not-configured' };
+    return writeCode(actor, id, request.code, { kind: 'typed', adminPin, typer });
   }
 
   for (let n = 1; n <= MAX_CANDIDATES; n++) {
@@ -547,8 +603,8 @@ export async function setCleanerCode(
       console.warn(`[cleaners] reserved candidate skipped (candidate ${n}/${MAX_CANDIDATES})`);
       continue;
     }
-    const result = await writeCode(actor, id, code, 'drawn');
-    if (result.kind !== 'taken') return result;
+    const result = await writeCode(actor, id, code, { kind: 'drawn' });
+    if (result.kind !== 'taken' && result.kind !== 'admin-pin') return result;
     console.warn(`[cleaners] code collision (candidate ${n}/${MAX_CANDIDATES})`);
   }
 
@@ -556,13 +612,19 @@ export async function setCleanerCode(
   return { kind: 'exhausted' };
 }
 
-/** One attempt to point a cleaner at `code`, in a transaction. */
+/**
+ * One attempt to point a cleaner at `code`, in a transaction. A typed code
+ * reads the admin's connection lock first, is refused while it holds, and is
+ * counted on it whatever the answer, its own current code aside (Kian's
+ * rulings of 2026-10-13, late night).
+ */
 async function writeCode(
   actor: Actor,
   id: string,
   code: string,
-  source: 'typed' | 'drawn',
+  how: { kind: 'typed'; adminPin: string; typer: CodeTyper } | { kind: 'drawn' },
 ): Promise<SetCleanerCodeResult> {
+  const source = how.kind;
   try {
     const db = getAdminDb();
     const codes = db.collection(CLEANER_CODES_COLLECTION);
@@ -570,6 +632,9 @@ async function writeCode(
 
     return await db.runTransaction(async (tx): Promise<SetCleanerCodeResult> => {
       // Every read comes before the first write, as a transaction requires.
+      const nowMs = Date.now();
+      const lock = how.kind === 'typed' && how.typer.counted ? await readConnectionLock(tx, how.typer.connection, nowMs) : null;
+      if (lock?.holding) return { kind: 'locked', lockedUntil: lock.holding.until, now: false };
       const snap = await tx.get(cleanerRef);
       if (!snap.exists) return { kind: 'not-found' };
       const stored = snap.data() ?? {};
@@ -588,8 +653,8 @@ async function writeCode(
       const history: unknown = stored.history;
       if (!isSessionEpoch(epoch) || !Array.isArray(history)) return { kind: 'unreadable' };
 
-      const available = await codeAvailability(tx, db, code, id);
-      if (available.kind === 'taken') return available;
+      const reason = how.kind === 'typed' ? reservedReason(code, how.adminPin) : null;
+      const available = reason ? null : await codeAvailability(tx, db, code, id);
 
       // The document of the code being replaced: the current code's, or on a
       // version 1 cleaner the digest document their code was stored as.
@@ -601,7 +666,13 @@ async function writeCode(
         current !== null ? codes.doc(current) : legacyDigest !== null ? codes.doc(legacyDigest) : null;
       const old = oldRef ? await tx.get(oldRef) : null;
 
-      const now = new Date().toISOString();
+      // ── Writes ── An ordinary admin's typed code is a try on their connection, whatever the answer.
+      const counted = lock ? countTry(tx, lock.ref, lock.lock, nowMs) : null;
+      const refusal: SetCleanerCodeResult | null = reason ? { kind: 'reserved', reason } : available?.kind === 'admin-pin' ? { kind: 'admin-pin' } : available?.kind === 'taken' ? available : null;
+      if (refusal) return counted?.kind === 'locked' ? counted : refusal;
+      if (!available || available.kind !== 'free') return { kind: 'failed' };
+
+      const now = new Date(nowMs).toISOString();
       const event: HistoryEvent = {
         at: now,
         action: 'code_changed',
@@ -623,7 +694,7 @@ async function writeCode(
         tx.update(oldRef, { retiredAt: now });
       }
       tx.update(cleanerRef, changes);
-      return { kind: 'done', cleaner: readCleanerSummary(id, { ...stored, ...changes }), changed: true, released };
+      return { kind: 'done', cleaner: readCleanerSummary(id, { ...stored, ...changes }), changed: true, released, ...(counted?.kind === 'locked' ? { lockedUntil: counted.lockedUntil } : {}) };
     });
   } catch (err) {
     // The new code's document appeared between the read and the commit.

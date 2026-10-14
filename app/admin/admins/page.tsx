@@ -11,7 +11,7 @@
  * change any ordinary admin's; main admins see every admin's PIN, their own
  * included, here; the Add an admin dialog opens on Admin.
  *
- * The list: each admin's name, level, PIN (the six digits, or, for one kept
+ * The list: each admin's name, level, PIN (the four digits, or, for one kept
  * before PINs were readable, what it is), last sign-in and who added them. On
  * an ordinary admin's row: Make main admin, Change PIN, Remove. Kian's ruling
  * of 2026-10-13: a main admin cannot be removed, demoted or given a new PIN
@@ -69,12 +69,12 @@ const LEVEL_DOES: Record<AdminLevel, string> = {
   admin: "Everything else",
 };
 
-/** A PIN that is not stored readably, in words: it shows no digits. */
+/** A PIN shown without digits: the shared one, or one kept before PINs were four digits (set a new one). */
 const PIN_WORDS: Record<string, string> = {
   shared: "Shared PIN",
-  own: "Kept before: not readable",
-  temporary: "Kept before: not readable",
-  set: "Kept before: not readable",
+  own: "Needs a new PIN",
+  temporary: "Needs a new PIN",
+  set: "Needs a new PIN",
 };
 
 export default function AdminsPage() {
@@ -337,7 +337,7 @@ function AdminsList() {
               Could not load the locked connections: {locks.title}
             </p>
           ) : locks.data.length === 0 ? (
-            <p className={styles.muted}>None. Five wrong PINs from one connection lock sign-in from it for 15 minutes.</p>
+            <p className={styles.muted}>None. Five wrong PINs in a row from one connection lock sign-in from it for 15 minutes; twenty in a Toronto day, until lifted here.</p>
           ) : (
             <div className={`${shared.tableContainer} ${styles.tableScroll}`}>
               <table className={shared.table}>
@@ -352,7 +352,7 @@ function AdminsList() {
                   {locks.data.map((lock) => (
                     <tr key={lock.id}>
                       <td className={styles.whenCell}>
-                        <span className={`${styles.badge} ${styles.badgeLocked}`}>{when(lock.lockedUntil)}</span>
+                        <span className={`${styles.badge} ${styles.badgeLocked}`}>{lock.lockedUntil === null ? "Until lifted" : when(lock.lockedUntil)}</span>
                       </td>
                       <td className={styles.whenCell}>
                         <span className={styles.muted}>{when(lock.lastFailedAt)}</span>
@@ -443,7 +443,7 @@ function AdminsList() {
 
 // ─── Dialogs ───────────────────────────────────────────────────
 
-/** Six digits, shown as typed (the main admin sees every PIN, and hands this one on). */
+/** Four digits, shown as typed (the main admin sees every PIN, and hands this one on). */
 function PinField({ value, onChange, disabled, label }: { value: string; onChange: (v: string) => void; disabled: boolean; label: string }) {
   return (
     <input

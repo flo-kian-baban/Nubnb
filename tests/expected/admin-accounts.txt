@@ -14,27 +14,26 @@
   "Zoë"                                                              clean "Zoë" key "zoë" problem null
   the first main admin: Kian, key kian
 
-2. PINs: set by the main admin or the admin, six digits, never too easy; sign-in takes four (the shared PIN) or six
-  too easy: 10 of one digit; runs 10 of 10; 583920 false
-  "583920"   problem null · PIN shape true · sign-in shape true
-  "000000"   problem "Too easy to guess: choose another." · PIN shape true · sign-in shape true
-  "123456"   problem "Too easy to guess: choose another." · PIN shape true · sign-in shape true
-  "987654"   problem "Too easy to guess: choose another." · PIN shape true · sign-in shape true
-  "0429"     problem "Six digits." · PIN shape false · sign-in shape true
-  "04291"    problem "Six digits." · PIN shape false · sign-in shape false
-  "12345"    problem "Six digits." · PIN shape false · sign-in shape false
-  "1234567"  problem "Six digits." · PIN shape false · sign-in shape false
-  "12a456"   problem "Six digits." · PIN shape false · sign-in shape false
-  " 583920"  problem "Six digits." · PIN shape false · sign-in shape false
-  ""         problem "Six digits." · PIN shape false · sign-in shape false
-  readable: true; the shared PIN false; the first version's false, false; the evening's false
+2. PINs: set by the main admin or the admin, four digits, never on the cleaner codes’ too-easy list; sign-in takes four
+  too easy: 24 (0000 0123 1111 1234 2222 2345 3210 3333 3456 4321 4444 4567 5432 5555 5678 6543 6666 6789 7654 7777 8765 8888 9876 9999) · the same list as cleaner codes: true
+  "5839"     problem null · PIN shape true · sign-in shape true
+  "0429"     problem null · PIN shape true · sign-in shape true
+  "0000"     problem "Too easy to guess: choose another." · PIN shape true · sign-in shape true
+  "1234"     problem "Too easy to guess: choose another." · PIN shape true · sign-in shape true
+  "9876"     problem "Too easy to guess: choose another." · PIN shape true · sign-in shape true
+  "583920"   problem "Four digits." · PIN shape false · sign-in shape false
+  "583"      problem "Four digits." · PIN shape false · sign-in shape false
+  "58392"    problem "Four digits." · PIN shape false · sign-in shape false
+  "12a4"     problem "Four digits." · PIN shape false · sign-in shape false
+  " 5839"    problem "Four digits." · PIN shape false · sign-in shape false
+  ""         problem "Four digits." · PIN shape false · sign-in shape false
+  readable: true; the shared PIN false; kept before: own true, temporary true, set true; readable kept before false; shared kept before false
 
 3. PINs are compared in constant time, length included
-  "583920" and "583920": true
-  "583920" and "583921": false
-  "583920" and "58392": false
-  "583920" and "5839200": false
-  "0429" and "0429": true
+  "5839" and "5839": true
+  "5839" and "5830": false
+  "5839" and "583": false
+  "5839" and "58390": false
   "" and "": true
 
 4. The connection: the address normalized, an IPv6 address cut to its /64, kept only as a keyed hash
@@ -64,18 +63,24 @@
   from x-real-ip not an address       the key of 198.51.100.4: true
   from neither                        the key of unknown: true
 
-5. The lock: five wrong PINs in a row from one connection, fifteen minutes from the fifth
-  wrong PIN 1 at +1s: lock before null → wrong, 4 left · stored {"failedTries":1,"lockedUntil":null}
-  wrong PIN 2 at +2s: lock before null → wrong, 3 left · stored {"failedTries":2,"lockedUntil":null}
-  wrong PIN 3 at +3s: lock before null → wrong, 2 left · stored {"failedTries":3,"lockedUntil":null}
-  wrong PIN 4 at +4s: lock before null → wrong, 1 left · stored {"failedTries":4,"lockedUntil":null}
-  wrong PIN 5 at +5s: lock before null → locked-now until 2026-10-13T20:15:05.000Z · stored {"failedTries":0,"lockedUntil":"2026-10-13T20:15:05.000Z"}
-  sixth try, 1 s later         lock holding: 2026-10-13T20:15:05.000Z
-  14 min 59 s after the fifth  lock holding: 2026-10-13T20:15:05.000Z
+5. The lock: five tries in a row lock a connection for fifteen minutes; twenty in a Toronto day, until a main admin lifts it
+  try 1 at +1s: lock before null → wrong, 4 left · stored {"failedTries":1,"lockedUntil":null,"dayKey":"2026-10-13","dayTries":1,"capped":false}
+  try 2 at +2s: lock before null → wrong, 3 left · stored {"failedTries":2,"lockedUntil":null,"dayKey":"2026-10-13","dayTries":2,"capped":false}
+  try 3 at +3s: lock before null → wrong, 2 left · stored {"failedTries":3,"lockedUntil":null,"dayKey":"2026-10-13","dayTries":3,"capped":false}
+  try 4 at +4s: lock before null → wrong, 1 left · stored {"failedTries":4,"lockedUntil":null,"dayKey":"2026-10-13","dayTries":4,"capped":false}
+  try 5 at +5s: lock before null → locked-now until 2026-10-13T20:15:05.000Z · stored {"failedTries":0,"lockedUntil":"2026-10-13T20:15:05.000Z","dayKey":"2026-10-13","dayTries":5,"capped":false}
+  sixth try, 1 s later         lock holding: {"until":"2026-10-13T20:15:05.000Z"}
+  14 min 59 s after the fifth  lock holding: {"until":"2026-10-13T20:15:05.000Z"}
   15 min after the fifth       lock holding: null
-  15 min 1 s after             lock holding: null
-  a wrong PIN once it ended: wrong, 4 left · stored {"failedTries":1,"lockedUntil":null}
-  a right PIN after three wrong: right · stored {"failedTries":0,"lockedUntil":null}
+  a right PIN after the lock and three more tries: right · stored {"failedTries":0,"lockedUntil":null,"dayKey":"2026-10-13","dayTries":5,"capped":false} (the day's tries kept)
+  twenty tries in a day, right PINs among them: the twentieth → capped-now · stored {"failedTries":0,"lockedUntil":null,"dayKey":"2026-10-13","dayTries":20,"capped":true}
+  holding a week later: {"until":null}
+  a fourth in a row, the day's fourth      → wrong, 1 left: "One more wrong PIN locks sign-in from here for 15 minutes."
+  a fourth in a row, the day's nineteenth  → wrong, 1 left: "One more wrong PIN locks sign-in from here until a main admin lifts it."
+  a first in a row, the day's eighteenth   → wrong, 2 left, then until lifted
+  a first in a row, the day's nineteenth   → wrong, 1 left: "One more wrong PIN locks sign-in from here until a main admin lifts it."
+  Toronto days: 2026-10-14T03:59:59.000Z → 2026-10-13 · 2026-10-14T04:00:00.000Z → 2026-10-14 · 2026-12-15T04:59:59.000Z → 2026-12-14 · 2026-12-15T05:00:00.000Z → 2026-12-15
+  nineteen yesterday, one more today: wrong · stored {"failedTries":3,"lockedUntil":null,"dayKey":"2026-10-13","dayTries":1,"capped":false}
   an unreadable lockedUntil holds nothing: null
 
 6. Session tokens: signed with ADMIN_SESSION_SECRET, never the PIN
@@ -91,13 +96,11 @@
   a cleaner token:       null
   an ID that is not one: createAdminToken: fields out of range
 
-7. PINs of the first version and the evening are checked against their own document only; the shared PIN only compared
-  right PIN: true · wrong: false · another key: false
-  parameters past the ceiling are refused: false; not a power of two: false; a lookup, not a hash: false
-  the evening's lookup key: 64 hex true · the same PIN twice gives the same key true · the next PIN another true · holds the PIN false
-  shared PIN: itself true, another four digits false, six digits false
-  shared PIN unset: null
-  shared PIN not digits: null
+7. The shared PIN: four digits, only compared
+  itself true, another four digits false, six digits false · its length 4
+  ADMIN_PIN of six digits: not a shared PIN at all (null, length null): sign-in takes four
+  unset: null
+  not digits: null
 
 8. Every admin route goes through the door; every admin write has words in the activity log
   POST   /api/admin/admins/[id]/pin                           recorded as "Set an admin’s PIN"

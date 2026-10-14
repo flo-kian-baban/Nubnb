@@ -9,10 +9,11 @@
  * It puts that main admin back on the shared PIN — ADMIN_PIN, as set in
  * Vercel Production (and .env.local) — and ends every session they hold.
  * Their old PIN stops working at once: its index entry, `admin_pins/{PIN}`
- * (or the evening's `admin_pins/{lookup}`), is deleted with it. They then
- * sign in with the shared PIN alone and set their own PIN before anything
- * else (Kian's rulings of 2026-10-13: the shared PIN stays only as the
- * recovery script's PIN; an admin can change their own PIN).
+ * (four digits, the night's six, or the evening's lookup key), is deleted
+ * with it. They then sign in with the shared PIN alone and set their own
+ * four digits before anything else (Kian's rulings of 2026-10-13: the shared
+ * PIN stays only as the recovery script's PIN; his own account comes back
+ * this way, and Set your PIN takes four digits).
  *
  * Only for a main admin: an admin who forgets their PIN is given a new one by
  * a main admin on the Admins page. And only while no other main admin is on
@@ -24,10 +25,13 @@
  * entry, to delete it. The write is one transaction, and the admin's history
  * records it as the recovery script's.
  * A connection locked by five wrong PINs stays locked until its fifteen
- * minutes end; this script does not touch locks.
+ * minutes end, and one locked by twenty tries in a Toronto day until a main
+ * admin lifts it on the Admins page, signed in from another connection; this
+ * script does not touch locks.
  *
- * If ADMIN_PIN is no longer set in Vercel, set it (four or six digits) and
- * redeploy before signing in: the shared PIN is whatever the server has.
+ * If ADMIN_PIN is no longer set in Vercel, set it (four digits: sign-in takes
+ * four) and redeploy before signing in: the shared PIN is whatever the server
+ * has.
  */
 
 import { readFileSync } from 'node:fs';
@@ -47,8 +51,8 @@ if (!name) {
 
 // The same key the server matches names by (app/lib/admins/model.ts: nameKeyOf).
 const nameKey = name.normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
-// The ID of a PIN's index document: the PIN itself (six digits), or the evening's lookup key (app/lib/admins/pin.ts).
-const READABLE = /^[0-9]{6}$/;
+// The ID of a PIN's index document: the PIN itself (four digits, or the night's six), or the evening's lookup key.
+const READABLE = /^(?:[0-9]{4}|[0-9]{6})$/;
 const LOOKUP = /^[0-9a-f]{64}$/;
 
 const env = {};
@@ -130,4 +134,4 @@ const freed = await db.runTransaction(async (tx) => {
 });
 const after = (await ref.get()).data();
 console.log(`Done: PIN ${after.pin?.state}, session epoch ${after.sessionEpoch}${freed ? ', old PIN index entry deleted' : ''}.`);
-console.log('Sign in with the shared PIN (ADMIN_PIN in Vercel) alone, then set your own PIN.');
+console.log('Sign in with the shared PIN (ADMIN_PIN in Vercel) alone, then set your own four digits.');

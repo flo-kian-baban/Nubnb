@@ -9,10 +9,16 @@
  * always sends one, which its "Generate" may have filled in; when absent, the
  * server draws one, as before. A typed code is refused, with nothing
  * written, exactly as on a code change:
- *   422 CLEANER_CODE_IS_ADMIN_PIN  the admin PIN
+ *   422 CLEANER_CODE_IS_ADMIN_PIN  an admin PIN: the shared one, or any
+ *                                  admin's (Kian's rulings of 2026-10-13,
+ *                                  late night)
  *   422 CLEANER_CODE_TOO_EASY      on the reserved list (1111, 1234, 9876 …)
  *   409 CLEANER_CODE_TAKEN         an active account's code now (any other
  *                                  code is free: Kian's ruling of 2026-10-02)
+ *   429 ADMIN_SIGN_IN_LOCKED       an ordinary admin's connection is locked
+ * An ordinary admin's typed code is a try on their connection's sign-in lock,
+ * whatever the answer, since a refusal could tell them an admin's PIN; a main
+ * admin's is not counted. A drawn code is never an admin's PIN either.
  *
  * A cleaner signs in at their own door, /api/cleaner, with a four-digit code;
  * this is where the admin makes one. By Kian's ruling of 2026-09-28 codes are
@@ -24,7 +30,8 @@
  * The POST is one of the few readers of ADMIN_PIN besides the admin session
  * module. It hands the PIN to issueCleaner, which never issues it as a code —
  * codes and the PIN are both four digits, so a cleaner whose code were the
- * PIN would open /admin. The PIN is only compared, and never logged.
+ * PIN would open /admin — nor any admin's PIN, read from `admin_pins` in the
+ * same transaction. The PIN is only compared, and never logged.
  *
  * Order, for the POST: the admin session, then the cross-site and media-type
  * refusals, then the JSON, then the schema, then the work. Every response is
@@ -45,10 +52,14 @@ import {
   noStore,
 } from '@/app/lib/api/safe-response';
 import { CLEANER_ROLES, CODE_PATTERN, LIMITS, type Refusal } from '@/app/lib/cleaners/model';
+import { connectionOf } from '@/app/lib/admins/connection';
+import { lockedResponse } from '@/app/lib/admins/responses';
+import { ADMIN_AUTH_NOT_CONFIGURED, getAdminPinKey } from '@/app/lib/admins/secrets';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import {
   issueCleaner,
   listCleaners,
+  type CodeTyper,
   type IssueCleanerResult,
 } from '@/app/lib/firebase/server-cleaners';
 
@@ -83,7 +94,7 @@ const NewCleanerSchema = z.strictObject({
  * anything, except `unconfirmed`, which cannot say whether the batch landed
  * and is never retried.
  */
-const ISSUE_REFUSALS: Record<Exclude<IssueCleanerResult['kind'], 'created' | 'not-a-code' | 'reserved' | 'taken'>, Refusal> = {
+const ISSUE_REFUSALS: Record<Exclude<IssueCleanerResult['kind'], 'created' | 'not-a-code' | 'reserved' | 'taken' | 'admin-pin' | 'locked' | 'not-configured'>, Refusal> = {
   'admin-pin-missing': {
     status: 503,
     code: 'ADMIN_PIN_NOT_CONFIGURED',
@@ -113,8 +124,8 @@ const ISSUE_REFUSALS: Record<Exclude<IssueCleanerResult['kind'], 'created' | 'no
 const ADMIN_PIN_REFUSAL: Refusal = {
   status: 422,
   code: 'CLEANER_CODE_IS_ADMIN_PIN',
-  message: 'That is the admin PIN.',
-  hint: 'A code can never be the admin PIN: whoever holds it would open /admin with it. Nothing was created.',
+  message: 'That is an admin PIN.',
+  hint: 'A code can never be an admin PIN (Kian’s ruling of 2026-10-13): whoever held it would open /admin with it. Nothing was created.',
 };
 
 const TOO_EASY_REFUSAL: Refusal = {
@@ -159,7 +170,7 @@ export const GET = adminRoute(async function GET() {
   }
 });
 
-export const POST = adminRoute(async function POST(request: NextRequest, _context: unknown, { actor }) {
+export const POST = adminRoute(async function POST(request: NextRequest, _context: unknown, { admin, actor }) {
   // ── Cross-site and media type ──
   const crossSite = refuseCrossSite(request);
   if (crossSite) return crossSite;
@@ -189,15 +200,26 @@ export const POST = adminRoute(async function POST(request: NextRequest, _contex
   // ── Issue ──
   // Read inside the handler, never at module scope, and passed on unlogged.
   // The body may hold a code, so it is never logged.
-  const outcome = await issueCleaner(actor, result.data.name, result.data.role, process.env.ADMIN_PIN, result.data.code);
+  // An ordinary admin's typed code is a try on their connection (Kian's rulings of 2026-10-13, late night), which needs
+  // the connection's keyed hash; a main admin's is not counted: they see every admin's PIN already.
+  const pinKey = getAdminPinKey();
+  const typer: CodeTyper | null = result.data.code === null ? null : admin.level === 'main' ? { counted: false } : pinKey ? { counted: true, connection: connectionOf(request, pinKey) } : null;
+  if (result.data.code !== null && typer === null) return noStore(apiFailure(ADMIN_AUTH_NOT_CONFIGURED));
+  const outcome = await issueCleaner(actor, result.data.name, result.data.role, process.env.ADMIN_PIN, result.data.code, typer);
   switch (outcome.kind) {
     case 'created':
       // The new cleaner, their code included. Nothing logs it.
-      return noStore(apiSuccess({ cleaner: outcome.cleaner, released: outcome.released }, 201));
+      return noStore(apiSuccess({ cleaner: outcome.cleaner, released: outcome.released, ...(outcome.lockedUntil !== undefined ? { lockedUntil: outcome.lockedUntil } : {}) }, 201));
     case 'not-a-code':
       return noStore(apiValidationError([{ path: 'code', message: CODE_MESSAGE }]));
     case 'reserved':
       return noStore(apiFailure(outcome.reason === 'admin-pin' ? ADMIN_PIN_REFUSAL : TOO_EASY_REFUSAL));
+    case 'admin-pin':
+      return noStore(apiFailure(ADMIN_PIN_REFUSAL));
+    case 'locked':
+      return lockedResponse(outcome.lockedUntil, outcome.now);
+    case 'not-configured':
+      return noStore(apiFailure(ADMIN_AUTH_NOT_CONFIGURED));
     case 'taken':
       return noStore(apiFailure(takenRefusal(outcome.holder)));
     default:

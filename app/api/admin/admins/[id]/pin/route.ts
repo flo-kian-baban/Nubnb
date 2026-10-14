@@ -1,7 +1,7 @@
 /**
  * POST /api/admin/admins/[id]/pin — Set an ordinary admin's PIN (main admin only, dispatch 38).
  *
- * Request:  `{ pin }` — six digits the main admin chooses
+ * Request:  `{ pin }` — four digits the main admin chooses
  * Response: 200 `{ admin, changed }` — the row, its PIN included (main admins
  *           see every admin's PIN)
  *
@@ -10,16 +10,17 @@
  * session the admin holds ends. Not for yourself (409 ADMIN_IS_YOU: Change
  * PIN in your own menu), never for another main admin (409
  * MAIN_ADMIN_PROTECTED: only they set their own). 409 ADMIN_PIN_TAKEN when
- * another admin holds it; 422 for a PIN that is not six digits, is too easy,
- * or is the shared PIN. 404 ADMIN_NOT_FOUND. 502: it may or may not have been
- * set.
+ * another admin holds it, 409 ADMIN_PIN_IS_A_CODE when a cleaner code, current
+ * or retired, is those digits (late night); 422 for a PIN that is not four
+ * digits, is too easy, or is the shared PIN. 404 ADMIN_NOT_FOUND. 502: it may
+ * or may not have been set.
  */
 
 import { NextRequest } from 'next/server';
 import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiError, apiFailure, apiSuccess, apiValidationError, noStore } from '@/app/lib/api/safe-response';
 import { sharedPinMatches } from '@/app/lib/admins/pin';
-import { ACCOUNT_REFUSALS, PIN_IS_SHARED, PIN_TAKEN } from '@/app/lib/admins/responses';
+import { ACCOUNT_REFUSALS, PIN_IS_A_CODE, PIN_IS_SHARED, PIN_TAKEN } from '@/app/lib/admins/responses';
 import { SetPinSchema } from '@/app/lib/admins/schemas';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { setAdminPin } from '@/app/lib/firebase/server-admins';
@@ -53,7 +54,7 @@ export const POST = adminRoute(
     if (sharedPinMatches(parsed.data.pin) === true) return noStore(apiFailure(PIN_IS_SHARED));
     try {
       const outcome = await setAdminPin(actor, id, parsed.data.pin);
-      if (outcome.kind === 'pin-taken') return noStore(apiFailure(PIN_TAKEN));
+      if (outcome.kind === 'pin-taken') return noStore(apiFailure(outcome.by === 'code' ? PIN_IS_A_CODE : PIN_TAKEN));
       if (outcome.kind !== 'done') return noStore(apiFailure(ACCOUNT_REFUSALS[outcome.kind]));
       console.log(`[admins] ${actor.id} set the PIN of ${id}`);
       return noStore(apiSuccess({ admin: outcome.admin, changed: outcome.changed }));

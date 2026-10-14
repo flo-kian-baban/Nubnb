@@ -1,11 +1,12 @@
 // Dispatch 38: admin accounts through Nubnb's own code — names, the PIN rules, the connection and its lock, session
-// tokens, PINs kept before they were readable, and which routes go through the admin door. Kian's rulings of
-// 2026-10-13: sign-in by PIN alone, every PIN unique, five wrong PINs from one connection lock it for fifteen minutes
-// (evening); the main admin sets PINs, stored readably, six digits (night). Made-up keys, PINs and addresses only
+// tokens, the shared PIN, and which routes go through the admin door. Kian's rulings of 2026-10-13: sign-in by PIN
+// alone, every PIN unique, five wrong PINs from one connection lock it for fifteen minutes (evening); the main admin
+// sets PINs, stored readably (night); four digits, the cleaner codes' too-easy list, twenty tries in a Toronto day
+// lock a connection until lifted (late night). Made-up keys, PINs and addresses only
 // (TEST-NET and documentation ranges); nothing is read from or written to Firestore. The shared PIN is drawn at random
 // here and never printed, so no output can show a real one.
 //   node --import ./tests/tools/ts-hook.mjs tests/admins/accounts.mjs
-import { createHmac, randomBytes, randomInt, scrypt } from 'node:crypto';
+import { createHmac, randomBytes, randomInt } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +17,7 @@ const pin = await import(`${ROOT}/app/lib/admins/pin.ts`);
 const { connectionOf } = await import(`${ROOT}/app/lib/admins/connection.ts`);
 const session = await import(`${ROOT}/app/lib/admins/session.ts`);
 const { createCleanerToken } = await import(`${ROOT}/app/lib/cleaners/session.ts`);
+const { isTooEasyCode } = await import(`${ROOT}/app/lib/cleaners/model.ts`);
 
 const out = (...a) => console.log(...a);
 const T0 = Date.parse('2026-10-13T20:00:00.000Z');
@@ -29,16 +31,17 @@ for (const name of ['Kian', '  kian  ', 'KIAN', 'Ana  Maria', 'Ana Maria', '', '
 out(`  the first main admin: ${m.FIRST_MAIN_ADMIN_NAME}, key ${m.nameKeyOf(m.FIRST_MAIN_ADMIN_NAME)}`);
 
 // ─── 2. PINs ───
-out('\n2. PINs: set by the main admin or the admin, six digits, never too easy; sign-in takes four (the shared PIN) or six');
-out(`  too easy: ${[...Array(10).keys()].map((d) => String(d).repeat(6)).filter(m.isTooEasyPin).length} of one digit; runs ${['012345', '123456', '234567', '345678', '456789', '987654', '876543', '765432', '654321', '543210'].filter(m.isTooEasyPin).length} of 10; 583920 ${m.isTooEasyPin('583920')}`);
-for (const p of ['583920', '000000', '123456', '987654', '0429', '04291', '12345', '1234567', '12a456', ' 583920', '']) {
+out('\n2. PINs: set by the main admin or the admin, four digits, never on the cleaner codes\u2019 too-easy list; sign-in takes four');
+const easy = [...Array(10000).keys()].map((n) => String(n).padStart(4, '0')).filter(m.isTooEasyPin);
+out(`  too easy: ${easy.length} (${easy.join(' ')}) · the same list as cleaner codes: ${easy.every(isTooEasyCode) && [...Array(10000).keys()].map((n) => String(n).padStart(4, '0')).filter(isTooEasyCode).length === easy.length}`);
+for (const p of ['5839', '0429', '0000', '1234', '9876', '583920', '583', '58392', '12a4', ' 5839', '']) {
   out(`  ${JSON.stringify(p).padEnd(10)} problem ${JSON.stringify(m.pinProblem(p))} · PIN shape ${m.PIN_PATTERN.test(p)} · sign-in shape ${m.SIGN_IN_PIN_PATTERN.test(p)}`);
 }
-out(`  readable: ${m.isReadablePin('readable')}; the shared PIN ${m.isReadablePin('shared')}; the first version's ${m.isReadablePin('own')}, ${m.isReadablePin('temporary')}; the evening's ${m.isReadablePin('set')}`);
+out(`  readable: ${m.isReadablePin('readable')}; the shared PIN ${m.isReadablePin('shared')}; kept before: ${['own', 'temporary', 'set'].map((st) => `${st} ${m.isKeptBefore(st)}`).join(', ')}; readable kept before ${m.isKeptBefore('readable')}; shared kept before ${m.isKeptBefore('shared')}`);
 
 // ─── 3. Comparing PINs ───
 out('\n3. PINs are compared in constant time, length included');
-for (const [a, b] of [['583920', '583920'], ['583920', '583921'], ['583920', '58392'], ['583920', '5839200'], ['0429', '0429'], ['', '']]) out(`  ${JSON.stringify(a)} and ${JSON.stringify(b)}: ${pin.samePin(a, b)}`);
+for (const [a, b] of [['5839', '5839'], ['5839', '5830'], ['5839', '583'], ['5839', '58390'], ['', '']]) out(`  ${JSON.stringify(a)} and ${JSON.stringify(b)}: ${pin.samePin(a, b)}`);
 
 // ─── 4. The connection ───
 out('\n4. The connection: the address normalized, an IPv6 address cut to its /64, kept only as a keyed hash');
@@ -80,24 +83,43 @@ for (const [label, headers, expected] of [
 }
 
 // ─── 5. The lock ───
-out('\n5. The lock: five wrong PINs in a row from one connection, fifteen minutes from the fifth');
-let state = { failedTries: 0, lockedUntil: null };
+out('\n5. The lock: five tries in a row lock a connection for fifteen minutes; twenty in a Toronto day, until a main admin lifts it');
+let state = m.NO_LOCK;
 for (let i = 1; i <= 5; i++) {
   const at = T0 + i * 1000;
   const holding = m.lockHolding(state, at);
   const o = m.afterTry(state, false, at);
   state = o.next;
-  out(`  wrong PIN ${i} at +${i}s: lock before ${holding} → ${o.kind}${o.kind === 'wrong' ? `, ${o.triesLeft} left` : ''}${o.kind === 'locked-now' ? ` until ${o.lockedUntil}` : ''} · stored ${JSON.stringify(state)}`);
+  out(`  try ${i} at +${i}s: lock before ${JSON.stringify(holding)} → ${o.kind}${o.kind === 'wrong' ? `, ${o.triesLeft} left${o.untilLifted ? ' (then until lifted)' : ''}` : ''}${o.kind === 'locked-now' ? ` until ${o.lockedUntil}` : ''} · stored ${JSON.stringify(state)}`);
 }
 const fifth = T0 + 5000;
-for (const [label, at] of [['sixth try, 1 s later', fifth + 1000], ['14 min 59 s after the fifth', fifth + 899_000], ['15 min after the fifth', fifth + 900_000], ['15 min 1 s after', fifth + 901_000]]) {
-  out(`  ${label.padEnd(28)} lock holding: ${m.lockHolding(state, at)}`);
+for (const [label, at] of [['sixth try, 1 s later', fifth + 1000], ['14 min 59 s after the fifth', fifth + 899_000], ['15 min after the fifth', fifth + 900_000]]) {
+  out(`  ${label.padEnd(28)} lock holding: ${JSON.stringify(m.lockHolding(state, at))}`);
 }
-const afterLock = m.afterTry(state, false, fifth + 901_000);
-out(`  a wrong PIN once it ended: ${afterLock.kind}, ${afterLock.triesLeft} left · stored ${JSON.stringify(afterLock.next)}`);
-const right = m.afterTry({ failedTries: 3, lockedUntil: null }, true, T0);
-out(`  a right PIN after three wrong: ${right.kind} · stored ${JSON.stringify(right.next)}`);
-out(`  an unreadable lockedUntil holds nothing: ${m.lockHolding({ failedTries: 0, lockedUntil: 'soon' }, T0)}`);
+const right = m.afterTry({ ...state, lockedUntil: null, failedTries: 3 }, true, fifth + 901_000);
+out(`  a right PIN after the lock and three more tries: ${right.kind} · stored ${JSON.stringify(right.next)} (the day's tries kept)`);
+// Twenty in one Toronto day: tries spread out so no fifteen-minute lock holds between them.
+let day = m.NO_LOCK;
+let last;
+for (let i = 1; i <= 20; i++) {
+  const at = T0 + i * 20 * 60_000;
+  if (i % 4 === 0) day = m.afterTry(day, true, at).next;
+  last = m.afterTry(day, false, at + 1000);
+  day = last.next;
+}
+out(`  twenty tries in a day, right PINs among them: the twentieth → ${last.kind} · stored ${JSON.stringify(day)}`);
+out(`  holding a week later: ${JSON.stringify(m.lockHolding(day, T0 + 7 * 86_400_000))}`);
+// The warning before a lock names the lock that follows.
+const today = m.torontoDayOf(T0);
+for (const [label, failedTries, dayTries] of [["a fourth in a row, the day's fourth", 3, 3], ["a fourth in a row, the day's nineteenth", 3, 18], ["a first in a row, the day's eighteenth", 0, 17], ["a first in a row, the day's nineteenth", 0, 18]]) {
+  const o = m.afterTry({ failedTries, lockedUntil: null, dayKey: today, dayTries, capped: false }, false, T0);
+  out(`  ${label.padEnd(40)} → ${o.kind}, ${o.triesLeft} left${o.triesLeft === 1 ? `: "${m.lastTryWords('wrong PIN', o.untilLifted)}"` : `, then ${o.untilLifted ? 'until lifted' : 'fifteen minutes'}`}`);
+}
+out(`  Toronto days: ${['2026-10-14T03:59:59.000Z', '2026-10-14T04:00:00.000Z', '2026-12-15T04:59:59.000Z', '2026-12-15T05:00:00.000Z'].map((iso) => `${iso} → ${m.torontoDayOf(Date.parse(iso))}`).join(' · ')}`);
+const yesterday = { failedTries: 2, lockedUntil: null, dayKey: '2026-10-12', dayTries: 19, capped: false };
+const next = m.afterTry(yesterday, false, T0);
+out(`  nineteen yesterday, one more today: ${next.kind} · stored ${JSON.stringify(next.next)}`);
+out(`  an unreadable lockedUntil holds nothing: ${JSON.stringify(m.lockHolding({ ...m.NO_LOCK, lockedUntil: 'soon' }, T0))}`);
 
 // ─── 6. Session tokens ───
 out('\n6. Session tokens: signed with ADMIN_SESSION_SECRET, never the PIN');
@@ -126,29 +148,17 @@ try {
 }
 out(`  an ID that is not one: ${threw}`);
 
-// ─── 7. PINs kept before they were readable, and the shared PIN ───
-out("\n7. PINs of the first version and the evening are checked against their own document only; the shared PIN only compared");
-// What the first version stored for a chosen PIN: scrypt(HMAC-SHA256(ADMIN_PIN_KEY, label + PIN)), its own random salt.
-const firstVersionHash = (key, p) =>
-  new Promise((resolve, reject) => {
-    const salt = randomBytes(16);
-    const keyed = createHmac('sha256', key).update(`nubnb:admin-pin:v1:${p}`, 'utf8').digest();
-    scrypt(keyed, salt, 32, { N: 32768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 }, (err, hash) =>
-      err ? reject(err) : resolve({ state: 'own', scheme: 'scrypt-hmac-v1', N: 32768, r: 8, p: 1, salt: salt.toString('base64url'), hash: hash.toString('base64url') }),
-    );
-  });
-const stored = await firstVersionHash(pinKey, '583920');
-out(`  right PIN: ${await pin.pinMatches(pinKey, stored, '583920')} · wrong: ${await pin.pinMatches(pinKey, stored, '583921')} · another key: ${await pin.pinMatches(randomBytes(32), stored, '583920')}`);
-const k1 = await pin.pinLookup(pinKey, '583920');
-out(`  parameters past the ceiling are refused: ${await pin.pinMatches(pinKey, { ...stored, N: 2 ** 21 }, '583920')}; not a power of two: ${await pin.pinMatches(pinKey, { ...stored, N: 40000 }, '583920')}; a lookup, not a hash: ${await pin.pinMatches(pinKey, { state: 'set', scheme: 'lookup-v1', lookup: k1 }, '583920')}`);
-out(`  the evening's lookup key: 64 hex ${HEX64.test(k1)} · the same PIN twice gives the same key ${k1 === (await pin.pinLookup(pinKey, '583920'))} · the next PIN another ${k1 !== (await pin.pinLookup(pinKey, '583921'))} · holds the PIN ${k1.includes('583920')}`);
+// ─── 7. The shared PIN ───
+out('\n7. The shared PIN: four digits, only compared');
 process.env.ADMIN_PIN = sharedPin;
 const nextPin = String((Number(sharedPin) + 1) % 10_000).padStart(4, '0');
-out(`  shared PIN: itself ${pin.sharedPinMatches(sharedPin)}, another four digits ${pin.sharedPinMatches(nextPin)}, six digits ${pin.sharedPinMatches(`${sharedPin}00`)}`);
+out(`  itself ${pin.sharedPinMatches(sharedPin)}, another four digits ${pin.sharedPinMatches(nextPin)}, six digits ${pin.sharedPinMatches(`${sharedPin}00`)} · its length ${pin.sharedPinLength()}`);
+process.env.ADMIN_PIN = `${sharedPin}00`;
+out(`  ADMIN_PIN of six digits: not a shared PIN at all (${pin.sharedPinMatches(`${sharedPin}00`)}, length ${pin.sharedPinLength()}): sign-in takes four`);
 delete process.env.ADMIN_PIN;
-out(`  shared PIN unset: ${pin.sharedPinMatches(sharedPin)}`);
+out(`  unset: ${pin.sharedPinMatches(sharedPin)}`);
 process.env.ADMIN_PIN = 'abcd';
-out(`  shared PIN not digits: ${pin.sharedPinMatches('abcd')}`);
+out(`  not digits: ${pin.sharedPinMatches('abcd')}`);
 delete process.env.ADMIN_PIN;
 
 // ─── 8. The admin door, route by route ───
