@@ -11,7 +11,16 @@
  * "Admins" (dispatch 38, Kian's ruling of 2026-10-13: the main admin adds
  * and removes admins and sets their level) is shown to a main admin only, last.
  * The signed-in admin's name sits before View Site (AccountMenu.tsx): Change
- * PIN and Sign out.
+ * name, New PIN and Sign out.
+ *
+ * Kian's ruling of 2026-10-13 (evening): below 1400 px wide, the section links
+ * sit on their own row under the brand and the actions, on every admin page
+ * (page.module.css). Wider, they take their own row too whenever the brand,
+ * the links and the actions do not fit on one: a long name, or a page with
+ * several actions, would otherwise run the links under the actions. The
+ * header measures that itself: the links' own widths, which do not change
+ * with the layout, against the room the row has. Nothing is ever cut off or
+ * scrolled sideways at desktop widths.
  * "Reports" (dispatch 23B) was a section from 2026-09-30 to dispatch 23F
  * (2026-10-01): the statements are written on each property's page now, and
  * the cross-property view is a panel on the admin home, under the
@@ -36,7 +45,7 @@
  */
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Banknote, CalendarSearch, ExternalLink, Inbox, LayoutGrid, Receipt, ShieldCheck, Users } from "lucide-react";
 import styles from "../page.module.css";
 import { AccountMenu } from "./AccountMenu";
@@ -66,22 +75,49 @@ interface AdminHeaderProps {
   children?: ReactNode;
 }
 
+/** Whether the brand, the section links and the actions need more than one row's room. */
+function crowdedRow(inner: HTMLElement, brand: HTMLElement, nav: HTMLElement, actions: HTMLElement): boolean {
+  const row = getComputedStyle(inner);
+  const gap = parseFloat(row.columnGap) || 0;
+  const room = inner.clientWidth - (parseFloat(row.paddingLeft) || 0) - (parseFloat(row.paddingRight) || 0);
+  const links = Array.from(nav.children);
+  const linkGap = parseFloat(getComputedStyle(nav).columnGap) || 0;
+  const linksWidth = links.reduce((sum, link) => sum + link.getBoundingClientRect().width, 0) + linkGap * Math.max(0, links.length - 1);
+  return brand.getBoundingClientRect().width + gap + linksWidth + gap + actions.getBoundingClientRect().width > room + 0.5;
+}
+
 export function AdminHeader({ current, title, children }: AdminHeaderProps) {
   const session = useAdminSession();
   const sections = session?.admin.level === "main" ? [...SECTIONS, ADMINS_SECTION] : SECTIONS;
   const heading = title ?? sections.find((section) => section.key === current)?.label ?? "Admin";
+  const innerRef = useRef<HTMLDivElement>(null);
+  const brandRef = useRef<HTMLAnchorElement>(null);
+  const navRef = useRef<HTMLElement>(null);
+  const actionsRef = useRef<HTMLDivElement>(null);
+  const [stacked, setStacked] = useState(false);
+
+  // Before the first paint and on every change of width (the window, the name, the page's actions): one row or two.
+  useLayoutEffect(() => {
+    const [inner, brand, nav, actions] = [innerRef.current, brandRef.current, navRef.current, actionsRef.current];
+    if (!inner || !brand || !nav || !actions) return;
+    const measure = () => setStacked(crowdedRow(inner, brand, nav, actions));
+    measure();
+    const observer = new ResizeObserver(measure);
+    for (const element of [inner, brand, actions, ...Array.from(nav.children)]) observer.observe(element);
+    return () => observer.disconnect();
+  }, [sections.length]);
 
   return (
-    <header className={styles.header}>
-      <div className={styles.headerInner}>
-        <Link href="/admin" prefetch={false} className={styles.brand} aria-label="Nubnb admin home">
+    <header className={`${styles.header} ${stacked ? styles.headerStacked : ""}`}>
+      <div ref={innerRef} className={styles.headerInner}>
+        <Link ref={brandRef} href="/admin" prefetch={false} className={styles.brand} aria-label="Nubnb admin home">
           <span className={styles.brandWordmark}>NUBNB</span>
           <span className={styles.brandTag}>Admin</span>
         </Link>
 
         <h1 className={styles.srOnly}>{heading}</h1>
 
-        <nav className={styles.sectionNav} aria-label="Admin sections">
+        <nav ref={navRef} className={styles.sectionNav} aria-label="Admin sections">
           {sections.map(({ key, label, href, Icon }) => (
             <Link
               key={key}
@@ -96,7 +132,7 @@ export function AdminHeader({ current, title, children }: AdminHeaderProps) {
           ))}
         </nav>
 
-        <div className={styles.headerActions}>
+        <div ref={actionsRef} className={styles.headerActions}>
           <AccountMenu />
           <a href="/" target="_blank" rel="noopener" className={styles.viewSite}>
             <span>View Site</span>

@@ -31,12 +31,14 @@
 }
 
 .name {
-  max-width: 14em;
+  /* Names are the main admin's to set and the admin's to change: shown whole up to about 40 characters (the header
+     takes two rows when it needs them), and only beyond that, or on a phone, cut short here and whole in the menu. */
+  max-width: min(24em, 40vw);
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* On the shared PIN: the warning amber. */
+/* On a PIN Nubnb did not generate (shared, or chosen before): the warning amber. */
 .dot {
   width: 7px;
   height: 7px;
@@ -69,6 +71,7 @@
   font-size: 13px;
   font-weight: 600;
   color: #ffffff;
+  overflow-wrap: anywhere;
 }
 .whoLevel {
   font-size: 12px;

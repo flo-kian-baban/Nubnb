@@ -200,32 +200,7 @@
   }
 }
 
-/* ── Dispatch 38: whose PIN, the lock, choosing a PIN ── */
-.nameInput {
-  width: 100%;
-  height: 48px;
-  padding: 0 16px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1.5px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  color: #ffffff;
-  font-family: inherit;
-  font-size: 15px;
-  font-weight: 600;
-  text-align: center;
-  outline: none;
-  transition: all 0.2s ease;
-}
-.nameInput::placeholder {
-  color: rgba(255, 255, 255, 0.3);
-  font-weight: 500;
-}
-.nameInput:focus {
-  border-color: rgba(255, 255, 255, 0.3);
-  background: rgba(255, 255, 255, 0.07);
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.05);
-}
-
+/* ── Dispatch 38: the six boxes, the lock ── */
 /* Six boxes in the card's width. */
 .card .pinGroup {
   gap: 8px;
@@ -258,7 +233,7 @@
   background: rgba(245, 158, 11, 0.08);
 }
 
-/* A locked PIN: the past-due amber of the rest of the admin, one line. */
+/* A locked connection: the past-due amber of the rest of the admin, one line. */
 .lockedText {
   font-size: 13px;
   font-weight: 600;
@@ -309,7 +284,7 @@
   }
 }
 
-/* Change PIN, in the admin's dialog. */
+/* New PIN and Change name, in the admin's dialog. */
 .pinForm {
   display: flex;
   flex-direction: column;
@@ -317,4 +292,61 @@
 }
 .pinForm .errorText {
   text-align: left;
+}
+
+/* A generated PIN, shown once (2026-10-13, evening). */
+.reveal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 18px 16px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.revealDigits {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  font-variant-numeric: tabular-nums;
+  color: #ffffff;
+}
+.revealGap {
+  display: inline-block;
+  width: 0.5em;
+}
+.revealNote {
+  font-size: 12px;
+  font-weight: 600;
+  color: #f0a63a;
+}
+/* The box and what a dialog says under it. */
+.revealGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+}
+
+/* Change name: a text field in the admin's dialog. */
+.dialogInput {
+  width: 100%;
+  height: 44px;
+  padding: 0 14px;
+  background: var(--ctl-bg, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--ctl-border, rgba(255, 255, 255, 0.09));
+  border-radius: var(--ctl-radius, 12px);
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 14px;
+  outline: none;
+}
+.dialogInput:focus {
+  border-color: var(--ctl-focus, rgba(101, 153, 205, 0.6));
+  box-shadow: var(--ctl-ring, 0 0 0 3px rgba(101, 153, 205, 0.18));
 }

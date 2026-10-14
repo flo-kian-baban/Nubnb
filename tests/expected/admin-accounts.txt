@@ -14,38 +14,66 @@
   "Zoë"                                                              clean "Zoë" key "zoë" problem null
   the first main admin: Kian, key kian
 
-2. PINs: six digits, never too easy; sign-in takes four (the shared PIN) or six
-  too easy: 10 of one digit; runs 10 of 10
-  "000000"   new PIN problem "That PIN is too easy to guess: one digit six times, or a straight run like 123456." · sign-in shape true
-  "111111"   new PIN problem "That PIN is too easy to guess: one digit six times, or a straight run like 123456." · sign-in shape true
-  "999999"   new PIN problem "That PIN is too easy to guess: one digit six times, or a straight run like 123456." · sign-in shape true
-  "012345"   new PIN problem "That PIN is too easy to guess: one digit six times, or a straight run like 123456." · sign-in shape true
-  "123456"   new PIN problem "That PIN is too easy to guess: one digit six times, or a straight run like 123456." · sign-in shape true
-  "456789"   new PIN problem "That PIN is too easy to guess: one digit six times, or a straight run like 123456." · sign-in shape true
-  "987654"   new PIN problem "That PIN is too easy to guess: one digit six times, or a straight run like 123456." · sign-in shape true
-  "543210"   new PIN problem "That PIN is too easy to guess: one digit six times, or a straight run like 123456." · sign-in shape true
-  "583920"   new PIN problem null · sign-in shape true
-  "12345"    new PIN problem "A PIN is six digits." · sign-in shape false
-  "1234567"  new PIN problem "A PIN is six digits." · sign-in shape false
-  "12a456"   new PIN problem "A PIN is six digits." · sign-in shape false
-  ""         new PIN problem "A PIN is six digits." · sign-in shape false
-  sign-in shape of four digits: true; of five: false
+2. PINs: generated, six digits, never too easy, never the shared PIN; sign-in takes four (the shared PIN) or six
+  too easy: 10 of one digit; runs 10 of 10; 583920 false
+  "583920"   PIN shape true · sign-in shape true
+  "0429"     PIN shape false · sign-in shape true
+  "04291"    PIN shape false · sign-in shape false
+  "12345"    PIN shape false · sign-in shape false
+  "1234567"  PIN shape false · sign-in shape false
+  "12a456"   PIN shape false · sign-in shape false
+  ""         PIN shape false · sign-in shape false
+  fed 123456, the shared PIN, 0, 7: 123456 → <the shared PIN> → 000000 → 000007 gives 000007
+  fed 999999, 42:                    999999 → 000042 gives 000042
+  100,000 drawn: all six digits true · any too easy false · any the shared PIN false · every first digit seen true · every last digit seen true
 
-3. The lock: five wrong tries in a row, fifteen minutes from the fifth
-  wrong try 1 at +1s: lock before null → wrong, 4 left · stored {"failedTries":1,"lockedUntil":null}
-  wrong try 2 at +2s: lock before null → wrong, 3 left · stored {"failedTries":2,"lockedUntil":null}
-  wrong try 3 at +3s: lock before null → wrong, 2 left · stored {"failedTries":3,"lockedUntil":null}
-  wrong try 4 at +4s: lock before null → wrong, 1 left · stored {"failedTries":4,"lockedUntil":null}
-  wrong try 5 at +5s: lock before null → locked-now until 2026-10-13T20:15:05.000Z · stored {"failedTries":0,"lockedUntil":"2026-10-13T20:15:05.000Z"}
+3. Lookup keys: the PIN finds its admin with one hash and one read; the PIN itself is stored nowhere
+  shape: 64 hex true · holds the PIN as typed false
+  the same PIN twice: same key true · the next PIN: same key false · another ADMIN_PIN_KEY: same key false
+  scheme lookup-v1; a lookup key is never a connection's key for the same text: true
+
+4. The connection: the address normalized, an IPv6 address cut to its /64, kept only as a keyed hash
+  "203.0.113.7"                        → "203.0.113.7"
+  " 203.0.113.7 "                      → "203.0.113.7"
+  "203.000.113.007"                    → "203.0.113.7"
+  "::ffff:203.0.113.7"                 → "203.0.113.7"
+  "::FFFF:CB00:7107"                   → "203.0.113.7"
+  "2001:db8:1:2::abcd"                 → "2001:db8:1:2::/64"
+  "2001:DB8:1:2:ffff:ffff:ffff:ffff"   → "2001:db8:1:2::/64"
+  "[2001:db8:1:2::abcd]"               → "2001:db8:1:2::/64"
+  "fe80::1%en0"                        → "fe80:0:0:0::/64"
+  "::1"                                → "0:0:0:0::/64"
+  "2001:db8:1:3::1"                    → "2001:db8:1:3::/64"
+  "203.0.113.256"                      → null
+  "1.2.3"                              → null
+  "2001:db8::1::2"                     → null
+  "not-an-ip"                          → null
+  ""                                   → null
+  null                                 → null
+  keys: 64 hex true · holds the address false
+  203.0.113.7 and ::ffff:203.0.113.7: same key true
+  two addresses in one /64: same key true · in the next /64: same key false
+  203.0.113.7 and 203.0.113.8: same key false · another ADMIN_PIN_KEY: same key false
+  from x-real-ip                      the key of 198.51.100.4: true
+  from x-forwarded-for, first entry   the key of 198.51.100.4: true
+  from x-real-ip not an address       the key of 198.51.100.4: true
+  from neither                        the key of unknown: true
+
+5. The lock: five wrong PINs in a row from one connection, fifteen minutes from the fifth
+  wrong PIN 1 at +1s: lock before null → wrong, 4 left · stored {"failedTries":1,"lockedUntil":null}
+  wrong PIN 2 at +2s: lock before null → wrong, 3 left · stored {"failedTries":2,"lockedUntil":null}
+  wrong PIN 3 at +3s: lock before null → wrong, 2 left · stored {"failedTries":3,"lockedUntil":null}
+  wrong PIN 4 at +4s: lock before null → wrong, 1 left · stored {"failedTries":4,"lockedUntil":null}
+  wrong PIN 5 at +5s: lock before null → locked-now until 2026-10-13T20:15:05.000Z · stored {"failedTries":0,"lockedUntil":"2026-10-13T20:15:05.000Z"}
   sixth try, 1 s later         lock holding: 2026-10-13T20:15:05.000Z
   14 min 59 s after the fifth  lock holding: 2026-10-13T20:15:05.000Z
   15 min after the fifth       lock holding: null
   15 min 1 s after             lock holding: null
-  a wrong try once it ended: wrong, 4 left · stored {"failedTries":1,"lockedUntil":null}
-  a right try after three wrong: right · stored {"failedTries":0,"lockedUntil":null}
+  a wrong PIN once it ended: wrong, 4 left · stored {"failedTries":1,"lockedUntil":null}
+  a right PIN after three wrong: right · stored {"failedTries":0,"lockedUntil":null}
   an unreadable lockedUntil holds nothing: null
 
-4. Session tokens: signed with ADMIN_SESSION_SECRET, never the PIN
+6. Session tokens: signed with ADMIN_SESSION_SECRET, never the PIN
   token shape: a1.TESTADMINaaaaaaaaaa1.3.1791921600000.<mac 43>
   parsed now:            {"adminId":"TESTADMINaaaaaaaaaa1","sessionEpoch":3,"issuedAtMs":1791921600000}
   another key:           null
@@ -58,22 +86,20 @@
   a cleaner token:       null
   an ID that is not one: createAdminToken: fields out of range
 
-5. PIN hashes: keyed with ADMIN_PIN_KEY, salted, scrypt; the shared PIN only compared
-  stored: scheme scrypt-hmac-v1, N 32768, r 8, p 1, salt 16 bytes, hash 32 bytes, fields N,hash,p,r,salt,scheme
-  holds the PIN as typed: false
+7. A PIN of dispatch 38's first version is checked against its own document only; the shared PIN only compared
   right PIN: true · wrong: false · another key: false
-  the same PIN twice: same salt false, same hash false
-  parameters raised past the ceiling are refused: false; not a power of two: false; not a hash at all: false
+  parameters past the ceiling are refused: false; not a power of two: false; a lookup, not a hash: false
   shared PIN: itself true, another four digits false, six digits false
   shared PIN unset: null
   shared PIN not digits: null
 
-6. Every admin route goes through the door; every admin write has words in the activity log
+8. Every admin route goes through the door; every admin write has words in the activity log
   POST   /api/admin/admins/[id]/pin                           recorded as "Gave an admin a new PIN"
   PATCH  /api/admin/admins/[id]                               recorded as "Set an admin’s level"
   DELETE /api/admin/admins/[id]                               recorded as "Removed an admin"
-  POST   /api/admin/admins/[id]/unlock                        recorded as "Unlocked an admin’s PIN"
   GET    /api/admin/admins/activity                           read, not recorded
+  DELETE /api/admin/admins/locks/[id]                         recorded as "Lifted a sign-in lock"
+  GET    /api/admin/admins/locks                              read, not recorded
   GET    /api/admin/admins                                    read, not recorded
   POST   /api/admin/admins                                    recorded as "Added an admin"
   POST   /api/admin/availability/refresh                      recorded as "Refreshed availability"
@@ -124,7 +150,8 @@
   GET    /api/admin/properties/[id]/statements                read, not recorded
   PUT    /api/admin/properties/[id]/visibility                recorded as "Listed or unlisted a property"
   GET    /api/admin/properties                                read, not recorded
-  PUT    /api/admin-auth/pin                                  the sign-in door itself
+  PUT    /api/admin-auth/name                                 recorded as "Changed their own name"
+  POST   /api/admin-auth/pin                                  recorded as "Got a new PIN"
   POST   /api/admin-auth                                      the sign-in door itself
   GET    /api/admin-auth                                      the sign-in door itself
   DELETE /api/admin-auth                                      the sign-in door itself
@@ -138,12 +165,12 @@
   POST   /api/properties                                      recorded as "Added a property"
   POST   /api/scrape-airbnb                                   recorded as "Read an Airbnb listing"
   POST   /api/upload-image                                    recorded as "Uploaded an image"
-  64 handlers through adminRoute; problems: 0
+  67 handlers through adminRoute; problems: 0
   routes still on the PIN-signed session: 0
+  a route that unlocks an admin's PIN (the first version's per-admin lock): false
 
-7. A main admin cannot be removed, demoted or given a new PIN by anyone but themselves (Kian, 2026-10-13)
+9. A main admin cannot be removed, demoted or given a new PIN by anyone but themselves (Kian, 2026-10-13)
   remove   another admin, 0 other main admins: ok · another admin, 1 other main admin: ok · another main admin, 0 other main admins: main-admin · another main admin, 1 other main admin: main-admin · themselves, 0 other main admins: last-main-admin · themselves, 1 other main admin: ok
   demote   another admin, 0 other main admins: ok · another admin, 1 other main admin: ok · another main admin, 0 other main admins: main-admin · another main admin, 1 other main admin: main-admin · themselves, 0 other main admins: last-main-admin · themselves, 1 other main admin: ok
   promote  another admin, 0 other main admins: ok · another admin, 1 other main admin: ok · another main admin, 0 other main admins: ok · another main admin, 1 other main admin: ok · themselves, 0 other main admins: ok · themselves, 1 other main admin: ok
   new-pin  another admin, 0 other main admins: ok · another admin, 1 other main admin: ok · another main admin, 0 other main admins: main-admin · another main admin, 1 other main admin: main-admin · themselves, 0 other main admins: yourself · themselves, 1 other main admin: yourself
-  unlock   another admin, 0 other main admins: ok · another admin, 1 other main admin: ok · another main admin, 0 other main admins: ok · another main admin, 1 other main admin: ok · themselves, 0 other main admins: ok · themselves, 1 other main admin: ok

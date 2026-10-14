@@ -850,7 +850,35 @@
   }
 }
 
-/* The sections take their own row under the brand and the actions. */
+/* Kian's ruling of 2026-10-13 (evening): below 1400 px wide, the section links sit on their own row under the
+   brand and the actions, on every admin page. Wider, AdminHeader adds .headerStacked whenever the three do not fit
+   on one row (a long name, a page with several actions). */
+@media (max-width: 1399px) {
+  .headerInner {
+    flex-wrap: wrap;
+    row-gap: 6px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+  .sectionNav {
+    order: 3;
+    flex-basis: 100%;
+    margin-left: -6px;
+  }
+}
+.headerStacked .headerInner {
+  flex-wrap: wrap;
+  row-gap: 6px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+.headerStacked .sectionNav {
+  order: 3;
+  flex-basis: 100%;
+  margin-left: -6px;
+}
+
+/* The sections take their own row under the brand and the actions, and scroll when a phone is narrower than they are. */
 @media (max-width: 860px) {
   .headerInner {
     flex-wrap: wrap;

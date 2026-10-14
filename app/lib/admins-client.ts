@@ -1,6 +1,6 @@
 /**
- * Browser-side calls for admin accounts (dispatch 38): signing in and out,
- * one's own PIN, and the main admin's Admins page.
+ * Browser-side calls for admin accounts (dispatch 38): signing in by PIN and
+ * out, one's own PIN and name, and the main admin's Admins page.
  *
  * The contract of cleaners-client.ts: every call resolves to a result and
  * never throws, a failure is never turned into an empty list, requests are
@@ -8,14 +8,15 @@
  * that got no answer, or a 5xx the application did not write, says nothing
  * about whether a write landed. Nothing is retried automatically.
  *
- * PINs travel only in request bodies, to the server's own routes; they are
- * never stored by this module.
+ * PINs travel only in request bodies, and generated ones only in the one
+ * answer that shows them; this module never stores either.
  *
  * Client-safe. From the admin library it imports only model.ts.
  */
 
 import { describeErrorBody, readErrorBody } from '@/app/lib/api/http-failure';
-import type { AdminActionView, AdminLevel, AdminSummary, SignedInAdminView } from '@/app/lib/admins/model';
+import { isPinState } from '@/app/lib/admins/model';
+import type { AdminActionView, AdminLevel, AdminSummary, SignInLockView, SignedInAdminView } from '@/app/lib/admins/model';
 
 export type AdminResult<T> =
   | { ok: true; data: T }
@@ -82,22 +83,43 @@ const json = (method: string, body?: unknown): RequestInit => ({
 function pickAdmin(data: unknown): SignedInAdminView | null {
   if (!isRecord(data) || !isRecord(data.admin)) return null;
   const a = data.admin;
-  if (typeof a.id !== 'string' || typeof a.name !== 'string' || (a.level !== 'main' && a.level !== 'admin') || (a.pin !== 'own' && a.pin !== 'temporary' && a.pin !== 'shared')) return null;
+  if (typeof a.id !== 'string' || typeof a.name !== 'string' || (a.level !== 'main' && a.level !== 'admin') || !isPinState(a.pin)) return null;
   return { id: a.id, name: a.name, level: a.level, pin: a.pin };
 }
 
 const pickSummary = (value: unknown): AdminSummary | null => (isRecord(value) && typeof value.id === 'string' && Array.isArray(value.history) ? (value as unknown as AdminSummary) : null);
 
-// ─── Signing in ────────────────────────────────────────────────
+/** A PIN Nubnb generated, in an answer: six digits, shown once, kept nowhere. */
+const pickPin = (value: unknown): string | null => (typeof value === 'string' && /^[0-9]{6}$/.test(value) ? value : null);
+
+// ─── Signing in, and one's own account ─────────────────────────
 
 /** Who this browser is signed in as; a 401 means nobody. */
 export const fetchSignedIn = () => call('/api/admin-auth', { method: 'GET' }, 'Checking your sign-in', pickAdmin);
 
-export const signIn = (name: string, pin: string) => call('/api/admin-auth', json('POST', { name, pin }), 'Signing in', pickAdmin);
+/** Sign in by PIN alone. `newPin`: given when the shared PIN was used, to be shown once. */
+export const signIn = (pin: string) =>
+  call('/api/admin-auth', json('POST', { pin }), 'Signing in', (data) => {
+    const admin = pickAdmin(data);
+    if (!admin || !isRecord(data)) return null;
+    return { admin, newPin: data.newPin === undefined ? null : pickPin(data.newPin) };
+  });
 
 export const signOut = () => call('/api/admin-auth', { method: 'DELETE' }, 'Signing out', (data) => (isRecord(data) ? true : null));
 
-export const changeOwnPin = (currentPin: string, newPin: string) => call('/api/admin-auth/pin', json('PUT', { currentPin, newPin }), 'Changing your PIN', pickAdmin);
+/** New PIN from one's own menu: the current PIN first; the new one comes back once. */
+export const renewOwnPin = (currentPin: string) =>
+  call('/api/admin-auth/pin', json('POST', { currentPin }), 'Getting a new PIN', (data) => {
+    const admin = pickAdmin(data);
+    const newPin = isRecord(data) ? pickPin(data.newPin) : null;
+    return admin && newPin ? { admin, newPin } : null;
+  });
+
+export const changeOwnName = (name: string) =>
+  call('/api/admin-auth/name', json('PUT', { name }), 'Changing your name', (data) => {
+    const admin = pickAdmin(data);
+    return admin && isRecord(data) ? { admin, changed: data.changed !== false } : null;
+  });
 
 // ─── The main admin's page ─────────────────────────────────────
 
@@ -111,33 +133,37 @@ export const fetchAdmins = () =>
 export const fetchActivity = (limit = 100) =>
   call(`/api/admin/admins/activity?limit=${limit}`, { method: 'GET' }, 'Loading the activity', (data) => (isRecord(data) && Array.isArray(data.actions) ? (data.actions as AdminActionView[]) : null));
 
+export const fetchLocks = () =>
+  call('/api/admin/admins/locks', { method: 'GET' }, 'Loading the locked connections', (data) => (isRecord(data) && Array.isArray(data.locks) ? (data.locks as SignInLockView[]) : null));
+
+export const liftLock = (id: string) => call(`/api/admin/admins/locks/${encodeURIComponent(id)}`, { method: 'DELETE' }, 'Lifting the lock', (data) => (isRecord(data) && isRecord(data.lifted) ? true : null));
+
 const pickChange = (data: unknown) => {
   if (!isRecord(data)) return null;
   const admin = pickSummary(data.admin);
   return admin ? { admin, changed: data.changed !== false } : null;
 };
 
-export const createAdmin = (name: string, level: AdminLevel, pin: string) =>
-  call('/api/admin/admins', json('POST', { name, level, pin }), 'Adding the admin', (data) => (isRecord(data) ? pickSummary(data.admin) : null));
+/** Add an admin; the PIN Nubnb generated comes back once. */
+export const createAdmin = (name: string, level: AdminLevel) =>
+  call('/api/admin/admins', json('POST', { name, level }), 'Adding the admin', (data) => {
+    const admin = isRecord(data) ? pickSummary(data.admin) : null;
+    const pin = isRecord(data) ? pickPin(data.pin) : null;
+    return admin && pin ? { admin, pin } : null;
+  });
 
 export const setAdminLevel = (id: string, level: AdminLevel) => call(`/api/admin/admins/${encodeURIComponent(id)}`, json('PATCH', { level }), 'Setting the level', pickChange);
 
-export const giveNewPin = (id: string, pin: string) => call(`/api/admin/admins/${encodeURIComponent(id)}/pin`, json('POST', { pin }), 'Giving a new PIN', pickChange);
-
-export const unlockAdmin = (id: string) => call(`/api/admin/admins/${encodeURIComponent(id)}/unlock`, { method: 'POST' }, 'Unlocking', pickChange);
+/** New PIN for an ordinary admin; the PIN comes back once. */
+export const giveNewPin = (id: string) =>
+  call(`/api/admin/admins/${encodeURIComponent(id)}/pin`, { method: 'POST' }, 'Giving a new PIN', (data) => {
+    const admin = isRecord(data) ? pickSummary(data.admin) : null;
+    const pin = isRecord(data) ? pickPin(data.pin) : null;
+    return admin && pin ? { admin, pin } : null;
+  });
 
 export const removeAdmin = (id: string) =>
   call(`/api/admin/admins/${encodeURIComponent(id)}`, { method: 'DELETE' }, 'Removing the admin', (data) => (isRecord(data) && isRecord(data.removed) ? true : null));
-
-/** Six random digits, never one of the too-easy PINs, for "Generate". The server's check is still what decides. */
-export function suggestPin(isTooEasy: (pin: string) => boolean): string {
-  const digits = new Uint32Array(6);
-  for (;;) {
-    crypto.getRandomValues(digits);
-    const pin = Array.from(digits, (d) => String(d % 10)).join('');
-    if (!isTooEasy(pin)) return pin;
-  }
-}
 
 /** A lock's end as the sign-in shows it: "4:32 pm", in this browser's time. */
 export function lockTimeWords(iso: string): string {

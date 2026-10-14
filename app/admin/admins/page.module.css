@@ -226,50 +226,6 @@
   box-shadow: var(--ctl-ring, 0 0 0 3px rgba(101, 153, 205, 0.18));
 }
 
-.pinRow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.codeInput {
-  width: 9em;
-  height: 44px;
-  padding: 0 14px;
-  background: var(--ctl-bg, rgba(255, 255, 255, 0.04));
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: var(--ctl-radius, 12px);
-  color: #ffffff;
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: 0.2em;
-  font-variant-numeric: tabular-nums;
-  outline: none;
-}
-.codeInput:focus {
-  border-color: var(--ctl-focus, rgba(101, 153, 205, 0.6));
-  box-shadow: var(--ctl-ring, 0 0 0 3px rgba(101, 153, 205, 0.18));
-}
-
-.btnGhost {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 9px 14px;
-  border-radius: 10px;
-  font-size: 13px;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  color: rgba(255, 255, 255, 0.75);
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-.btnGhost:hover:not(:disabled) {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.08);
-}
-
 .formError {
   margin: 0;
   font-size: 13px;

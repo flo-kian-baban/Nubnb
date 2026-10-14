@@ -7,17 +7,23 @@
  *   node scripts/admin-recover.mjs <name> --write     (does it)
  *
  * It puts that main admin back on the shared PIN — ADMIN_PIN, as set in
- * Vercel Production (and .env.local) — clears any lock and any count of wrong
- * tries, and ends every session they hold. They sign in with their name and
- * the shared PIN, then set a new six-digit PIN from their name in the header
- * (Change PIN). Kian's ruling of 2026-10-13 made the shared PIN the main
- * admin's until he changes it; this returns a main admin to that state.
+ * Vercel Production (and .env.local) — and ends every session they hold.
+ * Their old PIN stops working at once: its index entry, `admin_pins/
+ * {lookup}`, is deleted with it. They then sign in with the shared PIN
+ * alone, and Nubnb gives them a generated PIN, shown once (Kian's ruling of
+ * 2026-10-13, evening: the shared PIN stays only as the recovery script's
+ * PIN).
  *
  * Only for a main admin: an admin who forgets their PIN is given a new one by
- * a main admin on the Admins page. It needs the service account in
- * .env.local, which only Kian holds; it reads no PIN and no key, writes none,
- * and prints none. The write is one transaction on the admin's document, and
- * the history records it as the recovery script's.
+ * a main admin on the Admins page. And only while no other main admin is on
+ * the shared PIN: the shared PIN signs in the one main admin on it, so two
+ * would leave it unable to say which.
+ *
+ * It needs the service account in .env.local, which only Kian holds; it reads
+ * no PIN and no key, writes none, and prints none. The write is one
+ * transaction, and the admin's history records it as the recovery script's.
+ * A connection locked by five wrong PINs stays locked until its fifteen
+ * minutes end; this script does not touch locks.
  *
  * If ADMIN_PIN is no longer set in Vercel, set it (four or six digits) and
  * redeploy before signing in: the shared PIN is whatever the server has.
@@ -40,6 +46,8 @@ if (!name) {
 
 // The same key the server matches names by (app/lib/admins/model.ts: nameKeyOf).
 const nameKey = name.normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+// A generated PIN's lookup key (app/lib/admins/pin.ts), which is its index document's ID.
+const LOOKUP = /^[0-9a-f]{64}$/;
 
 const env = {};
 for (const line of readFileSync(join(ROOT, '.env.local'), 'utf8').split('\n')) {
@@ -71,33 +79,48 @@ if (!before.exists) {
   process.exit(1);
 }
 const data = before.data();
-const lockedUntil = typeof data.lockedUntil === 'string' && Date.parse(data.lockedUntil) > Date.now() ? data.lockedUntil : null;
-console.log(`admins/${adminId}: ${data.name}, level ${data.level}, PIN ${data.pin?.state ?? 'none'}, ${lockedUntil ? `locked until ${lockedUntil}` : `${data.failedTries ?? 0} wrong tries`}, session epoch ${data.sessionEpoch}`);
+console.log(`admins/${adminId}: ${data.name}, level ${data.level}, PIN ${data.pin?.state ?? 'none'}, session epoch ${data.sessionEpoch}`);
 if (data.level !== 'main') {
   console.error(`${data.name} is not a main admin: a main admin gives them a new PIN on the Admins page. Nothing was changed.`);
   process.exit(1);
 }
+/** Other main admins on the shared PIN: with one, the shared PIN could not say which of the two is signing in. */
+const othersOnShared = async (read) =>
+  (await read(db.collection('admins').where('pin.state', '==', 'shared'))).docs.filter((doc) => doc.id !== adminId && doc.get('level') === 'main').map((doc) => doc.get('name'));
+const already = await othersOnShared((q) => q.get());
+if (already.length > 0) {
+  console.error(`${already.join(', ')} ${already.length === 1 ? 'is' : 'are'} on the shared PIN already: sign in with it first, which gives a generated PIN, then run this again. Nothing was changed.`);
+  process.exit(1);
+}
 if (!write) {
-  console.log('Dry run: with --write, this admin goes back to the shared PIN, any lock is cleared and every session they hold ends.');
+  console.log('Dry run: with --write, this admin goes back to the shared PIN, their old PIN stops working and every session they hold ends.');
   process.exit(0);
 }
 
 const at = new Date().toISOString();
-await db.runTransaction(async (tx) => {
+const freed = await db.runTransaction(async (tx) => {
   const snap = await tx.get(ref);
   if (!snap.exists) throw new Error('the admin was removed meanwhile');
+  const others = await othersOnShared((q) => tx.get(q));
+  if (others.length > 0) throw new Error(`${others.join(', ')} went on the shared PIN meanwhile`);
   const fresh = snap.data();
+  const lookup = fresh.pin?.state === 'set' && typeof fresh.pin.lookup === 'string' && LOOKUP.test(fresh.pin.lookup) ? fresh.pin.lookup : null;
+  const indexRef = lookup ? db.collection('admin_pins').doc(lookup) : null;
+  const index = indexRef ? await tx.get(indexRef) : null;
   const epoch = typeof fresh.sessionEpoch === 'number' ? fresh.sessionEpoch : 0;
   const history = Array.isArray(fresh.history) ? fresh.history : [];
   tx.update(ref, {
     pin: { state: 'shared' },
     pinSetAt: at,
     sessionEpoch: Math.min(epoch + 1, 999_999_999),
-    failedTries: 0,
-    lockedUntil: null,
     history: [...history, { at, action: 'pin_reset', actor: { role: 'system', id: null, name: 'recovery script' } }],
   });
+  if (indexRef && index?.exists && index.get('adminId') === adminId) {
+    tx.delete(indexRef);
+    return true;
+  }
+  return false;
 });
 const after = (await ref.get()).data();
-console.log(`Done: PIN ${after.pin?.state}, ${after.failedTries} wrong tries, locked until ${after.lockedUntil}, session epoch ${after.sessionEpoch}.`);
-console.log(`Sign in as ${after.name} with the shared PIN (ADMIN_PIN in Vercel), then choose a new PIN from your name in the header.`);
+console.log(`Done: PIN ${after.pin?.state}, session epoch ${after.sessionEpoch}${freed ? ', old PIN index entry deleted' : ''}.`);
+console.log('Sign in with the shared PIN (ADMIN_PIN in Vercel) alone: Nubnb then gives you a generated PIN, shown once.');

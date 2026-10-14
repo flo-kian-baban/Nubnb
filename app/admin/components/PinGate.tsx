@@ -3,63 +3,44 @@
 /**
  * The admin's door (dispatch 38). Every admin page renders inside it.
  *
- * Kian's rulings of 2026-10-13: each admin signs in with their own PIN, and
- * five wrong tries lock that PIN for fifteen minutes. So the door asks whose
- * PIN it is — a name, remembered on this device after a sign-in, so on their
- * own devices an admin types only the PIN — and the PIN, in six boxes. Today's
- * shared PIN is four digits and stays the main admin's until he changes it,
- * so four digits go too, with Sign in or Enter; six go by themselves.
+ * Kian's rulings of 2026-10-13 (evening): admins sign in with their PIN only
+ * — no name is typed; the PIN identifies the admin — and five wrong PINs from
+ * one connection lock sign-in from that connection for fifteen minutes. So
+ * the door is six boxes, masked (PIN boxes mask their digits). Six digits go
+ * by themselves; the shared PIN, four digits today, goes with Sign in or
+ * Enter.
  *
  * What it shows:
- *   - a wrong name or PIN: one line, and on the try before the lock, the
- *     warning that the next wrong one locks it;
- *   - a locked PIN: the boxes greyed and "Locked until 4:32 pm", until then;
- *     the time is this browser's. Another name can still be typed;
- *   - a temporary PIN (an admin the main admin added, or gave a new PIN):
- *     "Choose your PIN" before anything else, the only step it opens;
+ *   - a wrong PIN: one line, and on the try before the lock, the warning;
+ *   - a locked connection: the boxes greyed and "Locked until 4:32 pm",
+ *     until then, in this browser's time;
+ *   - the shared PIN, used by the main admin on it: the PIN Nubnb has just
+ *     generated for them, shown this once, before anything else;
  *   - a server that cannot check: says so, with Retry. Never the pages.
  *
  * The session itself is an HTTP-only cookie this page never sees: on mount it
- * asks the server who it is signed in as. A cookie from before dispatch 38 is
- * answered "nobody" and cleared, and the door shows.
+ * asks the server who it is signed in as. A cookie that no longer opens
+ * anything is answered "nobody" and cleared, and the door shows.
  *
  * Signed in, it gives its children the admin, through useAdminSession, for
- * the header's name, Change PIN and Sign out, and for the Admins page's
- * main-admin check (the server checks too: the page's check only spares a
- * refused request).
+ * the header's name, Change name, New PIN and Sign out, and for the Admins
+ * page's main-admin check (the server checks too: the page's check only
+ * spares a refused request).
  */
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { KeyRound, Lock } from "lucide-react";
 import styles from "./PinGate.module.css";
 import { PinBoxes } from "./PinBoxes";
-import { changeOwnPin, fetchSignedIn, lockTimeWords, signIn, signOut } from "@/app/lib/admins-client";
-import { PIN_LENGTH, SIGN_IN_PIN_PATTERN, newPinProblem, type SignedInAdminView } from "@/app/lib/admins/model";
-
-/** Where this device remembers the last name that signed in. A convenience: it may come back empty. */
-const NAME_KEY = "nubnb.admin.name";
-
-function rememberedName(): string {
-  try {
-    return window.localStorage.getItem(NAME_KEY) ?? "";
-  } catch {
-    return "";
-  }
-}
-
-function rememberName(name: string): void {
-  try {
-    window.localStorage.setItem(NAME_KEY, name);
-  } catch {
-    /* a private window: the name is typed next time */
-  }
-}
+import { PinReveal } from "./PinReveal";
+import { fetchSignedIn, lockTimeWords, signIn, signOut } from "@/app/lib/admins-client";
+import { PIN_LENGTH, SIGN_IN_PIN_PATTERN, type SignedInAdminView } from "@/app/lib/admins/model";
 
 // ─── The signed-in admin, for the pages ────────────────────────
 
 export interface AdminSessionValue {
   admin: SignedInAdminView;
-  /** Replace the admin as the page knows them (after Change PIN). */
+  /** Replace the admin as the page knows them (after New PIN or Change name). */
   update: (admin: SignedInAdminView) => void;
   signOut: () => Promise<void>;
 }
@@ -77,8 +58,8 @@ type Gate =
   | { kind: "checking" }
   | { kind: "out" }
   | { kind: "unavailable"; title: string }
-  /** `temporaryPin`: the one just typed at sign-in, so it is not asked twice. Never stored. */
-  | { kind: "choose"; admin: SignedInAdminView; temporaryPin: string | null }
+  /** Signed in with the shared PIN: the generated PIN to show once, then in. */
+  | { kind: "reveal"; admin: SignedInAdminView; pin: string }
   | { kind: "in"; admin: SignedInAdminView };
 
 interface PinGateProps {
@@ -93,7 +74,7 @@ export function PinGate({ children }: PinGateProps) {
     let cancelled = false;
     fetchSignedIn().then((result) => {
       if (cancelled) return;
-      if (result.ok) setGate(result.data.pin === "temporary" ? { kind: "choose", admin: result.data, temporaryPin: null } : { kind: "in", admin: result.data });
+      if (result.ok) setGate({ kind: "in", admin: result.data });
       else if (result.status === 401) setGate({ kind: "out" });
       else setGate({ kind: "unavailable", title: result.title });
     });
@@ -134,80 +115,80 @@ export function PinGate({ children }: PinGateProps) {
     );
   }
 
-  if (gate.kind === "choose") {
+  if (gate.kind === "reveal") {
+    const { admin, pin } = gate;
     return (
-      <ChoosePin
-        admin={gate.admin}
-        temporaryPin={gate.temporaryPin}
-        onChosen={(admin) => setGate({ kind: "in", admin })}
-        onSignedOut={() => setGate({ kind: "out" })}
-      />
+      <div className={styles.overlay}>
+        <div className={styles.card} aria-label="Your new PIN">
+          <div className={styles.lockIcon}>
+            <KeyRound size={24} />
+          </div>
+          <div className={styles.textGroup}>
+            <h2 className={styles.title}>Your new PIN</h2>
+            <p className={styles.subtitle}>{admin.name}, sign in with this from now on</p>
+          </div>
+          <PinReveal pin={pin} label="Your new PIN" />
+          <button type="button" className={styles.submitBtn} onClick={() => setGate({ kind: "in", admin })}>
+            I have noted it
+          </button>
+        </div>
+      </div>
     );
   }
 
-  return (
-    <SignIn
-      onSignedIn={(admin, pin) => setGate(admin.pin === "temporary" ? { kind: "choose", admin, temporaryPin: pin } : { kind: "in", admin })}
-    />
-  );
+  return <SignIn onSignedIn={(admin, newPin) => setGate(newPin ? { kind: "reveal", admin, pin: newPin } : { kind: "in", admin })} />;
 }
 
 // ─── Signing in ────────────────────────────────────────────────
 
-function SignIn({ onSignedIn }: { onSignedIn: (admin: SignedInAdminView, pin: string) => void }) {
-  // The name this device signed in with last. The gate renders this only in the browser, after its check.
-  const [name, setName] = useState(rememberedName);
+function SignIn({ onSignedIn }: { onSignedIn: (admin: SignedInAdminView, newPin: string | null) => void }) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState<{ title: string; hint?: string } | null>(null);
-  const [locked, setLocked] = useState<{ name: string; until: string } | null>(null);
+  /** When sign-in from this connection is locked: until when. */
+  const [locked, setLocked] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const nameRef = useRef<HTMLInputElement>(null);
   const firstBox = useRef<HTMLInputElement | null>(null);
 
-  // The cursor where the next thing is typed: the PIN when the name is known.
   useEffect(() => {
-    const timer = setTimeout(() => (rememberedName() ? firstBox.current : nameRef.current)?.focus(), 100);
+    const timer = setTimeout(() => firstBox.current?.focus(), 100);
     return () => clearTimeout(timer);
   }, []);
 
   // The lock ends by itself: at its time the boxes come back.
   useEffect(() => {
     if (!locked) return;
-    const wait = Date.parse(locked.until) - Date.now();
     const timer = setTimeout(() => {
       setLocked(null);
       setError(null);
       setTimeout(() => firstBox.current?.focus(), 50);
-    }, Math.max(0, wait) + 500);
+    }, Math.max(0, Date.parse(locked) - Date.now()) + 500);
     return () => clearTimeout(timer);
   }, [locked]);
 
-  const lockedNow = locked !== null && locked.name === name.trim();
-  const canSubmit = name.trim() !== "" && SIGN_IN_PIN_PATTERN.test(pin) && !busy && !lockedNow;
+  const canSubmit = SIGN_IN_PIN_PATTERN.test(pin) && !busy && !locked;
 
   const submit = useCallback(
     async (typed: string) => {
-      if (name.trim() === "" || !SIGN_IN_PIN_PATTERN.test(typed) || busy || lockedNow) return;
+      if (!SIGN_IN_PIN_PATTERN.test(typed) || busy || locked) return;
       setBusy(true);
       setError(null);
-      const result = await signIn(name.trim(), typed);
+      const result = await signIn(typed);
       setBusy(false);
       if (result.ok) {
-        rememberName(name.trim());
-        onSignedIn(result.data, typed);
+        onSignedIn(result.data.admin, result.data.newPin);
         return;
       }
       setPin("");
       if (result.status === 429 && result.lockedUntil) {
-        setLocked({ name: name.trim(), until: result.lockedUntil });
-        setError({ title: result.lockedNow ? "Five wrong tries." : "This PIN is locked." });
+        setLocked(result.lockedUntil);
+        setError({ title: result.lockedNow ? "Five wrong PINs." : "Sign-in from here is locked." });
         return;
       }
-      // 401 is the only answer that means the name or PIN was wrong; anything else is said as it is.
-      setError(result.status === 401 ? { title: "Wrong name or PIN.", hint: result.hint } : { title: result.title });
+      // 401 is the only answer that means the PIN was wrong; anything else is said as it is.
+      setError(result.status === 401 ? { title: "Wrong PIN.", hint: result.hint } : { title: result.title, hint: result.hint });
       setTimeout(() => firstBox.current?.focus(), 300);
     },
-    [busy, lockedNow, name, onSignedIn],
+    [busy, locked, onSignedIn],
   );
 
   const onPin = (value: string) => {
@@ -226,49 +207,31 @@ function SignIn({ onSignedIn }: { onSignedIn: (admin: SignedInAdminView, pin: st
         }}
         aria-label="Admin sign-in"
       >
-        <div className={`${styles.lockIcon} ${lockedNow ? styles.lockIconLocked : ""}`}>
+        <div className={`${styles.lockIcon} ${locked ? styles.lockIconLocked : ""}`}>
           <Lock size={24} />
         </div>
 
         <div className={styles.textGroup}>
           <h2 className={styles.title}>Admin Access</h2>
-          <p className={styles.subtitle}>Your name and PIN</p>
+          <p className={styles.subtitle}>Your PIN</p>
         </div>
-
-        <input
-          ref={nameRef}
-          className={styles.nameInput}
-          type="text"
-          value={name}
-          onChange={(e) => {
-            setName(e.target.value);
-            setError(null);
-          }}
-          placeholder="Name"
-          aria-label="Name"
-          autoComplete="username"
-          autoCapitalize="words"
-          spellCheck={false}
-          maxLength={60}
-          disabled={busy}
-        />
 
         <PinBoxes
           length={PIN_LENGTH}
           value={pin}
           onChange={onPin}
           onEnter={() => void submit(pin)}
-          disabled={busy || lockedNow}
-          invalid={error !== null && !lockedNow}
+          disabled={busy || locked !== null}
+          invalid={error !== null && !locked}
           label="PIN"
           firstRef={(el) => {
             firstBox.current = el;
           }}
         />
 
-        {lockedNow ? (
+        {locked ? (
           <span className={styles.lockedText} role="alert">
-            {error?.title ? `${error.title} ` : ""}Locked until {lockTimeWords(locked.until)}.
+            {error?.title ? `${error.title} ` : ""}Locked until {lockTimeWords(locked)}.
           </span>
         ) : error ? (
           <span className={styles.errorText} role="alert">
@@ -283,117 +246,4 @@ function SignIn({ onSignedIn }: { onSignedIn: (admin: SignedInAdminView, pin: st
       </form>
     </div>
   );
-}
-
-// ─── Choosing one's own PIN ────────────────────────────────────
-
-function ChoosePin({
-  admin,
-  temporaryPin,
-  onChosen,
-  onSignedOut,
-}: {
-  admin: SignedInAdminView;
-  temporaryPin: string | null;
-  onChosen: (admin: SignedInAdminView) => void;
-  onSignedOut: () => void;
-}) {
-  const [current, setCurrent] = useState(temporaryPin ?? "");
-  const [askCurrent, setAskCurrent] = useState(temporaryPin === null);
-  const [next, setNext] = useState("");
-  const [again, setAgain] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [locked, setLocked] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const ready = isSixDigits(current) && next.length === PIN_LENGTH && again.length === PIN_LENGTH && !busy && locked === null;
-
-  const save = async () => {
-    if (!ready) return;
-    if (next !== again) {
-      setError("The two PINs differ.");
-      setAgain("");
-      return;
-    }
-    const problem = newPinProblem(next);
-    if (problem) {
-      setError(problem);
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    const result = await changeOwnPin(current, next);
-    setBusy(false);
-    if (result.ok) {
-      onChosen(result.data);
-      return;
-    }
-    if (result.code === "ADMIN_SESSION_INVALID") {
-      onSignedOut();
-      return;
-    }
-    if (result.status === 429 && result.lockedUntil) {
-      setLocked(result.lockedUntil);
-      return;
-    }
-    if (result.code === "ADMIN_CURRENT_PIN_WRONG") {
-      setAskCurrent(true);
-      setCurrent("");
-      setError(result.hint?.startsWith("One more") ? "That is not your temporary PIN. One more wrong try locks it for 15 minutes." : "That is not your temporary PIN.");
-      return;
-    }
-    setError(result.title);
-  };
-
-  return (
-    <div className={styles.overlay}>
-      <form
-        className={styles.card}
-        onSubmit={(e) => {
-          e.preventDefault();
-          void save();
-        }}
-        aria-label="Choose your PIN"
-      >
-        <div className={styles.lockIcon}>
-          <KeyRound size={24} />
-        </div>
-
-        <div className={styles.textGroup}>
-          <h2 className={styles.title}>Choose your PIN</h2>
-          <p className={styles.subtitle}>{admin.name}, six digits only you know</p>
-        </div>
-
-        {askCurrent && (
-          <div className={styles.field}>
-            <span className={styles.fieldLabel}>Temporary PIN</span>
-            <PinBoxes length={PIN_LENGTH} value={current} onChange={(v) => { setCurrent(v); setError(null); }} disabled={busy || locked !== null} label="Temporary PIN" compact />
-          </div>
-        )}
-        <div className={styles.field}>
-          <span className={styles.fieldLabel}>New PIN</span>
-          <PinBoxes length={PIN_LENGTH} value={next} onChange={(v) => { setNext(v); setError(null); }} disabled={busy || locked !== null} label="New PIN" compact />
-        </div>
-        <div className={styles.field}>
-          <span className={styles.fieldLabel}>Again</span>
-          <PinBoxes length={PIN_LENGTH} value={again} onChange={(v) => { setAgain(v); setError(null); }} onEnter={() => void save()} disabled={busy || locked !== null} label="New PIN again" compact />
-        </div>
-
-        {locked ? (
-          <span className={styles.lockedText} role="alert">Locked until {lockTimeWords(locked)}.</span>
-        ) : error ? (
-          <span className={styles.errorText} role="alert">{error}</span>
-        ) : null}
-
-        <button type="submit" className={styles.submitBtn} disabled={!ready}>
-          {busy ? "Saving…" : "Save PIN"}
-        </button>
-      </form>
-    </div>
-  );
-}
-
-/** The temporary PIN as typed: six digits (one the main admin set). */
-function isSixDigits(pin: string): boolean {
-  return pin.length === PIN_LENGTH && /^[0-9]+$/.test(pin);
 }

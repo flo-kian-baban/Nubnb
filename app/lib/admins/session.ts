@@ -72,14 +72,6 @@ export const ADMIN_AUTH_UNAVAILABLE: Refusal = {
   message: 'Could not check your sign-in. Try again.',
 };
 
-/** 403: signed in on a temporary PIN, which opens only the step where the admin chooses their own. */
-export const ADMIN_PIN_CHANGE_REQUIRED: Refusal = {
-  status: 403,
-  code: 'ADMIN_PIN_CHANGE_REQUIRED',
-  message: 'Choose your own PIN first.',
-  hint: 'You signed in with a temporary PIN. Nothing was changed.',
-};
-
 /** 403: a main admin's page or action, asked for by an admin. */
 export const MAIN_ADMIN_ONLY: Refusal = {
   status: 403,
@@ -162,11 +154,10 @@ function readSessionCookie(request: Request): string | null {
  *                                   dispatch 38 among them); an admin who was
  *                                   removed or whose epoch has moved
  *   503 ADMIN_AUTH_UNAVAILABLE      the admin could not be read
- *   403 ADMIN_PIN_CHANGE_REQUIRED   on a temporary PIN, unless `allowTemporary`
  *
  * No I/O happens until the token has passed its MAC and age checks.
  */
-export async function verifyAdminSession(request: Request, options: { allowTemporary?: boolean } = {}): Promise<AdminSessionResult> {
+export async function verifyAdminSession(request: Request): Promise<AdminSessionResult> {
   const key = getAdminSessionKey();
   if (!key) return { ok: false, refusal: ADMIN_AUTH_NOT_CONFIGURED, staleCookie: false };
 
@@ -179,9 +170,6 @@ export async function verifyAdminSession(request: Request, options: { allowTempo
   const read = await readSessionAdmin(claims.adminId, claims.sessionEpoch);
   if (read.kind === 'unavailable') return { ok: false, refusal: ADMIN_AUTH_UNAVAILABLE, staleCookie: false };
   if (read.kind === 'invalid') return { ok: false, refusal: ADMIN_SESSION_INVALID, staleCookie: true };
-  if (read.admin.pin === 'temporary' && !options.allowTemporary) {
-    return { ok: false, refusal: ADMIN_PIN_CHANGE_REQUIRED, staleCookie: false };
-  }
   return { ok: true, admin: read.admin };
 }
 
