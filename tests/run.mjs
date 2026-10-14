@@ -21,6 +21,7 @@ export const CHECKS = [
   { name: 'cleanings', script: 'money/cleanings.mjs', args: [] },
   { name: 'airbnb-file', script: 'money/airbnb-file.mjs', args: [] },
   { name: 'admin-accounts', script: 'admins/accounts.mjs', args: [] },
+  { name: 'admin-recover-pin', script: 'admins/recover-pin.mjs', args: [] },
 ];
 
 const argv = process.argv.slice(2);
