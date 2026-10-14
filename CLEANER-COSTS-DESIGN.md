@@ -2870,3 +2870,117 @@ The ruling is in `CLAUDE.md` under *Admin header*: below 1400 px wide, the admin
   - At 390 px the links scroll inside their row, as on phones before. The page's own buttons run past the edge, as they did on the live site; phones were not in the ruling.
   - **Cleanup.** The test admin removed itself from the Admins page, with Kian remaining, and was signed out. Its one activity line was deleted by exact ID after export `2026-10-14T00-44-34Z`. The guard recorded 8 writes, none refused, none to Kian's document or name. The closing export `2026-10-14T00-44-55Z` is byte-identical to the opening one. Storage's 6,622 objects are identical.
 
+
+## 44. PINs set by the main admin, stored readably: Kian's rulings of 2026-10-13 (night)
+
+Kian's rulings are in `CLAUDE.md` under *Admin PINs*, with the accepted risk under *Accepted risks*:
+- the main admin sets each admin's PIN when adding them, and can change any ordinary admin's; Nubnb no longer generates PINs; an admin can still change their own;
+- main admins see every admin's PIN, their own included, on the Admins page; PINs are stored readably, so any copy of the database holds every admin PIN, and a main admin can act as any admin;
+- admin PINs stay six digits; PINs stay unique; sign-in stays PIN only; the connection lock stays;
+- the Add an admin dialog opens on Admin.
+
+They replace the evening's generated PINs, shown once, and its sign-in with the shared PIN giving a generated one. `firestore.rules` and `storage.rules` are unchanged.
+
+### 44.1 The design, as reported before building
+
+- **How a PIN finds its admin now.** The PIN itself is the ID of its index document, `admin_pins/{PIN}` → `{ adminId }`, the way `cleaner_codes/{code}` works.
+  - The admin's document holds `pin: { state: 'readable', value }`.
+  - Sign-in reads the one index document, then the admin's, and compares the stored PIN in constant time. No hash.
+  - `create()` on the index keeps PINs unique.
+  - `ADMIN_PIN_KEY` stays for the connection's keyed hash, and for checking an older PIN when its holder sets theirs.
+- **Kian's document** (the first version's chosen PIN, a salted hash) is not rewritten by anything. It moves to the readable shape the first time he types his PIN to the new code:
+  - with a session he holds, the gate asks him to set his PIN before anything else: his current PIN, checked against the hash, then the one he wants, which may be the same;
+  - without one, through the recovery script and the shared PIN, then the same step.
+
+  His leftover `failedTries` and `lockedUntil` fields stay.
+- **A consequence reported then.** Refusing a PIN because another admin holds it tells the chooser that admin's PIN. For main admins that is no news. For an ordinary admin changing their own, every change counts toward the connection's lock like a sign-in try, so choosing is no faster than guessing at the door.
+
+### 44.2 What was built
+
+- **The library.**
+  - `admins/model.ts`: the `readable` state; `pinProblem` (six digits, not too easy); the `set-pin` action; `AdminSummary.pinValue`; `pin_set` in the history.
+  - `admins/pin.ts`: `samePin` for comparing two PINs; the evening's `pinLookup` and the first version's `pinMatches` kept for checking older PINs; no generation.
+  - `firebase/server-admins.ts`:
+    - sign-in by the PIN's own index;
+    - `changeOwnPin` for one's own menu and the gate, counted;
+    - `createAdmin` with the PIN set;
+    - `setAdminPin` for an ordinary admin;
+    - removal deletes the readable index entry or the evening's.
+- **Routes:**
+  - `POST /api/admin/admins` takes `{ name, level, pin }`;
+  - `POST /api/admin/admins/[id]/pin` takes `{ pin }`;
+  - `POST /api/admin-auth/pin` takes `{ currentPin, newPin }`.
+
+  The refusals: 409 `ADMIN_PIN_TAKEN`, 409 `ADMIN_PIN_SAME`, and 422 for a PIN that is not six digits, is too easy, or is the shared PIN.
+- **Pages:**
+  - The gate's **Set your PIN** card replaces the evening's generated-PIN card. It shows for a session holding a PIN that is not readable, and after a sign-in with the shared PIN, which is carried over as the current one.
+  - The menu's **Change PIN** replaces New PIN: current PIN, new PIN, again, all masked.
+  - The Admins page:
+    - shows each readable PIN to the main admin, and "Kept before: not readable" or "Shared PIN" otherwise;
+    - the Add dialog takes a PIN in a plain field and opens on Admin;
+    - an ordinary admin's row has Change PIN….
+
+  `PinReveal`, `NewPinDialog` and the dialog's `dismissible` option are gone.
+- **Script:** the recovery script deletes a readable index entry too.
+- **Schema:** new admin documents carry `schemaVersion: 3`.
+- **Tests:** `admin-accounts` re-recorded. The PIN rules, comparing PINs and the older PINs' checks replace the generation checks.
+
+### 44.3 Decisions, not rulings
+
+- **Every change of one's own PIN counts toward the connection's lock,** successful ones included (§44.1). Otherwise a run of successful changes would let someone probe for free. A change to the PIN one already has does not count. Kian confirmed this on 2026-10-13.
+- **The main admin types a PIN in a plain field** with the digits shown, adding an admin or changing one's PIN: they see every PIN, and hand this one on. One's own PIN is typed in masked boxes.
+- **Too-easy PINs are refused,** as cleaner codes refuse theirs. So is the shared PIN, should `ADMIN_PIN` ever be six digits.
+- **Set your PIN comes before anything else** for a session whose PIN is not readable, and after a sign-in with the shared PIN. It has a Sign out link.
+- **A PIN of the first version or the evening no longer signs in.** The main admin sets an ordinary admin's; a main admin sets their own through a session or the recovery path.
+- **The shared PIN's digits are not shown;** its row reads "Shared PIN".
+
+### 44.4 Before deploying
+
+1. Nothing new to set: `ADMIN_SESSION_SECRET`, `ADMIN_PIN_KEY` and `ADMIN_PIN` stay.
+2. Kian's way to a readable PIN:
+   - With his session from 22:21Z on 13 October, which lasts until 22:21Z on 14 October, the admin opens on Set your PIN: his chosen PIN, then the one he wants, which may be the same.
+   - After that: export, `node scripts/admin-recover.mjs Kian --write`, then the shared PIN alone, then the same step.
+3. An admin added on the live site before this deploys has an evening PIN. After the deploy it no longer signs in, and Kian sets a PIN for them on the Admins page.
+4. No rules deploy.
+
+### 44.5 How it was checked (2026-10-13, 21:40–21:49 Toronto)
+
+- **Byte-identical:** the seven other test suites; the 40 version-3 statements; `tsc` clean; lint at the baseline.
+- **The setup.** A local build reading production, with throwaway keys and the write guard, now taking six-digit `admin_pins` IDs (49 of 49 offline). Builds `jQqcUq20rMu8cgJj7HuNh` for checks 1–9, `GoQ_g-XoDXedRDUgwNTkI` (schema 3, the recovery script's wording) for check 10. Opening export `2026-10-14T01-40-05Z`. Seeded directly:
+  - a main admin on a readable PIN;
+  - `__TEST__ Legacy`, shaped as Kian's document, with a session made as f135b03 makes them;
+  - `__TEST__ Eve`, an admin on an evening PIN.
+- **The checks:**
+  1. **Sign-in by PIN alone:** 4 reads for a right PIN, 3 for a wrong one, no hash. The session's answer holds no PIN. Legacy's chosen PIN and Eve's evening PIN got 401.
+  2. **The Add dialog** opened with Admin checked and highlighted; its button read "Add admin". Ada was added with the PIN typed, shown as typed, and signed in with it alone.
+  3. **A PIN another admin holds:** refused at adding, on the page and through the API, and at changing Bo's PIN. Too easy and four digits got 422.
+  4. **The main admin changed Bo's PIN:** his session got 401, the old PIN 401, the new one 200, and his history records `pin_set` by the main admin.
+  5. **Visible to a main admin, and nobody else.** The main admin's page shows his own, Ada's and Bo's PINs, each in its row, and the list's PINs are each admin's own. Ada got 403 on the list. No PIN appeared in her session's answer, in any page she opened, in the activity log or in the server's log.
+  6. **Ada's own Change PIN,** in masked boxes:
+     - a wrong current PIN, Bo's PIN and her own PIN were each refused with their own words;
+     - a free PIN was set;
+     - wrong, taken and set each counted on the connection; "already" did not;
+     - five changes in a row from one connection locked it, so the sixth change and a sign-in from there got 429.
+  7. **The lock:** five wrong PINs got 429, and the right PIN during the lock got 429 with one read. Lift on the page cleared both locks; both connections signed in.
+  8. **Kian's path:** Legacy's session opened on Set your PIN, with no admin page behind it. He kept his chosen PIN. The document went to `readable`, with its index entry and `pin_changed` from `own`. The old session got 401, and his PIN signed in at the door.
+  9. **Recovery and the evening admin:**
+     - **Eve:** the main admin set her PIN from her row. Her lookup entry was deleted and a readable one created; the evening PIN got 401, the new one 200.
+     - **Recovery:** the script refused an ordinary admin and a second main admin. On the test main admin, the shared PIN at the gate opened Set your PIN with only the new PIN's boxes. Afterwards the shared PIN and the old PIN got 401. It was on the shared PIN for 19.6 s at most.
+  10. **On the final build:**
+      - an ordinary admin was refused all 8 main-admin routes and wrote nothing;
+      - nine attempts by a main admin on another main admin's account got 409, three of them on Kian's, and a PIN for oneself through the Admins route got 409;
+      - a PIN-signed session from before dispatch 38 got 401;
+      - a name change was recorded;
+      - a new admin was written with schema 3;
+      - removal ended sessions and freed PINs, and a freed PIN was set again;
+      - sign out cleared the cookie.
+- **Cleanup.** The guard recorded 148 writes, none refused, none to Kian's document or name.
+  - Through the app: every test admin, name and PIN index entry.
+  - By exact ID after export `2026-10-14T01-48-45Z`: 26 activity lines and 4 lock documents, 30 of 30.
+  - The closing export `2026-10-14T01-49-28Z` is byte-identical to the opening one, file for file. Storage's 6,622 objects are identical.
+
+### 44.6 Not exercised live
+
+- **The first main admin of an empty database:** production has one.
+- **Two changes of one's own PIN at the same moment,** and a change racing a sign-in.
+- **Production:** Kian's own Set your PIN after the deploy is his to do.

@@ -231,20 +231,15 @@ interface DialogProps {
   children: ReactNode;
   /** The buttons, the primary last. */
   actions: ReactNode;
-  /** Escape, the × in the corner, and a click outside, while the dialog is dismissible. */
+  /** Escape, and the × in the corner. */
   onClose: () => void;
   /** Where the keyboard goes when it opens: a button of the foot, or "none" when a field in the body takes it (dispatch 34). */
   initialFocus?: "first" | "last" | "none";
   /** A list to work through rather than a question (dispatch 36): wider, and its body scrolls. */
   wide?: boolean;
-  /**
-   * False for something shown once, a generated PIN (2026-10-13): no ×, and neither Escape nor a click outside
-   * closes it, so it goes only by one of its own buttons.
-   */
-  dismissible?: boolean;
 }
 
-export function Dialog({ title, children, actions, onClose, initialFocus = "first", wide = false, dismissible = true }: DialogProps) {
+export function Dialog({ title, children, actions, onClose, initialFocus = "first", wide = false }: DialogProps) {
   const id = useId();
   const footRef = useRef<HTMLDivElement>(null);
 
@@ -256,7 +251,6 @@ export function Dialog({ title, children, actions, onClose, initialFocus = "firs
   }, [initialFocus]);
 
   useEffect(() => {
-    if (!dismissible) return;
     const onKey = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -265,7 +259,7 @@ export function Dialog({ title, children, actions, onClose, initialFocus = "firs
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, dismissible]);
+  }, [onClose]);
 
   // The keyboard stays in the dialog.
   const trap = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -284,17 +278,15 @@ export function Dialog({ title, children, actions, onClose, initialFocus = "firs
   };
 
   return (
-    <div className={styles.overlay} onMouseDown={(e) => dismissible && e.target === e.currentTarget && onClose()}>
+    <div className={styles.overlay} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className={`${styles.dialog} ${wide ? styles.dialogWide : ""}`} role="alertdialog" aria-modal="true" aria-labelledby={`${id}-title`} aria-describedby={`${id}-body`} onKeyDown={trap}>
         <div className={styles.dialogHead}>
           <h2 id={`${id}-title`} className={styles.dialogTitle}>
             {title}
           </h2>
-          {dismissible && (
-            <button type="button" className={styles.dialogClose} onClick={onClose} aria-label="Close">
-              <X size={16} aria-hidden />
-            </button>
-          )}
+          <button type="button" className={styles.dialogClose} onClick={onClose} aria-label="Close">
+            <X size={16} aria-hidden />
+          </button>
         </div>
         <div id={`${id}-body`} className={styles.dialogBody}>
           {children}

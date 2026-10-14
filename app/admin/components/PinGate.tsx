@@ -14,8 +14,11 @@
  *   - a wrong PIN: one line, and on the try before the lock, the warning;
  *   - a locked connection: the boxes greyed and "Locked until 4:32 pm",
  *     until then, in this browser's time;
- *   - the shared PIN, used by the main admin on it: the PIN Nubnb has just
- *     generated for them, shown this once, before anything else;
+ *   - Set your PIN, before anything else, to an admin whose PIN is not stored
+ *     readably (Kian's rulings of 2026-10-13, night: PINs are stored readably;
+ *     Nubnb no longer generates them): a main admin just signed in with the
+ *     shared PIN, which is carried over as the current PIN, or a session
+ *     holding a PIN of the first version or the evening, which asks for it;
  *   - a server that cannot check: says so, with Retry. Never the pages.
  *
  * The session itself is an HTTP-only cookie this page never sees: on mount it
@@ -23,7 +26,7 @@
  * anything is answered "nobody" and cleared, and the door shows.
  *
  * Signed in, it gives its children the admin, through useAdminSession, for
- * the header's name, Change name, New PIN and Sign out, and for the Admins
+ * the header's name, Change name, Change PIN and Sign out, and for the Admins
  * page's main-admin check (the server checks too: the page's check only
  * spares a refused request).
  */
@@ -32,15 +35,14 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { KeyRound, Lock } from "lucide-react";
 import styles from "./PinGate.module.css";
 import { PinBoxes } from "./PinBoxes";
-import { PinReveal } from "./PinReveal";
-import { fetchSignedIn, lockTimeWords, signIn, signOut } from "@/app/lib/admins-client";
-import { PIN_LENGTH, SIGN_IN_PIN_PATTERN, type SignedInAdminView } from "@/app/lib/admins/model";
+import { changeOwnPin, fetchSignedIn, lockTimeWords, signIn, signOut } from "@/app/lib/admins-client";
+import { PIN_LENGTH, SIGN_IN_PIN_PATTERN, isReadablePin, pinProblem, type SignedInAdminView } from "@/app/lib/admins/model";
 
 // ─── The signed-in admin, for the pages ────────────────────────
 
 export interface AdminSessionValue {
   admin: SignedInAdminView;
-  /** Replace the admin as the page knows them (after New PIN or Change name). */
+  /** Replace the admin as the page knows them (after Change PIN or Change name). */
   update: (admin: SignedInAdminView) => void;
   signOut: () => Promise<void>;
 }
@@ -58,9 +60,12 @@ type Gate =
   | { kind: "checking" }
   | { kind: "out" }
   | { kind: "unavailable"; title: string }
-  /** Signed in with the shared PIN: the generated PIN to show once, then in. */
-  | { kind: "reveal"; admin: SignedInAdminView; pin: string }
+  /** Signed in on a PIN not stored readably: their PIN first. `current`: the shared PIN just typed, when there is one. */
+  | { kind: "set-pin"; admin: SignedInAdminView; current: string | null }
   | { kind: "in"; admin: SignedInAdminView };
+
+/** Where a signed-in admin goes: in, or Set your PIN first. */
+const landing = (admin: SignedInAdminView, current: string | null): Gate => (isReadablePin(admin.pin) ? { kind: "in", admin } : { kind: "set-pin", admin, current });
 
 interface PinGateProps {
   children: ReactNode;
@@ -74,7 +79,7 @@ export function PinGate({ children }: PinGateProps) {
     let cancelled = false;
     fetchSignedIn().then((result) => {
       if (cancelled) return;
-      if (result.ok) setGate({ kind: "in", admin: result.data });
+      if (result.ok) setGate(landing(result.data, null));
       else if (result.status === 401) setGate({ kind: "out" });
       else setGate({ kind: "unavailable", title: result.title });
     });
@@ -115,33 +120,107 @@ export function PinGate({ children }: PinGateProps) {
     );
   }
 
-  if (gate.kind === "reveal") {
-    const { admin, pin } = gate;
-    return (
-      <div className={styles.overlay}>
-        <div className={styles.card} aria-label="Your new PIN">
-          <div className={styles.lockIcon}>
-            <KeyRound size={24} />
-          </div>
-          <div className={styles.textGroup}>
-            <h2 className={styles.title}>Your new PIN</h2>
-            <p className={styles.subtitle}>{admin.name}, sign in with this from now on</p>
-          </div>
-          <PinReveal pin={pin} label="Your new PIN" />
-          <button type="button" className={styles.submitBtn} onClick={() => setGate({ kind: "in", admin })}>
-            I have noted it
-          </button>
-        </div>
-      </div>
-    );
+  if (gate.kind === "set-pin") {
+    return <SetPin admin={gate.admin} current={gate.current} onSet={(admin) => setGate({ kind: "in", admin })} onSignOut={() => void doSignOut()} />;
   }
 
-  return <SignIn onSignedIn={(admin, newPin) => setGate(newPin ? { kind: "reveal", admin, pin: newPin } : { kind: "in", admin })} />;
+  return <SignIn onSignedIn={(admin, typed) => setGate(landing(admin, typed))} />;
+}
+
+// ─── Set your PIN ──────────────────────────────────────────────
+
+/**
+ * Before anything else, an admin whose PIN is not stored readably sets one:
+ * the current PIN (the shared PIN just typed is carried over), then six digits
+ * twice, in masked boxes. The PIN chosen is theirs; another admin's is
+ * refused, and every try counts toward this connection's lock.
+ */
+function SetPin({ admin, current, onSet, onSignOut }: { admin: SignedInAdminView; current: string | null; onSet: (admin: SignedInAdminView) => void; onSignOut: () => void }) {
+  const [now, setNow] = useState(current ?? "");
+  const [next, setNext] = useState("");
+  const [again, setAgain] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const firstBox = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => firstBox.current?.focus(), 100);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const ready = SIGN_IN_PIN_PATTERN.test(now) && next.length === PIN_LENGTH && again.length === PIN_LENGTH && !busy;
+
+  const save = async () => {
+    if (!ready) return;
+    if (next !== again) {
+      setError("The two new PINs differ.");
+      setAgain("");
+      return;
+    }
+    const problem = pinProblem(next);
+    if (problem) return setError(problem);
+    setBusy(true);
+    setError(null);
+    const result = await changeOwnPin(now, next);
+    setBusy(false);
+    if (result.ok) return onSet(result.data);
+    if (result.status === 429 && result.lockedUntil) setError(`Sign-in from here is locked until ${lockTimeWords(result.lockedUntil)}.`);
+    else if (result.code === "ADMIN_CURRENT_PIN_WRONG") {
+      setError(current ? "The shared PIN has changed: sign out, and sign in again." : "That is not your current PIN.");
+      if (!current) setNow("");
+    } else setError(result.unknown ? `${result.title} It may or may not have been set.` : result.title);
+  };
+
+  return (
+    <div className={styles.overlay}>
+      <form
+        className={styles.card}
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save();
+        }}
+        aria-label="Set your PIN"
+      >
+        <div className={styles.lockIcon}>
+          <KeyRound size={24} />
+        </div>
+        <div className={styles.textGroup}>
+          <h2 className={styles.title}>Set your PIN</h2>
+          <p className={styles.subtitle}>{admin.name}, choose the six digits you will sign in with</p>
+        </div>
+        {current === null && (
+          <div className={styles.field}>
+            <span className={styles.fieldLabel}>Current PIN</span>
+            <PinBoxes length={PIN_LENGTH} value={now} onChange={(v) => { setNow(v); setError(null); }} onEnter={() => void save()} disabled={busy} label="Current PIN" compact firstRef={(el) => { firstBox.current = el; }} />
+          </div>
+        )}
+        <div className={styles.field}>
+          <span className={styles.fieldLabel}>New PIN</span>
+          <PinBoxes length={PIN_LENGTH} value={next} onChange={(v) => { setNext(v); setError(null); }} onEnter={() => void save()} disabled={busy} label="New PIN" compact firstRef={current === null ? undefined : (el) => { firstBox.current = el; }} />
+        </div>
+        <div className={styles.field}>
+          <span className={styles.fieldLabel}>New PIN again</span>
+          <PinBoxes length={PIN_LENGTH} value={again} onChange={(v) => { setAgain(v); setError(null); }} onEnter={() => void save()} disabled={busy} label="New PIN again" compact />
+        </div>
+        {error && (
+          <span className={styles.errorText} role="alert">
+            {error}
+          </span>
+        )}
+        <button type="submit" className={styles.submitBtn} disabled={!ready}>
+          {busy ? "Saving…" : "Set PIN"}
+        </button>
+        <button type="button" className={styles.linkBtn} onClick={onSignOut} disabled={busy}>
+          Sign out
+        </button>
+      </form>
+    </div>
+  );
 }
 
 // ─── Signing in ────────────────────────────────────────────────
 
-function SignIn({ onSignedIn }: { onSignedIn: (admin: SignedInAdminView, newPin: string | null) => void }) {
+function SignIn({ onSignedIn }: { onSignedIn: (admin: SignedInAdminView, typed: string) => void }) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState<{ title: string; hint?: string } | null>(null);
   /** When sign-in from this connection is locked: until when. */
@@ -175,7 +254,7 @@ function SignIn({ onSignedIn }: { onSignedIn: (admin: SignedInAdminView, newPin:
       const result = await signIn(typed);
       setBusy(false);
       if (result.ok) {
-        onSignedIn(result.data.admin, result.data.newPin);
+        onSignedIn(result.data, typed);
         return;
       }
       setPin("");

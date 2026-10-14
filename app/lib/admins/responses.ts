@@ -1,6 +1,7 @@
 /**
- * What the admin sign-in routes answer with, shared by POST /api/admin-auth
- * and POST /api/admin-auth/pin (dispatch 38). Server-only.
+ * What the admin sign-in and account routes answer with, shared by POST
+ * /api/admin-auth, POST /api/admin-auth/pin and the main admin's routes
+ * (dispatch 38). Server-only.
  */
 
 import { NextResponse } from 'next/server';
@@ -43,5 +44,11 @@ export const ACCOUNT_REFUSALS: Record<'not-found' | 'main-admin' | 'last-main-ad
     hint: 'Nothing was changed.',
   },
   'last-main-admin': { status: 409, code: 'LAST_MAIN_ADMIN', message: 'You are the only main admin.', hint: 'Make another admin a main admin first. Nothing was changed.' },
-  yourself: { status: 409, code: 'ADMIN_IS_YOU', message: 'Get your own new PIN from your name in the header.', hint: 'Nothing was changed.' },
+  yourself: { status: 409, code: 'ADMIN_IS_YOU', message: 'Change your own PIN from your name in the header.', hint: 'Nothing was changed.' },
 };
+
+/** 409: another admin holds that PIN (PINs stay unique). Nothing was changed. */
+export const PIN_TAKEN: Refusal = { status: 409, code: 'ADMIN_PIN_TAKEN', message: 'Another admin has that PIN.', hint: 'Choose another. Nothing was changed.' };
+
+/** 422: the PIN is the shared PIN, ADMIN_PIN, which is the recovery script's alone. Nothing was changed. */
+export const PIN_IS_SHARED: Refusal = { status: 422, code: 'ADMIN_PIN_IS_SHARED', message: 'That is the shared PIN.', hint: 'Choose another. Nothing was changed.' };

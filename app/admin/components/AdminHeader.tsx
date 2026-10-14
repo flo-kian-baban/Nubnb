@@ -11,7 +11,7 @@
  * "Admins" (dispatch 38, Kian's ruling of 2026-10-13: the main admin adds
  * and removes admins and sets their level) is shown to a main admin only, last.
  * The signed-in admin's name sits before View Site (AccountMenu.tsx): Change
- * name, New PIN and Sign out.
+ * name, Change PIN and Sign out.
  *
  * Kian's ruling of 2026-10-13 (evening): below 1400 px wide, the section links
  * sit on their own row under the brand and the actions, on every admin page

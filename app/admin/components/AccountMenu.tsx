@@ -2,27 +2,27 @@
 
 /**
  * The signed-in admin in the header (dispatch 38): their name, and a menu
- * with Change name, New PIN and Sign out (Kian's rulings of 2026-10-13,
- * evening: Change name beside the PIN; "New PIN" replaces the admin's PIN
- * with another random one, shown once). While the admin's PIN is not one
- * Nubnb generated — the shared PIN, or one chosen under dispatch 38's first
- * version — a dot on the name and the menu's first line say so: New PIN
- * replaces it.
+ * with Change name, Change PIN and Sign out (Kian's rulings of 2026-10-13:
+ * Change name beside Change PIN; an admin can still change their own PIN).
+ * While the admin's PIN is not stored readably — the shared PIN, or one kept
+ * by the first version or the evening — a dot on the name and the menu's
+ * first line say so (the gate asks them to set it before anything else).
  */
 
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, KeyRound, LogOut, UserPen } from "lucide-react";
-import { ADMIN_LEVEL_LABELS, isGeneratedPin, type PinState } from "@/app/lib/admins/model";
+import { ADMIN_LEVEL_LABELS, isReadablePin, type PinState } from "@/app/lib/admins/model";
 import { useAdminSession } from "./PinGate";
 import { ChangeNameDialog } from "./ChangeNameDialog";
-import { NewPinDialog } from "./NewPinDialog";
+import { ChangePinDialog } from "./ChangePinDialog";
 import styles from "./AccountMenu.module.css";
 
-/** A PIN that New PIN should replace, in words. */
+/** A PIN to set again, in words. */
 const OLD_PIN_WORDS: Partial<Record<PinState, string>> = {
   shared: "shared PIN",
-  own: "chosen PIN",
-  temporary: "temporary PIN",
+  own: "PIN kept before",
+  temporary: "PIN kept before",
+  set: "PIN kept before",
 };
 
 export function AccountMenu() {
@@ -49,7 +49,7 @@ export function AccountMenu() {
 
   if (!session) return null;
   const { admin } = session;
-  const oldPin = isGeneratedPin(admin.pin) ? null : (OLD_PIN_WORDS[admin.pin] ?? "PIN to replace");
+  const oldPin = isReadablePin(admin.pin) ? null : (OLD_PIN_WORDS[admin.pin] ?? "PIN to set");
   const pick = (which: "name" | "pin") => {
     setOpen(false);
     setDialog(which);
@@ -63,7 +63,7 @@ export function AccountMenu() {
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((was) => !was)}
-        title={oldPin ? `Still on a ${oldPin}: New PIN replaces it` : undefined}
+        title={oldPin ? `Still on a ${oldPin}: Change PIN sets yours` : undefined}
       >
         {oldPin && <span className={styles.dot} aria-hidden />}
         <span className={styles.name}>{admin.name}</span>
@@ -85,7 +85,7 @@ export function AccountMenu() {
           </button>
           <button type="button" role="menuitem" className={styles.item} onClick={() => pick("pin")}>
             <KeyRound size={14} aria-hidden />
-            <span>New PIN</span>
+            <span>Change PIN</span>
           </button>
           <button
             type="button"
@@ -103,7 +103,7 @@ export function AccountMenu() {
       )}
 
       {dialog === "name" && <ChangeNameDialog admin={admin} onChanged={session.update} onClose={() => setDialog(null)} />}
-      {dialog === "pin" && <NewPinDialog admin={admin} onRenewed={session.update} onClose={() => setDialog(null)} />}
+      {dialog === "pin" && <ChangePinDialog admin={admin} onChanged={session.update} onClose={() => setDialog(null)} />}
     </div>
   );
 }

@@ -284,7 +284,7 @@
   }
 }
 
-/* New PIN and Change name, in the admin's dialog. */
+/* Change PIN and Change name, in the admin's dialog. */
 .pinForm {
   display: flex;
   flex-direction: column;
@@ -294,43 +294,25 @@
   text-align: left;
 }
 
-/* A generated PIN, shown once (2026-10-13, evening). */
-.reveal {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 18px 16px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+/* Set your PIN: a quiet way out, under the card's button. */
+.linkBtn {
+  align-self: center;
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
 }
-.revealDigits {
-  display: inline-flex;
-  align-items: center;
-  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 32px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  font-variant-numeric: tabular-nums;
+.linkBtn:hover:not(:disabled) {
   color: #ffffff;
 }
-.revealGap {
-  display: inline-block;
-  width: 0.5em;
-}
-.revealNote {
-  font-size: 12px;
-  font-weight: 600;
-  color: #f0a63a;
-}
-/* The box and what a dialog says under it. */
-.revealGroup {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  width: 100%;
+.linkBtn:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 2px;
+  border-radius: 6px;
 }
 
 /* Change name: a text field in the admin's dialog. */

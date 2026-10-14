@@ -18,11 +18,14 @@
  *   3. the body must be exactly `{ pin: string }`, or 400. It holds a PIN, so
  *      it is never logged nor echoed;
  *   4. a PIN that is not four or six digits is refused with no read (401);
- *   5. signIn (server-admins.ts): a locked connection is refused before any
- *      hash; otherwise the PIN's lookup key finds its admin. Answers:
+ *   5. signIn (server-admins.ts): a locked connection is refused before
+ *      anything else is read; otherwise the PIN's own `admin_pins` document
+ *      finds its admin (Kian's rulings of 2026-10-13, night: PINs are stored
+ *      readably). Answers:
  *        200  signed in: `{ admin: { id, name, level, pin } }` and the
- *             cookie; with `newPin` when the shared PIN was used — the main
- *             admin on it is given a generated PIN, shown this once
+ *             cookie — `pin` is the PIN's state, never the PIN; a main admin
+ *             signed in with the shared PIN is on `shared`, and the gate has
+ *             them set their PIN before anything else
  *        401  ADMIN_SIGN_IN_REFUSED "Wrong PIN." — the try before the lock
  *             carries the warning as its hint
  *        409  SHARED_PIN_AMBIGUOUS: more than one main admin is on the
@@ -99,13 +102,10 @@ export async function POST(request: Request) {
       return lockedResponse(outcome.lockedUntil, outcome.now);
     case 'shared-ambiguous':
       return noStore(apiFailure({ status: 409, code: 'SHARED_PIN_AMBIGUOUS', message: 'More than one main admin is on the shared PIN.', hint: 'Run the recovery script for one main admin at a time. Nothing was changed.' }));
-    case 'not-configured':
-      return noStore(apiFailure(ADMIN_AUTH_NOT_CONFIGURED));
     case 'unavailable':
       return noStore(apiFailure({ ...ADMIN_AUTH_UNAVAILABLE, message: 'Could not check the PIN. Try again.' }));
     case 'signed-in': {
-      // The generated PIN travels in this answer only: shown once, stored nowhere.
-      const response = noStore(apiSuccess({ admin: signedInView(outcome.admin), ...(outcome.newPin ? { newPin: outcome.newPin } : {}) }));
+      const response = noStore(apiSuccess({ admin: signedInView(outcome.admin) }));
       try {
         setAdminSessionCookie(response, createAdminToken(key, outcome.admin.id, outcome.admin.sessionEpoch));
       } catch {

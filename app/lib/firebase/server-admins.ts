@@ -1,6 +1,7 @@
 /**
  * Server-side reads and writes of admin accounts (dispatch 38; sign-in by PIN
- * alone since Kian's rulings of 2026-10-13, evening).
+ * alone since Kian's rulings of 2026-10-13, evening; PINs set by the main
+ * admin and stored readably since his rulings of that night).
  *
  * `admins`, `admin_names`, `admin_pins`, `admin_signin_locks` and
  * `admin_actions` are reached only through the Admin SDK, from the routes
@@ -11,44 +12,46 @@
  * ── An admin's document ──
  *   name, nameKey      the name as shown, and the key it is kept unique by
  *   level              'main' | 'admin'
- *   pin                { state: 'set', scheme: 'lookup-v1', lookup } — the
- *                      lookup key of a PIN Nubnb generated (pin.ts) — or
- *                      { state: 'shared' }: a main admin the recovery script
- *                      put back on ADMIN_PIN. Dispatch 38's first version
- *                      wrote { state: 'own' | 'temporary', salted hash };
- *                      those are read, never written. Never leaves the server.
- *   sessionEpoch       carried by every session token; moved by every new
- *                      PIN, which ends every other session
+ *   pin                { state: 'readable', value } — the PIN as set, stored
+ *                      readably (Kian's ruling) — or { state: 'shared' }: a
+ *                      main admin the recovery script put back on ADMIN_PIN.
+ *                      Earlier versions wrote { state: 'own' | 'temporary',
+ *                      salted hash } and { state: 'set', lookup }; those are
+ *                      read, never written, and sign in no more. The value
+ *                      leaves the server only for a main admin's Admins page.
+ *   sessionEpoch       carried by every session token; moved by every PIN
+ *                      change, which ends every other session
  *   lastSignedInAt, createdAt, createdBy, history
  *   (failedTries, lockedUntil: the first version's per-admin lock, left as
  *   they are on its documents and read by nothing)
  *
  * `admin_names/{nameKey}` → `{ adminId }` keeps names unique. `admin_pins/
- * {lookup}` → `{ adminId }` finds an admin by PIN and keeps PINs unique.
+ * {PIN}` → `{ adminId }` finds an admin by PIN and keeps PINs unique, the way
+ * `cleaner_codes/{code}` works; the evening's entries under a lookup key (64
+ * hex characters) are only ever deleted, with their admin's PIN.
  * `admin_signin_locks/{keyed hash of the connection}` → `{ failedTries,
  * lockedUntil, lastFailedAt }`: five wrong PINs from one connection lock
- * sign-in from it for fifteen minutes (model.ts, afterTry). The address
- * itself is never stored.
+ * sign-in from it for fifteen minutes (model.ts, afterTry). Each change of
+ * one's own PIN counts there too, as a try: a PIN refused because another
+ * admin holds it tells the chooser that admin's PIN, so choosing is no faster
+ * than guessing at the door. The address itself is never stored.
  *
  * ── The shared PIN ──
  * ADMIN_PIN signs in only a main admin on `{ state: 'shared' }`, and only
- * when exactly one is; that sign-in gives them a generated PIN in the same
- * transaction, shown once. When no admin exists at all, it makes the first
- * main admin, Kian, the same way. Otherwise it is a wrong PIN like any other.
+ * when exactly one is; the gate then has them set their PIN before anything
+ * else. When no admin exists at all, it makes the first main admin, Kian, on
+ * the shared PIN, the same way. Otherwise it is a wrong PIN like any other.
  *
  * ── Writes ──
  * Every change is a transaction that reads first and writes after; history
- * is appended by reading the array, never with arrayUnion. A PIN's lookup
- * needs a scrypt, so a new PIN is drawn and hashed before its transaction,
- * and drawn again in the rare case that another admin holds it.
+ * is appended by reading the array, never with arrayUnion.
  *
- * Failure contract: signIn, renewOwnPin and readSessionAdmin never throw — a
+ * Failure contract: signIn, changeOwnPin and readSessionAdmin never throw — a
  * failed read is `unavailable`, and access is never granted on an error.
  * Everything else throws when Firestore fails, and the route says the change
  * may or may not have been saved. Errors are logged as a gRPC code only.
  */
 
-import { timingSafeEqual } from 'crypto';
 import type { DocumentReference, Firestore, Transaction } from 'firebase-admin/firestore';
 import { getAdminDb } from './admin';
 import { isDocumentId } from './server-leads';
@@ -78,7 +81,7 @@ import {
   type PinState,
   type SignInLockView,
 } from '@/app/lib/admins/model';
-import { PIN_LOOKUP_SCHEME, drawPin, pinLookup, pinMatches, sharedPinLength, sharedPinMatches } from '@/app/lib/admins/pin';
+import { pinLookup, pinMatches, samePin, sharedPinLength, sharedPinMatches } from '@/app/lib/admins/pin';
 import { getAdminPinKey } from '@/app/lib/admins/secrets';
 import type { Actor, ActorView } from '@/app/lib/cleaners/model';
 
@@ -93,9 +96,6 @@ export interface SignedInAdmin {
 
 /** The largest epoch a session token can carry (nine digits). */
 const MAX_TOKEN_EPOCH = 999_999_999;
-
-/** Draws of a new PIN before giving up: each collision with a held PIN is one in about a million per admin. */
-const MAX_DRAWS = 5;
 
 /** Who made the first main admin: no admin, the first sign-in with the shared PIN. */
 const FIRST_SIGN_IN: Actor = { role: 'system', id: null, name: 'first sign-in' };
@@ -123,14 +123,25 @@ function pinStateOf(pin: unknown): PinState | null {
   return isPinState(state) ? state : null;
 }
 
-/** The lookup key a 'set' PIN is kept under, or null. */
+/** The PIN of a `readable` state, or null. */
+function readableOf(pin: unknown): string | null {
+  if (pinStateOf(pin) !== 'readable') return null;
+  const value = (pin as Record<string, unknown>).value;
+  return typeof value === 'string' && PIN_PATTERN.test(value) ? value : null;
+}
+
+/** The lookup key of an evening `set` PIN, or null. */
 function lookupOf(pin: unknown): string | null {
   if (pinStateOf(pin) !== 'set') return null;
   const lookup = (pin as Record<string, unknown>).lookup;
   return typeof lookup === 'string' && LOCK_ID.test(lookup) ? lookup : null;
 }
 
-const sameKey = (a: string, b: string): boolean => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
+/** The ID of the `admin_pins` document a stored PIN is kept under: the PIN, or the evening's lookup key. */
+const indexIdOf = (pin: unknown): string | null => readableOf(pin) ?? lookupOf(pin);
+
+/** The `pin` field of a PIN set now. */
+const readablePin = (value: string) => ({ state: 'readable', value });
 
 function lockStateOf(data: Record<string, unknown> | undefined): LockState {
   const tries = data?.failedTries;
@@ -144,13 +155,18 @@ function historyOf(data: Record<string, unknown>): AdminHistoryEvent[] {
   return Array.isArray(data.history) ? (data.history as AdminHistoryEvent[]) : [];
 }
 
-/** A row of the Admins page, from a stored document: never a PIN, its lookup key or hash, nor the epoch. */
+/**
+ * A row of the Admins page, from a stored document, for main admins only: the
+ * PIN when it is readable (Kian's ruling: main admins see every admin's PIN);
+ * never a hash, a lookup key or the epoch.
+ */
 export function readAdminSummary(id: string, data: Record<string, unknown>): AdminSummary {
   return {
     id,
     name: text(data.name),
     level: text(data.level),
     pin: pinStateOf(data.pin) ?? (data.pin === undefined ? null : 'unreadable'),
+    pinValue: readableOf(data.pin),
     lastSignedInAt: text(data.lastSignedInAt),
     createdAt: text(data.createdAt),
     createdBy: actorView(data.createdBy),
@@ -168,22 +184,13 @@ function signedIn(id: string, data: Record<string, unknown>, epoch: number): Sig
   return { id, name: data.name, level, pin, sessionEpoch: epoch };
 }
 
-/** A new PIN and its lookup key, worked out before a transaction (the scrypt is slow). */
-async function draw(pinKey: Buffer): Promise<{ pin: string; lookup: string }> {
-  const pin = drawPin();
-  return { pin, lookup: await pinLookup(pinKey, pin) };
-}
-
-/** The `pin` field of a generated PIN. */
-const setPin = (lookup: string) => ({ state: 'set', scheme: PIN_LOOKUP_SCHEME, lookup });
-
 // ─── The session check ─────────────────────────────────────────
 
 export type SessionAdminRead = { kind: 'valid'; admin: SignedInAdmin } | { kind: 'invalid' } | { kind: 'unavailable' };
 
 /**
  * The admin a session token names, if they still exist on the token's epoch.
- * One read, of four fields; never the PIN's lookup key or hash.
+ * One read, of four fields; never the PIN.
  */
 export async function readSessionAdmin(adminId: string, sessionEpoch: number): Promise<SessionAdminRead> {
   if (!isDocumentId(adminId)) return { kind: 'invalid' };
@@ -206,15 +213,24 @@ export async function readSessionAdmin(adminId: string, sessionEpoch: number): P
 
 // ─── The connection lock ───────────────────────────────────────
 
-/** A wrong PIN, counted against its connection inside the transaction; the answer to give. */
-function countWrong(tx: Transaction, lockRef: DocumentReference, lock: LockState, nowMs: number): { kind: 'wrong'; triesLeft: number } | { kind: 'locked'; lockedUntil: string; now: boolean } {
+/**
+ * One more try counted against a connection inside the transaction: a wrong PIN, or a change of one's own PIN.
+ * `lockedUntil` when this try was the fifth.
+ */
+function countTry(tx: Transaction, lockRef: DocumentReference, lock: LockState, nowMs: number): { triesLeft: number; lockedUntil: string | null } {
   const outcome = afterTry(lock, false, nowMs);
   tx.set(lockRef, { ...outcome.next, lastFailedAt: new Date(nowMs).toISOString() });
   if (outcome.kind === 'locked-now') {
-    console.log(`[admins] sign-in locked after ${MAX_WRONG_TRIES} wrong PINs from one connection, until ${outcome.lockedUntil}`);
-    return { kind: 'locked', lockedUntil: outcome.lockedUntil, now: true };
+    console.log(`[admins] sign-in locked after ${MAX_WRONG_TRIES} tries from one connection, until ${outcome.lockedUntil}`);
+    return { triesLeft: 0, lockedUntil: outcome.lockedUntil };
   }
-  return { kind: 'wrong', triesLeft: outcome.kind === 'wrong' ? outcome.triesLeft : 0 };
+  return { triesLeft: outcome.kind === 'wrong' ? outcome.triesLeft : 0, lockedUntil: null };
+}
+
+/** A wrong PIN, counted; the answer to give. */
+function countWrong(tx: Transaction, lockRef: DocumentReference, lock: LockState, nowMs: number): { kind: 'wrong'; triesLeft: number } | { kind: 'locked'; lockedUntil: string; now: boolean } {
+  const counted = countTry(tx, lockRef, lock, nowMs);
+  return counted.lockedUntil ? { kind: 'locked', lockedUntil: counted.lockedUntil, now: true } : { kind: 'wrong', triesLeft: counted.triesLeft };
 }
 
 /** Locks holding now, newest first. THROWS when the read fails. */
@@ -241,33 +257,29 @@ export async function liftSignInLock(lockId: string): Promise<{ kind: 'lifted' }
 // ─── Sign-in ───────────────────────────────────────────────────
 
 export type SignInResult =
-  /** `newPin`: generated now, by a sign-in with the shared PIN; shown once, stored nowhere. */
-  | { kind: 'signed-in'; admin: SignedInAdmin; newPin: string | null }
+  | { kind: 'signed-in'; admin: SignedInAdmin }
   /** No admin holds that PIN; `triesLeft` before this connection's lock. */
   | { kind: 'wrong'; triesLeft: number }
   /** Sign-in from this connection is locked until `lockedUntil`; `now` when this PIN was the fifth. */
   | { kind: 'locked'; lockedUntil: string; now: boolean }
   /** The shared PIN, with more than one main admin on it: it cannot say which. */
   | { kind: 'shared-ambiguous' }
-  | { kind: 'not-configured' }
   | { kind: 'unavailable' };
 
 /**
  * Sign in by PIN alone (Kian's ruling: the PIN identifies the admin). A
- * locked connection is refused before any hash is worked out. Otherwise the
- * PIN's lookup key finds its admin in one read; a PIN no admin holds counts
- * against the connection, and the fifth in a row locks it for fifteen
- * minutes. The shared PIN signs in the one main admin on it, or makes the
- * first main admin of an empty database, and gives them a generated PIN.
+ * locked connection is refused before anything else is read. Otherwise the
+ * PIN's own `admin_pins` document finds its admin, whose stored PIN is
+ * checked; a PIN no admin holds counts against the connection, and the fifth
+ * in a row locks it for fifteen minutes. The shared PIN signs in the one main
+ * admin on it, or makes the first main admin of an empty database; either
+ * then sets their PIN.
  *
- * The answer's timing never says whether a PIN was the shared one: every
- * PIN of the shared PIN's length that no admin holds reads the main admins
- * the same way, and a new PIN is drawn (a scrypt) only once a sign-in by the
- * shared PIN is certain, in a second pass of the transaction.
+ * The answer's timing never says whether a PIN was the shared one: every PIN
+ * of the shared PIN's length that no admin holds reads the main admins the
+ * same way. No PIN is hashed.
  */
 export async function signIn(pin: string, connection: string, nowMs: number = Date.now()): Promise<SignInResult> {
-  const pinKey = getAdminPinKey();
-  if (!pinKey) return { kind: 'not-configured' };
   const nowIso = new Date(nowMs).toISOString();
   try {
     const db = getAdminDb();
@@ -276,111 +288,84 @@ export async function signIn(pin: string, connection: string, nowMs: number = Da
     const holding = before.exists ? lockHolding(lockStateOf(before.data()), nowMs) : null;
     if (holding) return { kind: 'locked', lockedUntil: holding, now: false };
 
-    const lookup = PIN_PATTERN.test(pin) ? await pinLookup(pinKey, pin) : null;
     const shared = sharedPinMatches(pin) === true;
     const sharedShape = pin.length === sharedPinLength();
-    let fresh: { pin: string; lookup: string } | null = null;
+    const outcome = await db.runTransaction(async (tx) => {
+      // ── Reads ──
+      const lockSnap = await tx.get(lockRef);
+      const lock = lockStateOf(lockSnap.data());
+      const locked = lockHolding(lock, nowMs);
+      if (locked) return { kind: 'locked' as const, lockedUntil: locked, now: false };
 
-    // One pass more than the draws: the first sign-in by the shared PIN learns it needs one.
-    for (let attempt = 0; attempt <= MAX_DRAWS; attempt++) {
-      const drawn = fresh;
-      const outcome = await db.runTransaction(async (tx) => {
-        // ── Reads ──
-        const lockSnap = await tx.get(lockRef);
-        const lock = lockStateOf(lockSnap.data());
-        const locked = lockHolding(lock, nowMs);
-        if (locked) return { kind: 'locked' as const, lockedUntil: locked, now: false };
-
-        let via: 'pin' | 'shared' | 'first' | null = null;
-        let adminRef: DocumentReference | null = null;
-        let adminData: Record<string, unknown> = {};
-        if (lookup) {
-          const index = await tx.get(db.collection(ADMIN_PINS_COLLECTION).doc(lookup));
-          const id = index.exists ? text(index.get('adminId')) : null;
-          if (id && isDocumentId(id)) {
-            const snap = await tx.get(db.collection(ADMINS_COLLECTION).doc(id));
-            const held = snap.exists ? lookupOf(snap.get('pin')) : null;
-            if (held && sameKey(held, lookup)) {
-              via = 'pin';
-              adminRef = snap.ref;
-              adminData = snap.data() ?? {};
-            }
+      let via: 'pin' | 'shared' | 'first' | null = null;
+      let adminRef: DocumentReference | null = null;
+      let adminData: Record<string, unknown> = {};
+      if (PIN_PATTERN.test(pin)) {
+        const index = await tx.get(db.collection(ADMIN_PINS_COLLECTION).doc(pin));
+        const id = index.exists ? text(index.get('adminId')) : null;
+        if (id && isDocumentId(id)) {
+          const snap = await tx.get(db.collection(ADMINS_COLLECTION).doc(id));
+          const held = snap.exists ? readableOf(snap.get('pin')) : null;
+          if (held && samePin(held, pin)) {
+            via = 'pin';
+            adminRef = snap.ref;
+            adminData = snap.data() ?? {};
           }
         }
-        const firstNameRef = db.collection(ADMIN_NAMES_COLLECTION).doc(nameKeyOf(FIRST_MAIN_ADMIN_NAME));
-        if (!via && sharedShape) {
-          // The same reads for every PIN of this length, the shared PIN or not: the main admins' PIN states, and, only
-          // when there is no main admin, whether there is any admin at all.
-          const mains = await tx.get(db.collection(ADMINS_COLLECTION).where('level', '==', 'main').select('pin.state'));
-          const onShared = mains.docs.filter((doc) => doc.get('pin.state') === 'shared');
-          const empty = mains.empty && (await tx.get(db.collection(ADMINS_COLLECTION).limit(1))).empty;
-          const firstFree = empty && !(await tx.get(firstNameRef)).exists;
-          if (shared && onShared.length > 1) return { kind: 'shared-ambiguous' as const };
-          if (shared && onShared.length === 1) {
-            const snap = await tx.get(onShared[0].ref);
-            if (snap.exists && snap.get('level') === 'main' && pinStateOf(snap.get('pin')) === 'shared') {
-              via = 'shared';
-              adminRef = snap.ref;
-              adminData = snap.data() ?? {};
-            }
-          } else if (shared && firstFree) {
-            via = 'first';
-          }
-        }
-        if (via === 'shared' || via === 'first') {
-          // Only now is a new PIN worth its scrypt: drawn outside, then this pass again.
-          if (!drawn) return { kind: 'draw' as const };
-          if ((await tx.get(db.collection(ADMIN_PINS_COLLECTION).doc(drawn.lookup))).exists) return { kind: 'draw' as const };
-        }
-
-        // ── Writes ──
-        if (!via) return countWrong(tx, lockRef, lock, nowMs);
-        if (lockSnap.exists) tx.delete(lockRef);
-        if (via === 'pin' && adminRef) {
-          tx.update(adminRef, { lastSignedInAt: nowIso });
-          return { kind: 'in' as const, id: adminRef.id, data: adminData, epoch: epochOf(adminData), newPin: null };
-        }
-        if (via === 'shared' && adminRef && drawn) {
-          const epoch = Math.min(epochOf(adminData) + 1, MAX_TOKEN_EPOCH);
-          const event: AdminHistoryEvent = { at: nowIso, action: 'pin_generated', actor: { role: 'admin', id: adminRef.id, name: text(adminData.name) }, from: 'shared' };
-          const update = { pin: setPin(drawn.lookup), pinSetAt: nowIso, sessionEpoch: epoch, lastSignedInAt: nowIso, history: [...historyOf(adminData), event] };
-          tx.update(adminRef, update);
-          tx.create(db.collection(ADMIN_PINS_COLLECTION).doc(drawn.lookup), { adminId: adminRef.id, createdAt: nowIso });
-          console.log(`[admins] ${adminRef.id} signed in with the shared PIN and was given a generated PIN`);
-          return { kind: 'in' as const, id: adminRef.id, data: { ...adminData, ...update }, epoch, newPin: drawn.pin };
-        }
-        if (via !== 'first' || !drawn) return { kind: 'unavailable' as const };
-        // The first main admin of an empty database.
-        const ref = db.collection(ADMINS_COLLECTION).doc();
-        const name = FIRST_MAIN_ADMIN_NAME;
-        const stored = {
-          schemaVersion: ADMIN_SCHEMA_VERSION,
-          name,
-          nameKey: nameKeyOf(name),
-          level: 'main',
-          pin: setPin(drawn.lookup),
-          pinSetAt: nowIso,
-          sessionEpoch: 1,
-          lastSignedInAt: nowIso,
-          createdAt: nowIso,
-          createdBy: FIRST_SIGN_IN,
-          history: [{ at: nowIso, action: 'created', actor: FIRST_SIGN_IN, to: 'main' } satisfies AdminHistoryEvent],
-        };
-        tx.create(ref, stored);
-        tx.create(firstNameRef, { adminId: ref.id, name, createdAt: nowIso });
-        tx.create(db.collection(ADMIN_PINS_COLLECTION).doc(drawn.lookup), { adminId: ref.id, createdAt: nowIso });
-        console.log(`[admins] first main admin created: ${ref.id}`);
-        return { kind: 'in' as const, id: ref.id, data: stored as Record<string, unknown>, epoch: 1, newPin: drawn.pin };
-      });
-      if (outcome.kind === 'draw') {
-        fresh = await draw(pinKey);
-        continue;
       }
-      if (outcome.kind !== 'in') return outcome;
-      const admin = signedIn(outcome.id, outcome.data, outcome.epoch);
-      return admin ? { kind: 'signed-in', admin, newPin: outcome.newPin } : { kind: 'unavailable' };
-    }
-    return { kind: 'unavailable' };
+      const firstNameRef = db.collection(ADMIN_NAMES_COLLECTION).doc(nameKeyOf(FIRST_MAIN_ADMIN_NAME));
+      if (!via && sharedShape) {
+        // The same reads for every PIN of this length, the shared PIN or not: the main admins' PIN states, and, only
+        // when there is no main admin, whether there is any admin at all.
+        const mains = await tx.get(db.collection(ADMINS_COLLECTION).where('level', '==', 'main').select('pin.state'));
+        const onShared = mains.docs.filter((doc) => doc.get('pin.state') === 'shared');
+        const empty = mains.empty && (await tx.get(db.collection(ADMINS_COLLECTION).limit(1))).empty;
+        const firstFree = empty && !(await tx.get(firstNameRef)).exists;
+        if (shared && onShared.length > 1) return { kind: 'shared-ambiguous' as const };
+        if (shared && onShared.length === 1) {
+          const snap = await tx.get(onShared[0].ref);
+          if (snap.exists && snap.get('level') === 'main' && pinStateOf(snap.get('pin')) === 'shared') {
+            via = 'shared';
+            adminRef = snap.ref;
+            adminData = snap.data() ?? {};
+          }
+        } else if (shared && firstFree) {
+          via = 'first';
+        }
+      }
+
+      // ── Writes ──
+      if (!via) return countWrong(tx, lockRef, lock, nowMs);
+      if (lockSnap.exists) tx.delete(lockRef);
+      if ((via === 'pin' || via === 'shared') && adminRef) {
+        tx.update(adminRef, { lastSignedInAt: nowIso });
+        if (via === 'shared') console.log(`[admins] ${adminRef.id} signed in with the shared PIN`);
+        return { kind: 'in' as const, id: adminRef.id, data: adminData, epoch: epochOf(adminData) };
+      }
+      // The first main admin of an empty database, on the shared PIN until they set theirs.
+      const ref = db.collection(ADMINS_COLLECTION).doc();
+      const name = FIRST_MAIN_ADMIN_NAME;
+      const stored = {
+        schemaVersion: ADMIN_SCHEMA_VERSION,
+        name,
+        nameKey: nameKeyOf(name),
+        level: 'main',
+        pin: { state: 'shared' },
+        pinSetAt: nowIso,
+        sessionEpoch: 1,
+        lastSignedInAt: nowIso,
+        createdAt: nowIso,
+        createdBy: FIRST_SIGN_IN,
+        history: [{ at: nowIso, action: 'created', actor: FIRST_SIGN_IN, to: 'main' } satisfies AdminHistoryEvent],
+      };
+      tx.create(ref, stored);
+      tx.create(firstNameRef, { adminId: ref.id, name, createdAt: nowIso });
+      console.log(`[admins] first main admin created: ${ref.id}`);
+      return { kind: 'in' as const, id: ref.id, data: stored as Record<string, unknown>, epoch: 1 };
+    });
+    if (outcome.kind !== 'in') return outcome;
+    const admin = signedIn(outcome.id, outcome.data, outcome.epoch);
+    return admin ? { kind: 'signed-in', admin } : { kind: 'unavailable' };
   } catch (err) {
     console.error(`[admins] sign-in failed: grpc code ${grpcCode(err)}`);
     return { kind: 'unavailable' };
@@ -389,24 +374,47 @@ export async function signIn(pin: string, connection: string, nowMs: number = Da
 
 // ─── An admin's own PIN and name ───────────────────────────────
 
-export type RenewPinResult =
-  | { kind: 'renewed'; admin: SignedInAdmin; newPin: string }
+export type ChangePinResult =
+  | { kind: 'changed'; admin: SignedInAdmin; lockedUntil: string | null }
   /** The current PIN typed was wrong: it counts against the connection like a sign-in. */
   | { kind: 'wrong'; triesLeft: number }
+  /** Another admin holds the new PIN. Counted against the connection like every change. */
+  | { kind: 'taken'; triesLeft: number }
+  /** The new PIN is the one already set. Nothing changed, nothing counted. */
+  | { kind: 'same' }
   | { kind: 'locked'; lockedUntil: string; now: boolean }
   /** The session's admin is gone or on another epoch. */
   | { kind: 'session-ended' }
   | { kind: 'not-configured' }
   | { kind: 'unavailable' };
 
+/** Whether `typed` is the PIN an admin's document holds, whatever its state. */
+async function isCurrentPin(pinKey: Buffer, stored: unknown, typed: string): Promise<boolean> {
+  const state = pinStateOf(stored);
+  if (state === 'readable') {
+    const held = readableOf(stored);
+    return held !== null && samePin(held, typed);
+  }
+  if (state === 'shared') return sharedPinMatches(typed) === true;
+  if (state === 'set') {
+    const held = lookupOf(stored);
+    return held !== null && PIN_PATTERN.test(typed) && samePin(await pinLookup(pinKey, typed), held);
+  }
+  if (state === 'own' || state === 'temporary') return PIN_PATTERN.test(typed) && (await pinMatches(pinKey, stored, typed));
+  return false;
+}
+
 /**
- * New PIN, from an admin's own menu: their current PIN, checked against their
- * own document — a generated PIN by its lookup key, the shared PIN, or a PIN
- * of dispatch 38's first version by its salted hash — then a generated one,
- * shown once. Every other session they hold ends; the caller gives this
- * browser a new token on the new epoch.
+ * Change PIN, from an admin's own menu or the gate's Set your PIN: the
+ * current PIN, checked against their own document whatever its state, then
+ * the new one, stored readably (Kian's ruling). A wrong current PIN counts
+ * against the connection like a sign-in. So does every change: a PIN refused
+ * because another admin holds it tells the chooser that admin's PIN, and
+ * counting keeps choosing no faster than guessing at the door. Every other
+ * session the admin holds ends; the caller gives this browser a new token on
+ * the new epoch. The new PIN's shape is the route's to check.
  */
-export async function renewOwnPin(admin: SignedInAdmin, currentPin: string, connection: string, nowMs: number = Date.now()): Promise<RenewPinResult> {
+export async function changeOwnPin(admin: SignedInAdmin, currentPin: string, newPin: string, connection: string, nowMs: number = Date.now()): Promise<ChangePinResult> {
   const pinKey = getAdminPinKey();
   if (!pinKey) return { kind: 'not-configured' };
   const nowIso = new Date(nowMs).toISOString();
@@ -420,49 +428,39 @@ export async function renewOwnPin(admin: SignedInAdmin, currentPin: string, conn
 
     const snap = await ref.get();
     if (!snap.exists || snap.get('sessionEpoch') !== admin.sessionEpoch) return { kind: 'session-ended' };
-    const data = snap.data() ?? {};
-    const state = pinStateOf(data.pin);
-    const held = lookupOf(data.pin);
-    let right = false;
-    if (state === 'set' && held) right = PIN_PATTERN.test(currentPin) && sameKey(await pinLookup(pinKey, currentPin), held);
-    else if (state === 'shared') right = sharedPinMatches(currentPin) === true;
-    else if (state === 'own' || state === 'temporary') right = PIN_PATTERN.test(currentPin) && (await pinMatches(pinKey, data.pin, currentPin));
+    const stored = snap.get('pin');
+    const right = await isCurrentPin(pinKey, stored, currentPin);
+    const held = readableOf(stored);
+    if (right && held !== null && samePin(held, newPin)) return { kind: 'same' };
 
-    let fresh = await draw(pinKey);
-    for (let attempt = 0; attempt < MAX_DRAWS; attempt++) {
-      const drawn = fresh;
-      const outcome = await db.runTransaction(async (tx) => {
-        const lockSnap = await tx.get(lockRef);
-        const lock = lockStateOf(lockSnap.data());
-        const locked = lockHolding(lock, nowMs);
-        if (locked) return { kind: 'locked' as const, lockedUntil: locked, now: false };
-        const current = await tx.get(ref);
-        // Every PIN change moves the epoch: the same epoch means the PIN checked is still the one stored.
-        if (!current.exists || current.get('sessionEpoch') !== admin.sessionEpoch) return { kind: 'session-ended' as const };
-        const taken = await tx.get(db.collection(ADMIN_PINS_COLLECTION).doc(drawn.lookup));
-        const oldRef = held ? db.collection(ADMIN_PINS_COLLECTION).doc(held) : null;
-        const oldIndex = oldRef ? await tx.get(oldRef) : null;
-        if (!right) return countWrong(tx, lockRef, lock, nowMs);
-        if (taken.exists) return { kind: 'redraw' as const };
-        const fresher = current.data() ?? {};
-        const epoch = Math.min(admin.sessionEpoch + 1, MAX_TOKEN_EPOCH);
-        const event: AdminHistoryEvent = { at: nowIso, action: 'pin_generated', actor: { role: 'admin', id: admin.id, name: admin.name }, from: state ?? '' };
-        tx.update(ref, { pin: setPin(drawn.lookup), pinSetAt: nowIso, sessionEpoch: epoch, history: [...historyOf(fresher), event] });
-        tx.create(db.collection(ADMIN_PINS_COLLECTION).doc(drawn.lookup), { adminId: admin.id, createdAt: nowIso });
-        if (oldRef && oldIndex?.exists && oldIndex.get('adminId') === admin.id) tx.delete(oldRef);
-        if (lockSnap.exists) tx.delete(lockRef);
-        return { kind: 'renewed' as const, epoch };
-      });
-      if (outcome.kind === 'redraw') {
-        fresh = await draw(pinKey);
-        continue;
-      }
-      if (outcome.kind !== 'renewed') return outcome;
-      return { kind: 'renewed', admin: { ...admin, pin: 'set', sessionEpoch: outcome.epoch }, newPin: drawn.pin };
-    }
-    return { kind: 'unavailable' };
+    const outcome = await db.runTransaction(async (tx) => {
+      const lockSnap = await tx.get(lockRef);
+      const lock = lockStateOf(lockSnap.data());
+      const locked = lockHolding(lock, nowMs);
+      if (locked) return { kind: 'locked' as const, lockedUntil: locked, now: false };
+      const current = await tx.get(ref);
+      // Every PIN change moves the epoch: the same epoch means the PIN checked is still the one stored.
+      if (!current.exists || current.get('sessionEpoch') !== admin.sessionEpoch) return { kind: 'session-ended' as const };
+      const newRef = db.collection(ADMIN_PINS_COLLECTION).doc(newPin);
+      const taken = await tx.get(newRef);
+      const oldId = indexIdOf(current.get('pin'));
+      const oldRef = oldId ? db.collection(ADMIN_PINS_COLLECTION).doc(oldId) : null;
+      const oldIndex = oldRef ? await tx.get(oldRef) : null;
+      if (!right) return countWrong(tx, lockRef, lock, nowMs);
+      const counted = countTry(tx, lockRef, lock, nowMs);
+      if (taken.exists) return counted.lockedUntil ? { kind: 'locked' as const, lockedUntil: counted.lockedUntil, now: true } : { kind: 'taken' as const, triesLeft: counted.triesLeft };
+      const data = current.data() ?? {};
+      const epoch = Math.min(admin.sessionEpoch + 1, MAX_TOKEN_EPOCH);
+      const event: AdminHistoryEvent = { at: nowIso, action: 'pin_changed', actor: { role: 'admin', id: admin.id, name: admin.name }, from: pinStateOf(data.pin) ?? '' };
+      tx.update(ref, { pin: readablePin(newPin), pinSetAt: nowIso, sessionEpoch: epoch, history: [...historyOf(data), event] });
+      tx.create(newRef, { adminId: admin.id, createdAt: nowIso });
+      if (oldRef && oldIndex?.exists && oldIndex.get('adminId') === admin.id) tx.delete(oldRef);
+      return { kind: 'changed' as const, epoch, lockedUntil: counted.lockedUntil };
+    });
+    if (outcome.kind !== 'changed') return outcome;
+    return { kind: 'changed', admin: { ...admin, pin: 'readable', sessionEpoch: outcome.epoch }, lockedUntil: outcome.lockedUntil };
   } catch (err) {
-    console.error(`[admins] new PIN failed: grpc code ${grpcCode(err)}`);
+    console.error(`[admins] PIN change failed: grpc code ${grpcCode(err)}`);
     return { kind: 'unavailable' };
   }
 }
@@ -508,64 +506,63 @@ export async function changeOwnName(admin: SignedInAdmin, typed: string): Promis
 
 // ─── The main admin's work ─────────────────────────────────────
 
-/** Every admin, oldest first. THROWS when the read fails; never an empty list for a failure. */
+/** Every admin, oldest first, with the PINs stored readably (for a main admin's page only). THROWS when the read fails; never an empty list for a failure. */
 export async function listAdmins(): Promise<AdminSummary[]> {
   const db = getAdminDb();
-  const snap = await db.collection(ADMINS_COLLECTION).select('name', 'level', 'pin.state', 'lastSignedInAt', 'createdAt', 'createdBy', 'history').get();
+  const snap = await db.collection(ADMINS_COLLECTION).select('name', 'level', 'pin.state', 'pin.value', 'lastSignedInAt', 'createdAt', 'createdBy', 'history').get();
   return snap.docs
     .map((doc) => readAdminSummary(doc.id, doc.data()))
     .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '') || a.id.localeCompare(b.id));
 }
 
-export type CreateAdminResult = { kind: 'created'; admin: AdminSummary; pin: string } | { kind: 'name-taken' };
+export type CreateAdminResult = { kind: 'created'; admin: AdminSummary } | { kind: 'name-taken' } | { kind: 'pin-taken' };
 
 /**
- * Add an admin, with a PIN Nubnb generates (Kian's ruling: never chosen),
- * returned to be shown once to the main admin and stored nowhere. The name
- * must be free, case and spacing aside. THROWS when Firestore fails.
+ * Add an admin with the name, level and PIN the main admin sets (Kian's
+ * rulings: the main admin sets each admin's PIN when adding them; PINs stay
+ * unique and are stored readably). The name must be free, case and spacing
+ * aside, and the PIN free. The PIN's shape is the route's to check. THROWS
+ * when Firestore fails.
  */
-export async function createAdmin(actor: Actor, input: { name: string; level: AdminLevel }, pinKey: Buffer): Promise<CreateAdminResult> {
+export async function createAdmin(actor: Actor, input: { name: string; level: AdminLevel; pin: string }): Promise<CreateAdminResult> {
   const name = cleanAdminName(input.name);
   const key = nameKeyOf(name);
   const db = getAdminDb();
   const nameRef = db.collection(ADMIN_NAMES_COLLECTION).doc(key);
-  for (let attempt = 0; attempt < MAX_DRAWS; attempt++) {
-    const drawn = await draw(pinKey);
-    const nowIso = new Date().toISOString();
-    const ref = db.collection(ADMINS_COLLECTION).doc();
-    const stored = {
-      schemaVersion: ADMIN_SCHEMA_VERSION,
-      name,
-      nameKey: key,
-      level: input.level,
-      pin: setPin(drawn.lookup),
-      pinSetAt: nowIso,
-      sessionEpoch: 1,
-      lastSignedInAt: null,
-      createdAt: nowIso,
-      createdBy: actor,
-      history: [{ at: nowIso, action: 'created', actor, to: input.level } satisfies AdminHistoryEvent],
-    };
-    const outcome = await db.runTransaction(async (tx) => {
-      const existing = await tx.get(nameRef);
-      const taken = await tx.get(db.collection(ADMIN_PINS_COLLECTION).doc(drawn.lookup));
-      if (existing.exists) return 'name-taken' as const;
-      if (taken.exists) return 'redraw' as const;
-      tx.create(ref, stored);
-      tx.create(nameRef, { adminId: ref.id, name, createdAt: nowIso });
-      tx.create(db.collection(ADMIN_PINS_COLLECTION).doc(drawn.lookup), { adminId: ref.id, createdAt: nowIso });
-      return 'created' as const;
-    });
-    if (outcome === 'name-taken') return { kind: 'name-taken' };
-    if (outcome === 'created') return { kind: 'created', admin: readAdminSummary(ref.id, stored), pin: drawn.pin };
-  }
-  throw Object.assign(new Error('no free PIN drawn'), { code: 'NO_FREE_PIN' });
+  const pinRef = db.collection(ADMIN_PINS_COLLECTION).doc(input.pin);
+  const nowIso = new Date().toISOString();
+  const ref = db.collection(ADMINS_COLLECTION).doc();
+  const stored = {
+    schemaVersion: ADMIN_SCHEMA_VERSION,
+    name,
+    nameKey: key,
+    level: input.level,
+    pin: readablePin(input.pin),
+    pinSetAt: nowIso,
+    sessionEpoch: 1,
+    lastSignedInAt: null,
+    createdAt: nowIso,
+    createdBy: actor,
+    history: [{ at: nowIso, action: 'created', actor, to: input.level } satisfies AdminHistoryEvent],
+  };
+  const outcome = await db.runTransaction(async (tx) => {
+    const existing = await tx.get(nameRef);
+    const taken = await tx.get(pinRef);
+    if (existing.exists) return 'name-taken' as const;
+    if (taken.exists) return 'pin-taken' as const;
+    tx.create(ref, stored);
+    tx.create(nameRef, { adminId: ref.id, name, createdAt: nowIso });
+    tx.create(pinRef, { adminId: ref.id, createdAt: nowIso });
+    return 'created' as const;
+  });
+  if (outcome !== 'created') return { kind: outcome };
+  return { kind: 'created', admin: readAdminSummary(ref.id, stored) };
 }
 
 export type AdminChangeResult =
   | { kind: 'done'; admin: AdminSummary; changed: boolean }
   | { kind: 'not-found' }
-  /** A new PIN for oneself: that is New PIN, from one's name in the header. */
+  /** A PIN for oneself: that is Change PIN, from one's name in the header. */
   | { kind: 'yourself' }
   /** Another main admin's account: only they can be removed, demoted or given a new PIN, by themselves. */
   | { kind: 'main-admin' }
@@ -604,45 +601,42 @@ export async function setAdminLevel(actor: Actor, adminId: string, level: AdminL
   });
 }
 
-export type ResetPinResult = { kind: 'done'; admin: AdminSummary; pin: string } | { kind: 'not-found' } | { kind: 'yourself' } | { kind: 'main-admin' };
+export type SetPinResult = { kind: 'done'; admin: AdminSummary; changed: boolean } | { kind: 'not-found' } | { kind: 'yourself' } | { kind: 'main-admin' } | { kind: 'pin-taken' };
 
 /**
- * New PIN for an ordinary admin, from the main admin's Admins page: a
- * generated one, returned to be shown once. Their sessions end. Never a main
- * admin's (Kian's ruling of 2026-10-13: theirs alone), and never one's own.
- * THROWS when Firestore fails.
+ * Set an ordinary admin's PIN, from the main admin's Admins page (Kian's
+ * ruling: the main admin can change any ordinary admin's PIN). Their sessions
+ * end. Never a main admin's (Kian's ruling of 2026-10-13: theirs alone), and
+ * never one's own (Change PIN in one's menu). The PIN's shape is the route's
+ * to check. THROWS when Firestore fails.
  */
-export async function resetAdminPin(actor: Actor, adminId: string, pinKey: Buffer): Promise<ResetPinResult> {
+export async function setAdminPin(actor: Actor, adminId: string, pin: string): Promise<SetPinResult> {
   if (adminId === actor.id) return { kind: 'yourself' };
   if (!isDocumentId(adminId)) return { kind: 'not-found' };
   const db = getAdminDb();
   const ref = db.collection(ADMINS_COLLECTION).doc(adminId);
-  for (let attempt = 0; attempt < MAX_DRAWS; attempt++) {
-    const drawn = await draw(pinKey);
-    const nowIso = new Date().toISOString();
-    const outcome = await db.runTransaction(async (tx) => {
-      const snap = await tx.get(ref);
-      if (!snap.exists) return { kind: 'not-found' as const };
-      const data = snap.data() ?? {};
-      const taken = await tx.get(db.collection(ADMIN_PINS_COLLECTION).doc(drawn.lookup));
-      const held = lookupOf(data.pin);
-      const oldRef = held ? db.collection(ADMIN_PINS_COLLECTION).doc(held) : null;
-      const oldIndex = oldRef ? await tx.get(oldRef) : null;
-      const verdict = accountVerdict('new-pin', { self: false, targetIsMain: data.level === 'main' }, 0);
-      if (verdict === 'main-admin') return { kind: 'main-admin' as const };
-      if (taken.exists) return { kind: 'redraw' as const };
-      const event: AdminHistoryEvent = { at: nowIso, action: 'pin_reset', actor };
-      const update = { pin: setPin(drawn.lookup), pinSetAt: nowIso, sessionEpoch: Math.min(epochOf(data) + 1, MAX_TOKEN_EPOCH), history: [...historyOf(data), event] };
-      tx.update(ref, update);
-      tx.create(db.collection(ADMIN_PINS_COLLECTION).doc(drawn.lookup), { adminId, createdAt: nowIso });
-      if (oldRef && oldIndex?.exists && oldIndex.get('adminId') === adminId) tx.delete(oldRef);
-      return { kind: 'done' as const, admin: readAdminSummary(adminId, { ...data, ...update }) };
-    });
-    if (outcome.kind === 'redraw') continue;
-    if (outcome.kind === 'done') return { ...outcome, pin: drawn.pin };
-    return outcome;
-  }
-  throw Object.assign(new Error('no free PIN drawn'), { code: 'NO_FREE_PIN' });
+  const newRef = db.collection(ADMIN_PINS_COLLECTION).doc(pin);
+  const nowIso = new Date().toISOString();
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return { kind: 'not-found' as const };
+    const data = snap.data() ?? {};
+    const taken = await tx.get(newRef);
+    const oldId = indexIdOf(data.pin);
+    const oldRef = oldId ? db.collection(ADMIN_PINS_COLLECTION).doc(oldId) : null;
+    const oldIndex = oldRef ? await tx.get(oldRef) : null;
+    const verdict = accountVerdict('set-pin', { self: false, targetIsMain: data.level === 'main' }, 0);
+    if (verdict === 'main-admin') return { kind: 'main-admin' as const };
+    const held = readableOf(data.pin);
+    if (held !== null && samePin(held, pin)) return { kind: 'done' as const, admin: readAdminSummary(adminId, data), changed: false };
+    if (taken.exists) return { kind: 'pin-taken' as const };
+    const event: AdminHistoryEvent = { at: nowIso, action: 'pin_set', actor };
+    const update = { pin: readablePin(pin), pinSetAt: nowIso, sessionEpoch: Math.min(epochOf(data) + 1, MAX_TOKEN_EPOCH), history: [...historyOf(data), event] };
+    tx.update(ref, update);
+    tx.create(newRef, { adminId, createdAt: nowIso });
+    if (oldRef && oldIndex?.exists && oldIndex.get('adminId') === adminId) tx.delete(oldRef);
+    return { kind: 'done' as const, admin: readAdminSummary(adminId, { ...data, ...update }), changed: true };
+  });
 }
 
 export type RemoveAdminResult = { kind: 'removed'; name: string | null } | { kind: 'not-found' } | { kind: 'main-admin' } | { kind: 'last-main-admin' };
@@ -669,8 +663,8 @@ export async function removeAdmin(actor: Actor, adminId: string): Promise<Remove
     const key = text(data.nameKey);
     const nameRef = key && isDocumentId(key) ? db.collection(ADMIN_NAMES_COLLECTION).doc(key) : null;
     const nameDoc = nameRef ? await tx.get(nameRef) : null;
-    const held = lookupOf(data.pin);
-    const pinRef = held ? db.collection(ADMIN_PINS_COLLECTION).doc(held) : null;
+    const indexId = indexIdOf(data.pin);
+    const pinRef = indexId ? db.collection(ADMIN_PINS_COLLECTION).doc(indexId) : null;
     const pinDoc = pinRef ? await tx.get(pinRef) : null;
     tx.delete(ref);
     if (nameRef && nameDoc?.exists && nameDoc.get('adminId') === adminId) tx.delete(nameRef);

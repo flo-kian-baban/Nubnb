@@ -1,9 +1,9 @@
-// Dispatch 38: admin accounts through Nubnb's own code — names, generated PINs and their lookup keys, the connection
-// and its lock, session tokens, the first version's PIN hashes, and which routes go through the admin door. Kian's
-// rulings of 2026-10-13 (evening): sign-in by PIN alone, every PIN unique and generated, five wrong PINs from one
-// connection lock it for fifteen minutes. Made-up keys, PINs and addresses only (TEST-NET and documentation ranges);
-// nothing is read from or written to Firestore. The shared PIN is drawn at random here and never printed, so no
-// output can show a real one.
+// Dispatch 38: admin accounts through Nubnb's own code — names, the PIN rules, the connection and its lock, session
+// tokens, PINs kept before they were readable, and which routes go through the admin door. Kian's rulings of
+// 2026-10-13: sign-in by PIN alone, every PIN unique, five wrong PINs from one connection lock it for fifteen minutes
+// (evening); the main admin sets PINs, stored readably, six digits (night). Made-up keys, PINs and addresses only
+// (TEST-NET and documentation ranges); nothing is read from or written to Firestore. The shared PIN is drawn at random
+// here and never printed, so no output can show a real one.
 //   node --import ./tests/tools/ts-hook.mjs tests/admins/accounts.mjs
 import { createHmac, randomBytes, randomInt, scrypt } from 'node:crypto';
 import fs from 'node:fs';
@@ -28,41 +28,17 @@ for (const name of ['Kian', '  kian  ', 'KIAN', 'Ana  Maria', 'Ana Maria', '', '
 }
 out(`  the first main admin: ${m.FIRST_MAIN_ADMIN_NAME}, key ${m.nameKeyOf(m.FIRST_MAIN_ADMIN_NAME)}`);
 
-// ─── 2. Generated PINs ───
-out('\n2. PINs: generated, six digits, never too easy, never the shared PIN; sign-in takes four (the shared PIN) or six');
+// ─── 2. PINs ───
+out('\n2. PINs: set by the main admin or the admin, six digits, never too easy; sign-in takes four (the shared PIN) or six');
 out(`  too easy: ${[...Array(10).keys()].map((d) => String(d).repeat(6)).filter(m.isTooEasyPin).length} of one digit; runs ${['012345', '123456', '234567', '345678', '456789', '987654', '876543', '765432', '654321', '543210'].filter(m.isTooEasyPin).length} of 10; 583920 ${m.isTooEasyPin('583920')}`);
-for (const p of ['583920', '0429', '04291', '12345', '1234567', '12a456', '']) out(`  ${JSON.stringify(p).padEnd(10)} PIN shape ${m.PIN_PATTERN.test(p)} · sign-in shape ${m.SIGN_IN_PIN_PATTERN.test(p)}`);
-let sharedSix;
-do sharedSix = String(randomInt(100_000, 1_000_000));
-while (m.isTooEasyPin(sharedSix));
-process.env.ADMIN_PIN = sharedSix;
-const fed = (numbers) => {
-  const seen = [];
-  const drawn = pin.drawPin(() => {
-    const n = numbers.shift();
-    seen.push(n === Number(sharedSix) ? '<the shared PIN>' : String(n).padStart(6, '0'));
-    return n;
-  });
-  return `${seen.join(' → ')} gives ${drawn}`;
-};
-out(`  fed 123456, the shared PIN, 0, 7: ${fed([123456, Number(sharedSix), 0, 7])}`);
-out(`  fed 999999, 42:                    ${fed([999999, 42])}`);
-const drawnMany = Array.from({ length: 100_000 }, () => pin.drawPin());
-out(
-  `  100,000 drawn: all six digits ${drawnMany.every((p) => m.PIN_PATTERN.test(p))} · any too easy ${drawnMany.some(m.isTooEasyPin)} · any the shared PIN ${drawnMany.includes(sharedSix)} · every first digit seen ${new Set(drawnMany.map((p) => p[0])).size === 10} · every last digit seen ${new Set(drawnMany.map((p) => p[5])).size === 10}`,
-);
-delete process.env.ADMIN_PIN;
+for (const p of ['583920', '000000', '123456', '987654', '0429', '04291', '12345', '1234567', '12a456', ' 583920', '']) {
+  out(`  ${JSON.stringify(p).padEnd(10)} problem ${JSON.stringify(m.pinProblem(p))} · PIN shape ${m.PIN_PATTERN.test(p)} · sign-in shape ${m.SIGN_IN_PIN_PATTERN.test(p)}`);
+}
+out(`  readable: ${m.isReadablePin('readable')}; the shared PIN ${m.isReadablePin('shared')}; the first version's ${m.isReadablePin('own')}, ${m.isReadablePin('temporary')}; the evening's ${m.isReadablePin('set')}`);
 
-// ─── 3. Lookup keys ───
-out('\n3. Lookup keys: the PIN finds its admin with one hash and one read; the PIN itself is stored nowhere');
-const pinKey = randomBytes(32);
-const k1 = await pin.pinLookup(pinKey, '583920');
-const k2 = await pin.pinLookup(pinKey, '583920');
-const k3 = await pin.pinLookup(pinKey, '583921');
-const k4 = await pin.pinLookup(randomBytes(32), '583920');
-out(`  shape: 64 hex ${HEX64.test(k1)} · holds the PIN as typed ${k1.includes('583920')}`);
-out(`  the same PIN twice: same key ${k1 === k2} · the next PIN: same key ${k1 === k3} · another ADMIN_PIN_KEY: same key ${k1 === k4}`);
-out(`  scheme ${pin.PIN_LOOKUP_SCHEME}; a lookup key is never a connection's key for the same text: ${k1 !== pin.connectionKey(pinKey, '583920')}`);
+// ─── 3. Comparing PINs ───
+out('\n3. PINs are compared in constant time, length included');
+for (const [a, b] of [['583920', '583920'], ['583920', '583921'], ['583920', '58392'], ['583920', '5839200'], ['0429', '0429'], ['', '']]) out(`  ${JSON.stringify(a)} and ${JSON.stringify(b)}: ${pin.samePin(a, b)}`);
 
 // ─── 4. The connection ───
 out('\n4. The connection: the address normalized, an IPv6 address cut to its /64, kept only as a keyed hash');
@@ -87,6 +63,7 @@ for (const a of [
 ]) {
   out(`  ${JSON.stringify(a).padEnd(36)} → ${JSON.stringify(m.normalizeAddress(a))}`);
 }
+const pinKey = randomBytes(32);
 const key = (a) => pin.connectionKey(pinKey, m.normalizeAddress(a) ?? 'unknown');
 out(`  keys: 64 hex ${HEX64.test(key('203.0.113.7'))} · holds the address ${key('203.0.113.7').includes('203.0.113')}`);
 out(`  203.0.113.7 and ::ffff:203.0.113.7: same key ${key('203.0.113.7') === key('::ffff:203.0.113.7')}`);
@@ -149,8 +126,8 @@ try {
 }
 out(`  an ID that is not one: ${threw}`);
 
-// ─── 7. The first version's hashes, and the shared PIN ───
-out("\n7. A PIN of dispatch 38's first version is checked against its own document only; the shared PIN only compared");
+// ─── 7. PINs kept before they were readable, and the shared PIN ───
+out("\n7. PINs of the first version and the evening are checked against their own document only; the shared PIN only compared");
 // What the first version stored for a chosen PIN: scrypt(HMAC-SHA256(ADMIN_PIN_KEY, label + PIN)), its own random salt.
 const firstVersionHash = (key, p) =>
   new Promise((resolve, reject) => {
@@ -162,7 +139,9 @@ const firstVersionHash = (key, p) =>
   });
 const stored = await firstVersionHash(pinKey, '583920');
 out(`  right PIN: ${await pin.pinMatches(pinKey, stored, '583920')} · wrong: ${await pin.pinMatches(pinKey, stored, '583921')} · another key: ${await pin.pinMatches(randomBytes(32), stored, '583920')}`);
+const k1 = await pin.pinLookup(pinKey, '583920');
 out(`  parameters past the ceiling are refused: ${await pin.pinMatches(pinKey, { ...stored, N: 2 ** 21 }, '583920')}; not a power of two: ${await pin.pinMatches(pinKey, { ...stored, N: 40000 }, '583920')}; a lookup, not a hash: ${await pin.pinMatches(pinKey, { state: 'set', scheme: 'lookup-v1', lookup: k1 }, '583920')}`);
+out(`  the evening's lookup key: 64 hex ${HEX64.test(k1)} · the same PIN twice gives the same key ${k1 === (await pin.pinLookup(pinKey, '583920'))} · the next PIN another ${k1 !== (await pin.pinLookup(pinKey, '583921'))} · holds the PIN ${k1.includes('583920')}`);
 process.env.ADMIN_PIN = sharedPin;
 const nextPin = String((Number(sharedPin) + 1) % 10_000).padStart(4, '0');
 out(`  shared PIN: itself ${pin.sharedPinMatches(sharedPin)}, another four digits ${pin.sharedPinMatches(nextPin)}, six digits ${pin.sharedPinMatches(`${sharedPin}00`)}`);
@@ -218,7 +197,7 @@ out(`  a route that unlocks an admin's PIN (the first version's per-admin lock):
 
 // ─── 9. Who may act on whom ───
 out('\n9. A main admin cannot be removed, demoted or given a new PIN by anyone but themselves (Kian, 2026-10-13)');
-for (const action of ['remove', 'demote', 'promote', 'new-pin']) {
+for (const action of ['remove', 'demote', 'promote', 'set-pin']) {
   const cells = [];
   for (const [label, target] of [['another admin', { self: false, targetIsMain: false }], ['another main admin', { self: false, targetIsMain: true }], ['themselves', { self: true, targetIsMain: true }]]) {
     for (const others of [0, 1]) cells.push(`${label}, ${others} other main admin${others === 1 ? '' : 's'}: ${m.accountVerdict(action, target, others)}`);

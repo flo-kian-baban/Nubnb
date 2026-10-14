@@ -8,8 +8,9 @@
  * that got no answer, or a 5xx the application did not write, says nothing
  * about whether a write landed. Nothing is retried automatically.
  *
- * PINs travel only in request bodies, and generated ones only in the one
- * answer that shows them; this module never stores either.
+ * PINs travel in request bodies, and to a main admin in the Admins list's
+ * answer (Kian's rulings of 2026-10-13, night: main admins see every admin's
+ * PIN); this module never stores one.
  *
  * Client-safe. From the admin library it imports only model.ts.
  */
@@ -27,7 +28,7 @@ export type AdminResult<T> =
       title: string;
       detail?: string;
       code?: string;
-      /** On a locked PIN (429 ADMIN_PIN_LOCKED): when the lock ends, and whether this try locked it. */
+      /** On a locked connection (429 ADMIN_SIGN_IN_LOCKED): when the lock ends, and whether this try locked it. */
       lockedUntil?: string;
       lockedNow?: boolean;
       /** The route's hint alone, unjoined: the sign-in shows it under its one line. */
@@ -89,31 +90,19 @@ function pickAdmin(data: unknown): SignedInAdminView | null {
 
 const pickSummary = (value: unknown): AdminSummary | null => (isRecord(value) && typeof value.id === 'string' && Array.isArray(value.history) ? (value as unknown as AdminSummary) : null);
 
-/** A PIN Nubnb generated, in an answer: six digits, shown once, kept nowhere. */
-const pickPin = (value: unknown): string | null => (typeof value === 'string' && /^[0-9]{6}$/.test(value) ? value : null);
 
 // ─── Signing in, and one's own account ─────────────────────────
 
 /** Who this browser is signed in as; a 401 means nobody. */
 export const fetchSignedIn = () => call('/api/admin-auth', { method: 'GET' }, 'Checking your sign-in', pickAdmin);
 
-/** Sign in by PIN alone. `newPin`: given when the shared PIN was used, to be shown once. */
-export const signIn = (pin: string) =>
-  call('/api/admin-auth', json('POST', { pin }), 'Signing in', (data) => {
-    const admin = pickAdmin(data);
-    if (!admin || !isRecord(data)) return null;
-    return { admin, newPin: data.newPin === undefined ? null : pickPin(data.newPin) };
-  });
+/** Sign in by PIN alone. */
+export const signIn = (pin: string) => call('/api/admin-auth', json('POST', { pin }), 'Signing in', pickAdmin);
 
 export const signOut = () => call('/api/admin-auth', { method: 'DELETE' }, 'Signing out', (data) => (isRecord(data) ? true : null));
 
-/** New PIN from one's own menu: the current PIN first; the new one comes back once. */
-export const renewOwnPin = (currentPin: string) =>
-  call('/api/admin-auth/pin', json('POST', { currentPin }), 'Getting a new PIN', (data) => {
-    const admin = pickAdmin(data);
-    const newPin = isRecord(data) ? pickPin(data.newPin) : null;
-    return admin && newPin ? { admin, newPin } : null;
-  });
+/** Change PIN, from one's own menu or the gate's Set your PIN: the current PIN, then the new one. */
+export const changeOwnPin = (currentPin: string, newPin: string) => call('/api/admin-auth/pin', json('POST', { currentPin, newPin }), 'Changing your PIN', pickAdmin);
 
 export const changeOwnName = (name: string) =>
   call('/api/admin-auth/name', json('PUT', { name }), 'Changing your name', (data) => {
@@ -144,23 +133,14 @@ const pickChange = (data: unknown) => {
   return admin ? { admin, changed: data.changed !== false } : null;
 };
 
-/** Add an admin; the PIN Nubnb generated comes back once. */
-export const createAdmin = (name: string, level: AdminLevel) =>
-  call('/api/admin/admins', json('POST', { name, level }), 'Adding the admin', (data) => {
-    const admin = isRecord(data) ? pickSummary(data.admin) : null;
-    const pin = isRecord(data) ? pickPin(data.pin) : null;
-    return admin && pin ? { admin, pin } : null;
-  });
+/** Add an admin, with the PIN the main admin sets. */
+export const createAdmin = (name: string, level: AdminLevel, pin: string) =>
+  call('/api/admin/admins', json('POST', { name, level, pin }), 'Adding the admin', (data) => (isRecord(data) ? pickSummary(data.admin) : null));
 
 export const setAdminLevel = (id: string, level: AdminLevel) => call(`/api/admin/admins/${encodeURIComponent(id)}`, json('PATCH', { level }), 'Setting the level', pickChange);
 
-/** New PIN for an ordinary admin; the PIN comes back once. */
-export const giveNewPin = (id: string) =>
-  call(`/api/admin/admins/${encodeURIComponent(id)}/pin`, { method: 'POST' }, 'Giving a new PIN', (data) => {
-    const admin = isRecord(data) ? pickSummary(data.admin) : null;
-    const pin = isRecord(data) ? pickPin(data.pin) : null;
-    return admin && pin ? { admin, pin } : null;
-  });
+/** Set an ordinary admin's PIN, from the main admin's page. */
+export const setAdminPin = (id: string, pin: string) => call(`/api/admin/admins/${encodeURIComponent(id)}/pin`, json('POST', { pin }), 'Setting the PIN', pickChange);
 
 export const removeAdmin = (id: string) =>
   call(`/api/admin/admins/${encodeURIComponent(id)}`, { method: 'DELETE' }, 'Removing the admin', (data) => (isRecord(data) && isRecord(data.removed) ? true : null));

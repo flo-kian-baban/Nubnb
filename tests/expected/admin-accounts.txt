@@ -14,23 +14,28 @@
   "Zoë"                                                              clean "Zoë" key "zoë" problem null
   the first main admin: Kian, key kian
 
-2. PINs: generated, six digits, never too easy, never the shared PIN; sign-in takes four (the shared PIN) or six
+2. PINs: set by the main admin or the admin, six digits, never too easy; sign-in takes four (the shared PIN) or six
   too easy: 10 of one digit; runs 10 of 10; 583920 false
-  "583920"   PIN shape true · sign-in shape true
-  "0429"     PIN shape false · sign-in shape true
-  "04291"    PIN shape false · sign-in shape false
-  "12345"    PIN shape false · sign-in shape false
-  "1234567"  PIN shape false · sign-in shape false
-  "12a456"   PIN shape false · sign-in shape false
-  ""         PIN shape false · sign-in shape false
-  fed 123456, the shared PIN, 0, 7: 123456 → <the shared PIN> → 000000 → 000007 gives 000007
-  fed 999999, 42:                    999999 → 000042 gives 000042
-  100,000 drawn: all six digits true · any too easy false · any the shared PIN false · every first digit seen true · every last digit seen true
+  "583920"   problem null · PIN shape true · sign-in shape true
+  "000000"   problem "Too easy to guess: choose another." · PIN shape true · sign-in shape true
+  "123456"   problem "Too easy to guess: choose another." · PIN shape true · sign-in shape true
+  "987654"   problem "Too easy to guess: choose another." · PIN shape true · sign-in shape true
+  "0429"     problem "Six digits." · PIN shape false · sign-in shape true
+  "04291"    problem "Six digits." · PIN shape false · sign-in shape false
+  "12345"    problem "Six digits." · PIN shape false · sign-in shape false
+  "1234567"  problem "Six digits." · PIN shape false · sign-in shape false
+  "12a456"   problem "Six digits." · PIN shape false · sign-in shape false
+  " 583920"  problem "Six digits." · PIN shape false · sign-in shape false
+  ""         problem "Six digits." · PIN shape false · sign-in shape false
+  readable: true; the shared PIN false; the first version's false, false; the evening's false
 
-3. Lookup keys: the PIN finds its admin with one hash and one read; the PIN itself is stored nowhere
-  shape: 64 hex true · holds the PIN as typed false
-  the same PIN twice: same key true · the next PIN: same key false · another ADMIN_PIN_KEY: same key false
-  scheme lookup-v1; a lookup key is never a connection's key for the same text: true
+3. PINs are compared in constant time, length included
+  "583920" and "583920": true
+  "583920" and "583921": false
+  "583920" and "58392": false
+  "583920" and "5839200": false
+  "0429" and "0429": true
+  "" and "": true
 
 4. The connection: the address normalized, an IPv6 address cut to its /64, kept only as a keyed hash
   "203.0.113.7"                        → "203.0.113.7"
@@ -86,15 +91,16 @@
   a cleaner token:       null
   an ID that is not one: createAdminToken: fields out of range
 
-7. A PIN of dispatch 38's first version is checked against its own document only; the shared PIN only compared
+7. PINs of the first version and the evening are checked against their own document only; the shared PIN only compared
   right PIN: true · wrong: false · another key: false
   parameters past the ceiling are refused: false; not a power of two: false; a lookup, not a hash: false
+  the evening's lookup key: 64 hex true · the same PIN twice gives the same key true · the next PIN another true · holds the PIN false
   shared PIN: itself true, another four digits false, six digits false
   shared PIN unset: null
   shared PIN not digits: null
 
 8. Every admin route goes through the door; every admin write has words in the activity log
-  POST   /api/admin/admins/[id]/pin                           recorded as "Gave an admin a new PIN"
+  POST   /api/admin/admins/[id]/pin                           recorded as "Set an admin’s PIN"
   PATCH  /api/admin/admins/[id]                               recorded as "Set an admin’s level"
   DELETE /api/admin/admins/[id]                               recorded as "Removed an admin"
   GET    /api/admin/admins/activity                           read, not recorded
@@ -151,7 +157,7 @@
   PUT    /api/admin/properties/[id]/visibility                recorded as "Listed or unlisted a property"
   GET    /api/admin/properties                                read, not recorded
   PUT    /api/admin-auth/name                                 recorded as "Changed their own name"
-  POST   /api/admin-auth/pin                                  recorded as "Got a new PIN"
+  POST   /api/admin-auth/pin                                  recorded as "Changed their own PIN"
   POST   /api/admin-auth                                      the sign-in door itself
   GET    /api/admin-auth                                      the sign-in door itself
   DELETE /api/admin-auth                                      the sign-in door itself
@@ -173,4 +179,4 @@
   remove   another admin, 0 other main admins: ok · another admin, 1 other main admin: ok · another main admin, 0 other main admins: main-admin · another main admin, 1 other main admin: main-admin · themselves, 0 other main admins: last-main-admin · themselves, 1 other main admin: ok
   demote   another admin, 0 other main admins: ok · another admin, 1 other main admin: ok · another main admin, 0 other main admins: main-admin · another main admin, 1 other main admin: main-admin · themselves, 0 other main admins: last-main-admin · themselves, 1 other main admin: ok
   promote  another admin, 0 other main admins: ok · another admin, 1 other main admin: ok · another main admin, 0 other main admins: ok · another main admin, 1 other main admin: ok · themselves, 0 other main admins: ok · themselves, 1 other main admin: ok
-  new-pin  another admin, 0 other main admins: ok · another admin, 1 other main admin: ok · another main admin, 0 other main admins: main-admin · another main admin, 1 other main admin: main-admin · themselves, 0 other main admins: yourself · themselves, 1 other main admin: yourself
+  set-pin  another admin, 0 other main admins: ok · another admin, 1 other main admin: ok · another main admin, 0 other main admins: main-admin · another main admin, 1 other main admin: main-admin · themselves, 0 other main admins: yourself · themselves, 1 other main admin: yourself

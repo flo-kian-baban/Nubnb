@@ -8,20 +8,21 @@
  *
  * It puts that main admin back on the shared PIN — ADMIN_PIN, as set in
  * Vercel Production (and .env.local) — and ends every session they hold.
- * Their old PIN stops working at once: its index entry, `admin_pins/
- * {lookup}`, is deleted with it. They then sign in with the shared PIN
- * alone, and Nubnb gives them a generated PIN, shown once (Kian's ruling of
- * 2026-10-13, evening: the shared PIN stays only as the recovery script's
- * PIN).
+ * Their old PIN stops working at once: its index entry, `admin_pins/{PIN}`
+ * (or the evening's `admin_pins/{lookup}`), is deleted with it. They then
+ * sign in with the shared PIN alone and set their own PIN before anything
+ * else (Kian's rulings of 2026-10-13: the shared PIN stays only as the
+ * recovery script's PIN; an admin can change their own PIN).
  *
  * Only for a main admin: an admin who forgets their PIN is given a new one by
  * a main admin on the Admins page. And only while no other main admin is on
  * the shared PIN: the shared PIN signs in the one main admin on it, so two
  * would leave it unable to say which.
  *
- * It needs the service account in .env.local, which only Kian holds; it reads
- * no PIN and no key, writes none, and prints none. The write is one
- * transaction, and the admin's history records it as the recovery script's.
+ * It needs the service account in .env.local, which only Kian holds. It
+ * prints no PIN and writes none; the PIN it reads is only the old one's index
+ * entry, to delete it. The write is one transaction, and the admin's history
+ * records it as the recovery script's.
  * A connection locked by five wrong PINs stays locked until its fifteen
  * minutes end; this script does not touch locks.
  *
@@ -46,7 +47,8 @@ if (!name) {
 
 // The same key the server matches names by (app/lib/admins/model.ts: nameKeyOf).
 const nameKey = name.normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
-// A generated PIN's lookup key (app/lib/admins/pin.ts), which is its index document's ID.
+// The ID of a PIN's index document: the PIN itself (six digits), or the evening's lookup key (app/lib/admins/pin.ts).
+const READABLE = /^[0-9]{6}$/;
 const LOOKUP = /^[0-9a-f]{64}$/;
 
 const env = {};
@@ -89,7 +91,7 @@ const othersOnShared = async (read) =>
   (await read(db.collection('admins').where('pin.state', '==', 'shared'))).docs.filter((doc) => doc.id !== adminId && doc.get('level') === 'main').map((doc) => doc.get('name'));
 const already = await othersOnShared((q) => q.get());
 if (already.length > 0) {
-  console.error(`${already.join(', ')} ${already.length === 1 ? 'is' : 'are'} on the shared PIN already: sign in with it first, which gives a generated PIN, then run this again. Nothing was changed.`);
+  console.error(`${already.join(', ')} ${already.length === 1 ? 'is' : 'are'} on the shared PIN already: sign in with it first and set a PIN, then run this again. Nothing was changed.`);
   process.exit(1);
 }
 if (!write) {
@@ -104,8 +106,13 @@ const freed = await db.runTransaction(async (tx) => {
   const others = await othersOnShared((q) => tx.get(q));
   if (others.length > 0) throw new Error(`${others.join(', ')} went on the shared PIN meanwhile`);
   const fresh = snap.data();
-  const lookup = fresh.pin?.state === 'set' && typeof fresh.pin.lookup === 'string' && LOOKUP.test(fresh.pin.lookup) ? fresh.pin.lookup : null;
-  const indexRef = lookup ? db.collection('admin_pins').doc(lookup) : null;
+  const indexId =
+    fresh.pin?.state === 'readable' && typeof fresh.pin.value === 'string' && READABLE.test(fresh.pin.value)
+      ? fresh.pin.value
+      : fresh.pin?.state === 'set' && typeof fresh.pin.lookup === 'string' && LOOKUP.test(fresh.pin.lookup)
+        ? fresh.pin.lookup
+        : null;
+  const indexRef = indexId ? db.collection('admin_pins').doc(indexId) : null;
   const index = indexRef ? await tx.get(indexRef) : null;
   const epoch = typeof fresh.sessionEpoch === 'number' ? fresh.sessionEpoch : 0;
   const history = Array.isArray(fresh.history) ? fresh.history : [];
@@ -123,4 +130,4 @@ const freed = await db.runTransaction(async (tx) => {
 });
 const after = (await ref.get()).data();
 console.log(`Done: PIN ${after.pin?.state}, session epoch ${after.sessionEpoch}${freed ? ', old PIN index entry deleted' : ''}.`);
-console.log('Sign in with the shared PIN (ADMIN_PIN in Vercel) alone: Nubnb then gives you a generated PIN, shown once.');
+console.log('Sign in with the shared PIN (ADMIN_PIN in Vercel) alone, then set your own PIN.');

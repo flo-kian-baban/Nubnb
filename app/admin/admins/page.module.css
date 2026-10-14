@@ -232,3 +232,34 @@
   font-weight: 600;
   color: #f87171;
 }
+
+/* A PIN on the list: the six digits, for the main admin's eyes (Kian's ruling of 2026-10-13, night). */
+.pinValue {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  font-variant-numeric: tabular-nums;
+  color: #ffffff;
+}
+
+/* The PIN the main admin types: six digits, shown as typed. */
+.pinInput {
+  width: 9em;
+  height: 44px;
+  padding: 0 14px;
+  background: var(--ctl-bg, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--ctl-border, rgba(255, 255, 255, 0.09));
+  border-radius: var(--ctl-radius, 12px);
+  color: #ffffff;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+}
+.pinInput:focus {
+  border-color: var(--ctl-focus, rgba(101, 153, 205, 0.6));
+  box-shadow: var(--ctl-ring, 0 0 0 3px rgba(101, 153, 205, 0.18));
+}
