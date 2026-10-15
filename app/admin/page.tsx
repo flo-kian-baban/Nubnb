@@ -11,8 +11,12 @@ import { AdminHeader } from "./components/AdminHeader";
 import { DashboardStats, useStatements } from "./components/DashboardStats";
 import { AdminSelect } from "./components/AdminSelect";
 import { ReportingStatusCell } from "./components/StatementStatus";
+import { CleaningCell, IncomeCell, UnknownCell } from "./components/PropertyColumns";
 import { torontoDayOf } from "@/app/lib/costs/report";
-import { reportingStatuses } from "@/app/lib/reports/statement";
+import { reportingStatuses, type ReportingTone } from "@/app/lib/reports/statement";
+import { fetchPropertyStatus, type PropertyStatusResult } from "@/app/lib/property-status-client";
+import { incomeStanding, type IncomeStanding, type IncomeTone } from "@/app/lib/income/standing";
+import { cleaningStanding, type CleaningStanding, type CleaningTone, type HomeJob } from "@/app/lib/schedule/standing";
 import { Dialog } from "./property/editor/controls";
 import styles from "./page.module.css";
 import ed from "./property/editor/editor.module.css";
@@ -33,11 +37,12 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
-type SortOption = "default" | "name-asc" | "price-asc" | "price-desc" | "beds-desc";
+type SortOption = "default" | "attention" | "name-asc" | "price-asc" | "price-desc" | "beds-desc";
 type BedsFilter = "all" | "0" | "1" | "2" | "3" | "4+";
 
 const SORT_OPTIONS: { value: SortOption; label: string }[] = [
   { value: "default", label: "Default order" },
+  { value: "attention", label: "Needs attention first" },
   { value: "name-asc", label: "Name: A → Z" },
   { value: "price-asc", label: "Price: low → high" },
   { value: "price-desc", label: "Price: high → low" },
@@ -99,6 +104,17 @@ function filtersFromUrl() {
 }
 
 /**
+ * How much a row needs, for "Needs attention first" (Kian's rulings of 2026-10-15): the worst of its Statement,
+ * Income and Cleaning cells, red before amber, then how many of the three need something. Rows that tie keep the
+ * default order.
+ */
+const SEVERITY: Partial<Record<ReportingTone | IncomeTone | CleaningTone, number>> = { problem: 2, warning: 1 };
+function attentionOf(tones: (ReportingTone | IncomeTone | CleaningTone | undefined)[]): [number, number] {
+  const levels = tones.map((tone) => (tone === undefined ? 0 : (SEVERITY[tone] ?? 0)));
+  return [Math.max(0, ...levels), levels.filter((level) => level > 0).length];
+}
+
+/**
  * A property's page (dispatch 23F): everything about it, bound to a month —
  * its costs, its income, the statement's details, and finishing — with the
  * statement preview beside. It opens on the current month.
@@ -155,6 +171,30 @@ function AdminHome() {
     const ids = new Map([...read.data.properties, ...properties].map((p) => [p.id, { id: p.id, createdMonth: created.get(p.id) ?? null, moneyMonths: money.get(p.id) ?? [] }]));
     return reportingStatuses({ today, properties: [...ids.values()], management: read.data.management, reports: read.data.reports });
   }, [statementsRead.statements, properties, createdMonths, today]);
+
+  // The Income and Cleaning columns' read (Kian's rulings of 2026-10-15): its own call, so a failure leaves the tiles
+  // and the Statement column as they are and shows only these two as not known.
+  const [propertyStatus, setPropertyStatus] = useState<PropertyStatusResult | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchPropertyStatus().then((result) => {
+      if (!cancelled) setPropertyStatus(result);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  /** Each property's two cells, by the two functions that decide them (app/lib/income/standing.ts, app/lib/schedule/standing.ts). */
+  const columns = useMemo(() => {
+    if (!propertyStatus?.ok) return null;
+    const { income, cleaning, today: day } = propertyStatus.data;
+    const jobs = new Map<string, HomeJob[]>();
+    for (const job of cleaning.jobs) jobs.set(job.propertyId, [...(jobs.get(job.propertyId) ?? []), job]);
+    return new Map<string, { income: IncomeStanding; cleaning: CleaningStanding }>(
+      properties.map((p) => [p.id, { income: incomeStanding(income, p.id), cleaning: cleaningStanding(jobs.get(p.id) ?? [], { today: day, hasCalendar: (p.icalUrl ?? "").trim() !== "" }) }]),
+    );
+  }, [propertyStatus, properties]);
+  const columnsFailed = propertyStatus && !propertyStatus.ok ? propertyStatus.title : null;
 
   // Search, filters and sort (2026-09-30). They start from the address bar
   // and are written back to it (?q=&city=&type=&beds=&sort=), so a reload or
@@ -256,12 +296,17 @@ function AdminHome() {
       case "beds-desc":
         result.sort((a, b) => (b.bedrooms ?? 0) - (a.bedrooms ?? 0) || a.name.localeCompare(b.name, "en-CA"));
         break;
+      case "attention": {
+        const rank = new Map(result.map((p) => [p.id, attentionOf([statuses?.get(p.id)?.tone, columns?.get(p.id)?.income.tone, columns?.get(p.id)?.cleaning.tone])]));
+        result.sort((a, b) => rank.get(b.id)![0] - rank.get(a.id)![0] || rank.get(b.id)![1] - rank.get(a.id)![1]);
+        break;
+      }
       default:
         break;
     }
 
     return result;
-  }, [properties, searchable, searchQuery, cityFilter, typeFilter, bedsFilter, sortBy]);
+  }, [properties, searchable, searchQuery, cityFilter, typeFilter, bedsFilter, sortBy, statuses, columns]);
 
   /** What is narrowing the list right now, each with a way to take it off. */
   const activeFilters: { key: string; label: string; clear: () => void }[] = [];
@@ -315,16 +360,6 @@ function AdminHome() {
     if ((event.target as HTMLElement).closest("a, button")) return;
     if (window.getSelection()?.toString()) return;
     router.push(propertyHref(id));
-  };
-
-
-  const getTypeBadgeClass = (type: string) => {
-    switch (type.toLowerCase()) {
-      case "condo": return styles.badgeCondo;
-      case "house": return styles.badgeHouse;
-      case "basement": return styles.badgeBasement;
-      default: return styles.badgeDefault;
-    }
   };
 
   return (
@@ -502,9 +537,8 @@ function AdminHome() {
                 <tr>
                   <th>Property</th>
                   <th className={styles.colFit}>Statement</th>
-                  <th className={styles.colFit}>Location</th>
-                  <th className={styles.colFit}>Type</th>
-                  <th className={`${styles.colFit} ${styles.colEnd}`}>Beds</th>
+                  <th className={styles.colFit}>Income</th>
+                  <th className={styles.colFit}>Cleaning</th>
                   <th className={`${styles.colFit} ${styles.colEnd}`}>Price / Night</th>
                   <th className={`${styles.colFit} ${styles.colEnd}`}>Actions</th>
                 </tr>
@@ -543,13 +577,13 @@ function AdminHome() {
                         <span className={styles.locationText} aria-busy>…</span>
                       )}
                     </td>
-                    <td className={styles.colFit}><span className={styles.locationText}>{p.location}</span></td>
+                    {/* The month due's income and the most pressing cleaning job (Kian's rulings of 2026-10-15), each a link to where the work is. */}
                     <td className={styles.colFit}>
-                      <span className={`${styles.typeBadge} ${getTypeBadgeClass(p.type)}`}>
-                        {p.type}
-                      </span>
+                      {columns?.get(p.id) ? <IncomeCell propertyId={p.id} standing={columns.get(p.id)!.income} /> : <UnknownCell failed={columnsFailed} />}
                     </td>
-                    <td className={`${styles.colFit} ${styles.colEnd}`}><span className={styles.bedsText}>{p.bedrooms}</span></td>
+                    <td className={styles.colFit}>
+                      {columns?.get(p.id) && propertyStatus?.ok ? <CleaningCell propertyId={p.id} standing={columns.get(p.id)!.cleaning} today={propertyStatus.data.today} /> : <UnknownCell failed={columnsFailed} />}
+                    </td>
                     <td className={`${styles.colFit} ${styles.colEnd}`}><span className={styles.priceText}>${nightlyPrice(p).toLocaleString()} {p.currency}</span></td>
                     {/* A click in this cell that misses a control does nothing: it is beside Delete. */}
                     <td className={`${styles.actionsCell} ${styles.colFit}`} onClick={(event) => event.stopPropagation()} title="">

@@ -1,0 +1,68 @@
+═══ 1. Income: the month due (September 2026), worst first ═══
+  uploaded: true; properties with facts: TESTPROP0001, TESTPROP0002, TESTPROP0003, TESTPROP0004, TESTPROP0006, TESTPROP0007, TESTPROP0008, TESTPROP0009
+  TESTPROP0001: review · "To review · 2" · warning · 2026-09 · → income · September 2026: 2 lines from Airbnb's file wait for review (1 needs a decision on its type)
+   ok   TESTPROP0001 is review
+  TESTPROP0002: missing · "Not in file" · warning · 2026-09 · → income · September 2026: its Airbnb title is not in the month's file
+   ok   TESTPROP0002 is missing
+  TESTPROP0003: received · "Received" · done · 2026-09 · → property · September 2026: 2 lines accepted, $400.00
+   ok   TESTPROP0003 is received
+  TESTPROP0004: review · "To review · 1" · warning · 2026-09 · → income · September 2026: 1 line from Airbnb's file waits for review
+   ok   TESTPROP0004 is review
+  TESTPROP0005: no-title · "No Airbnb title" · none · - · → title · No Airbnb title is set: set it on its edit page
+   ok   TESTPROP0005 is no-title
+  TESTPROP0006: no-income · "No income" · none · 2026-09 · → property · September 2026: nothing accepted for it
+   ok   TESTPROP0006 is no-income
+  TESTPROP0007: no-income · "No income" · none · 2026-09 · → property · September 2026: nothing accepted for it
+   ok   TESTPROP0007 is no-income
+  TESTPROP0008: review · "To review · 1" · warning · 2026-09 · → income · September 2026: 1 line from Airbnb's file waits for review
+   ok   TESTPROP0008 is review
+  TESTPROP0009: received · "Received" · done · 2026-09 · → property · September 2026: 1 line accepted, $300.00
+   ok   TESTPROP0009 is received
+   ok   P1: 2 to review, 1 needing a decision
+   ok   P3: the adjustment is taken off what was received
+   ok   To review per property matches the Income page
+   ok   Not in file per property matches the Income page
+  no file uploaded for the month yet:
+    TESTPROP0003: no-file · "No file yet" · none · 2026-09 · → income · September 2026: Airbnb's file has not been uploaded
+    TESTPROP0005: no-title · "No Airbnb title" · none · - · → title · No Airbnb title is set: set it on its edit page
+   ok   a titled property reads "No file yet"
+   ok   a property with no title still reads "No Airbnb title"
+   ok   with no file, nothing is "Not in file"
+
+═══ 2. Cleaning: the most pressing job, 14 days back to 2 ahead (today 2026-10-15) ═══
+  TESTPROP0001: needs-past · "Needs a cleaner" · problem · 2026-10-13 · Checkout Oct 13: checkout passed with nobody on it · +1 more needs something
+   ok   needs-past
+  TESTPROP0002: not-marked · "Not marked" · problem · 2026-10-14 · Checkout Oct 14: checkout passed and not everyone on it has marked it cleaned · Test Ana · +1 more needs something
+   ok   not-marked
+  TESTPROP0003: needs · "Needs a cleaner" · warning · 2026-10-16 · Checkout Oct 16: nobody is on it yet
+   ok   needs
+  TESTPROP0004: removed · "Removed by the office" · warning · 2026-10-12 · Checkout Oct 12: the office removed a mark; reopen it for them from the Schedule, or leave it · Test Ana (removed by the office)
+   ok   removed
+  TESTPROP0005: changed · "Booking changed" · warning · 2026-10-11 · Checkout Oct 11: the booking changed after it was marked: its cleaning stays, charged as usual, for an admin to decide · Test Ana ✓
+   ok   changed
+  TESTPROP0006: amount · "Amount needed" · warning · 2026-10-12 · Checkout Oct 12: cleaned; its cleaning waits for an admin to type its amount · Test Ana ✓
+   ok   amount
+  TESTPROP0007: assigned · "Assigned" · assigned · 2026-10-15 · Checkout Oct 15: someone is on it · Test Ana
+   ok   assigned
+  TESTPROP0008: assigned · "1 of 2 done" · assigned · 2026-10-16 · Checkout Oct 16: someone is on it · Test Ana ✓, Test Ben
+   ok   assigned
+  TESTPROP0009: done · "Done" · done · 2026-10-12 · Checkout Oct 12: cleaned · Test Ben ✓
+   ok   done
+  TESTPROP0010: no-turnover · "No turnover" · none · - · No checkout from Oct 1 to Oct 17
+   ok   no-turnover
+  TESTPROP0011: no-calendar · "No calendar" · none · - · No calendar link, so no cleaning jobs
+   ok   no-calendar
+   ok   Not marked names the other job needing a cleaner
+   ok   on its checkout day an unmarked job is Assigned, not red
+   ok   the day after, it is Not marked
+   ok   Done shows the latest job
+   ok   a problem shows the longest waiting
+
+═══ 3. A stored job as the column reads it ═══
+  {"propertyId":"TESTPROP0001","checkout":"2026-10-14","status":"open","changedAfterMark":false,"change":null,"cleaners":[{"name":"Test Ana","marked":true,"removed":false,"pending":true},{"name":"Test Ben","marked":true,"removed":true,"pending":false},{"name":null,"marked":false,"removed":false,"pending":false}]}
+   ok   a logged cleaning with no amount is pending
+   ok   a mark the office removed stays a mark, removed, never pending
+   ok   a deleted cleaner who never marked reads with no name
+  -> not-marked · "Not marked" · problem · 2026-10-14 · Checkout Oct 14: checkout passed and not everyone on it has marked it cleaned · Test Ana ✓, Test Ben (removed by the office), a deleted cleaner
+
+all checks passed

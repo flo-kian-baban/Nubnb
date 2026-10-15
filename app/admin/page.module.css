@@ -708,12 +708,6 @@
   color: rgba(255, 255, 255, 0.5);
 }
 
-.bedsText {
-  font-size: 13px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.7);
-}
-
 .priceText {
   font-size: 13.5px;
   font-weight: 600;
@@ -721,49 +715,12 @@
   white-space: nowrap;
 }
 
-/* ── Type Badge ── */
-.typeBadge {
-  display: inline-flex;
-  align-items: center;
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.badgeCondo {
-  background: rgba(99, 153, 205, 0.12);
-  color: #7ab0e0;
-  border: 1px solid rgba(99, 153, 205, 0.18);
-}
-
-.badgeHouse {
-  background: rgba(74, 222, 128, 0.1);
-  color: #6ee7a0;
-  border: 1px solid rgba(74, 222, 128, 0.16);
-}
-
-.badgeBasement {
-  background: rgba(192, 132, 252, 0.1);
-  color: #c084fc;
-  border: 1px solid rgba(192, 132, 252, 0.18);
-}
-
-.badgeDefault {
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.55);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
 /* ── The property list's columns ──
-   The name takes what is left; Location, Type, Beds, Price and Actions are
-   each as wide as their widest entry, so every column stands 40 px from the
-   next (the cells' 20 px either side). Numbers and the actions keep to the
-   right edge of their column, under their heads. Scoped to this table: the
-   other pages' tables share .table and .actionsHeader. */
+   The name takes what is left; Statement, Income, Cleaning, Price and
+   Actions are each as wide as their widest entry, so every column stands
+   40 px from the next (the cells' 20 px either side). The price and the
+   actions keep to the right edge of their column, under their heads. Scoped
+   to this table: the other pages' tables share .table and .actionsHeader. */
 .propertyTable th.colFit,
 .propertyTable td.colFit {
   width: 1%;
@@ -773,7 +730,6 @@
 .propertyTable td.colEnd {
   text-align: right;
 }
-.propertyTable .bedsText,
 .propertyTable .priceText {
   font-variant-numeric: tabular-nums;
 }

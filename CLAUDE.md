@@ -681,3 +681,29 @@ Kian's rulings of 2026-10-15, added after the design report:
 - **TEAM-PAY-PLAN.md is accepted as designed, including the developer's
   choices in its §7 unless one changes statements or what owners receive;
   any such is listed for Kian first.**
+
+## Property list columns and direct payments — Kian's rulings of 2026-10-15
+
+On the admin home's property list, and PROPERTY-LIST-COLUMNS-PLAN.md:
+
+- **The property list drops Location, Type and Beds. In their place: an
+  income tracking status (for cash, the cash collection) and a cleaning
+  status.**
+- **Any admin can receive a direct payment and record it. Direct payments
+  are anything paid outside Airbnb.**
+- **Part A (the two columns) ships first; part B (direct payments) after
+  it.**
+- **A direct payment prints with its method's word ("Cash - Monthly stay -
+  received Oct 3"). The payer is never printed.**
+- **The revenue figure beside the fee base, and Finish's base check, count
+  direct income. The base stays typed.**
+- **Money received for a month already finished goes on the next open
+  statement with its day printed, as Airbnb lines do.**
+- **Monthly periods only. A part payment goes to the oldest unpaid month
+  first, changeable; an overpayment waits for the next month.**
+- **A payment printed on a finished statement is locked and changes only
+  by correcting that statement. An unprinted one is removed (kept, struck
+  through, out of totals), never deleted.**
+- **B is built; no direct short stay is recorded until Kian confirms tax
+  treatment with his accountant.**
+- **PROPERTY-LIST-COLUMNS-PLAN.md's §7 choices are accepted.**

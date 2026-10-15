@@ -37,7 +37,7 @@ import ed from "../property/editor/editor.module.css";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
 import { fetchSchedule, mergeJob, refreshCalendars, reopenJobFor, setJobCleaners, type ScheduleAnswer } from "@/app/lib/schedule-client";
-import { addDays, dayText, minutesBetween } from "@/app/lib/availability/days";
+import { addDays, dayText, isDay, minutesBetween } from "@/app/lib/availability/days";
 import { changeWords, isSameDay, type AssigneeView, type JobView, type TeamMember } from "@/app/lib/schedule/model";
 
 type Loaded = { kind: "loading" } | { kind: "ready"; answer: ScheduleAnswer } | { kind: "error"; title: string; detail?: string; status: number };
@@ -74,10 +74,21 @@ function stateOf(job: JobView): { label: string; tone: "needs" | "assigned" | "p
   return { label: "Done", tone: "done" };
 }
 
+/**
+ * What a link asks for (the property list's Cleaning cell, Kian's rulings of 2026-10-15): `?property=` picks the
+ * property, and `?from=`, a day, reads from it to the furthest job instead of from a week back.
+ */
+function linkFromUrl(): { property: string; from: string | undefined } {
+  const params = typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search);
+  const from = params.get("from");
+  return { property: params.get("property") ?? "", from: isDay(from) ? from : undefined };
+}
+
 function Schedule() {
+  const [link] = useState(linkFromUrl);
   const [loaded, setLoaded] = useState<Loaded>({ kind: "loading" });
   const [range, setRange] = useState<{ from: string; to: string } | null>(null);
-  const [propertyId, setPropertyId] = useState("");
+  const [propertyId, setPropertyId] = useState(link.property);
   const [cleanerId, setCleanerId] = useState("");
   const [needsOnly, setNeedsOnly] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -98,16 +109,16 @@ function Schedule() {
 
   const load = useCallback(async (from?: string, to?: string) => take(await fetchSchedule(from, to)), [take]);
 
-  // The first read: the server's default days, from a week back to the furthest job.
+  // The first read: the server's default days, from a week back to the furthest job, or from the day a link asks for.
   useEffect(() => {
     let cancelled = false;
-    fetchSchedule().then((result) => {
+    fetchSchedule(link.from).then((result) => {
       if (!cancelled) take(result);
     });
     return () => {
       cancelled = true;
     };
-  }, [take]);
+  }, [take, link.from]);
 
   const answer = loaded.kind === "ready" ? loaded.answer : null;
   const today = answer?.today ?? null;
@@ -219,8 +230,10 @@ function Schedule() {
   const propertyGroups = useMemo(() => {
     if (!answer) return [];
     const names = new Map(answer.jobs.map((job) => [job.propertyId, job.property.name ?? job.propertyNameAtCreation ?? job.propertyId]));
-    return [{ options: [{ value: "", label: "All properties" }, ...[...names].sort((a, b) => a[1].localeCompare(b[1], "en-CA")).map(([value, label]) => ({ value, label }))] }];
-  }, [answer]);
+    // A property a link asked for with no job in these days: named as such, so the filter never reads "All properties" while it is on.
+    const linked = propertyId !== "" && !names.has(propertyId) ? [{ value: propertyId, label: "This property: no checkouts in these days" }] : [];
+    return [{ options: [{ value: "", label: "All properties" }, ...linked, ...[...names].sort((a, b) => a[1].localeCompare(b[1], "en-CA")).map(([value, label]) => ({ value, label }))] }];
+  }, [answer, propertyId]);
   const cleanerGroups = useMemo(() => [{ options: [{ value: "", label: "All cleaners" }, ...team.filter((member) => member.role === "cleaner").map((member) => ({ value: member.id, label: `${member.name ?? "Unnamed"}${member.status === "active" ? "" : " (deactivated)"}` }))] }], [team]);
 
   return (
