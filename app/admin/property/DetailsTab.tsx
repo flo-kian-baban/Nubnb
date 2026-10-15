@@ -25,7 +25,9 @@
  * warn once the lines change (S6). Since dispatch 37A the revenue is the
  * month's money's: an Airbnb claw-back takes it off, and what Airbnb actually
  * paid is said beside it (Kian's ruling M1: the fee base is what Airbnb
- * actually paid). The fee reads as an amount deducted, as the carried balance
+ * actually paid). What was received outside Airbnb counts in that revenue
+ * and is said beside it too (Kian's ruling of 2026-10-15); the base stays
+ * typed. The fee reads as an amount deducted, as the carried balance
  * does (T9); Report For says when the PDF will cut it
  * short (S25); the carried balance reads as the PDF prints it, the amount
  * deducted (S17); a fee or balance not saved because it does not read yet
@@ -61,7 +63,7 @@ interface Props {
   /** Carried balances this statement settles (dispatch 35). */
   carriedAdjustments: StatementCarriedAdjustment[];
   /** The month's revenue and what Airbnb paid, as the month's money gives them (dispatch 37A, M1); null when the statement cannot be built. */
-  revenue: Pick<IncomeFigures, "revenueCents" | "airbnbCents"> | null;
+  revenue: Pick<IncomeFigures, "revenueCents" | "airbnbCents" | "directCents"> | null;
   /** Parts not saved because they do not read yet (dispatch 34, S10). */
   heldBack: HeldPart[];
 }
@@ -153,6 +155,8 @@ export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForStat
                 <span className={styles.note}>
                   revenue {formatCents(revenue.revenueCents)}
                   {revenue.airbnbCents !== 0 && ` · Airbnb paid ${formatCents(revenue.airbnbCents)}`}
+                  {/* Direct income counts in the revenue beside the base, and in Finish's base check (Kian's ruling of 2026-10-15). */}
+                  {revenue.directCents !== 0 && ` · direct ${formatCents(revenue.directCents)}`}
                 </span>
               )}
             </div>

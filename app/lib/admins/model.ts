@@ -473,6 +473,11 @@ const ACTION_WORDS: [method: string, path: RegExp, words: string][] = [
   // Team pay (Kian's rulings of 2026-10-15).
   ['POST', new RegExp(`^/api/admin/payments$`), 'Recorded a payment'],
   ['DELETE', new RegExp(`^/api/admin/payments/${ID}$`), 'Deleted a payment'],
+  // Direct payments (Kian's rulings of 2026-10-15): money received outside Airbnb.
+  ['POST', new RegExp(`^/api/admin/direct/arrangements$`), 'Set up direct payments'],
+  ['PATCH', new RegExp(`^/api/admin/direct/arrangements/${ID}$`), 'Changed a direct arrangement'],
+  ['POST', new RegExp(`^/api/admin/direct/payments$`), 'Recorded a direct payment'],
+  ['PATCH', new RegExp(`^/api/admin/direct/payments/${ID}$`), 'Removed or re-applied a direct payment'],
   ['POST', new RegExp(`^/api/mirror-property-images$`), 'Copied a property’s images'],
   ['POST', new RegExp(`^/api/properties$`), 'Added a property'],
   ['PUT', new RegExp(`^/api/properties/${ID}$`), 'Saved a property'],

@@ -44,6 +44,7 @@
 import { createHash, randomUUID } from 'crypto';
 import { FieldPath, type Transaction } from 'firebase-admin/firestore';
 import { getAdminBucket, getAdminDb } from './admin';
+import { directPlatformLines } from './server-direct';
 import { isDocumentId } from './server-leads';
 import { type Actor, type Refusal } from '@/app/lib/cleaners/model';
 import { torontoDayOf } from '@/app/lib/costs/report';
@@ -408,7 +409,7 @@ function monthStatementOf(input: { propertyId: string; month: string; reports: M
 export async function readIncomeMonth(month: string): Promise<IncomeMonth> {
   const db = getAdminDb();
   const { from, to } = monthRange(month);
-  const [uploadsSnap, linesSnap, acceptedSnap, linksSnap, propertiesSnap, draftsSnap, reportsSnap, managementSnap, daysSnap] = await Promise.all([
+  const [uploadsSnap, linesSnap, acceptedSnap, linksSnap, propertiesSnap, draftsSnap, reportsSnap, managementSnap, daysSnap, directLines] = await Promise.all([
     db.collection(EARNINGS_UPLOADS_COLLECTION).get(),
     db.collection(EARNINGS_LINES_COLLECTION).where('month', '==', month).get(),
     db.collection(EARNINGS_LINES_COLLECTION).where('status', '==', 'accepted').get(),
@@ -418,6 +419,8 @@ export async function readIncomeMonth(month: string): Promise<IncomeMonth> {
     db.collection(MONTHLY_REPORTS_COLLECTION).get(),
     db.collection(PROPERTY_MANAGEMENT_COLLECTION).get(),
     db.collection(DAYS_COLLECTION).where(FieldPath.documentId(), '>=', from).where(FieldPath.documentId(), '<=', addDays(to, 7)).get(),
+    // The recorded direct payments (part B): the month's statements place them as they place Airbnb's lines.
+    directPlatformLines(),
   ]);
   let unreadable = 0;
 
@@ -434,7 +437,7 @@ export async function readIncomeMonth(month: string): Promise<IncomeMonth> {
     else unreadable += 1;
   }
   const accepted = acceptedSnap.docs.map((doc) => readEarningsLine(doc.id, doc.data())).filter((line): line is EarningsLineView => line !== null);
-  const platformLines = platformLinesOf(accepted);
+  const platformLines = [...platformLinesOf(accepted), ...directLines];
   const links: TitleLinkView[] = [];
   for (const doc of linksSnap.docs) {
     const link = readTitleLink(doc.id, doc.data());

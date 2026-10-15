@@ -92,6 +92,19 @@ export function isIncomeSource(value: unknown): value is IncomeSource {
   return typeof value === 'string' && (INCOME_SOURCES as readonly string[]).includes(value);
 }
 
+/**
+ * Where a statement line came from: an income row's words, and `direct`, a payment received outside Airbnb (part B of
+ * PROPERTY-LIST-COLUMNS-PLAN.md, Kian's rulings of 2026-10-15). A `direct` line is always one read where it is
+ * stored, with its payment's ID (`platformLineId`); a typed line can never claim it: the draft's schema takes
+ * INCOME_SOURCES only.
+ */
+export const LINE_SOURCES = [...INCOME_SOURCES, 'direct'] as const;
+export type LineSource = (typeof LINE_SOURCES)[number];
+export const LINE_SOURCE_LABELS: Record<LineSource, string> = { ...INCOME_SOURCE_LABELS, direct: 'Direct' };
+export function isLineSource(value: unknown): value is LineSource {
+  return typeof value === 'string' && (LINE_SOURCES as readonly string[]).includes(value);
+}
+
 export const STATEMENT_LIMITS = {
   LINES_MAX: 200,
   LINE_DESCRIPTION_MAX: 160,
@@ -314,8 +327,8 @@ export interface Line {
   rateCents: number;
   /** quantity × rateCents, as printed. */
   amountCents: number;
-  /** On a line loaded from a row written before dispatch 23D: where the money came from. */
-  source?: IncomeSource;
+  /** On a line loaded from a row written before dispatch 23D: where the money came from. On a line read where it is stored: its platform, or `direct`. */
+  source?: LineSource;
   /** On a line loaded from a row written before dispatch 23D: a booking code, or null. */
   reference?: string | null;
   /**
@@ -667,7 +680,7 @@ export function readLine(value: unknown): Line | null {
   if (!isCents(quantity) || !isCents(rateCents) || !isCents(amountCents) || lineAmount(quantity, rateCents) !== amountCents) return null;
   const line: Line = { id, description, from: (from as string | null | undefined) ?? null, to: (to as string | null | undefined) ?? null, quantity, rateCents, amountCents };
   if ('source' in value) {
-    if (!isIncomeSource(value.source)) return null;
+    if (!isLineSource(value.source)) return null;
     line.source = value.source;
   }
   if ('reference' in value) {
@@ -678,6 +691,8 @@ export function readLine(value: unknown): Line | null {
     if (!isText(value.platformLineId) || !/^[0-9a-f]{64}$/.test(value.platformLineId)) return null;
     line.platformLineId = value.platformLineId;
   }
+  // A direct line is always read where it is stored: one without its payment is not a line.
+  if (line.source === 'direct' && line.platformLineId === undefined) return null;
   return line;
 }
 

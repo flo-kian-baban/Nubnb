@@ -1,0 +1,115 @@
+═══ 1. An arrangement's months: $1,200.00 a month from August, due the 20th; today 2026-10-15 ═══
+  nothing received               2026-08 Overdue $0.00/$1,200.00 · 2026-09 Overdue $0.00/$1,200.00 · 2026-10 Expected $0.00/$1,200.00 · credit $0.00 for 2026-11 · running
+  Sep 5 · $1,200.00 cash         2026-08 Paid $1,200.00/$1,200.00 · 2026-09 Overdue $0.00/$1,200.00 · 2026-10 Expected $0.00/$1,200.00 · credit $0.00 for 2026-11 · running
+  Sep 25 · $600.00 e-transfer    2026-08 Paid $1,200.00/$1,200.00 · 2026-09 Overdue $600.00/$1,200.00 · 2026-10 Expected $0.00/$1,200.00 · credit $0.00 for 2026-11 · running
+  Oct 3 · $1,000.00 cash         2026-08 Paid $1,200.00/$1,200.00 · 2026-09 Paid $1,200.00/$1,200.00 · 2026-10 Partly paid $400.00/$1,200.00 · credit $0.00 for 2026-11 · running
+  Oct 10 · $1,000.00 cheque      2026-08 Paid $1,200.00/$1,200.00 · 2026-09 Paid $1,200.00/$1,200.00 · 2026-10 Paid $1,200.00/$1,200.00 · credit $200.00 for 2026-11 · running
+   ok   all three months paid after the fourth payment
+   ok   the overpayment of $200.00 waits for November
+   ok   Sep 5's payment pays August first: the oldest unpaid month
+   ok   October partly paid before its due day; September paid by the oldest-first rule
+   ok   September with $600.00 of $1,200.00 after its due day is overdue
+   ok   on its due day itself it is still partly paid: overdue from the day after
+  how the fourth payment was applied: Oct $800.00 · credit $200.00
+  set by hand, Oct $500.00 + Nov $500.00:  2026-08 Paid $1,200.00/$1,200.00 · 2026-09 Overdue $0.00/$1,200.00 · 2026-10 Partly paid $500.00/$1,200.00 · credit $500.00 for 2026-11 · running
+   ok   a month set by hand is paid as set; November's part waits as credit until November is expected
+   ok   a payment set by hand pays no other month
+
+═══ 2. Changes: pause, resume, change the amount, end ═══
+  started: 2026-10 Expected $0.00/$900.00 · credit $0.00 for 2026-11 · running
+  pause from October: paused 2026-10 by Test Admin · pauses [{"from":"2026-10","until":null}] · amounts 2026-10 $900.00 · until null
+   ok   paused from October: nothing expected, status paused
+  pause again: refused · It is paused since October 2026: resume it first.
+  resume from the month it paused: refused · It is paused from October 2026: resume it from a later month.
+  resume from November: resumed 2026-11 by Second Admin · pauses [{"from":"2026-10","until":"2026-10"}] · amounts 2026-10 $900.00 · until null
+  amount from December: amount-changed 2026-12 $950.00 by Second Admin · pauses [{"from":"2026-10","until":"2026-10"}] · amounts 2026-10 $900.00, 2026-12 $950.00 · until null
+  amount from November (before the last change): refused · Its amount was set from December 2026: change it from a later month.
+  the same amount again: refused · That is already its amount.
+  end with February: ended 2027-02 by Test Admin · pauses [{"from":"2026-10","until":"2026-10"}] · amounts 2026-10 $900.00, 2026-12 $950.00 · until 2027-02
+  end twice: refused · It ended with February 2027.
+  a month more than 12 away: refused · Pick a month within 12 months of this one.
+  February 2027 alone (28 nights): refused · Ended with February 2027, it would cover 28 nights: a stay under 30 nights is a short stay, not recorded until its tax treatment is confirmed.
+  November 2026 alone (30 nights): ended 2026-11 by Test Admin · pauses [] · amounts 2026-11 $900.00 · until 2026-11
+   ok   ended within one month: 28 nights refused, 30 accepted
+   ok   the history keeps every step and who took it
+   ok   earlier months keep their amount; December on is $950.00
+   ok   months expected: November to February, October paused, nothing after the end
+   ok   after February it is ended
+
+═══ 3. The owner's statement: Kian's wording, the month received, the next open statement ═══
+  September, as it stands: E-transfer - Monthly stay - received Sep 25 $600.00 (source direct) · Cash - Monthly stay - received Sep 5 $1,200.00 (source direct)
+   ok   September prints its two payments in Kian's words, newest first
+   ok   Finish's claim holds each payment and its history's length
+  September's PDF prints: "E-transfer - Monthly stay - received Sep 25" · "Cash - Monthly stay - received Sep 5"
+   ok   the PDF prints both payments and never the payer
+   ok   the finished statement keeps each line with its payment
+  October, after September was finished: Cheque - Monthly stay - received Oct 10 · Cash - Monthly stay - received Oct 3 · Cash - Monthly stay - received Sep 28
+   ok   the late September payment is on October's statement, its day printed once, no "(paid …)"
+   ok   September's finished statement is not touched
+   ok   Sep 5 and Sep 25 are printed on a finished statement (locked); Sep 28 is not
+   ok   a removed payment leaves the statement and its totals
+   ok   removed, it is kept: read back whole, marked
+  owed months: [["TESTPROPdirect000001",["2026-09","2026-10"]]]
+
+═══ 4. The revenue beside the fee's base, its check, and Finish's warning ═══
+  October's figures: revenue $2,300.00 · direct $2,300.00 · Airbnb $0.00 · typed $0.00
+   ok   direct income is revenue, named apart from Airbnb
+    warns: Lines changed since the fee's base was typed: revenue was $1,000.00, now $2,300.00; the base is $1,000.00.
+    warns: October 2026's Monthly stay from Test Payer: $400.00 of $1,200.00 received.
+   ok   the base check counts direct income: typed at $1,000.00 of revenue, now $2,300.00
+   ok   Finish warns: October's expected $1,200.00 has $400.00 received
+   ok   once October is paid, no warning
+
+═══ 5. The Income column's direct states ═══
+  direct-overdue · "Overdue" · problem · 2026-08 · Monthly stay, August 2026: $0.00 of $1,200.00 received, due Aug 20 · 2 months overdue · no Airbnb title
+   ok   direct-overdue
+  direct-partly · "Partly paid" · warning · 2026-10 · Monthly stay, October 2026: $400.00 of $1,200.00 received, due Oct 20 · no Airbnb title
+   ok   direct-partly
+  direct-paid · "Paid" · done · 2026-10 · Monthly stay, October 2026: $1,200.00 received · no Airbnb title
+   ok   direct-paid
+  direct-expected · "Expected Oct 25" · none · 2026-10 · Monthly stay, October 2026: $900.00 due Oct 25, nothing received yet · no Airbnb title
+   ok   direct-expected
+  direct-paused · "Paused" · none · 2026-10 · Monthly stay: paused, nothing expected in October 2026 · no Airbnb title
+   ok   direct-paused
+  Airbnb Received beside direct Expected: received · "Received" · September 2026: 2 lines accepted, $500.00 · Monthly stay, October 2026: $900.00 due Oct 25, nothing received yet
+   ok   green outranks plain: Airbnb Received shows, the tooltip names both
+   ok   red outranks green: Overdue shows
+
+═══ 6. Readers and route schemas ═══
+   ok   a direct line without its payment is not a line
+   ok   an arrangement's payment is a monthly stay, never a one-off's purpose
+   ok   months set by hand add up to the whole amount
+   ok   an ID not 64 hex is refused
+  one-off, not a stay: ok {"propertyId":"TESTPROPdirect000001","arrangementId":null,"purpose":"not-a-stay","stay":null,"payerName":null,"day":"2026-10-12","amount":7500,"method":"cash","wording":"Parking","note":null,"appliesTo":null}
+  one-off, a short stay: refused: purpose Invalid option: expected one of "long-stay"|"not-a-stay"
+  one-off with no purpose: refused: purpose Say what a one-off payment is for
+  arrangement with a purpose: refused: purpose An arrangement payment is a monthly stay
+  months not adding up: refused: appliesTo The months add up to the whole amount
+  start: refused: dueDay A day from 1 to 28
+  change amount: ok {"action":"amount","seen":1,"month":"2026-12","amount":95000}
+   ok   a direct short stay cannot be recorded (Kian: until his accountant confirms its tax treatment)
+  a stay with no dates: refused: stay Give the stay its first night and its checkout day
+  not a stay, with dates: refused: stay Only a stay payment has a stay
+  the server's rule, 29 nights (Sep 1 – Sep 30): Sep 1 – Sep 30, 2026 is 29 nights: a stay under 30 nights is a short stay, not recorded until its tax treatment is confirmed.
+  the server's rule, 30 nights (Sep 1 – Oct 1): null
+   ok   the threshold is 30 nights (Kian): 29 refused, 30 accepted
+   ok   the reader keeps a one-off stay of 30 nights only, and never one without its dates
+   ok   an arrangement's payment has no stay of its own
+   ok   the words the dialog shows say 30
+
+═══ 7. A finished statement holding a direct line, corrected ═══
+  September finished: Cash - Parking - received Sep 22 · Cash - Stay - received Sep 5
+   ok   both are printed: locked
+  the correction as it stands: Cash - Parking - received Sep 22 · Cash - Stay - received Sep 5
+   ok   the correction holds the same direct lines, word for word
+   ok   while it is corrected, October's statement holds neither
+  corrected: Cash - Stay - received Sep 5 · current TESTREPORT0000000017
+   ok   the corrected statement replaces the first
+  first PDF: ["Cash - Parking - received Sep 22","Cash - Stay - received Sep 5"] · corrected PDF: ["Cash - Stay - received Sep 5"]
+   ok   the stay line prints the same in the corrected PDF
+   ok   the stay is locked again, by the corrected statement; the removed one is on none
+  October after: 0 lines · income $0.00
+   ok   nothing is charged twice: October holds no September payment
+   ok   a day received: never after today, at most 12 months back
+
+all checks passed

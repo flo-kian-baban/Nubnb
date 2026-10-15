@@ -2,8 +2,9 @@
  * The property list's Income and Cleaning columns (Kian's rulings of 2026-10-15, part A of
  * PROPERTY-LIST-COLUMNS-PLAN.md): what both read, in one answer, for GET /api/admin/property-status.
  *
- * Reads, and nothing else: the month's uploads and lines, every title link, the jobs with a checkout from 14 days back
- * to 2 days ahead, and the cleanings their marks made (status and amount only). No property, no cleaner and no
+ * Reads, and nothing else: the month's uploads and lines, every title link, every direct arrangement and payment
+ * (part B), the jobs with a checkout from 14 days back to 2 days ahead, and the cleanings their marks made (status and
+ * amount only). No property, no cleaner and no
  * calendar is read: the page has the properties, and a job keeps its cleaners' names.
  *
  * Read whole, no limit: a failed read throws, and the page shows the two columns as not known, never as empty.
@@ -14,6 +15,8 @@ import { addDays, torontoDay } from '@/app/lib/availability/days';
 import { CLEANINGS_COLLECTION } from '@/app/lib/cleanings/model';
 import { EARNINGS_LINES_COLLECTION, EARNINGS_TITLE_LINKS_COLLECTION, EARNINGS_UPLOADS_COLLECTION, readEarningsLine, readEarningsUpload, readTitleLink, type EarningsLineView, type EarningsUploadView, type TitleLinkView } from '@/app/lib/income/model';
 import { incomeReadOf, type IncomeRead } from '@/app/lib/income/standing';
+import { DIRECT_ARRANGEMENTS_COLLECTION, DIRECT_PAYMENTS_COLLECTION, readArrangement, readDirectPayment, type ArrangementView, type DirectPaymentView } from '@/app/lib/direct/model';
+import { directStanding, type DirectStanding } from '@/app/lib/direct/periods';
 import { lastClosedMonth } from '@/app/lib/reports/model';
 import { CLEANING_JOBS_COLLECTION, readJob, type StoredJob } from '@/app/lib/schedule/model';
 import { COLUMN_DAYS_AHEAD, COLUMN_DAYS_BACK, homeJobOf, type HomeJob } from '@/app/lib/schedule/standing';
@@ -33,11 +36,13 @@ export async function readPropertyStatus(now: Date = new Date()): Promise<Proper
   const month = lastClosedMonth(today);
   const from = addDays(today, -COLUMN_DAYS_BACK);
   const to = addDays(today, COLUMN_DAYS_AHEAD);
-  const [uploadsSnap, linesSnap, linksSnap, jobsSnap] = await Promise.all([
+  const [uploadsSnap, linesSnap, linksSnap, jobsSnap, arrangementsSnap, paymentsSnap] = await Promise.all([
     db.collection(EARNINGS_UPLOADS_COLLECTION).where('month', '==', month).get(),
     db.collection(EARNINGS_LINES_COLLECTION).where('month', '==', month).get(),
     db.collection(EARNINGS_TITLE_LINKS_COLLECTION).get(),
     db.collection(CLEANING_JOBS_COLLECTION).where('checkout', '>=', from).where('checkout', '<=', to).get(),
+    db.collection(DIRECT_ARRANGEMENTS_COLLECTION).get(),
+    db.collection(DIRECT_PAYMENTS_COLLECTION).get(),
   ]);
   let unreadable = 0;
   const strictly = <T>(docs: { id: string; data: () => Record<string, unknown> }[], read: (id: string, fields: Record<string, unknown>) => T | null, what: string): T[] => {
@@ -56,6 +61,14 @@ export async function readPropertyStatus(now: Date = new Date()): Promise<Proper
   const lines = strictly<EarningsLineView>(linesSnap.docs, readEarningsLine, EARNINGS_LINES_COLLECTION);
   const links = strictly<TitleLinkView>(linksSnap.docs, readTitleLink, EARNINGS_TITLE_LINKS_COLLECTION);
   const jobs = strictly<StoredJob>(jobsSnap.docs, readJob, CLEANING_JOBS_COLLECTION);
+  const arrangements = strictly<ArrangementView>(arrangementsSnap.docs, readArrangement, DIRECT_ARRANGEMENTS_COLLECTION);
+  const payments = strictly<DirectPaymentView>(paymentsSnap.docs, readDirectPayment, DIRECT_PAYMENTS_COLLECTION);
+  // Each property's direct payments in one word (part B): the worst of its arrangements, by the one function.
+  const direct: Record<string, DirectStanding> = {};
+  for (const propertyId of new Set(arrangements.map((a) => a.propertyId))) {
+    const standing = directStanding(arrangements.filter((a) => a.propertyId === propertyId), payments, today);
+    if (standing) direct[propertyId] = standing;
+  }
 
   // The cleanings the marks made, for the ones waiting for an amount: a mark the office removed has none to read.
   const cleaningIds = [...new Set(jobs.flatMap((job) => job.cleanerIds.map((cid) => job.assignments[cid]).filter((a) => a.cleaningId !== null && a.removedAt === null).map((a) => a.cleaningId as string)))];
@@ -70,5 +83,5 @@ export async function readPropertyStatus(now: Date = new Date()): Promise<Proper
       }),
   );
 
-  return { today, income: incomeReadOf({ month, uploads, lines, links }), cleaning: { from, to, jobs: jobs.map((job) => homeJobOf(job, cleanings)) }, unreadable };
+  return { today, income: { ...incomeReadOf({ month, uploads, lines, links }), direct }, cleaning: { from, to, jobs: jobs.map((job) => homeJobOf(job, cleanings)) }, unreadable };
 }

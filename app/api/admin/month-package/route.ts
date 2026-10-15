@@ -52,6 +52,7 @@ import { airbnbLineIdsOf } from '@/app/lib/money/month';
 import { CLEANINGS_COLLECTION } from '@/app/lib/cleanings/model';
 import { EARNINGS_LINES_COLLECTION, platformLinesOf, readEarningsLine, type EarningsLineView } from '@/app/lib/income/model';
 import { createdMonthOf } from '@/app/lib/firebase/created-month';
+import { directPlatformLines } from '@/app/lib/firebase/server-direct';
 
 /** The one thing logged about a Firestore or Storage error: its code. */
 function errorCode(err: unknown): string {
@@ -77,7 +78,7 @@ export const GET = adminRoute(async function GET(request: NextRequest, _context:
   let selection: ReturnType<typeof selectMonthPackage>;
   const madeAt = new Date();
   try {
-    const [properties, entries, reports, drafts, downloads, management, earnings, cleanings] = await Promise.all([
+    const [properties, entries, reports, drafts, downloads, management, earnings, cleanings, directLines] = await Promise.all([
       db.collection('properties').select('name').get(),
       db.collection(COST_ENTRIES_COLLECTION).get(),
       db.collection(MONTHLY_REPORTS_COLLECTION).get(),
@@ -89,6 +90,8 @@ export const GET = adminRoute(async function GET(request: NextRequest, _context:
       db.collection(EARNINGS_LINES_COLLECTION).where('status', '==', 'accepted').get(),
       // Every cleaning (dispatch 37B): costs the statements read; Nubnb's folder lists them with who cleaned.
       db.collection(CLEANINGS_COLLECTION).get(),
+      // Every recorded direct payment (part B): read where it is stored, the statements place it as they place Airbnb's lines.
+      directPlatformLines(),
     ]);
     const accepted = earnings.docs.map((doc) => readEarningsLine(doc.id, doc.data())).filter((line): line is EarningsLineView => line !== null);
     const input: SelectInputs = {
@@ -115,7 +118,7 @@ export const GET = adminRoute(async function GET(request: NextRequest, _context:
         return view ? [{ view, stored: doc.data() }] : [];
       }),
       airbnbLineIds: airbnbLineIdsOf(accepted),
-      platformLines: platformLinesOf(accepted),
+      platformLines: [...platformLinesOf(accepted), ...directLines],
       cleanings: cleanings.docs.map((doc) => ({ id: doc.id, stored: doc.data() })),
     };
     selection = selectMonthPackage(input);

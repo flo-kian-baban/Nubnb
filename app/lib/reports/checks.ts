@@ -22,6 +22,7 @@
  *            —    a typed cleaning line beside logged cleanings: cleaning may be charged twice (dispatch 37B)
  *            I15  stays on the property's calendar in the month that no line from a file covers (dispatch 37C)
  *            C2   costs approved automatically that nobody has looked at
+ *            —    a direct payment the month expects, not fully received (part B, Kian's rulings of 2026-10-15)
  *            —    entries sent in the month still pending (said before, in the old confirmation)
  *            S25  Report For cut short on the PDF
  *            S13  a statement dated before the day it is finished
@@ -83,9 +84,12 @@ export interface CheckInputs {
   today: string;
   /**
    * The month's revenue as the month's money gives it (dispatch 37A, Kian's ruling M1: an Airbnb claw-back takes
-   * revenue off), the figure the page shows beside the fee's base. Absent: the statement's own split by sign.
+   * revenue off; part B: direct payments count), the figure the page shows beside the fee's base. Absent: the
+   * statement's own split by sign.
    */
   revenueCents?: number;
+  /** The month's expected direct payments not fully received (app/lib/direct/periods.ts, `unpaidInMonth`). Absent: not read. */
+  direct?: { wording: string; payerName: string; expectedCents: number; receivedCents: number }[];
 }
 
 /** A typed line that charges cleaning: its description says so ("Expense - Cleaning", as the reports NuBNB sends have it). */
@@ -195,6 +199,11 @@ export function finishChecks(input: CheckInputs): FinishChecks {
       warnings.push({ key: 'calendar-stays', text: `${plural(income.uncovered.length, 'stay', 'stays')} on its calendar in ${monthName(s.month)} ${income.uncovered.length === 1 ? 'is' : 'are'} in no Airbnb line: ${shown}${income.uncovered.length > 4 ? ', …' : ''}.`, tab: 'income' });
     }
   }
+  // ── Direct payments (part B): a month that expects one not fully received warns; only received money is income ──
+  for (const [i, due] of (input.direct ?? []).entries()) {
+    warnings.push({ key: `direct-${i}`, text: `${month}'s ${due.wording} from ${due.payerName}: ${formatCents(due.receivedCents)} of ${formatCents(due.expectedCents)} received.`, tab: 'income' });
+  }
+
   // A cleaning typed as a line beside cleanings logged for the month would charge the owner twice (dispatch 37B).
   if (hasTypedCleaningLine(s) && loggedCleanings(s) > 0) warnings.push({ key: 'cleaning-twice', text: `A typed cleaning line and ${plural(loggedCleanings(s), 'logged cleaning', 'logged cleanings')}: cleaning may be charged twice.`, tab: 'income' });
 

@@ -84,6 +84,12 @@ service cloud.firestore {
     // to a cleaner or a handyman, marked deleted rather than erased. Admin
     // routes only, never a browser.
     match /team_payments/{paymentId} { allow read, write: if false; }
+    // Direct payments (Kian's rulings of 2026-10-15): a property's expected
+    // monthly payment from outside Airbnb, and each payment an admin received
+    // and recorded, removed rather than erased. Admin routes only, never a
+    // browser.
+    match /direct_arrangements/{arrangementId} { allow read, write: if false; }
+    match /direct_payments/{paymentId} { allow read, write: if false; }
 
     // Everything else: denied.
     match /{document=**} {

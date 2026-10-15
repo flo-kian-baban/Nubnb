@@ -138,6 +138,11 @@
   GET    /api/admin/cost-entries                              read, not recorded
   POST   /api/admin/cost-entries                              recorded as "Logged an office cost"
   POST   /api/admin/cost-reports                              recorded as "Exported a costs PDF"
+  PATCH  /api/admin/direct/arrangements/[id]                  recorded as "Changed a direct arrangement"
+  POST   /api/admin/direct/arrangements                       recorded as "Set up direct payments"
+  PATCH  /api/admin/direct/payments/[id]                      recorded as "Removed or re-applied a direct payment"
+  POST   /api/admin/direct/payments                           recorded as "Recorded a direct payment"
+  GET    /api/admin/direct                                    read, not recorded
   PATCH  /api/admin/income/lines/[id]                         recorded as "Edited an income line"
   POST   /api/admin/income/lines/accept                       recorded as "Accepted income lines"
   POST   /api/admin/income/lines/reject                       recorded as "Rejected income lines"
@@ -185,7 +190,7 @@
   POST   /api/properties                                      recorded as "Added a property"
   POST   /api/scrape-airbnb                                   recorded as "Read an Airbnb listing"
   POST   /api/upload-image                                    recorded as "Uploaded an image"
-  78 handlers through adminRoute; problems: 0
+  83 handlers through adminRoute; problems: 0
   routes still on the PIN-signed session: 0
   a route that unlocks an admin's PIN (the first version's per-admin lock): false
 

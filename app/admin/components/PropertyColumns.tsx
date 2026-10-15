@@ -17,7 +17,7 @@ import { propertyMonthHref } from "./StatementStatus";
 import shared from "../page.module.css";
 import cells from "./StatementStatus.module.css";
 
-const INCOME_CLASS: Record<IncomeTone, string> = { done: shared.stateFinished, warning: shared.stateDue, none: shared.stateOpen };
+const INCOME_CLASS: Record<IncomeTone, string> = { problem: shared.statePastDue, done: shared.stateFinished, warning: shared.stateDue, none: shared.stateOpen };
 const CLEANING_CLASS: Record<CleaningTone, string> = { problem: shared.statePastDue, warning: shared.stateDue, assigned: shared.stateDraft, done: shared.stateFinished, none: shared.stateOpen };
 
 const editSection = (propertyId: string, section: string) => `/admin/property/edit?id=${encodeURIComponent(propertyId)}&section=${section}`;

@@ -52,7 +52,7 @@ interface Props {
   typed: Typed;
   readOnly: boolean;
   /** The revenue and the typed expenses, as the month's money gives them (dispatch 37A: an Airbnb claw-back takes revenue off, Kian's ruling M1); null when it cannot be built. */
-  figures: Pick<Figures, "revenueCents" | "airbnbCents" | "expensesCents"> | null;
+  figures: Pick<Figures, "revenueCents" | "airbnbCents" | "directCents" | "expensesCents"> | null;
   /** While a correction is written: the statement as sent, beside it. */
   sent: Pick<Figures, "revenueCents" | "expensesCents"> | null;
   onChange: (next: Typed) => void;
@@ -95,10 +95,11 @@ function figuresOf(line: Pick<LineDraft, "quantity" | "rate">) {
   return { quantity, rateCents, amountCents: rateCents !== null && quantity !== null ? lineAmount(quantity, rateCents) : null };
 }
 
-/** "$2,000.00 revenue, Airbnb $1,900.00 · $60.00 expenses": Airbnb's part named when other revenue sits beside it. */
-function incomeWords(figures: Pick<Figures, "revenueCents" | "airbnbCents" | "expensesCents">): string {
+/** "$2,000.00 revenue, Airbnb $1,900.00, direct $100.00 · $60.00 expenses": each part named when other revenue sits beside it. */
+function incomeWords(figures: Pick<Figures, "revenueCents" | "airbnbCents" | "directCents" | "expensesCents">): string {
   const airbnb = figures.airbnbCents !== 0 && figures.airbnbCents !== figures.revenueCents ? `, Airbnb ${formatCents(figures.airbnbCents)}` : "";
-  return `${formatCents(figures.revenueCents)} revenue${airbnb} · ${formatCents(figures.expensesCents)} expenses`;
+  const direct = figures.directCents !== 0 && figures.directCents !== figures.revenueCents ? `, direct ${formatCents(figures.directCents)}` : "";
+  return `${formatCents(figures.revenueCents)} revenue${airbnb}${direct} · ${formatCents(figures.expensesCents)} expenses`;
 }
 
 /** A line from a file being edited: its words and amount as typed. */

@@ -34,7 +34,11 @@
  *                           accepted.
  *   cleaning                a cleaning an admin logged (dispatch 37B), read as an entry of kind `cleaning`
  *                           (app/lib/cleanings/model.ts): the month of the day cleaned; confirmed when logged
- * A cash payment (37E) is a further source of the same line.
+ *   direct                  a payment received outside Airbnb and recorded by an admin (part B of
+ *                           PROPERTY-LIST-COLUMNS-PLAN.md, Kian's rulings of 2026-10-15): read where it is stored, as
+ *                           a platform line (app/lib/direct/model.ts), in the month it was received; confirmed when
+ *                           recorded. Revenue, beside Airbnb's: the figure beside the fee's base and Finish's base
+ *                           check count it (Kian's ruling).
  *
  * ── Which statement charges a cost ──
  * The current finished statements, as stored: each cost row's total and each adjustment's difference. Then each
@@ -57,7 +61,7 @@ import { buildStatement, nextOpenMonth, printedLines, statementMonthFor, stateme
 
 // ─── Sources ───────────────────────────────────────────────────
 
-export type MoneySource = 'receipt' | 'work' | 'office' | 'cleaning' | 'typed' | 'airbnb';
+export type MoneySource = 'receipt' | 'work' | 'office' | 'cleaning' | 'typed' | 'airbnb' | 'direct';
 
 const NONE: ReadonlySet<string> = new Set();
 
@@ -72,20 +76,23 @@ export function airbnbLineIdsOf(lines: readonly { decided: { status: string; lin
 }
 
 /**
- * Where a statement line came from: an accepted Airbnb line, or typed. A line read where it is stored (dispatch
- * 37C) and a line loaded from a row written before dispatch 23D say so themselves (`source`); a copy made by
- * acceptance before 37C is known by its ID.
+ * Where a statement line came from: an accepted Airbnb line, a direct payment (part B), or typed. A line read where
+ * it is stored (dispatch 37C) and a line loaded from a row written before dispatch 23D say so themselves (`source`);
+ * a copy made by acceptance before 37C is known by its ID. A direct line is always one read where it is stored.
  */
-export function lineSource(line: Pick<Line, 'id' | 'source'>, airbnbLineIds: ReadonlySet<string>): 'airbnb' | 'typed' {
+export function lineSource(line: Pick<Line, 'id' | 'source'> & { platformLineId?: string }, airbnbLineIds: ReadonlySet<string>): 'airbnb' | 'direct' | 'typed' {
+  if (line.source === 'direct' && line.platformLineId !== undefined) return 'direct';
   return airbnbLineIds.has(line.id) || line.source === 'airbnb' ? 'airbnb' : 'typed';
 }
 
 /** What a statement's lines bring in. */
 export interface IncomeFigures {
-  /** Revenue: every Airbnb line, claw-backs taken off (Kian's ruling M1), and every typed line above zero. */
+  /** Revenue: every Airbnb line, claw-backs taken off (Kian's ruling M1), every direct payment, and every typed line above zero. */
   revenueCents: number;
   /** What Airbnb actually paid: its lines added up, claw-backs included. */
   airbnbCents: number;
+  /** What was received outside Airbnb (part B): the direct payments on the statement. */
+  directCents: number;
   /** Typed lines above zero. */
   typedRevenueCents: number;
   /** Typed expenses: typed lines below zero, as an amount. Never an Airbnb line. */
@@ -93,16 +100,19 @@ export interface IncomeFigures {
 }
 
 /** A statement's lines by source (M1): an Airbnb line below zero takes revenue off; it is never an expense. */
-export function incomeFigures(lines: readonly Pick<Line, 'id' | 'amountCents' | 'source'>[], airbnbLineIds: ReadonlySet<string> = NONE): IncomeFigures {
+export function incomeFigures(lines: readonly (Pick<Line, 'id' | 'amountCents' | 'source'> & { platformLineId?: string })[], airbnbLineIds: ReadonlySet<string> = NONE): IncomeFigures {
   let airbnbCents = 0;
+  let directCents = 0;
   let typedRevenueCents = 0;
   let expensesCents = 0;
   for (const line of lines) {
-    if (lineSource(line, airbnbLineIds) === 'airbnb') airbnbCents += line.amountCents;
+    const source = lineSource(line, airbnbLineIds);
+    if (source === 'airbnb') airbnbCents += line.amountCents;
+    else if (source === 'direct') directCents += line.amountCents;
     else if (line.amountCents > 0) typedRevenueCents += line.amountCents;
     else expensesCents -= line.amountCents;
   }
-  return { revenueCents: airbnbCents + typedRevenueCents, airbnbCents, typedRevenueCents, expensesCents };
+  return { revenueCents: airbnbCents + directCents + typedRevenueCents, airbnbCents, directCents, typedRevenueCents, expensesCents };
 }
 
 // ─── Figures ───────────────────────────────────────────────────
@@ -133,6 +143,7 @@ export function figuresOf(statement: AnyStatement, airbnbLineIds: ReadonlySet<st
     return {
       revenueCents: statement.incomeCents,
       airbnbCents,
+      directCents: 0,
       typedRevenueCents: statement.incomeCents - airbnbCents,
       expensesCents: 0,
       recordedCents: statement.costsCents,
@@ -318,7 +329,7 @@ export interface MonthMoney {
   /** While a correction is written: its figures, beside the statement as sent. */
   correction: Figures | null;
   /** The lines of `statement`, each with its source. */
-  income: { line: Line; source: 'typed' | 'airbnb' }[];
+  income: { line: Line; source: 'typed' | 'airbnb' | 'direct' }[];
   /** Every cost entry that belongs to the month, oldest first. */
   costs: CostLine[];
   costTotals: CostTotals;

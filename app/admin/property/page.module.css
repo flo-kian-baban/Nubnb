@@ -848,3 +848,37 @@ textarea.reasonInput {
 .inlineAmount {
   flex: 0 0 130px;
 }
+
+/* ── The Income tab's Direct block (part B): a month's state in the admin's tones ── */
+.directState {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  margin-right: 6px;
+}
+.directPaid {
+  background: rgba(74, 222, 128, 0.1);
+  color: #6ee7a0;
+  border-color: rgba(74, 222, 128, 0.18);
+}
+.directPartly {
+  background: rgba(245, 158, 11, 0.08);
+  color: #f0a63a;
+  border-color: rgba(245, 158, 11, 0.22);
+}
+.directOverdue {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef5350;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+.directExpected {
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.6);
+  border-color: rgba(255, 255, 255, 0.14);
+}

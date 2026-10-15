@@ -59,6 +59,9 @@ no checkout. Do not build toward one unless asked.
 - **Never use production credentials to log into the production admin
   panel.** Verify against a local build reading production data; Kian
   performs any check that genuinely requires a live admin session.
+- **Verification never acts as a real admin.** Test admins are `__TEST__`
+  accounts, created and removed as before; a real admin's account is never
+  used, read-only or not. Kian's ruling of 2026-10-15.
 
 ## Accepted state — do not re-raise
 
@@ -714,3 +717,6 @@ On the admin home's property list, and PROPERTY-LIST-COLUMNS-PLAN.md:
 - **B is built; no direct short stay is recorded until Kian confirms tax
   treatment with his accountant.**
 - **PROPERTY-LIST-COLUMNS-PLAN.md's §7 choices are accepted.**
+- **The short-stay threshold is 30 nights, not 28, until Kian's accountant
+  confirms otherwise.** Kian's ruling of 2026-10-15, after the part B report.
+- **The developer's other choices in the part B report are accepted.**

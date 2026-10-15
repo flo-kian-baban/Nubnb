@@ -21,13 +21,17 @@ const isFacts = (f: unknown) =>
 
 const isCleaner = (c: unknown) => isRecord(c) && isTextOrNull(c.name) && typeof c.marked === 'boolean' && typeof c.removed === 'boolean' && typeof c.pending === 'boolean';
 
+const DIRECT_STATES = ['expected', 'partly', 'paid', 'overdue', 'paused'];
+const isDirect = (d: unknown) =>
+  isRecord(d) && DIRECT_STATES.includes(d.state as string) && typeof d.month === 'string' && isTextOrNull(d.dueDate) && typeof d.expectedCents === 'number' && typeof d.receivedCents === 'number' && typeof d.wording === 'string' && isCount(d.overdueMonths);
+
 const isJob = (j: unknown) =>
   isRecord(j) && typeof j.propertyId === 'string' && typeof j.checkout === 'string' && (j.status === 'open' || j.status === 'booking-changed') && typeof j.changedAfterMark === 'boolean' && isTextOrNull(j.change) && Array.isArray(j.cleaners) && j.cleaners.every(isCleaner);
 
 function isAnswer(data: unknown): data is PropertyStatusRead {
   if (!isRecord(data) || typeof data.today !== 'string' || !isRecord(data.income) || !isRecord(data.cleaning) || !isCount(data.unreadable)) return false;
   const { income, cleaning } = data;
-  return typeof income.month === 'string' && typeof income.uploaded === 'boolean' && isRecord(income.properties) && Object.values(income.properties).every(isFacts) && typeof cleaning.from === 'string' && typeof cleaning.to === 'string' && Array.isArray(cleaning.jobs) && cleaning.jobs.every(isJob);
+  return typeof income.month === 'string' && typeof income.uploaded === 'boolean' && isRecord(income.properties) && Object.values(income.properties).every(isFacts) && isRecord(income.direct) && Object.values(income.direct).every(isDirect) && typeof cleaning.from === 'string' && typeof cleaning.to === 'string' && Array.isArray(cleaning.jobs) && cleaning.jobs.every(isJob);
 }
 
 export async function fetchPropertyStatus(): Promise<PropertyStatusResult> {

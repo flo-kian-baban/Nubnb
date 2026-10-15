@@ -3,7 +3,8 @@
  *
  * Kian's ruling of 2026-10-12: a property with drafts, statements, accepted
  * income, title links or cost entries cannot be deleted; its cleanings
- * (dispatch 37B) are costs too, and count beside its entries. The page points to
+ * (dispatch 37B) are costs too, and count beside its entries; its direct
+ * payments and arrangements (part B) are income, and count beside its lines. The page points to
  * Unlisted and Exclude from reporting instead, which take it off the public
  * site and out of reporting with nothing erased.
  *
@@ -26,6 +27,7 @@ import { COST_ENTRIES_COLLECTION, PROPERTY_CLEANER_NAMES_COLLECTION } from '@/ap
 import { CLEANINGS_COLLECTION } from '@/app/lib/cleanings/model';
 import { EARNINGS_LINES_COLLECTION, EARNINGS_TITLE_LINKS_COLLECTION } from '@/app/lib/income/model';
 import { MONTHLY_REPORTS_COLLECTION, MONTHLY_REPORT_DRAFTS_COLLECTION, PROPERTY_MANAGEMENT_COLLECTION } from '@/app/lib/reports/model';
+import { DIRECT_ARRANGEMENTS_COLLECTION, DIRECT_PAYMENTS_COLLECTION } from '@/app/lib/direct/model';
 
 /** What stops a property from being deleted: how many of each it holds. */
 export interface PropertyHoldings {
@@ -36,6 +38,9 @@ export interface PropertyHoldings {
   costEntries: number;
   /** Cleanings logged for it (dispatch 37B): its owner's costs and its cleaners' earnings. */
   cleanings: number;
+  /** Direct payments recorded for it, removed ones included, and its arrangements (part B): its income, kept. */
+  directPayments: number;
+  arrangements: number;
 }
 
 export type DeletePropertyResult = { kind: 'deleted' } | { kind: 'not-found' } | { kind: 'holds-records'; holdings: PropertyHoldings };
@@ -54,6 +59,8 @@ export function holdingsText(holdings: PropertyHoldings): string {
     [holdings.titleLinks, 'Airbnb title link', 'Airbnb title links'],
     [holdings.costEntries, 'cost entry', 'cost entries'],
     [holdings.cleanings, 'cleaning', 'cleanings'],
+    [holdings.directPayments, 'direct payment', 'direct payments'],
+    [holdings.arrangements, 'direct arrangement', 'direct arrangements'],
   ]
     .filter(([count]) => (count as number) > 0)
     .map(([count, one, many]) => `${count} ${count === 1 ? one : many}`);
@@ -70,7 +77,7 @@ export async function deletePropertyUnlessItHoldsRecords(propertyId: string): Pr
   const db = getAdminDb();
   const property = db.collection('properties').doc(propertyId);
   return db.runTransaction(async (tx): Promise<DeletePropertyResult> => {
-    const [doc, drafts, statements, lines, links, entries, cleanings] = await Promise.all([
+    const [doc, drafts, statements, lines, links, entries, cleanings, directPayments, arrangements] = await Promise.all([
       tx.get(property),
       tx.get(db.collection(MONTHLY_REPORT_DRAFTS_COLLECTION).where('propertyId', '==', propertyId).select()),
       tx.get(db.collection(MONTHLY_REPORTS_COLLECTION).where('propertyId', '==', propertyId).select()),
@@ -78,6 +85,8 @@ export async function deletePropertyUnlessItHoldsRecords(propertyId: string): Pr
       tx.get(db.collection(EARNINGS_TITLE_LINKS_COLLECTION).where('propertyId', '==', propertyId).select()),
       tx.get(db.collection(COST_ENTRIES_COLLECTION).where('propertyId', '==', propertyId).select()),
       tx.get(db.collection(CLEANINGS_COLLECTION).where('propertyId', '==', propertyId).select()),
+      tx.get(db.collection(DIRECT_PAYMENTS_COLLECTION).where('propertyId', '==', propertyId).select()),
+      tx.get(db.collection(DIRECT_ARRANGEMENTS_COLLECTION).where('propertyId', '==', propertyId).select()),
     ]);
     if (!doc.exists) return { kind: 'not-found' };
     const holdings: PropertyHoldings = {
@@ -87,6 +96,8 @@ export async function deletePropertyUnlessItHoldsRecords(propertyId: string): Pr
       titleLinks: links.size,
       costEntries: entries.size,
       cleanings: cleanings.size,
+      directPayments: directPayments.size,
+      arrangements: arrangements.size,
     };
     if (holdsRecords(holdings)) return { kind: 'holds-records', holdings };
     // Deleting a document that does not exist is a no-op: each of the three may never have been written.

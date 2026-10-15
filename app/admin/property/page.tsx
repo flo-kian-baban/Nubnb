@@ -80,13 +80,18 @@ import { fetchCosts } from "@/app/lib/costs-client";
 import { deleteStatement, fetchPropertyStatements, fetchStatementLink, finishStatement, saveDraft, setReportFor as saveReportFor, type PropertyStatements, type StatementDeleted } from "@/app/lib/reports-client";
 import { fetchPropertyIncome, type PropertyIncome } from "@/app/lib/income-client";
 import { isCopied, platformLinesOf } from "@/app/lib/income/model";
-import type { PlatformLineInput } from "@/app/lib/reports/statement";
+import { printedPlatformLines, type PlatformLineInput } from "@/app/lib/reports/statement";
+import { fetchDirect } from "@/app/lib/direct-client";
+import { directLinesOf } from "@/app/lib/direct/model";
+import { unpaidInMonth } from "@/app/lib/direct/periods";
+import { DirectBlock, type DirectRead, type PrintedBy } from "./DirectBlock";
 import { formatCents, type CostEntryView, type CostsView, type ReportExportView } from "@/app/lib/cleaners/model";
 import { torontoDayOf } from "@/app/lib/costs/report";
 import {
   STATEMENTS_FROM_DEFAULT,
   STATEMENT_LIMITS,
   addMonths,
+  currentReports,
   displayRef,
   inStatementScope, isExcludedFromReporting,
   isClosedMonth,
@@ -184,6 +189,9 @@ function PropertyPageInner() {
   const [statements, setStatements] = useState<Read<PropertyStatements>>({ kind: "loading" });
   /** The lines from the platforms' files under this property (dispatch 27): read beside the two, never in their way. */
   const [fromFiles, setFromFiles] = useState<Read<FromFiles>>({ kind: "loading" });
+  /** The property's direct arrangements and payments (part B, Kian's rulings of 2026-10-15): read beside the lines from the files. */
+  const [direct, setDirect] = useState<DirectRead>({ kind: "loading" });
+  const [directAttempt, setDirectAttempt] = useState(0);
   const [attempt, setAttempt] = useState(0);
   const { notice, show, clear } = useNotice();
   /** Each month's typing, kept while another month is open (dispatch 34, S10); keyed by property and month. */
@@ -222,6 +230,20 @@ function PropertyPageInner() {
   /** Read the lines from the files again, keeping what is shown until the answer comes (after an edit or a line sent back). */
   const rereadFiles = useCallback(() => setFilesAttempt((n) => n + 1), []);
 
+  // ── The direct payments (part B): read again after each change, keeping what is shown until the answer comes ──
+  useEffect(() => {
+    if (!valid) return;
+    let cancelled = false;
+    fetchDirect(propertyId).then((result) => {
+      if (cancelled) return;
+      setDirect(result.ok ? { kind: "ready", data: result.data } : { kind: "error", title: result.title });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [propertyId, valid, attempt, directAttempt]);
+  const rereadDirect = useCallback(() => setDirectAttempt((n) => n + 1), []);
+
   // ── The address bar ──
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -237,6 +259,7 @@ function PropertyPageInner() {
     setCosts({ kind: "loading" });
     setStatements({ kind: "loading" });
     setFromFiles({ kind: "loading" });
+    setDirect({ kind: "loading" });
     setAttempt((n) => n + 1);
   }, [clear]);
 
@@ -304,8 +327,19 @@ function PropertyPageInner() {
   const charges = useMemo(() => (data && costData ? costCharges({ propertyId, entries: costData.entries, reports: data.reports, management: data.management }) : null), [data, costData, propertyId]);
   /** The statement lines that came from an accepted Airbnb line copied into a draft before dispatch 37C (Kian's ruling M1: a claw-back takes revenue off). */
   const airbnbLineIds = useMemo(() => airbnbLineIdsOf(fromFiles.kind === "ready" ? fromFiles.data.lines : []), [fromFiles]);
-  /** The accepted lines read where they are stored (dispatch 37C, Kian's ruling M10): the statements place them. */
-  const platformLines = useMemo(() => platformLinesOf(fromFiles.kind === "ready" ? fromFiles.data.lines : []), [fromFiles]);
+  /** The accepted lines read where they are stored (dispatch 37C, Kian's ruling M10), and the recorded direct payments (part B): the statements place them. */
+  const platformLines = useMemo(() => [...platformLinesOf(fromFiles.kind === "ready" ? fromFiles.data.lines : []), ...directLinesOf(direct.kind === "ready" ? direct.data.payments.filter((p) => p.propertyId === propertyId) : [])], [fromFiles, direct, propertyId]);
+  /** Which current finished statement prints each direct payment, and whether it is being corrected: a printed payment is locked (Kian's ruling). */
+  const printedDirect = useMemo<PrintedBy>(() => {
+    const out: PrintedBy = new Map();
+    if (!data) return out;
+    const current = currentReports(data.reports);
+    for (const [lineId, at] of printedPlatformLines(current)) {
+      const report = current.find((r) => r.id === at.reportId);
+      out.set(lineId, { reference: report ? displayRef(report) : at.reportId, month: at.month, correcting: data.drafts.some((d) => d.finishedAs === null && d.supersedes?.reportId === at.reportId) });
+    }
+    return out;
+  }, [data]);
 
   // ── The months ──
   /** The months this property has accepted income or approved costs in: owed whenever it was added (Kian's ruling of 2026-10-04). */
@@ -462,6 +496,9 @@ function PropertyPageInner() {
                 airbnbLineIds={airbnbLineIds}
                 platformLines={platformLines}
                 onFilesChanged={rereadFiles}
+                direct={direct}
+                printedDirect={printedDirect}
+                onDirectChanged={rereadDirect}
               />
             </div>
           </>
@@ -517,6 +554,12 @@ interface MonthWorkProps {
   platformLines: PlatformLineInput[];
   /** An accepted line was edited or sent back on the Income tab: the lines are read again. */
   onFilesChanged: () => void;
+  /** The property's direct arrangements and payments (part B). */
+  direct: DirectRead;
+  /** Which finished statement prints each direct payment: locked unless it is being corrected. */
+  printedDirect: PrintedBy;
+  /** A direct payment or arrangement changed: they are read again. */
+  onDirectChanged: () => void;
 }
 
 /**
@@ -603,7 +646,11 @@ function MonthWork(props: MonthWorkProps) {
   const built = money.build;
   const statement = money.statement;
   /** The statement's lines read from the files, where they are stored (dispatch 37C): listed on the Income tab apart from the typed ones. */
-  const fileLines = useMemo(() => (statement && !statement.legacy ? statement.lines.filter((line) => line.platformLineId !== undefined) : []), [statement]);
+  const fileLines = useMemo(() => (statement && !statement.legacy ? statement.lines.filter((line) => line.platformLineId !== undefined && line.source !== "direct") : []), [statement]);
+  /** The direct payments the statement prints (part B): listed in the Income tab's Direct block. */
+  const directLines = useMemo(() => (statement && !statement.legacy ? statement.lines.filter((line) => line.platformLineId !== undefined && line.source === "direct") : []), [statement]);
+  /** The month's expected direct payments not fully received: Finish warns (part B). null while they are not read. */
+  const directUnpaid = useMemo(() => (props.direct.kind === "ready" ? unpaidInMonth(props.direct.data.arrangements.filter((a) => a.propertyId === propertyId), props.direct.data.payments, month, today) : null), [props.direct, propertyId, month, today]);
   /** The figures the tabs show: the statement on screen (the correction's while one is written); and, beside a correction, the statement as sent. */
   const figures = money.correction ?? money.figures;
   const sentFigures = money.correcting ? money.figures : null;
@@ -640,7 +687,7 @@ function MonthWork(props: MonthWorkProps) {
   }, [props.fromFiles, files.pending, files.calendar, month]);
 
   /** What Finish checks (dispatch 34, Kian's rulings of 2026-10-12): refused only without a Report For name; everything else warns. */
-  const checks = useMemo(() => (built?.kind === "ok" && !readOnly ? finishChecks({ statement: built.statement, reports, entries, income: incomeFacts, today, revenueCents: figures?.revenueCents }) : null), [built, readOnly, reports, entries, incomeFacts, today, figures]);
+  const checks = useMemo(() => (built?.kind === "ok" && !readOnly ? finishChecks({ statement: built.statement, reports, entries, income: incomeFacts, today, revenueCents: figures?.revenueCents, ...(directUnpaid ? { direct: directUnpaid } : {}) }) : null), [built, readOnly, reports, entries, incomeFacts, today, figures, directUnpaid]);
   /** The later statements that adjusted or carried from the month's finished one: the Delete and Correct dialogs name them (Kian's ruling of 2026-10-12). */
   const later = useMemo(() => (finishedReport ? laterReferences(finishedReport, reports) : []), [finishedReport, reports]);
   const laterWords = later.map(({ report, adjusted, carried }) => `${displayRef(report)} (${monthLabel(report.month)}) ${[adjusted ? "adjusted its costs" : null, carried ? "carried its balance" : null].filter(Boolean).join(" and ")}`);
@@ -942,7 +989,7 @@ function MonthWork(props: MonthWorkProps) {
             <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} className={`${styles.tab} ${tab === t.key ? styles.tabActive : ""}`} onClick={() => props.onTab(t.key)}>
               {t.label}
               {t.key === "costs" && approvedInMonth !== null && approvedInMonth > 0 && <span className={styles.tabCount}>{approvedInMonth}</span>}
-              {t.key === "income" && typed.lines.length + fileLines.length > 0 && <span className={styles.tabCount}>{typed.lines.length + fileLines.length}</span>}
+              {t.key === "income" && typed.lines.length + fileLines.length + directLines.length > 0 && <span className={styles.tabCount}>{typed.lines.length + fileLines.length + directLines.length}</span>}
             </button>
           ))}
         </div>
@@ -976,6 +1023,7 @@ function MonthWork(props: MonthWorkProps) {
             />
           )}
           {tab === "income" && <IncomeTab typed={typed} readOnly={readOnly} figures={figures} sent={sentFigures} onChange={change} show={show} files={files} fileLines={fileLines} onFilesChanged={props.onFilesChanged} />}
+          {tab === "income" && <DirectBlock propertyId={propertyId} month={month} today={today} read={props.direct} lines={directLines} printed={props.printedDirect} onChanged={props.onDirectChanged} show={show} />}
           {tab === "details" && (
             <DetailsTab
               typed={typed}

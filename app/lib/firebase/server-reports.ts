@@ -54,6 +54,7 @@ import { createHash } from 'crypto';
 import { z } from 'zod';
 import type { Transaction } from 'firebase-admin/firestore';
 import { getAdminBucket, getAdminDb } from './admin';
+import { directPlatformLines } from './server-direct';
 import { createdMonthOf } from './created-month';
 import { isDocumentId } from './server-leads';
 import { listCosts, listPropertyEntries, propertyEntriesInTransaction, toCents } from './server-cost-entries';
@@ -301,11 +302,15 @@ export interface StatementBundle {
   platformLines: PlatformLineInput[];
 }
 
-/** A property's accepted lines from the platforms' files, read where they are stored (dispatch 37C): in a transaction when given one. */
+/**
+ * A property's accepted lines from the platforms' files, read where they are stored (dispatch 37C), and its recorded
+ * direct payments, read the same way (part B, Kian's rulings of 2026-10-15): in a transaction when given one, so
+ * Finish checks both again.
+ */
 async function propertyPlatformLines(propertyId: string, tx?: Transaction): Promise<PlatformLineInput[]> {
   const query = getAdminDb().collection(EARNINGS_LINES_COLLECTION).where('decided.propertyId', '==', propertyId).where('status', '==', 'accepted');
-  const snapshot = tx ? await tx.get(query) : await query.get();
-  return platformLinesOf(snapshot.docs.map((doc) => readEarningsLine(doc.id, doc.data())).filter((line): line is EarningsLineView => line !== null));
+  const [snapshot, direct] = await Promise.all([tx ? tx.get(query) : query.get(), directPlatformLines(propertyId, tx)]);
+  return [...platformLinesOf(snapshot.docs.map((doc) => readEarningsLine(doc.id, doc.data())).filter((line): line is EarningsLineView => line !== null)), ...direct];
 }
 
 /** The editor's read. null when no property has the ID. @throws if a read fails. */
@@ -892,7 +897,7 @@ export function summarise(report: MonthlyReportView): MonthlyReportSummary {
  */
 export async function readTracker(): Promise<TrackerData> {
   const db = getAdminDb();
-  const [reportsSnap, draftsSnap, downloadsSnap, management, costs, acceptedSnap] = await Promise.all([
+  const [reportsSnap, draftsSnap, downloadsSnap, management, costs, acceptedSnap, directLines] = await Promise.all([
     db.collection(MONTHLY_REPORTS_COLLECTION).get(),
     db.collection(MONTHLY_REPORT_DRAFTS_COLLECTION).get(),
     db.collection(REPORT_DOWNLOADS_COLLECTION).get(),
@@ -900,6 +905,8 @@ export async function readTracker(): Promise<TrackerData> {
     listCosts(),
     // The accepted Airbnb lines: which statement lines are Airbnb's, for the panel's revenue (Kian's ruling M1).
     db.collection(EARNINGS_LINES_COLLECTION).where('status', '==', 'accepted').get(),
+    // The recorded direct payments (part B): placed by the statements, and money in their months (M2).
+    directPlatformLines(),
   ]);
   const unreadable = { reports: 0, drafts: 0, downloads: 0 };
   const reports: MonthlyReportSummary[] = [];
@@ -932,7 +939,7 @@ export async function readTracker(): Promise<TrackerData> {
   if (costs.properties === null) throw new Error('The property names could not be read');
   const accepted = acceptedSnap.docs.map((doc) => readEarningsLine(doc.id, doc.data())).filter((line): line is EarningsLineView => line !== null);
   // Read where they are stored (dispatch 37C, M10): the statements place them, and their months are owed.
-  const platformLines = platformLinesOf(accepted);
+  const platformLines = [...platformLinesOf(accepted), ...directLines];
   // A month with accepted income or approved costs is owed whenever the property was added (Kian's ruling of 2026-10-04).
   const money = moneyMonthsByProperty(withLines, costs.entries, platformLines);
   const properties = costs.properties.map((property) => ({ ...property, moneyMonths: money.get(property.id) ?? [] }));

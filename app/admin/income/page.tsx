@@ -58,6 +58,7 @@ import { useSearchParams } from "next/navigation";
 import { AlertTriangle, ChevronLeft, ChevronRight, FileText, RefreshCw, Upload } from "lucide-react";
 import { AdminHeader } from "../components/AdminHeader";
 import { PageHead } from "../components/PageHead";
+import { DirectSection } from "./DirectSection";
 import { AdminSelect } from "../components/AdminSelect";
 import { PinGate } from "../components/PinGate";
 import { NoticeBanner, useNotice } from "../components/Notice";
@@ -862,6 +863,9 @@ function IncomePageInner() {
               )}
             </section>
 
+            {/* ── Direct: money received outside Airbnb, for every property (part B, Kian's rulings of 2026-10-15) ── */}
+            <DirectSection month={month} properties={data.properties} show={show} onRecorded={reread} />
+
             {/* ── By property: the statements' lines, figured by the month's money as the property page figures them (dispatch 37A) ── */}
             <section className={styles.block} aria-label="By property">
               <div className={styles.blockHead}>
@@ -883,6 +887,7 @@ function IncomePageInner() {
                           <th className={styles.num}>From a file</th>
                           <th className={styles.num}>Revenue</th>
                           <th className={styles.num}>of which Airbnb</th>
+                          <th className={styles.num}>of which direct</th>
                           <th className={styles.num}>Expenses</th>
                           <th className={styles.num} title="Lines under its titles still to review: in no statement until accepted">Waiting</th>
                           <th className={styles.colFit}>Statement</th>
@@ -907,6 +912,7 @@ function IncomePageInner() {
                               {row.correction && <span className={styles.muted}> · correction {formatCents(row.correction.revenueCents)}</span>}
                             </td>
                             <td className={styles.num}>{row.airbnbCents === 0 ? <span className={styles.muted}>—</span> : formatCents(row.airbnbCents)}</td>
+                            <td className={styles.num}>{row.directCents === 0 ? <span className={styles.muted}>—</span> : formatCents(row.directCents)}</td>
                             <td className={styles.num}>
                               {formatCents(row.expensesCents)}
                               {row.correction && row.correction.expensesCents !== row.expensesCents && <span className={styles.muted}> · correction {formatCents(row.correction.expensesCents)}</span>}

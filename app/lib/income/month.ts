@@ -89,6 +89,8 @@ export interface PropertyIncomeRow {
   revenueCents: number;
   /** What Airbnb paid, in that revenue. */
   airbnbCents: number;
+  /** What was received outside Airbnb, in that revenue (part B). */
+  directCents: number;
   /** Typed lines below zero, as an amount. */
   expensesCents: number;
   /** Lines under its titles still waiting for review, added up: apart, in no statement until accepted. */
@@ -219,9 +221,11 @@ export function monthView(input: MonthInputs): MonthView {
         propertyId: s.propertyId,
         name: names.get(s.propertyId) ?? null,
         lines: s.lines.length,
-        fromFile: s.lines.filter((line) => line.platformLineId !== undefined || fromFileIds.has(line.id)).length,
+        // A direct payment is read where it is stored too, but from no file (part B).
+        fromFile: s.lines.filter((line) => (line.platformLineId !== undefined && line.source !== 'direct') || fromFileIds.has(line.id)).length,
         revenueCents: held.revenueCents,
         airbnbCents: held.airbnbCents,
+        directCents: held.directCents,
         expensesCents: held.expensesCents,
         waitingCents: groups.get(s.propertyId)?.amountCents ?? 0,
         finished: s.finished || s.sent !== null && s.sent !== undefined,

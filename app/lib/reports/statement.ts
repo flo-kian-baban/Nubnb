@@ -39,7 +39,7 @@
 import { formatCents, type CostEntryView } from '@/app/lib/cleaners/model';
 import { entryMonth, entryRef, officeWhen, sentDay } from '@/app/lib/costs/report';
 import {
-  INCOME_SOURCE_LABELS,
+  LINE_SOURCE_LABELS,
   addMonths,
   currentReports,
   feeComputed,
@@ -58,7 +58,7 @@ import {
   type Carried,
   type Fee,
   type IncomeRow,
-  type IncomeSource,
+  type LineSource,
   type Line,
   type MonthlyReportView,
   type PropertyManagementView,
@@ -166,9 +166,10 @@ export interface StatementInputs {
  * month's statement while it is open, else on the next open one with its date printed (M11).
  */
 export interface PlatformLineInput {
-  /** The stored line's ID, `earnings_lines/{id}`. */
+  /** The stored line's ID: `earnings_lines/{id}`, or a direct payment's, `direct_payments/{id}` (part B). */
   id: string;
-  platform: IncomeSource;
+  /** The platform whose file it came from, or `direct`: a payment received outside Airbnb (part B, Kian's rulings of 2026-10-15). */
+  platform: LineSource;
   /** The property it was accepted for. */
   propertyId: string;
   /** The month it belongs to: the day the platform paid it, Toronto calendar. */
@@ -493,7 +494,8 @@ export function platformLinesOn(input: { propertyId: string; month: string; firs
     .map((line) => ({
       line: {
         id: line.id,
-        description: line.month === input.month ? line.description : withPaidDate(line.description, line.payoutDate),
+        // A direct payment's words already print the day it was received (Kian's ruling of 2026-10-15): kept as they are.
+        description: line.month === input.month || line.platform === 'direct' ? line.description : withPaidDate(line.description, line.payoutDate),
         from: null,
         to: null,
         quantity: 1,
@@ -817,7 +819,7 @@ export function feeFrom(label: string, rateBasisPoints: number | null, baseCents
 
 /** "Airbnb · ref HMABC123", for a line loaded from a row written before dispatch 23D; "" when it carried nothing. */
 export function lineDetailsText(line: Pick<Line, 'source' | 'reference'>): string {
-  return [line.source === undefined ? null : INCOME_SOURCE_LABELS[line.source], line.reference ? `ref ${line.reference}` : null].filter((part): part is string => part !== null).join(' · ');
+  return [line.source === undefined ? null : LINE_SOURCE_LABELS[line.source], line.reference ? `ref ${line.reference}` : null].filter((part): part is string => part !== null).join(' · ');
 }
 
 /** Whether a statement has anything in it: no line, no cost, no adjustment and no fee is "Nothing to report". */
