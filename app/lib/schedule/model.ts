@@ -1,9 +1,9 @@
 /**
  * The cleaning schedule, phase 1 (Kian's rulings of 2026-10-14, in CLAUDE.md
  * under *Cleaning schedule*): the job, its assignments, and how a page reads
- * them. Pure and dependency-free, like app/lib/availability, so the hourly
- * Cloud Function runs this same code (scripts/functions-sync.mjs copies the
- * folder in): nothing here imports Next, Firebase or anything under `@/`.
+ * them. Pure and dependency-free, like app/lib/availability, the same for the
+ * pages and the server: nothing here imports Next, Firebase or anything under
+ * `@/`.
  *
  * A job is one property's turnover: `cleaning_jobs/{propertyId}_{checkout}`,
  * made two days before an Airbnb reservation's checkout from the property's

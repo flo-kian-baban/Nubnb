@@ -1,9 +1,9 @@
 /**
  * What one run of the calendar copy does to the jobs: which to make, which
  * changed. Pure: the copy just written and the jobs already stored go in, a
- * plan comes out, and store.ts writes it. The Cloud Function and Refresh now
- * run the same plan (Kian's rulings of 2026-10-14: the hourly copy deploys
- * with the job sync inside it; until then, jobs come from Refresh now only).
+ * plan comes out, and store.ts writes it. Every refresh runs it: the day's
+ * first admin page or cleaner app, in the background, and Refresh calendars
+ * (Kian's ruling of 2026-10-14, night: no scheduled job).
  *
  * ── Made ──
  * A job for every reservation ending today, tomorrow or the day after

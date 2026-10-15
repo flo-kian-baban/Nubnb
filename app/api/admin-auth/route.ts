@@ -46,6 +46,11 @@
  * was removed or given a new PIN — is answered 401 and cleared, so the gate
  * shows the sign-in and the browser stops sending it.
  *
+ * The day's first admin page refreshes the calendars (Kian's ruling of
+ * 2026-10-14, night): a successful GET or sign-in starts the refresh after
+ * the response, when today has none yet (app/lib/availability/daily.ts). It
+ * never delays the answer; maxDuration gives the run its 300 seconds.
+ *
  * Every response is no-store.
  */
 
@@ -58,6 +63,10 @@ import { ADMIN_AUTH_NOT_CONFIGURED, getAdminPinKey, getAdminSessionKey } from '@
 import { ADMIN_AUTH_UNAVAILABLE, clearAdminSessionCookie, createAdminToken, setAdminSessionCookie, verifyAdminSession } from '@/app/lib/admins/session';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { signIn } from '@/app/lib/firebase/server-admins';
+import { refreshIfFirstToday } from '@/app/lib/availability/daily';
+
+/** The day's first admin page may run the calendar refresh after its answer: it has this long. */
+export const maxDuration = 300;
 
 /** Strict: a body carrying anything else is refused, not trimmed. */
 const SignInSchema = z.strictObject({
@@ -115,6 +124,7 @@ export async function POST(request: Request) {
         console.error('[admin-auth] session not issued: the admin record cannot be put in a token');
         return noStore(apiFailure(ADMIN_AUTH_UNAVAILABLE));
       }
+      refreshIfFirstToday('admin-page');
       return response;
     }
   }
@@ -127,6 +137,7 @@ export async function GET(request: Request) {
     if (session.staleCookie) clearAdminSessionCookie(response);
     return response;
   }
+  refreshIfFirstToday('admin-page');
   return noStore(apiSuccess({ admin: signedInView(session.admin) }));
 }
 

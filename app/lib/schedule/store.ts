@@ -1,8 +1,9 @@
 /**
  * Writing the plan (sync.ts) to `cleaning_jobs`, through the Admin SDK: run
- * right after the calendar copy is written, by the hourly Cloud Function and
- * by Refresh now (refresh.ts). Like availability/store.ts, nothing here
- * initialises an app: each caller passes its own `Firestore`.
+ * right after the calendar copy is written, by every refresh — the day's
+ * first admin page or cleaner app, and Refresh calendars (refresh.ts). Like
+ * availability/store.ts, nothing here initialises an app: each caller passes
+ * its own `Firestore`.
  *
  * Reads: one query, the jobs from today on (a few days' checkouts), and one
  * read per job that changed. Writes: one `create()` per new job — an ID that

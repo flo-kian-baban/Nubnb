@@ -23,6 +23,7 @@ export const CHECKS = [
   { name: 'admin-accounts', script: 'admins/accounts.mjs', args: [] },
   { name: 'admin-recover-pin', script: 'admins/recover-pin.mjs', args: [] },
   { name: 'cleaning-jobs', script: 'schedule/jobs.mjs', args: [] },
+  { name: 'calendar-refresh', script: 'availability/refresh-state.mjs', args: [] },
 ];
 
 const argv = process.argv.slice(2);

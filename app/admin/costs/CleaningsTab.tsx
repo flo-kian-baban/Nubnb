@@ -172,12 +172,15 @@ export function CleaningsTab({ cleanings, team, properties, filters, setFilter, 
   const total = useMemo(() => logged.reduce((sum, c) => sum + (c.amountCents ?? 0), 0), [logged]);
   /** Cleanings marked on a job with no amount to start from (the cleaning schedule): each waits for an admin to type one. */
   const waiting = useMemo(() => logged.filter((c) => c.amountCents === null).length, [logged]);
-  /** What each cleaner earned in these dates (Kian's ruling: a cleaning is also the cleaner's earnings record). */
+  /**
+   * What each cleaner earned in these dates (Kian's ruling: a cleaning is also the cleaner's earnings record), and
+   * beside the total, how many of their cleanings are still waiting for an amount (Kian, 2026-10-14, night).
+   */
   const earned = useMemo(() => {
-    const byCleaner = new Map<string, { name: string; count: number; cents: number }>();
+    const byCleaner = new Map<string, { name: string; count: number; cents: number; waiting: number }>();
     for (const c of logged) {
-      const was = byCleaner.get(c.cleanerId) ?? { name: cleanerNameOf(c) + (c.cleaner.state === "missing" ? " (deleted)" : ""), count: 0, cents: 0 };
-      byCleaner.set(c.cleanerId, { ...was, count: was.count + 1, cents: was.cents + (c.amountCents ?? 0) });
+      const was = byCleaner.get(c.cleanerId) ?? { name: cleanerNameOf(c) + (c.cleaner.state === "missing" ? " (deleted)" : ""), count: 0, cents: 0, waiting: 0 };
+      byCleaner.set(c.cleanerId, { ...was, count: was.count + 1, cents: was.cents + (c.amountCents ?? 0), waiting: was.waiting + (c.amountCents === null ? 1 : 0) });
     }
     return [...byCleaner.values()].sort((a, b) => a.name.localeCompare(b.name, "en-CA"));
   }, [logged]);
@@ -327,7 +330,7 @@ export function CleaningsTab({ cleanings, team, properties, filters, setFilter, 
       {/* ── The cleanings in these dates ── */}
       <div className={`${p.blockHead} ${styles.listHead}`}>
         <h3 className={p.blockTitle}>Cleanings</h3>
-        <span className={p.blockTotal}>{logged.length === 0 ? "None" : `${logged.length === 1 ? "1 cleaning" : `${logged.length} cleanings`} · ${formatCents(total)}${waiting > 0 ? ` · ${waiting} without an amount` : ""}`}</span>
+        <span className={p.blockTotal}>{logged.length === 0 ? "None" : `${logged.length === 1 ? "1 cleaning" : `${logged.length} cleanings`} · ${formatCents(total)}${waiting > 0 ? ` · ${waiting} waiting for an amount` : ""}`}</span>
       </div>
       <div className={`${p.fields} ${styles.filters}`}>
         <div className={`${p.field} ${p.fieldDates}`}>
@@ -448,7 +451,7 @@ export function CleaningsTab({ cleanings, team, properties, filters, setFilter, 
       {earned.length > 0 && (
         <div className={styles.earned} aria-label="Earned">
           <span className={p.fieldLabel}>Earned in these dates</span>
-          <span>{earned.map((row) => `${row.name} · ${row.count === 1 ? "1 cleaning" : `${row.count} cleanings`} · ${formatCents(row.cents)}`).join("   ·   ")}</span>
+          <span>{earned.map((row) => `${row.name} · ${row.count === 1 ? "1 cleaning" : `${row.count} cleanings`} · ${formatCents(row.cents)}${row.waiting > 0 ? ` · ${row.waiting} waiting for an amount` : ""}`).join("   ·   ")}</span>
         </div>
       )}
       {dialog}

@@ -22,11 +22,20 @@
  * jobs of the 45 days their list reaches, the cleanings they marked, and those
  * properties' finished statements. Every response, refusals included, is
  * no-store.
+ *
+ * The day's first cleaner app refreshes the calendars (Kian's ruling of
+ * 2026-10-14, night): a signed-in call starts the refresh after the
+ * response, when today has none yet (app/lib/availability/daily.ts). It never
+ * delays the answer; maxDuration gives the run its 300 seconds.
  */
 
 import { apiSuccess, apiFailure, noStore } from '@/app/lib/api/safe-response';
 import { verifyCleanerSession } from '@/app/lib/cleaners/session';
 import { readCleanerStart } from '@/app/lib/firebase/server-cleaner-start';
+import { refreshIfFirstToday } from '@/app/lib/availability/daily';
+
+/** The day's first cleaner app may run the calendar refresh after its answer: it has this long. */
+export const maxDuration = 300;
 
 /** The one thing logged about a failed read: its gRPC code. */
 function grpcCode(err: unknown): string {
@@ -39,6 +48,7 @@ export async function GET(request: Request) {
   const session = await verifyCleanerSession(request);
   if (!session.ok) return noStore(apiFailure(session.refusal));
   const { id, name, role } = session.cleaner;
+  refreshIfFirstToday('cleaner-app');
 
   try {
     const start = await readCleanerStart(id, role);

@@ -2,9 +2,9 @@
  * Availability: the stored copy of every property's calendar, and the shapes
  * the admin page works from (dispatch 22, 2026-09-30).
  *
- * Everything in this module is pure and dependency-free, so the scheduled
- * Cloud Function in functions/ can run the same code the admin page and the
- * Vercel routes run. Nothing here imports Next, Firebase or date-fns. Days
+ * Everything in this module is pure and dependency-free, the same for the
+ * admin page and the server routes. Nothing here imports Next, Firebase or
+ * date-fns. Days
  * are `yyyy-mm-dd` strings on the Toronto calendar; a night is the day it
  * starts; a range's `end` is the checkout day, exclusive, as Airbnb's feeds
  * have it.
@@ -57,7 +57,8 @@ export interface PropertyAvailability {
 }
 
 export interface RefreshRun {
-  source: 'schedule' | 'manual';
+  /** "daily": the day's first admin page or cleaner app; "manual": Refresh calendars; "schedule": the hourly function, never deployed (kept for copies it may have written). */
+  source: 'daily' | 'manual' | 'schedule';
   startedAt: string;
   finishedAt: string;
   durationMs: number;

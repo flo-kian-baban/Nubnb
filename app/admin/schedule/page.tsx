@@ -14,9 +14,10 @@
  * A mark whose cleaning the office deleted or removed stays, "removed by the office", and that cleaner cannot mark the
  * job again; Reopen, beside their name, lets them, after Nubnb's own question (Kian's ruling of 2026-10-14, night).
  *
- * Refresh calendars fetches every calendar, writes the copy and makes and watches the jobs from it: until the hourly
- * function is deployed, that is the only way jobs come (Kian's ruling of the evening). The line under the toolbar
- * says how old the copy is, and names any calendar the last run could not read.
+ * Refresh calendars fetches every calendar, writes the copy and makes and watches the jobs from it; so does the day's
+ * first admin page or cleaner app, in the background (Kian's ruling of 2026-10-14, night: no scheduled job). One
+ * refresh runs at a time: pressed during one, it says so and starts nothing. The line under the toolbar says when the
+ * calendars were last read, in amber past 24 hours, and names any calendar the last run could not read.
  *
  * No home tile: the home's four tiles are fixed (Kian's ruling of 2026-10-02). Every control is Nubnb's own (Kian's
  * ruling of 2026-10-10).
@@ -145,7 +146,8 @@ function Schedule() {
     const result = await refreshCalendars();
     setRefreshing(false);
     if (!result.ok) {
-      show(result.unknown ? { tone: "warning", title: "The refresh may or may not have run. Reload to see.", detail: result.title } : { tone: "error", title: result.title, detail: result.detail });
+      if (result.code === "REFRESH_RUNNING") show({ tone: "info", title: result.title, detail: result.detail });
+      else show(result.unknown ? { tone: "warning", title: "The refresh may or may not have run. Reload to see.", detail: result.title } : { tone: "error", title: result.title, detail: result.detail });
       return;
     }
     const { jobs } = result.data;
@@ -329,7 +331,10 @@ function Schedule() {
   );
 }
 
-/** How old the calendar copy is, and the calendars the last run could not read: one line. */
+/** A copy older than this reads in amber (Kian's ruling of 2026-10-14, night). */
+const STALE_AFTER_MINUTES = 24 * 60;
+
+/** When the calendars were last read, in amber past 24 hours, and the calendars that run could not read: one line. */
 function CopyLine({ answer, onRefresh, refreshing }: { answer: ScheduleAnswer; onRefresh: () => void; refreshing: boolean }) {
   const { refreshedAt, failed } = answer.calendar;
   if (!refreshedAt) {
@@ -343,7 +348,7 @@ function CopyLine({ answer, onRefresh, refreshing }: { answer: ScheduleAnswer; o
     );
   }
   const age = minutesBetween(refreshedAt, answer.now);
-  const stale = !Number.isFinite(age) || age > 120;
+  const stale = !Number.isFinite(age) || age > STALE_AFTER_MINUTES;
   return (
     <p className={`${styles.status} ${stale || failed.length > 0 ? styles.statusAlert : ""}`} role="status">
       <strong>Calendars read {clock(refreshedAt)}</strong>

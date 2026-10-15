@@ -336,6 +336,13 @@ impossible to recover.
 
 ### 2.3 The refresh
 
+> **Superseded on 2026-10-14 (night).** Kian ruled: no scheduled job. The
+> copy and the cleaning jobs refresh in the background on the day's first
+> admin page or cleaner app, and when an admin presses Refresh calendars,
+> one at a time (CLAUDE.md, *Calendar refresh*). The Cloud Function below
+> was never deployed and is removed from the repo; the Google Cloud APIs
+> stay off. What follows is the plan as it was.
+
 **Where it runs.** A scheduled Cloud Function (2nd generation) in a new
 `functions/` directory: `firebase-functions` v6 `onSchedule("every 60
 minutes")`, time zone `America/Toronto`, region `us-central1` (the Firestore

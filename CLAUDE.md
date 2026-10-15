@@ -172,9 +172,12 @@ no checkout. Do not build toward one unless asked.
   (The home-page stats were withdrawn on 2026-10-02: see Admin home below.)
 - **Availability is refreshed on a schedule and searched from the stored
   copy, not fetched live per property.** Slightly stale availability is
-  acceptable; a slow search on a phone call is not. **Hourly.**
+  acceptable; a slow search on a phone call is not. **Hourly.** The schedule
+  and "Hourly" are replaced by Kian's ruling of 2026-10-14 (night): no
+  scheduled job (Calendar refresh, below).
 - **Schedule it on Firebase, not Vercel** — the Vercel allowance is shared
-  with other projects.
+  with other projects. Replaced by Kian's ruling of 2026-10-14 (night): no
+  scheduled job (Calendar refresh, below).
 - **Mobile responsiveness is a later version.** Not scoped.
 - **Keep daily snapshots from day one.**
 - **Show Airbnb-gone properties ranked and marked.**
@@ -605,7 +608,8 @@ These replace the rulings they change: six-digit admin PINs.
   connection lock sign-in for 15 minutes; twenty in a Toronto day lock it
   until an admin lifts it from the Team page.**
 - **The hourly calendar copy deploys as the existing Cloud Function, with
-  the job sync inside it.**
+  the job sync inside it.** Replaced by Kian's ruling of 2026-10-14 (night):
+  no scheduled job (Calendar refresh, below).
 - **The developer's own choices in §9 of the plan are accepted unless one
   changes money, a statement or what an owner receives; any such is listed
   for Kian first.** His answers on the four listed:
@@ -630,3 +634,19 @@ These replace the rulings they change: six-digit admin PINs.
   can reopen it for them from the Schedule page, recorded in the job's
   history.** This replaces the developer's choice 2.
 - **The cleaner-codes risk wording is accepted as written.**
+
+## Calendar refresh — Kian's ruling of 2026-10-14 (night)
+
+This replaces the ruling that the hourly calendar copy deploys as a Cloud
+Function.
+
+- **No scheduled job. The calendar copy and the cleaning jobs refresh:**
+  - **in the background, on the first admin page opened or the first
+    cleaner app opened each Toronto day, never delaying the page;**
+  - **when an admin presses Refresh calendars, as now.**
+- **Only one refresh runs at a time; a second trigger while one runs does
+  nothing.**
+- **The Schedule page and the Availability page say when the calendars were
+  last read, in amber past 24 hours.**
+- **The scheduled Cloud Function and its configuration are removed from the
+  repo. Nothing in Google Cloud changes: the APIs stay off.**

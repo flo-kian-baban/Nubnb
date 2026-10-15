@@ -1,0 +1,36 @@
+═══ 1. The day's first visit ═══
+  nothing stored yet, an admin page: claimed daily/admin-page, lease until 2026-10-15T13:06:00.000Z
+  nothing stored yet, the cleaner app: claimed daily/cleaner-app, lease until 2026-10-15T13:06:00.000Z
+  done yesterday (14 October): claimed daily/admin-page, lease until 2026-10-15T13:06:00.000Z
+  done today: done today (finished 2026-10-15T12:00:04.000Z)
+  done "14 October" at 23:59 Toronto (03:59Z): done today (finished 2026-10-15T01:00:04.000Z)
+  the same, at 00:00 Toronto (04:00Z): claimed daily/admin-page, lease until 2026-10-15T04:06:00.000Z
+
+═══ 2. One at a time ═══
+  a run holds the lease: the first visit: running (RUN-HELD, since 2026-10-15T12:58:00.000Z)
+  a run holds the lease: Refresh calendars: running (RUN-HELD, since 2026-10-15T12:58:00.000Z)
+  two triggers at once, as the transactions order them: the first claimed; the second, on the state it wrote, running (RUN-A, since 2026-10-15T13:00:00.000Z)
+  the lease: 6 minutes, longer than the 300 s a route allows a run
+
+═══ 3. A run that did not finish ═══
+  its lease ran out 4 min ago (started 12:50Z): the first visit: paused until 2026-10-15T13:05:00.000Z
+  the same at 13:06Z, 16 min after it started: claimed daily/admin-page, lease until 2026-10-15T13:12:00.000Z · lastFailed stopped before it finished: the lease ran out
+  the same: Refresh calendars waits for no pause: claimed manual/refresh-button, lease until 2026-10-15T13:06:00.000Z · lastFailed stopped before it finished: the lease ran out
+  it threw at 12:50Z: the first visit at 13:00Z: paused until 2026-10-15T13:05:00.000Z
+  the first visit at 13:05:01Z: claimed daily/cleaner-app, lease until 2026-10-15T13:11:01.000Z · lastFailed the refresh failed: grpc code 14
+  Refresh calendars: claimed manual/refresh-button, lease until 2026-10-15T13:06:00.000Z · lastFailed the refresh failed: grpc code 14
+  done today, then Refresh calendars: claimed manual/refresh-button, lease until 2026-10-15T13:06:00.000Z
+
+═══ 4. How a run ends ═══
+  wrote the copy and synced the jobs: running none · lastDone RUN-A 2026-10-15 daily/admin-page · lastFailed none · reads back true
+  the job sync stopped: running none · lastDone none · lastFailed RUN-A: the job sync stopped: grpc code 10 · reads back true
+  ended after its lease ran out and another run took it: running RUN-HELD · lastDone RUN-A 2026-10-15 daily/admin-page · lastFailed none · reads back true
+  ended after a later run was already done: running none · lastDone RUN-LATER 2026-10-15 manual/refresh-button · lastFailed none · reads back true
+
+═══ 5. Read strictly ═══
+  as written: true · nothing stored reads as: {"schemaVersion":1,"running":null,"lastDone":null,"lastFailed":null}
+  refused — no schemaVersion: true
+  refused — a lease with no end: true
+  refused — a source not known: true
+  refused — a day not yyyy-mm-dd: true
+  refused — a failure with no reason: true

@@ -29,8 +29,8 @@ export function historyView(snapshot: AvailabilitySnapshot, day: string): Histor
   return { day, reserved };
 }
 
-/** A snapshot older than this is shown in the alert tone: the hourly refresh may have stopped. */
-export const STALE_AFTER_MINUTES = 120;
+/** A snapshot older than this reads in amber (Kian's ruling of 2026-10-14, night): the day's first page refreshes it, so a day without one means something stopped it. */
+export const STALE_AFTER_MINUTES = 24 * 60;
 
 /**
  * The list over the next `horizon` nights from `today`. `history` is what

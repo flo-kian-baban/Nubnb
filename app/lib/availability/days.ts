@@ -1,8 +1,7 @@
 /**
- * Day arithmetic on `yyyy-mm-dd` strings, without a date library, so the
- * module runs unchanged in the Cloud Function. A day index is days since
- * 1970-01-01 in UTC; strings never carry a time, so daylight saving cannot
- * move a night.
+ * Day arithmetic on `yyyy-mm-dd` strings, without a date library, the same in
+ * the browser and on the server. A day index is days since 1970-01-01 in UTC;
+ * strings never carry a time, so daylight saving cannot move a night.
  */
 
 export const TIME_ZONE = 'America/Toronto';

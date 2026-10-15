@@ -20,9 +20,11 @@
  * (GET /api/admin/availability) and the property list once (the same
  * Firestore read the admin home makes), and every search and every ranking
  * is worked out here from those. "Refresh now" fetches every feed on the
- * server and hands back the new copy. Every screen says how old the copy
- * is, and turns to the alert tone past two hours or when a calendar could
- * not be read.
+ * server and hands back the new copy; the day's first admin page or cleaner
+ * app does the same in the background (Kian's ruling of 2026-10-14, night:
+ * no scheduled job), and while one refresh runs, the button starts nothing
+ * and says so. Every screen says when the calendars were last read, and
+ * turns amber past 24 hours or when a calendar could not be read.
  *
  * "Could not load" is never "nothing here": a failed read shows no results
  * and no ranking.
@@ -79,17 +81,13 @@ const GUEST_OPTIONS = [{ value: "", label: "Any guests" }, ...Array.from({ lengt
 const dollars = (n: number) => `$${Math.round(n).toLocaleString("en-CA")}`;
 const plural = (n: number, one: string, many: string) => (n === 1 ? `1 ${one}` : `${n} ${many}`);
 
-/** "Tue 14:00", in Toronto time. */
-/** "just now", "23 min ago", "3 h 10 min ago". (On the admin home until its availability tiles went, 2026-10-02.) */
-function ageText(minutes: number): string {
-  if (!Number.isFinite(minutes)) return "an unknown time";
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return `${hours} h${rest ? ` ${rest} min` : ""} ago`;
-}
+/** When the calendars were last read, "Oct 14, 21:13", in Toronto time: the same words the Schedule uses. */
+const readText = (iso: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Toronto", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(iso));
 
+/** How the last read began (Kian's ruling of 2026-10-14, night: no scheduled job). "hourly" is the never-deployed function's, kept for a copy it may have written. */
+const SOURCE_WORDS: Record<AvailabilitySnapshot["run"]["source"], string> = { daily: "on the day's first visit", manual: "by hand", schedule: "hourly" };
+
+/** "Tue 14:00", in Toronto time. */
 const clockText = (iso: string) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "America/Toronto", weekday: "short", hour: "numeric", minute: "2-digit" }).format(new Date(iso));
 
@@ -192,7 +190,7 @@ function Availability() {
         detail: run && run.failed.length > 0 ? `Could not be read: ${run.failed.map((f) => f.name).join(", ")}. Their last good read is shown.` : undefined,
       });
     } else {
-      showNotice({ tone: "error", title: result.title, detail: result.detail });
+      showNotice({ tone: result.code === "REFRESH_RUNNING" ? "info" : "error", title: result.title, detail: result.detail });
     }
   };
 
@@ -368,8 +366,7 @@ function StatusLine({
   const alert = fresh.stale || fresh.failed > 0;
   return (
     <p className={`${styles.status} ${alert ? styles.statusAlert : ""}`} role="status">
-      <strong>Refreshed {ageText(fresh.ageMinutes)}</strong>
-      {fresh.stale && "; the hourly refresh may have stopped"} · {run.source === "schedule" ? "hourly" : "by hand"} · {run.fetched} of {withFeed} calendars read
+      <strong>Calendars read {readText(snapshot.refreshedAt)}</strong> · {SOURCE_WORDS[run.source]} · {run.fetched} of {withFeed} calendars read
       {run.failed.length > 0 && (
         <>
           {" "}

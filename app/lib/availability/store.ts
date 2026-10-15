@@ -1,10 +1,11 @@
 /**
  * Reading and writing the stored copy in Firestore, through the Admin SDK.
- * The Vercel routes and the Cloud Function both call these with their own
- * `Firestore` instance; nothing here initialises an app.
+ * The routes call these with their own `Firestore` instance; nothing here
+ * initialises an app.
  *
  * Two server-only collections, denied to browsers in firestore.rules:
  *   availability_snapshots/current   the copy the page reads
+ *   availability_snapshots/refresh   one refresh at a time, and the day's first (run-state.ts)
  *   availability_days/{yyyy-mm-dd}   the first snapshot of each Toronto day
  */
 

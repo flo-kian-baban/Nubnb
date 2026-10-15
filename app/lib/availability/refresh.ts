@@ -1,14 +1,18 @@
 /**
  * One refresh: read the feed URLs, fetch every feed, build the snapshot
  * from the previous one, write it, then make and watch the cleaning
- * schedule's jobs from it (app/lib/schedule). Run by the scheduled Cloud
- * Function every hour and by POST /api/admin/availability/refresh on demand.
+ * schedule's jobs from it (app/lib/schedule). No scheduled job runs it
+ * (Kian's ruling of 2026-10-14, night): the day's first admin page or
+ * cleaner app does, in the background (daily.ts), and Refresh calendars
+ * does (POST /api/admin/availability/refresh), one at a time
+ * (run-state.ts).
  *
  * Fetches go through the SSRF guard the public routes use: a feed URL is
- * admin-set, and inside a Cloud Function a private address would be the
- * metadata server. Eight feeds at a time, ten seconds each, one retry after
- * two seconds. A failure is recorded on the property and never stops the
- * run; the run itself fails only if Firestore does.
+ * admin-set, and a private address must never be fetched from a server.
+ * Eight feeds at a time, ten seconds each, one retry after two seconds: 52
+ * feeds take a few seconds, and about 154 at worst, when every feed times
+ * out twice. A failure is recorded on the property and never stops the run;
+ * the run itself fails only if Firestore does.
  *
  * The listing-page check (Kian, 2026-09-30: build it, subject to the
  * datacenter test) requests each property's Airbnb page and keeps only the
@@ -17,8 +21,10 @@
  * not the stored URL: two stored airbnb.com links with tracking parameters
  * answer 200 for listings that the canonical page answers 410 (verified
  * 2026-09-30). A stored URL that is not an Airbnb room is not checked. The
- * check runs when the newest check in the previous snapshot is older than
- * PAGE_CHECK_EVERY_HOURS, so about once a day; never on a manual refresh.
+ * check ran with the scheduled function, about once a day, subject to the
+ * datacenter test. No run asks for it now (both pass checkPages: false):
+ * from Vercel, a blocked answer would replace a "gone" verdict with
+ * "unknown". The verdicts already stored are kept.
  */
 
 import type { Firestore } from 'firebase-admin/firestore';
@@ -120,9 +126,10 @@ export function pageCheckDue(previous: AvailabilitySnapshot | null, now: Date): 
 
 export interface RefreshOptions {
   db: Firestore;
-  source: 'schedule' | 'manual';
+  /** "daily": the day's first admin page or cleaner app; "manual": Refresh calendars. */
+  source: 'daily' | 'manual';
   now?: Date;
-  /** "auto" checks when due (the schedule); true and false force it. */
+  /** "auto" checks when due; true and false force it. Every caller passes false (see above). */
   checkPages?: 'auto' | boolean;
   fetchText?: FetchText;
   checkPage?: CheckPage;
@@ -152,7 +159,7 @@ export async function runRefresh(options: RefreshOptions): Promise<RefreshOutcom
   const fetched = await inBatches(withFeed, FEED_CONCURRENCY, async (s) => [s.id, await fetchText(s.icalUrl)] as const);
   const results = new Map<string, FetchResult>(fetched);
 
-  const wantPages = options.checkPages === true || (options.checkPages === 'auto' && source === 'schedule' && pageCheckDue(previous, new Date(startedAt)));
+  const wantPages = options.checkPages === true || (options.checkPages === 'auto' && pageCheckDue(previous, new Date(startedAt)));
   const pageChecks = new Map<string, AirbnbPageCheck>();
   if (wantPages) {
     const withPage = sources
