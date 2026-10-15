@@ -47,6 +47,8 @@ import {
 } from '@/app/lib/cleanings/model';
 import { torontoDayOf } from '@/app/lib/costs/report';
 import { CLEANING_JOBS_COLLECTION, jobEvent, readJob, type StoredJob } from '@/app/lib/schedule/model';
+import { paymentOnOrAfter } from './server-pay';
+import type { PaymentView } from '@/app/lib/pay/model';
 import { MONTHLY_REPORTS_COLLECTION, addMonths, currentReports, monthOfDay, readMonthlyReport } from '@/app/lib/reports/model';
 import { statementMonthFor } from '@/app/lib/reports/statement';
 
@@ -454,6 +456,10 @@ export type DeleteCleaningResult =
   | { kind: 'changed-since' }
   /** A finished statement prints it: a statement already sent cannot name a cleaning that no longer exists. */
   | { kind: 'in-statement'; statements: { id: string; month: string; reference: string }[] }
+  /** Dated on or before a payment to its cleaner (Kian's ruling of 2026-10-15): removed instead. Nothing was deleted. */
+  | { kind: 'before-payment'; payment: PaymentView; cleanerName: string | null }
+  /** A payment to its cleaner cannot be read, so whether one is dated on or after it cannot be told. */
+  | { kind: 'payments-unreadable' }
   | { kind: 'failed' };
 
 /**
@@ -461,7 +467,8 @@ export type DeleteCleaningResult =
  * replaced — prints it. A deleted cleaning leaves no record of who cleaned or what they were paid; removing keeps it.
  * A job's cleaning leaves its mark on the job as "removed by the office", in the same transaction: that cleaner cannot
  * mark it again until an admin reopens it (Kian's ruling of 2026-10-14, night), and the job's history keeps who
- * marked it, the cleaning's ID and its amount.
+ * marked it, the cleaning's ID and its amount. A cleaning dated on or before a payment to its cleaner is never
+ * deleted (Kian's ruling of 2026-10-15): it is removed instead, and the refusal names the payment.
  */
 export async function deleteCleaning(actor: Actor, id: string, seen: number): Promise<DeleteCleaningResult> {
   if (!isDocumentId(id)) return { kind: 'not-found' };
@@ -478,6 +485,14 @@ export async function deleteCleaning(actor: Actor, id: string, seen: number): Pr
         const printing = await statementsPrinting(propertyId, id, tx);
         if (printing.length > 0) return { kind: 'in-statement', statements: printing };
       }
+      // Paid on or after its day (Kian's ruling of 2026-10-15): removed, never deleted.
+      const cleanerOf: unknown = snap.get('cleanerId');
+      const dayOf: unknown = snap.get('day');
+      if (typeof cleanerOf === 'string' && typeof dayOf === 'string') {
+        const paid = await paymentOnOrAfter(tx, cleanerOf, dayOf);
+        if (paid.kind === 'unreadable') return { kind: 'payments-unreadable' };
+        if (paid.kind === 'payment') return { kind: 'before-payment', payment: paid.payment, cleanerName: fieldText(snap.get('cleanerNameAtEntry')) };
+      }
       // A job's cleaning: its cleaner's mark stays on the job, removed by the office.
       const onJob = await markOnJob(tx, snap.get('jobId'), snap.get('cleanerId'), id);
       tx.delete(ref);
@@ -493,7 +508,8 @@ export async function deleteCleaning(actor: Actor, id: string, seen: number): Pr
   }
 }
 
-export const DELETE_REFUSALS: Record<'not-found' | 'changed-since' | 'failed', Refusal> = {
+export const DELETE_REFUSALS: Record<'not-found' | 'changed-since' | 'payments-unreadable' | 'failed', Refusal> = {
+  'payments-unreadable': { status: 500, code: 'PAYMENTS_UNREADABLE', message: 'A payment to this cleaner cannot be read, so this cleaning cannot be deleted.', hint: 'Nothing was deleted. Remove it instead.' },
   'not-found': CHANGE_REFUSALS['not-found'],
   'changed-since': { status: 409, code: 'CLEANING_CHANGED', message: 'This cleaning changed since the page loaded.', hint: 'Nothing was deleted. Reload, check what changed, and delete again if you still mean to.' },
   failed: { status: 502, code: 'CLEANING_DELETE_FAILED', message: 'Could not delete the cleaning.', hint: 'It may or may not have been deleted. Reload to see what is on record.' },

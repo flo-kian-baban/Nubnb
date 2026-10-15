@@ -74,7 +74,8 @@ import { NoticeBanner, useNotice, type Notice } from "../components/Notice";
 import { currentReports, displayRef, monthLabel, type MonthlyReportView } from "@/app/lib/reports/model";
 import type { PropertyStatements } from "@/app/lib/reports-client";
 import { costCharges } from "@/app/lib/money/month";
-import { changeEntryLine, changeEntryTax, deleteEntry, markEntrySeen, setEntryStatus, type CostResult, type EntryChange } from "@/app/lib/costs-client";
+import { changeEntryLine, changeEntryTax, deleteEntry, markEntrySeen, setEntryPaidWith, setEntryStatus, type CostResult, type EntryChange } from "@/app/lib/costs-client";
+import { Tick } from "../property/editor/controls";
 import {
   ENTRY_STATUS_LABELS,
   HISTORY_ACTION_LABELS,
@@ -155,7 +156,7 @@ const STATUS_DONE: Record<ReviewStatus, string> = {
 
 export function EntryPane({ entry, pdf, pattern, statements, onChanged, onDeleted, onClose, showHeading = true }: EntryPaneProps) {
   /** What is being saved, for its button's label; null when nothing is. */
-  const [saving, setSaving] = useState<ReviewStatus | "line" | "tax" | "seen" | "delete" | null>(null);
+  const [saving, setSaving] = useState<ReviewStatus | "line" | "tax" | "seen" | "delete" | "paid-with" | null>(null);
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
   const [draft, setDraft] = useState<LineDraft | null>(null);
@@ -303,6 +304,26 @@ export function EntryPane({ entry, pdf, pattern, statements, onChanged, onDelete
       change.changed
         ? { tone: "success", title: "Marked as seen.", detail: "It is still approved and counts in its ledger; it has left the review queue." }
         : { tone: "info", title: "Nothing was changed: an admin had already looked at it." },
+    );
+  };
+
+  /**
+   * Who paid for a receipt (Team pay, Kian's ruling 1 of 2026-10-15): ticked, it was Nubnb's card, so it is not owed
+   * to the cleaner; its statement line is unchanged. Recorded in its history.
+   */
+  const togglePaidWith = async () => {
+    if (busy || seen === null) return;
+    const next = entry.paidWith === "nubnb-card" ? "team-member" : "nubnb-card";
+    clear();
+    setSaving("paid-with");
+    const result = await setEntryPaidWith(entry.id, { paidWith: next, seen });
+    setSaving(null);
+    settle(result, (change) =>
+      change.changed
+        ? next === "nubnb-card"
+          ? { tone: "success", title: "Marked paid with Nubnb's card.", detail: `Not owed to ${cleanerLabel(entry)}. Its statement line is unchanged.` }
+          : { tone: "success", title: "Marked paid by the team member.", detail: `Owed to ${cleanerLabel(entry)} while it is approved.` }
+        : { tone: "info", title: "Nothing was changed." },
     );
   };
 
@@ -477,6 +498,14 @@ export function EntryPane({ entry, pdf, pattern, statements, onChanged, onDelete
               <p className={styles.noteWarn}>
                 This entry’s history cannot be read, so it cannot be reviewed here. Nothing about it has been changed.
               </p>
+            )}
+            {/* Who paid (Team pay, 2026-10-15): a receipt only; work and office costs have no card. */}
+            {reviewable && entry.kind === "receipt" && (
+              <div className={styles.paidWithRow}>
+                <Tick checked={entry.paidWith === "nubnb-card"} onChange={togglePaidWith} label="Paid with Nubnb's card" disabled={busy} />
+                <span className={styles.paidWithLabel}>{saving === "paid-with" ? "Saving…" : "Paid with Nubnb's card"}</span>
+                {entry.paidWith === "nubnb-card" && <span className={styles.statusSince}>· not owed to {cleanerLabel(entry)}</span>}
+              </div>
             )}
 
             {rejecting && (
@@ -1132,6 +1161,8 @@ function describe(event: HistoryEventView): ReactNode {
       );
     case "seen":
       return <>Marked as seen by {by}</>;
+    case "paid_with_changed":
+      return <>{event.to === "nubnb-card" ? "Marked paid with Nubnb's card" : "Marked paid by the team member"} by {by}</>;
     case "line_corrected":
       return (
         <>

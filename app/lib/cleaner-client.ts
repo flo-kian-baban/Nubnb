@@ -127,6 +127,9 @@ function isCleanerStart(data: unknown): data is CleanerStart {
     data.itemNames.every((name) => typeof name === 'string') &&
     Array.isArray(data.jobs) &&
     data.jobs.every(isCleanerJob) &&
+    // Their own pay (Team pay, 2026-10-15): three figures and two counts, theirs only.
+    isRecord(data.pay) &&
+    ['earnedCents', 'paidCents', 'balanceCents', 'waiting', 'cannotAddUp'].every((key) => typeof (data.pay as Record<string, unknown>)[key] === 'number') &&
     typeof data.today === 'string'
   );
 }

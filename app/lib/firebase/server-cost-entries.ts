@@ -102,6 +102,8 @@ import { z } from 'zod';
 import type { DocumentReference, DocumentSnapshot, Transaction } from 'firebase-admin/firestore';
 import { getAdminBucket, getAdminDb } from './admin';
 import { listCleanings, listTeamRates, propertyCleanings } from './server-cleanings';
+import { paymentOnOrAfter } from './server-pay';
+import type { PaymentView } from '@/app/lib/pay/model';
 import { cleaningEntryView } from '@/app/lib/cleanings/model';
 import { createdMonthOf } from './created-month';
 import { isDocumentId } from './server-leads';
@@ -145,6 +147,7 @@ import {
   type HistoryEvent,
   type Line,
   type LookupState,
+  type PaidWith,
   type ReadingLineOutcome,
   type ReceiptRef,
   type Refusal,
@@ -1026,6 +1029,7 @@ function toView(
     kind: entry.kind,
     autoApproved: entry.autoApproved,
     month: entry.month,
+    paidWith: entry.paidWith,
   };
 }
 
@@ -1153,6 +1157,8 @@ export type ReviewResult =
   | { kind: 'work-one-line' }
   /** Seen was asked for an entry that was not approved automatically (dispatch 24). Nothing was written. */
   | { kind: 'not-auto-approved' }
+  /** Who paid was asked of an entry that is not a receipt (Kian's ruling of 2026-10-15): work and office costs have no card. */
+  | { kind: 'not-a-receipt' }
   /** The transaction failed: it may or may not have landed. */
   | { kind: 'failed' };
 
@@ -1209,6 +1215,12 @@ export const REVIEW_REFUSALS: Record<Exclude<ReviewResult['kind'], 'done'>, Refu
     status: 409,
     code: 'ENTRY_NOT_AUTO_APPROVED',
     message: 'This entry was not approved automatically, so there is nothing to mark as seen.',
+    hint: 'Nothing was changed.',
+  },
+  'not-a-receipt': {
+    status: 422,
+    code: 'ENTRY_NOT_A_RECEIPT',
+    message: "Only a receipt can be marked paid with Nubnb's card.",
     hint: 'Nothing was changed.',
   },
   // The transaction failed. A failure can come after the commit landed, so
@@ -1402,6 +1414,23 @@ export function markEntrySeen(actor: Actor, id: string, seen: number): Promise<R
   });
 }
 
+/**
+ * Who paid for a receipt (Kian's ruling 1 of 2026-10-15): the team member, or Nubnb's card, which makes it not owed to
+ * them (app/lib/pay/balance.ts). A `paid_with_changed` history event by the admin carries the before and after; the
+ * entry's lines, status and statement line are untouched (ruling 7). Receipts only, at any status.
+ */
+export function setEntryPaidWith(actor: Actor, id: string, paidWith: PaidWith, seen: number): Promise<ReviewResult> {
+  return review(id, seen, (entry, now) => {
+    if (entry.kind !== 'receipt') return { kind: 'refuse', result: { kind: 'not-a-receipt' } };
+    if (entry.paidWith === paidWith) return { kind: 'nothing' };
+    return {
+      kind: 'write',
+      event: { at: now, action: 'paid_with_changed', from: entry.paidWith, to: paidWith, actor, reason: null },
+      changes: { paidWith },
+    };
+  });
+}
+
 // ─── Delete (Kian's ruling of 2026-10-02, dispatch 23H) ────────
 
 /** A finished statement that prints an entry, named for the refusal. */
@@ -1432,11 +1461,21 @@ export type DeleteEntryResult =
   | { kind: 'changed-since' }
   /** A finished statement prints it. Nothing was deleted. */
   | { kind: 'in-statement'; statements: PrintedIn[] }
+  /** Dated on or before a payment to its person (Kian's ruling of 2026-10-15): removed instead. Nothing was deleted. */
+  | { kind: 'before-payment'; payment: PaymentView; memberName: string | null; kindWord: 'receipt' | 'work entry' }
+  /** A payment to its person cannot be read, so whether one is dated on or after it cannot be told. Nothing was deleted. */
+  | { kind: 'payments-unreadable' }
   /** The transaction failed: it may or may not have been deleted. */
   | { kind: 'failed' };
 
-/** What the delete route answers for every outcome but `deleted` and `in-statement`. */
-export const DELETE_ENTRY_REFUSALS: Record<Exclude<DeleteEntryResult['kind'], 'deleted' | 'in-statement'>, Refusal> = {
+/** What the delete route answers for every outcome but `deleted`, `in-statement` and `before-payment`. */
+export const DELETE_ENTRY_REFUSALS: Record<Exclude<DeleteEntryResult['kind'], 'deleted' | 'in-statement' | 'before-payment'>, Refusal> = {
+  'payments-unreadable': {
+    status: 500,
+    code: 'PAYMENTS_UNREADABLE',
+    message: 'A payment to this team member cannot be read, so this entry cannot be deleted.',
+    hint: 'Nothing was deleted. Remove it instead.',
+  },
   'not-found': {
     status: 404,
     code: 'ENTRY_NOT_FOUND',
@@ -1506,12 +1545,19 @@ export async function deleteCostEntry(id: string, seen: number): Promise<DeleteE
       if (!Array.isArray(stored.history) || stored.history.length !== seen) return { kind: 'changed-since' };
 
       const propertyId: unknown = stored.propertyId;
-      const [ofProperty, naming, reading, submissions] = await Promise.all([
+      // A receipt or work entry dated on or before a payment to its person is removed, never deleted (Kian's ruling of
+      // 2026-10-15). Dated as the Costs page and the statements date it: the day it was sent.
+      const fields = readCostEntryFields(id, stored);
+      const itemDay = fields.kind !== 'office' && fields.cleanerId !== null ? ledgerDay({ createdAt: fields.createdAt, month: fields.month }) : null;
+      const [ofProperty, naming, reading, submissions, paid] = await Promise.all([
         typeof propertyId === 'string' && isDocumentId(propertyId) ? tx.get(reports.where('propertyId', '==', propertyId)) : null,
         tx.get(reports.where('entryIds', 'array-contains', id)),
         tx.get(db.collection(COST_ENTRY_READINGS_COLLECTION).doc(id)),
         tx.get(db.collection(COST_ENTRY_SUBMISSIONS_COLLECTION).where('entryId', '==', id)),
+        fields.cleanerId !== null && itemDay !== null ? paymentOnOrAfter(tx, fields.cleanerId, itemDay) : null,
       ]);
+      if (paid?.kind === 'unreadable') return { kind: 'payments-unreadable' };
+      if (paid?.kind === 'payment') return { kind: 'before-payment', payment: paid.payment, memberName: fields.cleanerNameAtEntry, kindWord: fields.kind === 'work' ? 'work entry' : 'receipt' };
       const finished = new Map([...(ofProperty?.docs ?? []), ...naming.docs].map((doc) => [doc.id, doc.data()]));
       const replacedIds = new Set(
         [...finished.values()].map((fields) => (fields.supersedes as { reportId?: unknown } | null | undefined)?.reportId).filter((value) => typeof value === 'string'),

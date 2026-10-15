@@ -129,6 +129,7 @@
   DELETE /api/admin/cleanings/[id]                            recorded as "Deleted a cleaning"
   POST   /api/admin/cleanings                                 recorded as "Logged a cleaning"
   POST   /api/admin/cost-entries/[id]/lines                   recorded as "Corrected a cost entry’s lines"
+  POST   /api/admin/cost-entries/[id]/paid-with               recorded as "Marked who paid for a receipt"
   GET    /api/admin/cost-entries/[id]/receipt                 read, not recorded
   DELETE /api/admin/cost-entries/[id]                         recorded as "Deleted a cost entry"
   POST   /api/admin/cost-entries/[id]/seen                    recorded as "Marked a cost entry seen"
@@ -153,6 +154,9 @@
   POST   /api/admin/monthly-reports/empty                     recorded as "Finished empty months"
   GET    /api/admin/monthly-reports                           read, not recorded
   POST   /api/admin/monthly-reports                           recorded as "Finished or corrected a statement"
+  DELETE /api/admin/payments/[id]                             recorded as "Deleted a payment"
+  GET    /api/admin/payments                                  read, not recorded
+  POST   /api/admin/payments                                  recorded as "Recorded a payment"
   GET    /api/admin/properties/[id]/airbnb-title              read, not recorded
   PUT    /api/admin/properties/[id]/airbnb-title              recorded as "Set a property’s Airbnb title"
   GET    /api/admin/properties/[id]/cleaner-name              read, not recorded
@@ -180,7 +184,7 @@
   POST   /api/properties                                      recorded as "Added a property"
   POST   /api/scrape-airbnb                                   recorded as "Read an Airbnb listing"
   POST   /api/upload-image                                    recorded as "Uploaded an image"
-  73 handlers through adminRoute; problems: 0
+  77 handlers through adminRoute; problems: 0
   routes still on the PIN-signed session: 0
   a route that unlocks an admin's PIN (the first version's per-admin lock): false
 

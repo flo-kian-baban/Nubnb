@@ -561,6 +561,19 @@
   overflow-wrap: anywhere;
 }
 
+/* Who paid for a receipt (Team pay, 2026-10-15): one tick under the review actions. */
+.paidWithRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  font-size: 13px;
+}
+.paidWithLabel {
+  color: rgba(255, 255, 255, 0.85);
+  font-weight: 600;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;

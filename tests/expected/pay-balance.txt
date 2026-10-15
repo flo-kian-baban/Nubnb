@@ -1,0 +1,126 @@
+═══ 1. Ana, a cleaner: earned from cleanings and approved receipts, paid once, a deleted payment ═══
+── Ana, all time
+   earned $264.10 (cleanings $175.00, receipts $89.10, work $0.00) · paid $150.00 · balance $114.10 owed [owed] · waiting 2 · cannot add up 0
+   2026-10-21 · Cleaning · Test Lakeview Loft · earned $60.00 · paid — · amount $60.00 · counts
+       Amount typed Oct 22 by Test Admin: $60.00 (owed $0.00 → $60.00)
+   2026-10-20 · Payment · E-transfer · “Oct 1–15” · earned — · paid $150.00 · amount $150.00 · recorded · Recorded Oct 20 by Test Admin
+   2026-10-13 · Receipt · Test Cozy Pad · 1 item · earned — · paid — · amount $250.00 · waiting · Waiting for review
+   2026-10-12 · Receipt · Test Loft · 1 item · earned — · paid — · amount $25.00 · nubnb-card · Paid with Nubnb's card · Test Admin, Oct 14 · was owed $25.00
+       Approved Oct 12 by Test Admin (owed $0.00 → $25.00)
+       Marked paid with Nubnb's card Oct 14 by Test Admin (owed $25.00 → $0.00)
+   2026-10-11 · Receipt · Test Cozy Pad · 1 item · earned — · paid — · amount $40.00 · rejected · Rejected Oct 12 by Test Admin: Not a work expense
+       Rejected Oct 12 by Test Admin: Not a work expense (owed $0.00 → $0.00)
+   2026-10-10 · Cleaning · Test Lakeview Loft · earned — · paid — · amount $60.00 · removed · Removed Oct 22 by Test Admin · was $60.00 · AMBER
+       Removed Oct 22 by Test Admin (owed $60.00 → $0.00) · after the payment of Oct 20 [amber]
+   2026-10-09 · Cleaning · Test Bayview · earned — · paid — · amount — · no-amount · No amount yet
+   2026-10-07 · Receipt · Test Cozy Pad · 1 item · earned $33.90 · paid — · amount $33.90 · counts · AMBER
+       Approved Oct 8 by Test Admin (owed $0.00 → $30.00)
+       Corrected Oct 23 by Test Admin: $30.00 → $33.90 (owed $30.00 → $33.90) · after the payment of Oct 20 [amber]
+   2026-10-06 · Payment · Cash · earned — · paid — · amount $100.00 · deleted · Deleted Oct 7 by Second Admin · recorded Oct 6 by Test Admin
+   2026-10-06 · Receipt · Test Cozy Pad · 2 items · earned $43.20 · paid — · amount $43.20 · counts
+   2026-10-05 · Cleaning · Test Lakeview Loft · earned $55.00 · paid — · amount $55.00 · counts · AMBER
+       Changed Oct 22 by Test Admin: $60.00 → $55.00 (owed $60.00 → $55.00) · after the payment of Oct 20 [amber]
+   2026-10-03 · Cleaning · Test Lakeview Loft · earned — · paid — · amount $60.00 · moved · Given to Ben Test Oct 4 by Test Admin · was $60.00
+       Given to Ben Test Oct 4 by Test Admin (owed $60.00 → $0.00)
+   2026-10-02 · Cleaning · Test Lakeview Loft · earned $60.00 · paid — · amount $60.00 · counts
+   2026-10-01 · Receipt · Test Cozy Pad · 1 item · earned $12.00 · paid — · amount $12.00 · counts
+       Approved Oct 1 by Test Admin (owed $0.00 → $12.00)
+       Marked paid with Nubnb's card Oct 2 by Test Admin (owed $12.00 → $0.00)
+       Marked paid by them Oct 2 by Test Admin (owed $0.00 → $12.00)
+   ok   earned = cleanings $60.00 + $55.00 + $60.00 (amount typed later) + receipts $43.20 + $33.90 + $12.00
+   ok   paid = the recorded payment only; the deleted one does not count
+   ok   balance = earned − paid, owed
+   ok   the receipt paid with Nubnb's card is listed and not owed
+   ok   a card mark taken off again: owed again
+   ok   a pending, a rejected and a no-amount item are listed and not counted
+   ok   waiting: the pending receipt and the cleaning with no amount
+   ok   the deleted payment is listed, not counted
+   ok   changed, removed and corrected after the payment of Oct 20: amber
+   ok   marked paid with the card before any payment: not amber
+   ok   an amount typed after a payment: not amber (it did not count before)
+   ok   an office entry is no one’s pay
+   ok   newest first
+
+═══ 2. A cleaning given to another cleaner, and a receipt that cannot add up ═══
+── Ben, all time
+   earned $60.00 (cleanings $60.00, receipts $0.00, work $0.00) · paid $0.00 · balance $60.00 owed [owed] · waiting 0 · cannot add up 1
+   2026-10-14 · Receipt · Test Cozy Pad · earned — · paid — · amount — · cannot-add-up · Cannot add up: The tax is not stored in whole cents.
+   2026-10-03 · Cleaning · Test Lakeview Loft · earned $60.00 · paid — · amount $60.00 · counts
+       Given to them Oct 4 by Test Admin (owed $0.00 → $60.00)
+   ok   Ana's row: given to Ben, not counted
+   ok   Ben's row: his, counted
+   ok   a receipt that cannot add up: counted apart, no count of items
+
+═══ 3. Sam, a handyman: approved work, paid more than earned, an entry that cannot add up ═══
+── Sam, all time
+   earned $120.00 (cleanings $0.00, receipts $0.00, work $120.00) · paid $160.00 · balance $40.00 overpaid [overpaid] · waiting 0 · cannot add up 1
+   2026-10-11 · Work · Test Cozy Pad · earned — · paid — · amount — · cannot-add-up · Cannot add up: Line 1's amount is not stored in whole cents.
+   2026-10-10 · Payment · Other · earned — · paid $160.00 · amount $160.00 · recorded · Recorded Oct 10 by Test Admin
+   2026-10-09 · Work · Test Cozy Pad · Hung shelves · earned — · paid — · amount $30.00 · removed · Removed Oct 12 by Test Admin · was $30.00 · AMBER
+       Approved Oct 9 by Test Admin (owed $0.00 → $30.00)
+       Removed Oct 12 by Test Admin (owed $30.00 → $0.00) · after the payment of Oct 10 [amber]
+   2026-10-08 · Work · Test Lakeview Loft · Fixed the sink · earned $120.00 · paid — · amount $120.00 · counts
+       Approved Oct 9 by Test Admin (owed $0.00 → $120.00)
+   ok   earned = the approved work
+   ok   overpaid $40.00
+   ok   the entry that cannot add up is counted nowhere, and counted apart
+   ok   work removed after the payment that may have included it: amber
+
+═══ 4. Dates: what fell in them, and the balance at their start and end ═══
+   2026-10-01 – 2026-10-15: earned $204.10 · paid $0.00 · balance at the start $0.00 · at the end $204.10
+   ok   Oct 1 – 15: earned in it, nothing paid (the cash payment was deleted), from settled
+   2026-10-16 – 2026-10-31: earned $60.00 · paid $150.00 · balance at the start $204.10 · at the end $114.10
+   ok   Oct 16 – 31 starts where Oct 1 – 15 ended and ends at today's balance
+   … – …: earned $264.10 · paid $150.00 · balance at the start $0.00 · at the end $114.10
+   ok   all time (both ends open): everything
+   … – 2026-10-15: earned $204.10 · paid $0.00 · balance at the start $0.00 · at the end $204.10
+   ok   up to Oct 15 (start open): the same end
+
+═══ 5. Words ═══
+   balance 24000: $240.00 owed [owed]
+   balance 0: Settled [settled]
+   balance -4000: $40.00 overpaid [overpaid]
+   the payment of $150.00 on Oct 20 (e-transfer)
+   Changed Oct 22 by Test Admin: $60.00 → $55.00
+   Removed Oct 22
+   Oct 22 (an instant late on Oct 22 in Toronto) · at an unknown time
+
+═══ 6. The day paid ═══
+   2026-10-15: accepted
+   2026-10-16: The day paid cannot be in the future.
+   2025-10-15: accepted
+   2025-10-14: The day paid must be within the last 12 months.
+   2026-02-30: Not a real calendar date.
+   2026-1-5: Write the date as yyyy-mm-dd.
+   earliest when today is 2026-10-15: 2025-10-15
+   earliest when today is 2026-03-31: 2025-03-31
+   earliest when today is 2024-02-29: 2023-02-28
+
+═══ 7. The strict reader ═══
+   as written: read
+   deleted, with no time: not in shape
+   recorded, with a deleter: not in shape
+   $0.00: not in shape
+   $12.345: not in shape
+   a cheque: not in shape
+   no history: not in shape
+   a day not in yyyy-mm-dd: not in shape
+
+═══ 8. What the routes accept ═══
+   amount "300.00": 30000 cents
+   amount "0.50": 50 cents
+   amount "999999.99": 99999999 cents
+   amount "300": refused
+   amount "0.00": refused
+   amount "1000000.00": refused
+   amount "01.00": refused
+   amount "300.5": refused
+   amount "-5.00": refused
+   no note: accepted, note null
+   a note with spaces: accepted, note "Sept pay"
+   a blank note: accepted, note null
+   a field beyond: refused
+   a cheque: refused
+   an ID with a slash: refused
+
+every check held

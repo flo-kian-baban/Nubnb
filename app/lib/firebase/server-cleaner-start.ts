@@ -18,16 +18,22 @@
  *
  * ── Reads ──
  * One per property (name and address only), one per entry of this cleaner's
- * (property and date only), and at most ITEM_SOURCE_ENTRIES of everyone's
- * newest entries (lines only) — so the cost of opening the app stops growing
- * once there are that many entries. Every query uses Firestore's automatic
- * single-field indexes.
+ * (read whole: the recent properties and their pay both come from it), and at
+ * most ITEM_SOURCE_ENTRIES of everyone's newest entries (lines only) — so the
+ * cost of opening the app stops growing once there are that many entries.
+ * Every query uses Firestore's automatic single-field indexes.
+ *
+ * ── Their pay (Kian's rulings of 2026-10-15, Team pay) ──
+ * Their own Earned, Paid and Balance, and nobody else's (ruling 6), worked out
+ * by the one function the Team page uses (app/lib/pay/balance.ts) from their
+ * own cleanings, entries and payments: one read per cleaning and payment of
+ * theirs besides the entries already read. A handyman has no cleanings.
  *
  * ── Jobs (the cleaning schedule, Kian's rulings of 2026-10-14) ──
  * A cleaner's jobs come first in their app: those they are on, within the 45
  * days their list reaches, read with the properties already read here
- * (server-cleaning-jobs.ts, cleanerJobs). A handyman is never on a job, and
- * their jobs are not read.
+ * (server-cleaning-jobs.ts, cleanerJobs): only their own jobs are read. A
+ * handyman is never on a job, and their jobs are not read.
  *
  * Failure contract, as in server-leads.ts: a failed read THROWS. It never
  * returns an empty list.
@@ -39,6 +45,7 @@ import { listCleanerFacingNames } from './server-property-names';
 import { torontoDay } from '@/app/lib/availability/days';
 import { isDocumentId } from './server-leads';
 import { COST_ENTRIES_COLLECTION, type CleanerProperty, type CleanerStart } from '@/app/lib/cleaners/model';
+import { memberPayNow } from './server-pay';
 import { fold } from '@/app/lib/cleaners/text';
 
 /** How many of the newest entries item names are drawn from. */
@@ -129,12 +136,16 @@ export async function readCleanerStart(cleanerId: string, role: string): Promise
   const [properties, cleanerFacing, own, newest] = await Promise.all([
     db.collection('properties').select('name', 'addressDetails', 'details').get(),
     listCleanerFacingNames(),
-    entries.where('cleanerId', '==', cleanerId).select('propertyId', 'createdAt').get(),
+    // Whole: their pay reads the lines, the history and who paid.
+    entries.where('cleanerId', '==', cleanerId).get(),
     // `createdAt` is on every entry, so ordering by it drops none of them.
     entries.orderBy('createdAt', 'desc').limit(ITEM_SOURCE_ENTRIES).select('lines', 'kind').get(),
   ]);
 
-  const jobs = role === 'cleaner' ? await cleanerJobs(cleanerId, jobPropertiesOf(properties.docs, cleanerFacing), today) : [];
+  const { pay, unreadable } = await memberPayNow(cleanerId, own.docs);
+  // The latest day a payment to them was made: no Undo is offered on a cleaning dated on or before it (2026-10-15).
+  const paidThrough = pay.rows.filter((row) => row.kind === 'payment' && row.state === 'recorded' && row.day !== null).reduce<string | null>((latest, row) => (latest === null || (row.day as string) > latest ? row.day : latest), null);
+  const jobs = role === 'cleaner' ? await cleanerJobs(cleanerId, jobPropertiesOf(properties.docs, cleanerFacing), today, paidThrough) : [];
 
   return {
     properties: properties.docs
@@ -144,5 +155,6 @@ export async function readCleanerStart(cleanerId: string, role: string): Promise
     itemNames: itemNames(newest.docs.map((doc) => doc.data())),
     jobs,
     today,
+    pay: { earnedCents: pay.earnedCents, paidCents: pay.paidCents, balanceCents: pay.balanceCents, waiting: pay.waiting, cannotAddUp: pay.cannotAddUp + unreadable },
   };
 }

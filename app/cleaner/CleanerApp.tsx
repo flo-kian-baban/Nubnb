@@ -93,6 +93,7 @@ import { leftOutOfReading, type CleanerProperty, type CleanerStart } from "@/app
 import { fold } from "@/app/lib/cleaners/text";
 import { CodeScreen } from "./CodeScreen";
 import { PropertyScreen } from "./PropertyScreen";
+import { PaySection } from "./PaySection";
 import { PhotoScreen } from "./PhotoScreen";
 import { ItemsScreen, type ReadingStatus } from "./ItemsScreen";
 import { DoneScreen, type SentReceipt } from "./DoneScreen";
@@ -681,7 +682,12 @@ export function CleanerApp() {
         selectedId={current.propertyId}
         onChoose={chooseProperty}
         onMyReceipts={openReceipts}
-        top={<JobsSection jobs={jobs ?? start.jobs} today={start.today} busyId={jobBusy} messages={jobMessages} onMark={(job) => actOnJob(job, "mark")} onUndo={(job) => actOnJob(job, "undo")} />}
+        top={
+          <>
+            <JobsSection jobs={jobs ?? start.jobs} today={start.today} busyId={jobBusy} messages={jobMessages} onMark={(job) => actOnJob(job, "mark")} onUndo={(job) => actOnJob(job, "undo")} />
+            <PaySection pay={start.pay} />
+          </>
+        }
       />
     );
   } else if (current.step === "photo") {

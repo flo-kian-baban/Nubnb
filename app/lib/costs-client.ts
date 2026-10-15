@@ -104,7 +104,9 @@ function isCostEntryView(data: unknown): data is CostEntryView {
     isLinesNow(data.linesNow) &&
     (data.receipts === null || Array.isArray(data.receipts)) &&
     typeof data.kind === 'string' &&
-    (data.autoApproved === null || isRecord(data.autoApproved))
+    (data.autoApproved === null || isRecord(data.autoApproved)) &&
+    // Who paid for a receipt (2026-10-15): every entry the server sends carries it.
+    typeof data.paidWith === 'string'
   );
 }
 
@@ -362,6 +364,21 @@ export function markEntrySeen(id: string, request: { seen: number }): Promise<Co
     'Marking the entry as seen failed',
     (data) =>
       isRecord(data) && isCostEntryView(data.entry) && data.entry.id === id && typeof data.changed === 'boolean',
+    ['ENTRY_REVIEW_FAILED'],
+  );
+}
+
+/** Who paid for a receipt (Team pay, Kian's ruling 1 of 2026-10-15): the team member, or Nubnb's card, which is not owed to them. */
+export function setEntryPaidWith(id: string, request: { paidWith: 'team-member' | 'nubnb-card'; seen: number }): Promise<CostResult<EntryChange>> {
+  return call(
+    `/api/admin/cost-entries/${encodeURIComponent(id)}/paid-with`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    },
+    'Saving who paid failed',
+    (data) => isRecord(data) && isCostEntryView(data.entry) && data.entry.id === id && typeof data.changed === 'boolean',
     ['ENTRY_REVIEW_FAILED'],
   );
 }

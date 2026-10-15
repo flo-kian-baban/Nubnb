@@ -9,7 +9,9 @@
  * under the name they were logged with. Answers 200
  * `{ deleted: { id, codes } }` — `codes` is how many code documents were
  * retired. Refusals: 404 CLEANER_NOT_FOUND (nothing deleted); 502
- * CLEANER_DELETE_FAILED (may or may not have been deleted). The page confirms
+ * CLEANER_DELETE_FAILED (may or may not have been deleted); 409 MEMBER_HAS_BALANCE
+ * (Kian's ruling of 2026-10-15: a team member whose balance is not zero cannot be
+ * deleted; the refusal names the balance and says to deactivate instead). The page confirms
  * first, naming what is lost; the server does not ask again.
  *
  * ── PATCH ──
@@ -43,6 +45,7 @@ import {
 import { CLEANER_STATUSES, type Refusal } from '@/app/lib/cleaners/model';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { DELETE_CLEANER_REFUSALS, deleteCleaner, setCleanerStatus, type SetCleanerStatusResult } from '@/app/lib/firebase/server-cleaners';
+import { balanceWords } from '@/app/lib/pay/balance';
 import { isDocumentId } from '@/app/lib/firebase/server-leads';
 
 interface RouteContext {
@@ -123,6 +126,15 @@ export const DELETE = adminRoute(async function DELETE(request: NextRequest, con
   if (!isDocumentId(id)) return noStore(apiError('Invalid cleaner ID', 400));
 
   const outcome = await deleteCleaner(actor, id);
+  if (outcome.kind === 'has-balance') {
+    // Kian's ruling of 2026-10-15: the refusal names the balance and says to deactivate instead.
+    const who = outcome.name ?? 'This team member';
+    const balance = outcome.balanceCents !== 0 ? balanceWords(outcome.balanceCents).words : null;
+    const message = balance
+      ? `${who}'s balance is ${balance}, so they cannot be deleted.`
+      : `${who}'s balance cannot be worked out (${outcome.uncertain === 1 ? '1 record cannot be read' : `${outcome.uncertain} records cannot be read`}), so they cannot be deleted.`;
+    return noStore(apiFailure({ status: 409, code: 'MEMBER_HAS_BALANCE', message, hint: 'Deactivate them instead. Nothing was deleted.', evidence: { balanceCents: outcome.balanceCents } }));
+  }
   if (outcome.kind !== 'deleted') return noStore(apiFailure(DELETE_CLEANER_REFUSALS[outcome.kind]));
   // The account as it was, without its code: the list is the only place a code is shown. And the jobs it came off.
   return noStore(apiSuccess({ deleted: { id: outcome.cleaner.id, name: outcome.cleaner.name, role: outcome.cleaner.role, codes: outcome.codes }, jobsTakenOff: outcome.jobsTakenOff }));

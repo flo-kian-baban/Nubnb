@@ -73,12 +73,17 @@ service cloud.firestore {
     match /property_visibility/{propertyId} { allow read, write: if false; }
     match /month_downloads/{downloadId} { allow read, write: if false; }
     // The cleaning schedule (Kian's rulings of 2026-10-14): one job per
-    // property turnover, written by the scheduled function, the admin refresh
-    // route, the Schedule's assignments and the cleaner app's Mark cleaned; and
-    // the cleaner door's lock, one document per connection that typed a wrong
-    // code, kept by its keyed hash. Server routes only, never a browser.
+    // property turnover, written by the calendar refresh (the day's first
+    // visit, or Refresh calendars), the Schedule's assignments and the cleaner
+    // app's Mark cleaned; and the cleaner door's lock, one document per
+    // connection that typed a wrong code, kept by its keyed hash. Server
+    // routes only, never a browser.
     match /cleaning_jobs/{jobId} { allow read, write: if false; }
     match /cleaner_signin_locks/{lockId} { allow read, write: if false; }
+    // Team pay (Kian's rulings of 2026-10-15): one payment an admin recorded
+    // to a cleaner or a handyman, marked deleted rather than erased. Admin
+    // routes only, never a browser.
+    match /team_payments/{paymentId} { allow read, write: if false; }
 
     // Everything else: denied.
     match /{document=**} {

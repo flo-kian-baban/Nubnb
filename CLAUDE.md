@@ -650,3 +650,34 @@ Function.
   last read, in amber past 24 hours.**
 - **The scheduled Cloud Function and its configuration are removed from the
   repo. Nothing in Google Cloud changes: the APIs stay off.**
+
+## Team pay — Kian's rulings of 2026-10-15
+
+Cleaning schedule phase 2: pay, on the Team page.
+
+1. **Owed to a team member = their cleanings with an amount + their
+   approved receipts + their approved handyman work. A receipt an admin
+   marks "paid with Nubnb's card" is not owed.** [ruling 1]
+2. **Payments are recorded by any admin: amount, date, method (e-transfer,
+   cash, other), optional note, and the admin who recorded it.**
+3. **No pay periods: each person has a running balance (owed minus paid).
+   It may go negative after a change, shown as overpaid.** [ruling 2]
+4. **Any admin can delete a payment after a confirmation naming it; the
+   person's history keeps it, with who deleted it.** [ruling 3]
+5. **On the Team page each person's row shows Earned, Paid and Balance;
+   opening them lists every item and payment by date, with a date
+   filter.**
+6. **In the cleaner app, each person sees their own Earned, Paid and
+   Balance, and nobody else's.**
+7. **Nothing here changes statements or what owners receive.**
+
+Kian's rulings of 2026-10-15, added after the design report:
+
+- **A cleaning, receipt or work entry dated on or before a payment to its
+  person cannot be deleted; it can be removed. The refusal says so and
+  names the payment.**
+- **A team member whose balance is not zero cannot be deleted; the refusal
+  names the balance and says to deactivate instead.**
+- **TEAM-PAY-PLAN.md is accepted as designed, including the developer's
+  choices in its §7 unless one changes statements or what owners receive;
+  any such is listed for Kian first.**

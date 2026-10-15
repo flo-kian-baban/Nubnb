@@ -17,8 +17,10 @@
  *
  * Refusals, nothing deleted: 404 ENTRY_NOT_FOUND; 409 ENTRY_CHANGED (its
  * history changed since the page loaded); 409 ENTRY_IN_STATEMENT (a finished
- * statement prints it, and the refusal names which). 502
- * ENTRY_DELETE_FAILED: may or may not have been deleted.
+ * statement prints it, and the refusal names which); 409 ENTRY_BEFORE_PAYMENT
+ * (Kian's ruling of 2026-10-15: a receipt or work entry dated on or before a
+ * payment to its person is removed instead, and the refusal names the
+ * payment). 502 ENTRY_DELETE_FAILED: may or may not have been deleted.
  *
  * Order: the admin session, then the cross-site and media-type refusals, then
  * the ID, the JSON and the schema, then the work. Every response is no-store.
@@ -32,6 +34,7 @@ import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-gu
 import { longDay, torontoDayOf } from '@/app/lib/costs/report';
 import { DELETE_ENTRY_REFUSALS, deleteCostEntry, type PrintedIn } from '@/app/lib/firebase/server-cost-entries';
 import { isDocumentId } from '@/app/lib/firebase/server-leads';
+import { paymentWords } from '@/app/lib/pay/model';
 import { displayRef, monthLabel } from '@/app/lib/reports/model';
 
 interface RouteContext {
@@ -93,6 +96,16 @@ export const DELETE = adminRoute(async function DELETE(request: NextRequest, con
           message: 'This entry is printed in a finished statement, so it cannot be deleted.',
           hint: `It is in ${outcome.statements.map(statementWords).join(', and in ')}. A statement already sent cannot point to an entry that no longer exists. Nothing was deleted. To take it out of totals, remove it instead.`,
           evidence: { statements: outcome.statements.map((statement) => statement.id).join(',') },
+        }),
+      );
+    case 'before-payment':
+      return noStore(
+        apiFailure({
+          status: 409,
+          code: 'ENTRY_BEFORE_PAYMENT',
+          message: `This ${outcome.kindWord} is dated on or before ${outcome.memberName ? `${outcome.memberName}'s` : 'its person\'s'} ${paymentWords(outcome.payment).replace(/^the /, '')}, so it cannot be deleted.`,
+          hint: 'Remove it instead: it stays on record, marked, and stops counting. Nothing was deleted.',
+          evidence: { payment: outcome.payment.id },
         }),
       );
     default:

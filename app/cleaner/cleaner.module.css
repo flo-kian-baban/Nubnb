@@ -1451,3 +1451,45 @@
   font-size: 16px;
   font-weight: 600;
 }
+
+/* ── Their own pay (Team pay, 2026-10-15): three figures, theirs only ── */
+.pay {
+  margin: 4px 0 18px;
+}
+.payFigures {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+.payFigure {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  font-size: 16px;
+}
+.payFigure + .payFigure {
+  border-top: 1px solid var(--line);
+}
+.payFigure dt {
+  color: var(--muted);
+  font-weight: 600;
+}
+.payFigure dd {
+  margin: 0;
+  color: var(--ink);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.payOverpaid dd {
+  color: var(--warn-ink);
+}
+.payNote {
+  margin: 8px 2px 0;
+  color: var(--muted);
+  font-size: 14px;
+}

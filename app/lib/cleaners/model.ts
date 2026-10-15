@@ -374,6 +374,7 @@ export const HISTORY_ACTIONS = [
   'tax_corrected',
   'seen',
   'rate_set',
+  'paid_with_changed',
 ] as const;
 export type HistoryAction = (typeof HISTORY_ACTIONS)[number];
 
@@ -392,7 +393,22 @@ export const HISTORY_ACTION_LABELS: Record<HistoryAction, string> = {
   tax_corrected: 'Tax corrected',
   seen: 'Seen',
   rate_set: 'Default rate set',
+  paid_with_changed: 'Who paid',
 };
+
+/**
+ * Who paid for a receipt (Kian's ruling 1 of 2026-10-15): the team member, out of their own money, or Nubnb's card. A
+ * receipt an admin marks paid with Nubnb's card is not owed to them (app/lib/pay/balance.ts); its statement line is
+ * unchanged (ruling 7). Absent on every entry written before, and absent means the team member, for ever. Changed by
+ * a `paid_with_changed` history event carrying the before and after in `from` and `to`.
+ */
+export const PAID_WITH = ['team-member', 'nubnb-card'] as const;
+export type PaidWith = (typeof PAID_WITH)[number];
+export const PAID_WITH_LABELS: Record<PaidWith, string> = { 'team-member': 'Paid by the team member', 'nubnb-card': "Paid with Nubnb's card" };
+
+export function isPaidWith(value: unknown): value is PaidWith {
+  return typeof value === 'string' && (PAID_WITH as readonly string[]).includes(value);
+}
 
 // ─── Stored shapes ─────────────────────────────────────────────
 // What the server writes. Reading goes through the views further down,
@@ -671,6 +687,8 @@ export interface CostEntryFields {
    * month of the day they were sent.
    */
   month: string | null;
+  /** Who paid for a receipt (2026-10-15): `team-member` when the document has none; anything else as stored. */
+  paidWith: string;
 }
 
 /**
@@ -715,6 +733,8 @@ export interface CostEntryView {
   autoApproved: AutoApprovedView | null;
   /** The month an office cost was logged for (dispatch 36); null when the entry belongs to the month of the day it was sent. */
   month: string | null;
+  /** Who paid for a receipt (Kian's ruling of 2026-10-15): `team-member`, or `nubnb-card`, which is not owed to them; anything else as stored. */
+  paidWith: string;
 }
 
 /**
@@ -887,6 +907,12 @@ export interface CleanerStart {
   jobs: CleanerJobView[];
   /** Toronto's today, as the server sees it: when Mark cleaned opens is the server's to say. */
   today: string;
+  /**
+   * Their own pay (Kian's ruling 6 of 2026-10-15): Earned, Paid and Balance as app/lib/pay/balance.ts works them out,
+   * and nobody else's; how many of their items wait (no amount yet, or waiting for review), and how many entries
+   * cannot add up and are left out.
+   */
+  pay: { earnedCents: number; paidCents: number; balanceCents: number; waiting: number; cannotAddUp: number };
 }
 
 // ─── Reading fields ────────────────────────────────────────────
@@ -1157,6 +1183,8 @@ export function readCostEntryFields(id: string, fields: Record<string, unknown>)
     autoApproved: readAutoApproved(fields.autoApproved),
     // Written on an office cost since dispatch 36; anything that is not a month reads as none.
     month: typeof fields.month === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(fields.month) ? fields.month : null,
+    // Absent means the team member paid (2026-10-15), on every entry written before the field existed.
+    paidWith: fields.paidWith === undefined || fields.paidWith === null ? 'team-member' : fieldText(fields.paidWith) ?? 'team-member',
   };
 }
 

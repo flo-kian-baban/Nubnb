@@ -448,6 +448,7 @@ const ACTION_WORDS: [method: string, path: RegExp, words: string][] = [
   ['POST', new RegExp(`^/api/admin/cost-entries$`), 'Logged an office cost'],
   ['DELETE', new RegExp(`^/api/admin/cost-entries/${ID}$`), 'Deleted a cost entry'],
   ['POST', new RegExp(`^/api/admin/cost-entries/${ID}/lines$`), 'Corrected a cost entry’s lines'],
+  ['POST', new RegExp(`^/api/admin/cost-entries/${ID}/paid-with$`), 'Marked who paid for a receipt'],
   ['POST', new RegExp(`^/api/admin/cost-entries/${ID}/seen$`), 'Marked a cost entry seen'],
   ['POST', new RegExp(`^/api/admin/cost-entries/${ID}/status$`), 'Approved, rejected or removed a cost entry'],
   ['POST', new RegExp(`^/api/admin/cost-entries/${ID}/tax$`), 'Corrected a cost entry’s tax'],
@@ -469,6 +470,9 @@ const ACTION_WORDS: [method: string, path: RegExp, words: string][] = [
   ['PUT', new RegExp(`^/api/admin/properties/${ID}/report-for$`), 'Set a property’s Report For'],
   ['PUT', new RegExp(`^/api/admin/properties/${ID}/visibility$`), 'Listed or unlisted a property'],
   ['PATCH', new RegExp(`^/api/leads/${ID}$`), 'Updated a lead'],
+  // Team pay (Kian's rulings of 2026-10-15).
+  ['POST', new RegExp(`^/api/admin/payments$`), 'Recorded a payment'],
+  ['DELETE', new RegExp(`^/api/admin/payments/${ID}$`), 'Deleted a payment'],
   ['POST', new RegExp(`^/api/mirror-property-images$`), 'Copied a property’s images'],
   ['POST', new RegExp(`^/api/properties$`), 'Added a property'],
   ['PUT', new RegExp(`^/api/properties/${ID}$`), 'Saved a property'],

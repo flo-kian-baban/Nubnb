@@ -159,6 +159,7 @@ export function entryViewOf(id: string, stored: Record<string, unknown>): CostEn
     kind: entry.kind,
     autoApproved: entry.autoApproved,
     month: entry.month,
+    paidWith: entry.paidWith,
   };
 }
 

@@ -40,10 +40,22 @@
  * cleaner was last paid for the property, or this rate if none; the admin
  * changes it freely when logging. A handyman has no rate.
  *
+ * Pay (Team pay, Kian's rulings of 2026-10-15): each row shows Earned, Paid
+ * and Balance, worked out by the one function (app/lib/pay/balance.ts) from
+ * the cost list this page already reads and every payment; the name and
+ * "Pay" open the person's pay (PayView.tsx) at ?pay={id}, drawn from what
+ * this page holds, so opening a person reads nothing more. A member whose
+ * balance is not zero cannot be deleted: the page says so, naming the
+ * balance, and the server refuses it too. A failed read shows "could not be
+ * read", never a balance that might be wrong. The ID moved to the person's
+ * pay, and every action but Pay behind the row's "⋯" (RowMenu.tsx), to make
+ * room.
+ *
  * No pagination. The whole collection is one response.
  */
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useSearchParams } from "next/navigation";
 import { AlertTriangle, KeyRound, RefreshCw, UserPlus, Users } from "lucide-react";
 import { AdminHeader } from "../components/AdminHeader";
 import { PinGate } from "../components/PinGate";
@@ -51,6 +63,11 @@ import { NoticeBanner, useNotice, type Notice } from "../components/Notice";
 import { fetchCosts } from "@/app/lib/costs-client";
 import { distributionText, watchList, type CleanerPattern } from "@/app/lib/costs/patterns";
 import type { CostEntryView } from "@/app/lib/cleaners/model";
+import type { CleaningView } from "@/app/lib/cleanings/model";
+import { fetchPayments } from "@/app/lib/pay-client";
+import { balanceWords, memberPay, type MemberPay } from "@/app/lib/pay/balance";
+import type { PaymentView } from "@/app/lib/pay/model";
+import { formatCents } from "@/app/lib/cleaners/model";
 import { torontoDayOf } from "@/app/lib/costs/report";
 import {
   changeCleanerCode,
@@ -81,6 +98,8 @@ import {
 } from "@/app/lib/cleaners/model";
 import { Absent, FieldText } from "../leads/lead-display";
 import { NewMemberDialog } from "./NewMemberDialog";
+import { PayView, plainClick } from "./PayView";
+import { RowMenu } from "./RowMenu";
 import { useAsk } from "../components/AskDialog";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
@@ -92,8 +111,14 @@ type ListState =
   | { kind: "ready"; cleaners: CleanerSummary[] }
   | { kind: "error"; title: string; detail?: string; status: number };
 
-/** The cost list's read, for the 90-day distributions and for how many entries each member logged: never shown as "nothing" when it failed. */
-type PatternsState = { kind: "loading" } | { kind: "ready"; patterns: CleanerPattern[]; entries: CostEntryView[] } | { kind: "error"; title: string };
+/** The cost list's read, for the 90-day distributions, how many entries each member logged, and their pay: never shown as "nothing" when it failed. */
+type PatternsState = { kind: "loading" } | { kind: "ready"; patterns: CleanerPattern[]; entries: CostEntryView[]; cleanings: CleaningView[] } | { kind: "error"; title: string };
+
+/** Every payment (Team pay, 2026-10-15): with the cost list, what each row's Earned, Paid and Balance are worked out from. */
+type PaymentsState = { kind: "loading" } | { kind: "ready"; payments: PaymentView[]; unreadable: number } | { kind: "error"; title: string };
+
+/** A member's pay as the row shows it: worked out, still loading, or not readable — never a guess. */
+type RowPay = { kind: "ready"; pay: MemberPay; unreadable: number } | { kind: "loading" } | { kind: "error"; title: string };
 
 /** The cleaner whose code is being changed, as the row showed them. */
 interface CodeEditor {
@@ -126,9 +151,11 @@ const clockWords = (iso: string) => new Intl.DateTimeFormat("en-CA", { timeZone:
 
 export default function CleanersPage() {
   return (
-    <PinGate>
-      <Cleaners />
-    </PinGate>
+    <Suspense fallback={null}>
+      <PinGate>
+        <Cleaners />
+      </PinGate>
+    </Suspense>
   );
 }
 
@@ -159,6 +186,9 @@ function Cleaners() {
   /** The cleaner door's locks holding now (Kian's ruling of 2026-10-14, evening): an admin lifts them here. */
   const [locks, setLocks] = useState<{ kind: "loading" } | { kind: "ready"; locks: SignInLockView[] } | { kind: "error"; title: string }>({ kind: "loading" });
   const [lifting, setLifting] = useState<string | null>(null);
+  const [payments, setPayments] = useState<PaymentsState>({ kind: "loading" });
+  /** The person whose pay is open (?pay={id}), or null for the list. */
+  const payId = useSearchParams().get("pay");
 
   useEffect(() => {
     let cancelled = false;
@@ -182,7 +212,7 @@ function Cleaners() {
       if (cancelled) return;
       setPatterns(
         result.ok
-          ? { kind: "ready", patterns: watchList(result.data.entries, torontoDayOf(new Date())), entries: result.data.entries }
+          ? { kind: "ready", patterns: watchList(result.data.entries, torontoDayOf(new Date())), entries: result.data.entries, cleanings: result.data.cleanings }
           : { kind: "error", title: result.title },
       );
     });
@@ -190,6 +220,27 @@ function Cleaners() {
       cancelled = true;
     };
   }, [attempt]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchPayments().then((result) => {
+      if (!cancelled) setPayments(result.ok ? { kind: "ready", payments: result.data.payments, unreadable: result.data.unreadable } : { kind: "error", title: result.title });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [attempt]);
+
+  /** Each member's pay, by the one function (app/lib/pay/balance.ts), once the cost list and the payments are in. */
+  const payOf = useMemo(() => {
+    return (memberId: string): RowPay => {
+      if (patterns.kind === "error") return { kind: "error", title: patterns.title };
+      if (payments.kind === "error") return { kind: "error", title: payments.title };
+      if (patterns.kind !== "ready" || payments.kind !== "ready") return { kind: "loading" };
+      const entries = patterns.entries.filter((entry) => entry.kind !== "cleaning");
+      return { kind: "ready", pay: memberPay(memberId, { cleanings: patterns.cleanings, entries, payments: payments.payments }), unreadable: payments.unreadable };
+    };
+  }, [patterns, payments]);
 
   useEffect(() => {
     let cancelled = false;
@@ -201,9 +252,33 @@ function Cleaners() {
     };
   }, [attempt]);
 
+  /** Open a person's pay, or go back to the list: the address changes, nothing is read again. */
+  const openPay = (id: string) => {
+    clearNotice();
+    setEditor(null);
+    setRateEditor(null);
+    window.history.pushState(null, "", `/admin/cleaners?pay=${encodeURIComponent(id)}`);
+    window.scrollTo(0, 0);
+  };
+  const closePay = () => {
+    clearNotice();
+    window.history.pushState(null, "", "/admin/cleaners");
+  };
+  const payHref = (id: string) => `/admin/cleaners?pay=${encodeURIComponent(id)}`;
+
+  /** A payment as the server stored it, recorded or deleted, in place of the one held. */
+  const putPayment = (payment: PaymentView) => {
+    setPayments((prev) =>
+      prev.kind === "ready"
+        ? { ...prev, payments: prev.payments.some((p) => p.id === payment.id) ? prev.payments.map((p) => (p.id === payment.id ? payment : p)) : [payment, ...prev.payments] }
+        : prev,
+    );
+  };
+
   const reload = () => {
     setList({ kind: "loading" });
     setPatterns({ kind: "loading" });
+    setPayments({ kind: "loading" });
     setLocks({ kind: "loading" });
     setAttempt((n) => n + 1);
   };
@@ -385,6 +460,17 @@ function Cleaners() {
   const remove = async (cleaner: CleanerSummary) => {
     if (busy) return;
     const who = displayName(cleaner.name);
+    // Kian's ruling of 2026-10-15: a member whose balance is not zero is never deleted. Said here without asking;
+    // the server refuses it too.
+    const rowPay = payOf(cleaner.id);
+    if (rowPay.kind === "ready" && (rowPay.pay.balanceCents !== 0 || rowPay.pay.cannotAddUp > 0 || rowPay.unreadable > 0)) {
+      showNotice({
+        tone: "error",
+        title: rowPay.pay.balanceCents !== 0 ? `${who}'s balance is ${balanceWords(rowPay.pay.balanceCents).words}, so they cannot be deleted.` : `${who}'s balance cannot be worked out, so they cannot be deleted.`,
+        detail: "Deactivate them instead. Nothing was deleted.",
+      });
+      return;
+    }
     const role = isCleanerRole(cleaner.role) ? CLEANER_ROLE_LABELS[cleaner.role] : cleaner.role;
     const all = patterns.kind === "ready" ? patterns.entries.filter((entry) => entry.cleaner.id === cleaner.id) : null;
     // Cleanings are logged by the office for them (dispatch 37B): counted apart from what they logged themselves.
@@ -471,7 +557,7 @@ function Cleaners() {
           <span>Refresh</span>
         </button>
         {/* Never offered before the list has loaded: the person may already exist. */}
-        {list.kind === "ready" && (
+        {list.kind === "ready" && payId === null && (
           <button type="button" className={shared.btnPrimary} onClick={openAdding}>
             <UserPlus size={16} aria-hidden />
             <span>Add team member</span>
@@ -495,7 +581,20 @@ function Cleaners() {
           />
         )}
 
-        {list.kind === "loading" ? (
+        {payId !== null ? (
+          <PayBranch
+            payId={payId}
+            list={list}
+            patterns={patterns}
+            payments={payments}
+            onBack={closePay}
+            onRetry={reload}
+            onPayment={putPayment}
+            show={showNotice}
+            clear={clearNotice}
+            ask={ask}
+          />
+        ) : list.kind === "loading" ? (
           <div className={shared.loading}>
             <div className={shared.spinner} />
             <p>Loading cleaners…</p>
@@ -625,7 +724,9 @@ function Cleaners() {
                       <th>Status</th>
                       <th>Rate</th>
                       <th>Last 90 days</th>
-                      <th>ID</th>
+                      <th className={styles.payHead}>Earned</th>
+                      <th className={styles.payHead}>Paid</th>
+                      <th className={styles.payHead}>Balance</th>
                       <th className={shared.actionsHeader}>Actions</th>
                     </tr>
                   </thead>
@@ -635,7 +736,17 @@ function Cleaners() {
                       return (
                         <tr key={cleaner.id}>
                           <td className={styles.nameCell}>
-                            <FieldText value={cleaner.name} />
+                            <a
+                              href={payHref(cleaner.id)}
+                              className={styles.nameLink}
+                              onClick={(event) => {
+                                if (!plainClick(event)) return;
+                                event.preventDefault();
+                                openPay(cleaner.id);
+                              }}
+                            >
+                              <FieldText value={cleaner.name} />
+                            </a>
                           </td>
                           <td>
                             <RoleBadge role={cleaner.role} />
@@ -652,46 +763,33 @@ function Cleaners() {
                           <td className={styles.patternCell}>
                             <Pattern cleaner={cleaner} state={patterns} />
                           </td>
-                          <td>
-                            <span className={styles.mono}>{cleaner.id}</span>
-                          </td>
+                          <PayCells pay={payOf(cleaner.id)} />
                           <td className={styles.actionCell}>
-                            <button
-                              type="button"
-                              className={styles.rowAction}
-                              disabled={busy}
-                              onClick={() => openEditor(cleaner)}
-                            >
-                              {cleaner.code === null ? "Set code" : "Change code"}
-                            </button>
-                            {cleaner.role === "cleaner" && (
-                              <button type="button" className={styles.rowAction} disabled={busy} onClick={() => setRateEditor({ id: cleaner.id, name: displayName(cleaner.name), draft: cleaner.defaultRateCents === null ? "" : (cleaner.defaultRateCents / 100).toFixed(2) })}>
-                                Set rate
-                              </button>
-                            )}
-                            {/* No status action for a status that is neither: nothing to flip it to. */}
-                            {next && (
-                              <button
-                                type="button"
-                                className={styles.rowAction}
-                                disabled={busy}
-                                onClick={() => changeStatus(cleaner, next)}
+                            <div className={styles.actionRow}>
+                              {saving?.id === cleaner.id && <span className={styles.muted}>{saving.what === "delete" ? "Deleting…" : "Saving…"}</span>}
+                              <a
+                                href={payHref(cleaner.id)}
+                                className={`${styles.rowAction} ${styles.rowActionLink}`}
+                                onClick={(event) => {
+                                  if (!plainClick(event)) return;
+                                  event.preventDefault();
+                                  openPay(cleaner.id);
+                                }}
                               >
-                                {saving?.id === cleaner.id && saving.what === "status"
-                                  ? "Saving…"
-                                  : next === "deactivated"
-                                    ? "Deactivate"
-                                    : "Reactivate"}
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              className={`${styles.rowAction} ${styles.rowActionDanger}`}
-                              disabled={busy}
-                              onClick={() => remove(cleaner)}
-                            >
-                              {saving?.id === cleaner.id && saving.what === "delete" ? "Deleting…" : "Delete…"}
-                            </button>
+                                Pay
+                              </a>
+                              {/* The rest behind "⋯" (TEAM-PAY-PLAN.md §4); no status action for a status that is neither: nothing to flip it to. */}
+                              <RowMenu
+                                label={`More for ${displayName(cleaner.name)}`}
+                                disabled={busy}
+                                items={[
+                                  { label: cleaner.code === null ? "Set code" : "Change code", onSelect: () => openEditor(cleaner) },
+                                  ...(cleaner.role === "cleaner" ? [{ label: "Set rate", onSelect: () => setRateEditor({ id: cleaner.id, name: displayName(cleaner.name), draft: cleaner.defaultRateCents === null ? "" : (cleaner.defaultRateCents / 100).toFixed(2) }) }] : []),
+                                  ...(next ? [{ label: next === "deactivated" ? "Deactivate" : "Reactivate", onSelect: () => changeStatus(cleaner, next) }] : []),
+                                  { label: "Delete…", danger: true, onSelect: () => remove(cleaner) },
+                                ]}
+                              />
+                            </div>
                           </td>
                         </tr>
                       );
@@ -742,6 +840,90 @@ function Cleaners() {
       )}
       {dialog}
     </div>
+  );
+}
+
+/** A person's pay (?pay={id}), once the team, the cost list and the payments are in; a failed read is said, never shown as nothing. */
+function PayBranch({ payId, list, patterns, payments, onBack, onRetry, onPayment, show, clear, ask }: { payId: string; list: ListState; patterns: PatternsState; payments: PaymentsState; onBack: () => void; onRetry: () => void; onPayment: (payment: PaymentView) => void } & Pick<Parameters<typeof PayView>[0], "show" | "clear" | "ask">) {
+  const failed = list.kind === "error" ? list.title : patterns.kind === "error" ? patterns.title : payments.kind === "error" ? payments.title : null;
+  if (failed !== null) {
+    return (
+      <div className={`${shared.empty} ${shared.loadError}`} role="alert">
+        <AlertTriangle size={48} strokeWidth={1} />
+        <h2>Their pay could not be worked out</h2>
+        <p>Something it is worked out from has not loaded. Nothing is shown rather than a balance that might be wrong.</p>
+        <code className={shared.loadErrorDetail}>{failed}</code>
+        <button type="button" className={shared.btnPrimary} onClick={onRetry}>
+          <RefreshCw size={18} />
+          <span>Retry</span>
+        </button>
+      </div>
+    );
+  }
+  if (list.kind !== "ready" || patterns.kind !== "ready" || payments.kind !== "ready") {
+    return (
+      <div className={shared.loading}>
+        <div className={shared.spinner} />
+        <p>Loading their pay…</p>
+      </div>
+    );
+  }
+  const member = list.cleaners.find((cleaner) => cleaner.id === payId);
+  if (!member) {
+    return (
+      <div className={shared.empty}>
+        <Users size={48} strokeWidth={1} />
+        <h2>No team member with this ID</h2>
+        <p>They may have been deleted.</p>
+        <button type="button" className={shared.btnPrimary} onClick={onBack}>
+          <span>Back to Team</span>
+        </button>
+      </div>
+    );
+  }
+  return (
+    <PayView
+      key={member.id}
+      member={member}
+      cleanings={patterns.cleanings}
+      entries={patterns.entries}
+      payments={payments.payments}
+      unreadablePayments={payments.unreadable}
+      today={torontoDayOf(new Date())}
+      onBack={onBack}
+      onPayment={onPayment}
+      show={show}
+      clear={clear}
+      ask={ask}
+    />
+  );
+}
+
+/** Earned, Paid and Balance (Team pay, Kian's ruling 5 of 2026-10-15): worked out, loading, or said to be unreadable. */
+function PayCells({ pay }: { pay: RowPay }) {
+  if (pay.kind !== "ready") {
+    const text = pay.kind === "loading" ? "…" : "Could not be read";
+    return (
+      <>
+        <td className={styles.payCell} title={pay.kind === "error" ? pay.title : undefined}>
+          <span className={pay.kind === "error" ? styles.patternWarn : styles.muted}>{text}</span>
+        </td>
+        <td className={styles.payCell} />
+        <td className={styles.payCell} />
+      </>
+    );
+  }
+  const balance = balanceWords(pay.pay.balanceCents);
+  const uncertain = pay.pay.cannotAddUp + pay.unreadable;
+  return (
+    <>
+      <td className={styles.payCell}>{formatCents(pay.pay.earnedCents)}</td>
+      <td className={styles.payCell}>{formatCents(pay.pay.paidCents)}</td>
+      <td className={`${styles.payCell} ${balance.tone === "overpaid" || uncertain > 0 ? styles.payWarn : ""}`}>
+        {balance.tone === "settled" ? <span className={styles.muted}>—</span> : balance.words}
+        {uncertain > 0 && <span className={styles.payNote}> · {uncertain === 1 ? "1 record" : `${uncertain} records`} left out</span>}
+      </td>
+    </>
   );
 }
 

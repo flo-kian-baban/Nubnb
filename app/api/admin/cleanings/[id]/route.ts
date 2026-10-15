@@ -9,6 +9,9 @@
  * Kian's rulings of 2026-10-14 (night): a job's cleaning keeps its cleaner (409 CLEANING_FROM_JOB), and removing or
  * deleting it leaves its cleaner's mark on the job as "removed by the office", until an admin reopens it.
  *
+ * Kian's ruling of 2026-10-15: a cleaning dated on or before a payment to its cleaner cannot be deleted (409
+ * CLEANING_BEFORE_PAYMENT, naming the payment); it can be removed.
+ *
  * PATCH request:  `{ action: "change", seen, day?, amount?: "75.00", cleanerId?, note?, reason? }` or
  *                 `{ action: "remove", seen, reason? }` — `seen` is the length of its history as the page showed it
  * PATCH response: 200 `{ cleaning, changed, statementMonth }` or `{ cleaning }` for a removal
@@ -26,6 +29,7 @@ import { apiError, apiFailure, apiSuccess, apiValidationError, noStore } from '@
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { ChangeCleaningSchema, DeleteCleaningSchema } from '@/app/lib/cleanings/schemas';
 import { CHANGE_REFUSALS, DELETE_REFUSALS, REMOVE_REFUSALS, changeCleaning, deleteCleaning, removeCleaning } from '@/app/lib/firebase/server-cleanings';
+import { paymentWords } from '@/app/lib/pay/model';
 import { isDocumentId } from '@/app/lib/firebase/server-leads';
 import { monthLabel, reportRef } from '@/app/lib/reports/model';
 
@@ -99,6 +103,16 @@ export const DELETE = adminRoute(async function DELETE(request: NextRequest, con
           code: 'CLEANING_IN_STATEMENT',
           message: 'This cleaning is printed in a finished statement, so it cannot be deleted.',
           hint: `It is in ${statementWords(outcome.statements)}. A statement already sent cannot point to a cleaning that no longer exists. Nothing was deleted. Remove it instead: the next open statement gives it back.`,
+        }),
+      );
+    case 'before-payment':
+      return noStore(
+        apiFailure({
+          status: 409,
+          code: 'CLEANING_BEFORE_PAYMENT',
+          message: `This cleaning is dated on or before ${outcome.cleanerName ? `${outcome.cleanerName}'s` : "its cleaner's"} ${paymentWords(outcome.payment).replace(/^the /, '')}, so it cannot be deleted.`,
+          hint: 'Remove it instead: it stays on record, marked, and stops counting. Nothing was deleted.',
+          evidence: { payment: outcome.payment.id },
         }),
       );
     default:

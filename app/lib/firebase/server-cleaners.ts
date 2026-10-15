@@ -62,6 +62,8 @@ import type { DocumentReference, Transaction } from 'firebase-admin/firestore';
 import { getAdminDb } from './admin';
 import { adminPinHolds, countTry, lockStateOf, readConnectionLock } from './server-admins';
 import { readUnmarkedJobs, takeOffJobs } from './server-cleaning-jobs';
+import { memberPaySources } from './server-pay';
+import { memberPay } from '@/app/lib/pay/balance';
 import type { UnmarkedJob } from '@/app/lib/schedule/model';
 import { isDocumentId } from './server-leads';
 import { DAILY_TRIES, MAX_WRONG_TRIES, afterTry, lockHolding, type LockState, type SignInLockView } from '@/app/lib/admins/model';
@@ -74,6 +76,7 @@ import {
   CLEANER_SCHEMA_VERSION,
   CODE_PATTERN,
   newestFirst,
+  fieldText,
   readCleanerSummary,
   roleOf,
   type Actor,
@@ -722,10 +725,15 @@ export type DeleteCleanerResult =
   | { kind: 'deleted'; cleaner: CleanerSummary; codes: number; jobsTakenOff: UnmarkedJob[] }
   /** No cleaner has this ID. */
   | { kind: 'not-found' }
+  /**
+   * Their balance is not zero, or cannot be worked out (`uncertain`: their entries that cannot add up and records not
+   * in shape): Kian's ruling of 2026-10-15, they cannot be deleted; deactivate them instead. Nothing was written.
+   */
+  | { kind: 'has-balance'; balanceCents: number; uncertain: number; name: string | null }
   /** The transaction failed: it may or may not have landed. */
   | { kind: 'failed' };
 
-export const DELETE_CLEANER_REFUSALS: Record<Exclude<DeleteCleanerResult['kind'], 'deleted'>, Refusal> = {
+export const DELETE_CLEANER_REFUSALS: Record<Exclude<DeleteCleanerResult['kind'], 'deleted' | 'has-balance'>, Refusal> = {
   'not-found': {
     status: 404,
     code: 'CLEANER_NOT_FOUND',
@@ -769,6 +777,13 @@ export async function deleteCleaner(actor: Actor, id: string): Promise<DeleteCle
     return await db.runTransaction(async (tx): Promise<DeleteCleanerResult> => {
       const [snap, theirs] = await Promise.all([tx.get(ref), tx.get(codes)]);
       if (!snap.exists) return { kind: 'not-found' };
+      // A team member whose balance is not zero is never deleted (Kian's ruling of 2026-10-15): worked out by the one
+      // function, from their cleanings, entries and payments read in this transaction.
+      const { sources, unreadable } = await memberPaySources(id, tx);
+      const pay = memberPay(id, sources);
+      if (pay.balanceCents !== 0 || pay.cannotAddUp > 0 || unreadable > 0) {
+        return { kind: 'has-balance', balanceCents: pay.balanceCents, uncertain: pay.cannotAddUp + unreadable, name: fieldText(snap.get('name')) };
+      }
       // The jobs they are on and have not marked: they come off them, in this transaction (the cleaning schedule).
       const jobs = await readUnmarkedJobs(tx, id);
       const stored = snap.data() ?? {};

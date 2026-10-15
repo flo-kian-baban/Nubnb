@@ -314,6 +314,7 @@ function entryView(c: CleaningView, status: string, lines: CostEntryView['lines'
     kind: 'cleaning',
     autoApproved: null,
     month: c.day.slice(0, 7),
+    paidWith: 'team-member',
   };
 }
 

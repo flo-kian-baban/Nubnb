@@ -31,6 +31,7 @@ import {
 } from "@/app/lib/work-draft";
 import type { CleanerProperty, CleanerStart } from "@/app/lib/cleaners/model";
 import { PropertyScreen } from "./PropertyScreen";
+import { PaySection } from "./PaySection";
 import { WorkScreen } from "./WorkScreen";
 import { DoneScreen, type SentReceipt } from "./DoneScreen";
 import { ReceiptsScreen } from "./ReceiptsScreen";
@@ -242,6 +243,7 @@ export function HandymanApp({ start, onSignedOut }: HandymanAppProps) {
         onMyReceipts={openList}
         listLabel="My work"
         tag="Work"
+        top={<PaySection pay={start.pay} />}
       />
     );
   } else {

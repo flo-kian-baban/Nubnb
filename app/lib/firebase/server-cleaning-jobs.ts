@@ -35,6 +35,8 @@ import { getAdminDb } from './admin';
 import { isDocumentId } from './server-leads';
 import { getCleanerFacingName, listCleanerFacingNames } from './server-property-names';
 import { cleaningDayProblem, readDocs, statementMonthOf, statementsPrinting } from './server-cleanings';
+import { paymentOnOrAfter } from './server-pay';
+import type { PaymentView } from '@/app/lib/pay/model';
 import { CLEANERS_COLLECTION, fieldText, roleOf, type Actor, type Refusal } from '@/app/lib/cleaners/model';
 import { CLEANINGS_COLLECTION, CLEANING_SCHEMA_VERSION, readCleaning, suggestedAmount, type Cleaning } from '@/app/lib/cleanings/model';
 import { readCurrent } from '@/app/lib/availability/store';
@@ -264,14 +266,16 @@ async function printedAmong(byProperty: Map<string, string[]>): Promise<Set<stri
  * A cleaner's jobs as their app shows them: the jobs they are on whose checkout is within the 45 days their list
  * reaches (Kian's answer of the evening), or ahead; a job whose booking changed only until its checkout day has
  * passed, unless they marked it. Each with whether they can mark it now, and, once marked, whether Undo still holds.
- * Reads: the jobs in those days, the cleanings they marked, and the finished statements of those properties.
+ * Reads: the jobs they are on (`cleanerIds` array-contains: theirs only, never every job of the 45 days, Kian's
+ * instruction of 2026-10-15), the cleanings they marked, and the finished statements of those properties.
  *
  * @throws if a read fails.
  */
-export async function cleanerJobs(cleanerId: string, properties: ReadonlyMap<string, JobProperty>, today: string = torontoDay()): Promise<CleanerJobView[]> {
+export async function cleanerJobs(cleanerId: string, properties: ReadonlyMap<string, JobProperty>, today: string = torontoDay(), paidThrough: string | null = null): Promise<CleanerJobView[]> {
   const db = getAdminDb();
-  const snap = await db.collection(CLEANING_JOBS_COLLECTION).where('checkout', '>=', cleanerListFrom(today)).get();
-  const mine = readJobs(snap.docs).jobs.filter((job) => job.cleanerIds.includes(cleanerId));
+  const snap = await db.collection(CLEANING_JOBS_COLLECTION).where('cleanerIds', 'array-contains', cleanerId).get();
+  const from = cleanerListFrom(today);
+  const mine = readJobs(snap.docs).jobs.filter((job) => job.cleanerIds.includes(cleanerId) && job.checkout >= from);
   const marked = mine.filter((job) => job.assignments[cleanerId].cleaningId !== null && job.assignments[cleanerId].removedAt === null);
   const cleaningIds = distinct(marked.map((job) => job.assignments[cleanerId].cleaningId as string));
   const cleaningDocs = cleaningIds.length ? await db.getAll(...cleaningIds.map((id) => db.collection(CLEANINGS_COLLECTION).doc(id)), { fieldMask: ['status', 'propertyId', 'cleanerId'] }) : [];
@@ -297,7 +301,8 @@ export async function cleanerJobs(cleanerId: string, properties: ReadonlyMap<str
         nextCheckIn: job.nextCheckIn,
         status: job.status,
         markedAt: a.markedAt,
-        canUndo: a.cleaningId !== null && a.removedAt === null && cleaning?.status === 'logged' && !printed.has(a.cleaningId),
+        // Never on a cleaning dated on or before a payment to them (`paidThrough`, its latest day): the office removes those.
+        canUndo: a.cleaningId !== null && a.removedAt === null && cleaning?.status === 'logged' && !printed.has(a.cleaningId) && (paidThrough === null || job.checkout > paidThrough),
         markRefusal: markRefusal(job, cleanerId, today),
       };
     })
@@ -455,10 +460,12 @@ export type UndoResult =
   | { kind: 'removed' }
   /** A finished statement prints it (ruling 6): admins change or remove it under 37B. */
   | { kind: 'printed'; months: string[] }
+  /** Dated on or before a payment to them (Kian's ruling of 2026-10-15): an Undo deletes, so it is refused; the office removes it. */
+  | { kind: 'paid'; payment: PaymentView }
   | { kind: 'unreadable' }
   | { kind: 'failed' };
 
-export const UNDO_REFUSALS: Record<Exclude<UndoResult['kind'], 'undone' | 'printed'>, Refusal> = {
+export const UNDO_REFUSALS: Record<Exclude<UndoResult['kind'], 'undone' | 'printed' | 'paid'>, Refusal> = {
   'not-found': MARK_REFUSALS['not-found'],
   'not-marked': { status: 409, code: 'JOB_NOT_MARKED', message: 'This job is not marked cleaned by you.', hint: 'Nothing was changed.' },
   'out-of-reach': { status: 409, code: 'JOB_OUT_OF_REACH', message: 'This job is too far back to undo here.', hint: 'Nothing was changed. Ask the office.' },
@@ -494,6 +501,10 @@ export async function undoMark(cleaner: { id: string; name: string | null }, job
       if (cleaning.status === 'removed') return { kind: 'removed' };
       const printing = await statementsPrinting(cleaning.propertyId, cleaning.id, tx);
       if (printing.length > 0) return { kind: 'printed', months: [...new Set(printing.map((p) => p.month))].sort() };
+      // An Undo deletes the cleaning: one dated on or before a payment to them is the office's to remove (2026-10-15).
+      const paid = await paymentOnOrAfter(tx, cleaner.id, cleaning.day);
+      if (paid.kind === 'unreadable') return { kind: 'unreadable' };
+      if (paid.kind === 'payment') return { kind: 'paid', payment: paid.payment };
 
       const at = now.toISOString();
       const actor: Actor = { role: 'cleaner', id: cleaner.id, name: cleaner.name };
