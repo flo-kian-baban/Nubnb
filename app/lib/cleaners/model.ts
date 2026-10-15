@@ -67,6 +67,7 @@
 // Permanent: renaming one would mean moving documents, which is a backfill.
 
 import type { CleaningView, TeamRate } from '@/app/lib/cleanings/model';
+import type { CleanerJobView } from '@/app/lib/schedule/model';
 
 export const CLEANERS_COLLECTION = 'cleaners';
 export const CLEANER_CODES_COLLECTION = 'cleaner_codes';
@@ -91,6 +92,17 @@ export const COST_ENTRY_SUBMISSIONS_COLLECTION = 'cost_entry_submissions';
  * changed or deleted.
  */
 export const COST_REPORT_EXPORTS_COLLECTION = 'cost_report_exports';
+
+/**
+ * The cleaner door's lock (Kian's ruling of 2026-10-14, evening: the admin
+ * door's lock): one document per connection that typed a wrong code,
+ * `cleaner_signin_locks/{keyed hash}`, holding the same count as
+ * `admin_signin_locks` (admins/model.ts, afterTry). Five wrong codes in a row
+ * from one connection lock sign-in from it for fifteen minutes; twenty in a
+ * Toronto day lock it until an admin lifts it from the Team page. The
+ * connection is kept only as its keyed hash, never the address (lock.ts).
+ */
+export const CLEANER_SIGNIN_LOCKS_COLLECTION = 'cleaner_signin_locks';
 
 /** Storage prefix of receipt images. Readers use the stored path and never rebuild it. */
 export const RECEIPTS_PREFIX = 'receipts';
@@ -868,6 +880,13 @@ export interface CleanerStart {
   recentPropertyIds: string[];
   /** Item names in use across all cleaners, most used first. Words only: no cleaner, property, date or amount. */
   itemNames: string[];
+  /**
+   * Their jobs (the cleaning schedule, Kian's rulings of 2026-10-14): those they are on, within the 45 days their
+   * list reaches or ahead, soonest first; first on their screen, above everything else. Empty for a handyman.
+   */
+  jobs: CleanerJobView[];
+  /** Toronto's today, as the server sees it: when Mark cleaned opens is the server's to say. */
+  today: string;
 }
 
 // ─── Reading fields ────────────────────────────────────────────

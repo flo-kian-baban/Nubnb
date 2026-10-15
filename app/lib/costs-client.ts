@@ -430,7 +430,8 @@ function isCleaningView(data: unknown): data is CleaningView {
     typeof data.propertyId === 'string' &&
     typeof data.cleanerId === 'string' &&
     typeof data.day === 'string' &&
-    typeof data.amountCents === 'number' &&
+    // A job's cleaning marked with no amount to start from has none until an admin types it (the cleaning schedule).
+    (typeof data.amountCents === 'number' || data.amountCents === null) &&
     (data.status === 'logged' || data.status === 'removed') &&
     isTextOrNull(data.note) &&
     Array.isArray(data.history) &&

@@ -171,7 +171,7 @@ const indexIdOf = (pin: unknown): string | null => storedValueOf(pin) ?? lookupO
 /** The `pin` field of a PIN set now. */
 const readablePin = (value: string) => ({ state: 'readable', value });
 
-function lockStateOf(data: Record<string, unknown> | undefined): LockState {
+export function lockStateOf(data: Record<string, unknown> | undefined): LockState {
   if (!data) return NO_LOCK;
   const count = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
   return {

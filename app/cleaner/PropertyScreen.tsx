@@ -4,9 +4,13 @@
  * Choose the property: a search box, then one big row per property. The ones
  * this cleaner logged against come first, most recent first; then the rest,
  * A to Z. Search matches the name or the city, ignoring capitals and accents.
+ *
+ * Above it all, under the greeting, the cleaner's jobs (`top`: the cleaning
+ * schedule, Kian's rulings of 2026-10-14: their jobs come first, above
+ * everything else).
  */
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Check, ChevronRight, Clock, Search, X } from "lucide-react";
 import type { CleanerProperty } from "@/app/lib/cleaners/model";
 import { matchRank } from "@/app/lib/cleaners/text";
@@ -23,6 +27,8 @@ interface PropertyScreenProps {
   /** "My work" for a handyman (dispatch 24). */
   listLabel?: string;
   tag?: string;
+  /** The cleaner's jobs, first on the screen (the cleaning schedule). */
+  top?: ReactNode;
 }
 
 /** How well a property matches the search: its name first, then its city. */
@@ -42,6 +48,7 @@ export function PropertyScreen({
   onMyReceipts,
   listLabel = "My receipts",
   tag,
+  top,
 }: PropertyScreenProps) {
   const [query, setQuery] = useState("");
 
@@ -100,6 +107,7 @@ export function PropertyScreen({
       />
       <main className={styles.screen}>
         <p className={styles.greeting}>{firstName ? `Hi ${firstName}` : "Hi"}</p>
+        {top}
         <h1 className={styles.title}>Which property?</h1>
 
         <div className={styles.searchField}>

@@ -2,7 +2,10 @@
  * GET /api/cleaner/start — What the cleaner app needs when it opens (cleaner-only).
  *
  * Response: 200 `{ success: true, data: { cleaner: { id, name, role },
- *             properties: [{ id, name, city }], recentPropertyIds, itemNames } }`
+ *             properties: [{ id, name, city }], recentPropertyIds, itemNames,
+ *             jobs, today } }`
+ *           `jobs` (the cleaning schedule, 2026-10-14): the jobs this cleaner
+ *           is on, as their app shows them; `today` the Toronto day.
  *           `role` (dispatch 24) is `cleaner` or `handyman`, as the account
  *           reads now: the app shows the receipt flow or the work flow by it.
  *
@@ -15,8 +18,10 @@
  * only, with no cleaner, property, date or amount (readCleanerStart).
  *
  * Reads: the session check, then one per property, one per entry of this
- * cleaner's, and at most 300 of everyone's newest entries. Every response,
- * refusals included, is no-store.
+ * cleaner's, and at most 300 of everyone's newest entries; for a cleaner, the
+ * jobs of the 45 days their list reaches, the cleanings they marked, and those
+ * properties' finished statements. Every response, refusals included, is
+ * no-store.
  */
 
 import { apiSuccess, apiFailure, noStore } from '@/app/lib/api/safe-response';
@@ -36,7 +41,7 @@ export async function GET(request: Request) {
   const { id, name, role } = session.cleaner;
 
   try {
-    const start = await readCleanerStart(id);
+    const start = await readCleanerStart(id, role);
     return noStore(apiSuccess({ cleaner: { id, name, role }, ...start }));
   } catch (err) {
     console.error(`[cleaner-start] read failed: grpc code ${grpcCode(err)}`);

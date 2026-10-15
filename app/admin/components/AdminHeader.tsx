@@ -46,12 +46,12 @@
 
 import Link from "next/link";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { Banknote, CalendarSearch, ExternalLink, Inbox, LayoutGrid, Receipt, ShieldCheck, Users } from "lucide-react";
+import { Banknote, CalendarSearch, ClipboardCheck, ExternalLink, Inbox, LayoutGrid, Receipt, ShieldCheck, Users } from "lucide-react";
 import styles from "../page.module.css";
 import { AccountMenu } from "./AccountMenu";
 import { useAdminSession } from "./PinGate";
 
-export type AdminSection = "properties" | "leads" | "costs" | "income" | "cleaners" | "availability" | "admins";
+export type AdminSection = "properties" | "leads" | "costs" | "income" | "cleaners" | "availability" | "schedule" | "admins";
 
 const SECTIONS: { key: AdminSection; label: string; href: string; Icon: typeof Inbox }[] = [
   { key: "properties", label: "Properties", href: "/admin", Icon: LayoutGrid },
@@ -62,6 +62,8 @@ const SECTIONS: { key: AdminSection; label: string; href: string; Icon: typeof I
   { key: "cleaners", label: "Team", href: "/admin/cleaners", Icon: Users },
   // Dispatch 22 (2026-09-30): the search for a caller's dates, and the attention list.
   { key: "availability", label: "Availability", href: "/admin/availability", Icon: CalendarSearch },
+  // The cleaning schedule (2026-10-14): each turnover's job, who is on it, and whether it is done.
+  { key: "schedule", label: "Schedule", href: "/admin/schedule", Icon: ClipboardCheck },
 ];
 
 /** Dispatch 38: a main admin's section, after the others. */

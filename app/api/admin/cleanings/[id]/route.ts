@@ -6,6 +6,9 @@
  * statement, the rules costs follow; the statements do that from what is stored. A removed cleaning stays,
  * marked, and counts nowhere. A deleted one leaves no record of who cleaned or what they were paid.
  *
+ * Kian's rulings of 2026-10-14 (night): a job's cleaning keeps its cleaner (409 CLEANING_FROM_JOB), and removing or
+ * deleting it leaves its cleaner's mark on the job as "removed by the office", until an admin reopens it.
+ *
  * PATCH request:  `{ action: "change", seen, day?, amount?: "75.00", cleanerId?, note?, reason? }` or
  *                 `{ action: "remove", seen, reason? }` — `seen` is the length of its history as the page showed it
  * PATCH response: 200 `{ cleaning, changed, statementMonth }` or `{ cleaning }` for a removal
@@ -78,14 +81,14 @@ export const PATCH = adminRoute(async function PATCH(request: NextRequest, conte
   }
 });
 
-export const DELETE = adminRoute(async function DELETE(request: NextRequest, context: RouteContext) {
+export const DELETE = adminRoute(async function DELETE(request: NextRequest, context: RouteContext, { actor }) {
   const read = await readBody(request);
   if (!read.ok) return read.response;
   const { id } = await context.params;
   if (!isDocumentId(id)) return noStore(apiError('Invalid cleaning ID', 400));
   const parsed = DeleteCleaningSchema.safeParse(read.body);
   if (!parsed.success) return noStore(apiValidationError(parsed.error.issues.map((i) => ({ path: i.path.map(String).join('.'), message: i.message }))));
-  const outcome = await deleteCleaning(id, parsed.data.seen);
+  const outcome = await deleteCleaning(actor, id, parsed.data.seen);
   switch (outcome.kind) {
     case 'deleted':
       return noStore(apiSuccess({ deleted: { id: outcome.id } }));

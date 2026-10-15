@@ -56,6 +56,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { CloudOff } from "lucide-react";
 import {
+  jobAction,
   loadStart,
   readReceipt,
   sendEntry,
@@ -63,6 +64,7 @@ import {
   type SignInResult,
   type StartResult,
 } from "@/app/lib/cleaner-client";
+import type { CleanerJobView } from "@/app/lib/schedule/model";
 import {
   STEPS,
   clearDraft,
@@ -97,6 +99,7 @@ import { DoneScreen, type SentReceipt } from "./DoneScreen";
 import { ReceiptsScreen } from "./ReceiptsScreen";
 import { CleanerBar } from "./CleanerBar";
 import { HandymanApp } from "./HandymanApp";
+import { JobsSection } from "./JobsSection";
 import styles from "./cleaner.module.css";
 
 type Phase =
@@ -182,6 +185,10 @@ export function CleanerApp() {
   const [viewing, setViewing] = useState(false);
   /** The photo whose reading is in flight, for the screen; null when none is. */
   const [readingPhotoKey, setReadingPhotoKey] = useState<string | null>(null);
+  /** The cleaner's jobs as they stand after a mark or an undo (the cleaning schedule); the start's until then. */
+  const [jobs, setJobs] = useState<CleanerJobView[] | null>(null);
+  const [jobBusy, setJobBusy] = useState<string | null>(null);
+  const [jobMessages, setJobMessages] = useState<Record<string, string>>({});
   const online = useSyncExternalStore(subscribeToConnection, () => navigator.onLine, () => true);
 
   // The latest draft and cleaner for handlers that run between renders:
@@ -271,6 +278,8 @@ export function CleanerApp() {
       setShowProblems(false);
       setViewing(false);
       window.history.replaceState({ cleanerStep: step }, "");
+      setJobs(start.jobs);
+      setJobMessages({});
       setPhase({ kind: "in", start });
       // A photo kept with no reading yet — the page closed while it was being read — is read now.
       if (storedPhoto && restored.photoKey && restored.reading?.photoKey !== restored.photoKey) {
@@ -320,14 +329,48 @@ export function CleanerApp() {
     await enter(await loadStart());
   };
 
-  const submitCode = async (code: string): Promise<SignInResult["kind"]> => {
+  /**
+   * Mark a job cleaned, or undo one's own mark (the cleaning schedule). Sending again after a lost answer is safe: a
+   * mark is never made twice. The job then reads as the server answered.
+   */
+  const actOnJob = async (job: CleanerJobView, action: "mark" | "undo") => {
+    if (jobBusy) return;
+    setJobBusy(job.id);
+    setJobMessages((prev) => ({ ...prev, [job.id]: "" }));
+    const result = await jobAction(job.id, action);
+    setJobBusy(null);
+    if (result.kind === "signed-out") {
+      setPhase({ kind: "code" });
+      return;
+    }
+    if (result.kind === "ok") {
+      if (result.job) {
+        const next = result.job;
+        setJobs((prev) => (prev ?? []).map((j) => (j.id === next.id ? next : j)));
+      } else {
+        await retry();
+      }
+      return;
+    }
+    const message =
+      result.kind === "refused"
+        ? result.message
+        : result.offline
+          ? "No signal. Nothing was recorded. Try again when you have signal."
+          : action === "mark"
+            ? "Not confirmed. Tap Mark cleaned again — it won’t be counted twice."
+            : "Not confirmed. Tap Undo again.";
+    setJobMessages((prev) => ({ ...prev, [job.id]: message }));
+  };
+
+  const submitCode = async (code: string): Promise<SignInResult> => {
     const result = await signIn(code);
-    if (result.kind !== "ok") return result.kind;
+    if (result.kind !== "ok") return result;
     const start = await loadStart();
     // Signed in, yet not: the phone did not keep the session cookie.
-    if (start.kind === "signed-out") return "failed";
+    if (start.kind === "signed-out") return { kind: "failed" };
     await enter(start);
-    return "ok";
+    return { kind: "ok" };
   };
 
   /** "My receipts", as a new history entry over the current step, so Back closes it. */
@@ -638,6 +681,7 @@ export function CleanerApp() {
         selectedId={current.propertyId}
         onChoose={chooseProperty}
         onMyReceipts={openReceipts}
+        top={<JobsSection jobs={jobs ?? start.jobs} today={start.today} busyId={jobBusy} messages={jobMessages} onMark={(job) => actOnJob(job, "mark")} onUndo={(job) => actOnJob(job, "undo")} />}
       />
     );
   } else if (current.step === "photo") {

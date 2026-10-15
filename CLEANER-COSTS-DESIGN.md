@@ -3155,3 +3155,113 @@ They replace the six digits of dispatch 38 and of the night. `firestore.rules` a
 - `ADMIN_PIN` of another length in Vercel. The recovery script checks only the local one; production would then refuse the shared PIN until Vercel's is four digits.
 - **Production:** Kian's recovery and Set your PIN are his to do.
 - Statements were not re-rendered: no money or statement code changed.
+
+## 46. The cleaning schedule, phase 1: Kian's rulings of 2026-10-14
+
+Kian's rulings are in `CLAUDE.md` under *Cleaning schedule*: the eight of the morning, and the evening's:
+- the plan's recommendations 1–4: same dates under a new ID keep the job; a cleaning's day is the checkout day; Undo lasts until a finished statement prints the cleaning; until the function is deployed, jobs come from Refresh now only;
+- jobs link cleanings to bookings, replacing 37B's "no link";
+- the cleaner door gets the admin door's lock;
+- the hourly calendar copy deploys as the existing Cloud Function, with the job sync inside it;
+- the plan's §9 choices accepted except those touching money, a statement or what an owner receives, which were put to him first; his four answers are in CLAUDE.md.
+
+The design is `CLEANING-SCHEDULE-PLAN.md`. `firestore.rules` changes (two deny lines), so its deploy is part of the release.
+
+### 46.1 What was built
+
+- **The calendar copy** keeps a stay through its checkout day (`eventsFromFeed`: `end < today` is dropped, no longer `end <= today`). An event ending today covers no night from today on, so no night's state changes.
+- **`app/lib/schedule/`**, pure and copied into the function by `scripts/functions-sync.mjs`:
+  - `model.ts`: the job, its assignments and history, read strictly; `jobIdOf`, `markRefusal`, `isDone`, `changedAfterMark`, `changeWords`; the views the pages read;
+  - `sync.ts`: `planCreates` (reservations ending today to two days ahead, on calendars read this run) and `planJob` (booking changed: moved, gone, calendar changed or removed, property deleted; a new UID on the same day keeps the job; reopen; check-in and next check-in changes; settled after the checkout day);
+  - `store.ts`: `syncJobs`, one query and `create()` per new job, a transaction per changed job; never throws.
+- **`availability/refresh.ts`** runs `syncJobs` right after writing the copy; `RefreshOutcome.jobs`; the function logs it; Refresh now answers it.
+- **Cleanings, schema version 2:** `jobId`; `amountCents` null only on a job's cleaning. `cleaningEntryView` reads a null amount as a pending cost with no lines (`NO_AMOUNT_YET`); `suggestedAmount` skips a cleaning with no amount; the workbooks print "No amount yet". New hand-logged cleanings are written as version 2 with `jobId: null`.
+- **`firebase/server-cleaning-jobs.ts`:** `readSchedule`, `setAssignees`, `cleanerJobs` and `oneCleanerJob`, `markCleaned`, `undoMark`, `unmarkedJobsOf`, and `readUnmarkedJobs` with `takeOffJobs` for the Team page's transactions.
+- **The cleaner door's lock:** `cleaners/lock.ts` (the connection's keyed hash under `CLEANER_SESSION_SECRET`, its own label); `signInCleaner` in `server-cleaners.ts` on the admin door's `afterTry` and `lockHolding` (`lockStateOf` now exported from `server-admins.ts`); `cleaner_signin_locks/{hash}`; the session route answers 429 `CLEANER_SIGN_IN_LOCKED` and the warning before a lock; `findCleanerByCode` removed, its checks now inside `signInCleaner`.
+- **The Team page:** deactivating and deleting take the person off every job they have not marked, inside the same transaction; the routes answer `jobsTakenOff`; the dialogs name the jobs first (`GET /api/admin/cleaners/[id]/jobs`); a "Cleaner sign-in locks" block, shown only while one holds, with Lift.
+- **Routes:** `GET /api/admin/cleaning-jobs`, `PATCH /api/admin/cleaning-jobs/[id]`, `POST /api/cleaner/jobs/[id]` (mark, undo), `GET /api/admin/cleaners/locks`, `DELETE /api/admin/cleaners/locks/[id]`; `GET /api/cleaner/start` adds `jobs` and `today`.
+- **Pages:** `/admin/schedule` (header section "Schedule"); the cleaner app's jobs above everything else (`JobsSection.tsx`); the code screen's warning and lock; the Cleanings tab's "No amount yet" and "· marked"; the Costs list's "No amount yet".
+- **Rules and export:** deny lines for `cleaning_jobs` and `cleaner_signin_locks`; the export lists both. The activity log names the two new admin writes.
+- **Tests:** `tests/schedule/jobs.mjs` (check `cleaning-jobs`); `admin-accounts` re-recorded for the five new admin handlers.
+
+### 46.2 Decisions, not rulings
+
+Two touch a cleaning record, and were put to Kian first (§9 of the evening's rulings); his rulings of the night settle both (§46.6):
+- **A job's cleaning keeps its cleaner.** The Cleanings tab refuses changing the cleaner of a cleaning made by Mark cleaned (409 `CLEANING_FROM_JOB`): remove it, and log one by hand for the other cleaner. Otherwise the job's assignment would point at another cleaner's cleaning. *Accepted by Kian (night).*
+- ~~An admin's Delete of a job's cleaning clears that cleaner's mark on the job, so the cleaner can mark it again.~~ *Replaced by Kian's ruling of the night: the job keeps the mark as "removed by the office", the cleaner cannot mark it again, and an admin can reopen it for them from the Schedule (§46.6).*
+
+The rest:
+- The lock counts only four-digit codes: anything else is refused before any read and is no guess, as at the admin door.
+- **A lift clears both counts**, as the admin door's does: lifting a 15-minute lock also restarts that connection's twenty for the day. The day's twenty therefore build up only across locks that run out.
+- The cleaner lock's key is the cleaner key with its own label: the doors share no key. Rotating `CLEANER_SESSION_SECRET` orphans the lock records, which then never match.
+- Mark cleaned pressed again after a lost answer answers with the existing mark; nothing is made twice.
+- A booking-changed job the cleaner has not marked leaves their list once its checkout day has passed.
+- The Schedule opens on seven days back to the furthest job (two days ahead); at most 92 days at a time.
+- A moved booking's job offers "Same cleaners to <day>" when the job at the new checkout is on the page.
+- Cleaner-facing names everywhere in the cleaner app (dispatch 21); the Schedule uses the real names.
+
+### 46.3 Before deploying
+
+- Deploy `firestore.rules` with the commit (two deny lines; the catch-all already denied both).
+- Set each cleaner's default rate on the Team page: without one, and with no amount last paid for the property, every Mark cleaned waits for an admin to type its amount.
+- The function: the Google Cloud steps and the deploy plan are in the report of 2026-10-14 (evening).
+
+### 46.4 How it was checked (2026-10-14, 19:57 – 20:25 Toronto)
+
+- **Offline:** `node tests/run.mjs` 10 of 10 identical; dispatch 36's `v3-hash.mjs` 40 of 40 statements byte-identical; `tsc --noEmit` and `eslint` clean on every file touched; `npm --prefix functions run build` compiles.
+- **Live**, on a build of the tree (`G08F1fuzCOrY1-6CSlSbb`, after one UI fix round on `_lFNelo7twXMwUz_KRMKa`) served on 127.0.0.1:4500, reading production, throwaway admin and cleaner secrets, a write guard allowing only the test's own records, a minted session for a `__TEST__` admin, an unlisted `__TEST__` property whose calendar link was answered from a local file, and `__TEST__` cleaners Ana ($60.00 rate), Ben (none) and Cy:
+  - Refresh calendars read 53 calendars: 12 reservations ending 14–16 October, 12 jobs, the same stays; 4 blocks ending in those days, no job;
+  - assignments, a stale page (409) and a cleaner who does not exist (422);
+  - each cleaner's list, soonest first; Mark cleaned: Ana's at $60.00 (`suggested: default`), Ben's with no amount (`suggested: none`); too early 409, not on the job 403, pressed again nothing twice;
+  - the statement: Ben's cleaning left out and Finish's pending warning counting it; typed at $55.00, "Expense - Cleaning · 2 · (rate empty) · -$115.00"; no cleaner named in the PDF;
+  - Undo while unprinted (the cleaning deleted, the job's history keeping $60.00), marked again; October finished; Undo refused for both, "on the finished October 2026 statement";
+  - booking changed: R2 extended under its UID, the job marked moved, Ana's mark refused, no one added;
+  - Cy deactivated with a job: named first, taken off, session ended; reactivated onto none; deleted with a job: taken off again;
+  - the lock: five wrong codes, 15 minutes, a right code refused unread, lifted, the right code works; the day's twenty across three locks that ran out (the server restarted with the app's clock past each), the nineteenth warning "until the office lifts it", the twentieth capped; lifted from the Team page;
+  - the app's clock at 00:30 on 15 October: Ben's mark started from what he was last paid ($55.00, `suggested: last`), and printed on November's statement as "(from October 2026)";
+  - the function's compiled code run once in node: 53 calendars, its job sync watching 12 jobs.
+- **Cleanup:** the statement and its PDF, the three cleanings, Ana and Ben and the property through the app; 54 records by exact ID from the test's ledger; `availability_snapshots/current` set back to the opening export's. Exports `2026-10-14T23-57-27Z` and `2026-10-15T00-22-58Z`: 17 of 17 files byte-identical. The one Storage object saved (the statement's PDF) is gone. 236 guarded writes, none refused.
+- **Reads:** 12,499 counted by the test (builds 3,890 and 3,952; exports 948 each; server 2,541); Cloud Monitoring 11,413 project-wide, 23:00Z – 00:24Z.
+
+### 46.5 Not exercised live
+
+- The Cloud Scheduler run itself: the function is not deployed.
+- A handyman offered for a job (refused by role in `setAssignees`; not run).
+- The "No amount yet" rows on screen (the stored shape, the statement and Finish were checked). Checked on the night (§46.6), which found the Costs page refusing to load with one; fixed.
+- A real phone: the cleaner app at 390 px in headless Chromium only.
+- A new UID on the same day, and a changed calendar link, live: made-up calendars only (`cleaning-jobs`).
+
+### 46.6 Kian's rulings of the night (2026-10-14): removed by the office, and reopen
+
+Kian's rulings are in `CLAUDE.md` under *Cleaning schedule — Kian's rulings of 2026-10-14 (night)*: a job's cleaning keeps its cleaner (choice 1 accepted); when an admin deletes a job's cleaning, the job keeps the mark as "removed by the office", that cleaner cannot mark it again, and an admin can reopen it for them from the Schedule page, recorded in the job's history (replacing choice 2); the cleaner-codes risk wording accepted as written.
+
+**Built:**
+- **The assignment** gains `removedAt` and `removedBy` (null, or when and which admin). A removed mark keeps `cleaningId` and `markedAt`: it is still a mark (`markedCount`), so deactivating or deleting the cleaner leaves it, and the Schedule's picker keeps them on the job. Read strictly: both or neither, and only on a mark. `JOB_SCHEMA_VERSION` stays 1: no job was ever stored in the earlier shape (production held none; the evening's test jobs were deleted).
+- **History actions:** `cleaning-deleted` and `cleaning-removed` (the admin, the cleaning, its amount), and `mark-reopened` (the admin, the cleaner, the cleaning removed). The calendar's `reopened` (a changed booking's day ending a stay again) is unchanged. The old `unmarked` with reason "the cleaning was deleted" is no longer written.
+- **`deleteCleaning` and `removeCleaning`** (`server-cleanings.ts`) keep the mark on the job in the same transaction (`markOnJob`, `keepMarkRemoved`), only when the assignment's mark made that cleaning. A cleaning deleted after being removed keeps the first removal's time and admin, and adds its own event.
+- **The cleaner:** `markRefusal` answers `removed` before `already-marked`; Mark cleaned 409 `JOB_MARK_REMOVED`, Undo 409 `CLEANING_REMOVED`; their list shows the job among the done, with ✕ and "Removed by the office", no Undo.
+- **Reopen:** `POST /api/admin/cleaning-jobs/[id]/reopen` `{ cleanerId, seen }` (`reopenMark`): the mark comes off (cleaning, marked, removed all null), recorded as `mark-reopened`; their next Mark cleaned makes a new cleaning at once, at 37B's amount. Refused: a stale page (409 `JOB_CHANGED`), nothing removed (409 `JOB_MARK_NOT_REMOVED`), a booking that changed (409), a job older than the 45 days their list reaches (409, log it by hand), a cleaner deactivated, deleted or a handyman (409 `CLEANER_NOT_ACTIVE`). In the activity log: "Reopened a cleaning job for a cleaner".
+- **The Schedule:** the chip reads "removed by the office" (amber); the badge "Removed by the office"; a small Reopen beside the name of an active cleaner on an unchanged job, behind Nubnb's own question ("Reopen … for Ana? Ana can mark it cleaned again. Their mark logs a new cleaning at once.").
+- **The Cleanings tab's Remove and Delete questions** for a job's cleaning add: "Its job keeps the cleaner's mark as removed by the office: they cannot mark it again until it is reopened on the Schedule."
+
+**Decisions, not rulings:**
+- **Remove, as well as Delete, leaves the mark "removed by the office"**, reopenable the same way. The ruling names Delete; a removed cleaning already kept its mark, and without this the office could reopen a deleted cleaning's mark but never a removed one's (a removed cleaning a finished statement prints cannot be deleted). Reopening changes no amount and no statement: a removed cleaning counts nowhere, and a new mark is a new cleaning under 37B. Drop it by not calling `keepMarkRemoved` in `removeCleaning`.
+- **Reopen asks first** (Nubnb's dialog), since the cleaner's next tap logs a charge with no admin in between.
+- **Reopen is refused where the cleaner could never mark again** (inactive, booking changed, out of reach), rather than leaving an unmarked assignment nobody can act on.
+
+**Found and fixed while checking:** the Costs page refused to load whenever any cleaning had no amount yet ("the server's answer was not in the expected form"): `isCleaningView` in `costs-client.ts` still required a number. It now accepts null. The evening's check had not shown a "No amount yet" row on screen (§46.5).
+
+**How it was checked (2026-10-14, 21:13 – 21:23 Toronto):**
+- **Offline:** `node tests/run.mjs` 10 of 10 identical: `cleaning-jobs` re-recorded with six new lines (a removed mark refused and still a mark; reopen refused for Ben, for someone not on it and after the booking changed; reopened, can mark; three shapes refused), `admin-accounts` with the new route (73 handlers). `tsc --noEmit` (no errors outside the repo's stale `.next`), `eslint` on every file touched, `npm --prefix functions run build`.
+- **Live**, on a build of the tree (`MI6yvNz7YbSpUTZpKfiiK`, after `F2rIzPEBewuiUvJePtoE1` and a layout fix, `q8gy7bqvMUQzVudHNw3eH`) served on 127.0.0.1:4500, reading production, throwaway secrets, a write guard allowing only the test's own records (jobs only for the test property; no calendar copy), a minted session for a `__TEST__` admin, an unlisted `__TEST__` property, `__TEST__` cleaners Ana ($60.00) and Ben (none). The job was made by the app's `syncJobs` from a copy holding the test property alone (created 1, watched 0):
+  - Ana and Ben assigned and marked: Ana's cleaning $60.00, Ben's with no amount;
+  - **delete:** Ana's cleaning deleted from the Cleanings route; the job kept her mark, `removedAt`/`removedBy` the admin, `cleaning-deleted … $60.00`; her list `markRefusal removed`, no Undo;
+  - **refused re-mark:** Mark cleaned 409 `JOB_MARK_REMOVED`; Undo 409 `CLEANING_REMOVED`;
+  - Ben's cleaning removed (not deleted): the same, `cleaning-removed`;
+  - the Schedule: both chips "removed by the office", the badge, Reopen beside each; Ana's app "Removed by the office";
+  - **reopen:** from the Schedule page, the question, Reopen: "Reopened … for __TEST__ Ana", `mark-reopened` by the admin naming the deleted cleaning; a stale page 409 `JOB_CHANGED`; again 409 `JOB_MARK_NOT_REMOVED`; Ana's app back on top with Mark cleaned;
+  - **re-mark:** a new cleaning at $60.00 (`suggested: default`);
+  - Ben deactivated: his removed mark kept (`jobsTakenOff []`), reopen 409 `CLEANER_NOT_ACTIVE`; reactivated, reopened through the API, signed in again, marked: a new cleaning with no amount;
+  - with that pending cleaning, after the fix: the Costs page, the Cleanings tab ("No amount yet"), the Delete question's new line (cancelled), the property page's Costs tab and its statement ("Expense - Cleaning · 1 · -$60.00", one pending).
+- **Cleanup:** the three cleanings, Ana, Ben and the property through the app; 23 records by exact ID from the test's ledger (8 already gone). Exports `2026-10-15T01-11-17Z` and `2026-10-15T01-23-19Z`: 17 of 17 files byte-identical. 82 guarded writes, none refused; no Storage write.
+- **Reads:** 16,155 counted (three builds 11,794; exports 948 each; server 2,393).

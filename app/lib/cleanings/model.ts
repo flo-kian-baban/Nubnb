@@ -23,6 +23,16 @@
  * browser):
  *   cleanings/{autoId}   one per cleaning logged
  *
+ * ── Schema version 2: the cleaning schedule (Kian's rulings of 2026-10-14) ──
+ * A cleaning is also made by a cleaner's Mark cleaned on a job, at once, with
+ * no admin confirmation; its day is the job's checkout day, and `jobId` names
+ * the job (jobs link cleanings to bookings, replacing 37B's "no link"). Its
+ * amount is 37B's rule — what the cleaner was last paid for the property,
+ * else their default rate — and with neither it is null: the cleaning waits
+ * for an admin to type it, and reads as pending until then (not charged;
+ * Finish's pending warning counts it). Only a job's cleaning may have a null
+ * amount. Version 1 has no `jobId` and always an amount; readers take both.
+ *
  * ── How a cleaning reaches a statement ──
  * As a cost: `cleaningEntryView` reads a cleaning as an entry of kind
  * `cleaning`, dated the day it was cleaned and belonging to that day's
@@ -41,7 +51,7 @@
 import type { Actor, CostEntryView, HistoryEventView, LookupState } from '@/app/lib/cleaners/model';
 
 export const CLEANINGS_COLLECTION = 'cleanings';
-export const CLEANING_SCHEMA_VERSION = 1;
+export const CLEANING_SCHEMA_VERSION = 2;
 
 export const CLEANING_LIMITS = {
   /** An amount: $0.01 to $9,999.99. */
@@ -71,7 +81,8 @@ export interface CleaningEvent {
 
 export interface CleaningFieldsChanged {
   day?: string;
-  amountCents?: number;
+  /** Null only before: a job's cleaning that waited for its amount. */
+  amountCents?: number | null;
   cleanerId?: string;
   cleanerName?: string | null;
   note?: string | null;
@@ -85,9 +96,10 @@ export interface Cleaning {
   cleanerId: string;
   /** The cleaner's name when logged, or when the cleaner was last changed: a deleted cleaner's cleanings still read by it. */
   cleanerNameAtEntry: string | null;
-  /** The day cleaned, yyyy-mm-dd, Toronto. Its month is the month the cleaning belongs to. */
+  /** The day cleaned, yyyy-mm-dd, Toronto. Its month is the month the cleaning belongs to. A job's cleaning: its checkout day. */
   day: string;
-  amountCents: number;
+  /** Null only on a job's cleaning with no amount to start from: it waits for an admin to type one. */
+  amountCents: number | null;
   note: string | null;
   status: CleaningStatus;
   /** What the form started from, worked out by the server when the cleaning was logged: evidence, never read back into money. */
@@ -95,6 +107,8 @@ export interface Cleaning {
   createdAt: string;
   actor: Actor;
   history: CleaningEvent[];
+  /** The job whose Mark cleaned made it (schema version 2); null when an admin logged it by hand, and on every version 1 cleaning. */
+  jobId: string | null;
 }
 
 /** A cleaning as the admin reads it, with the current names of its cleaner and property. */
@@ -133,7 +147,7 @@ function readChanged(value: unknown): CleaningFieldsChanged | undefined | null {
     out.day = value.day;
   }
   if ('amountCents' in value) {
-    if (!isAmount(value.amountCents)) return null;
+    if (!(value.amountCents === null || isAmount(value.amountCents))) return null;
     out.amountCents = value.amountCents;
   }
   if ('cleanerId' in value) {
@@ -167,8 +181,12 @@ function readEvent(value: unknown): CleaningEvent | null {
 export function readCleaning(id: string, fields: Record<string, unknown>): (Cleaning & { id: string }) | null {
   const { propertyId, propertyNameAtEntry, cleanerId, cleanerNameAtEntry, day, amountCents, note, status, suggested, createdAt, actor, history } = fields;
   if (typeof fields.schemaVersion !== 'number') return null;
+  // Version 1 has no `jobId`: absent reads as none.
+  const jobId = fields.jobId === undefined ? null : fields.jobId;
+  if (!isTextOrNull(jobId)) return null;
   if (!isText(propertyId) || !isTextOrNull(propertyNameAtEntry) || !isText(cleanerId) || !isTextOrNull(cleanerNameAtEntry)) return null;
-  if (!isText(day) || !DAY.test(day) || !isAmount(amountCents) || !isTextOrNull(note)) return null;
+  // Only a job's cleaning waits for its amount.
+  if (!isText(day) || !DAY.test(day) || !(isAmount(amountCents) || (amountCents === null && jobId !== null)) || !isTextOrNull(note)) return null;
   if (status !== 'logged' && status !== 'removed') return null;
   if (!isRecord(suggested) || (suggested.from !== 'last' && suggested.from !== 'default' && suggested.from !== 'none') || !(suggested.cents === null || isAmount(suggested.cents))) return null;
   if (!isText(createdAt) || !isActor(actor) || !Array.isArray(history)) return null;
@@ -189,6 +207,7 @@ export function readCleaning(id: string, fields: Record<string, unknown>): (Clea
     createdAt,
     actor,
     history: events as CleaningEvent[],
+    jobId,
   };
 }
 
@@ -200,8 +219,9 @@ export function readCleaning(id: string, fields: Record<string, unknown>): (Clea
  * from. The admin can change it freely. Nothing is worked out: an amount is taken as it was paid or set.
  */
 export function suggestedAmount(cleanings: readonly Pick<Cleaning, 'propertyId' | 'cleanerId' | 'day' | 'amountCents' | 'status' | 'createdAt'>[], cleanerId: string, propertyId: string, defaultRateCents: number | null): { from: SuggestedFrom; cents: number | null } {
+  // A cleaning still waiting for its amount was paid nothing yet: it is not "last paid".
   const last = cleanings
-    .filter((c) => c.cleanerId === cleanerId && c.propertyId === propertyId && c.status === 'logged')
+    .filter((c): c is typeof c & { amountCents: number } => c.cleanerId === cleanerId && c.propertyId === propertyId && c.status === 'logged' && c.amountCents !== null)
     .sort((a, b) => b.day.localeCompare(a.day) || b.createdAt.localeCompare(a.createdAt))[0];
   if (last) return { from: 'last', cents: last.amountCents };
   if (defaultRateCents !== null) return { from: 'default', cents: defaultRateCents };
@@ -239,8 +259,32 @@ export function cleaningInstant(day: string): string {
  * receives names nobody (reports/statement.ts, costs/report.ts).
  */
 export function cleaningEntryView(c: CleaningView): CostEntryView {
+  // A job's cleaning with no amount yet (schema version 2) reads as a pending cost: nothing to charge, counted by
+  // Finish's pending warning (Kian's answer of 2026-10-14, evening), and no lines to add up.
+  if (c.amountCents === null) return entryView(c, c.status === 'logged' ? 'pending' : 'removed', [], { kind: 'unreadable', reason: NO_AMOUNT_YET });
+  const amount = c.amountCents;
+  const typed = c.history.find((event) => event.action === 'changed' && event.before?.amountCents !== undefined)?.before?.amountCents;
+  // The first amount it had: the one logged, or the one an admin typed into a cleaning that waited for it.
+  const firstAmount = typed === undefined ? amount : typed === null ? (c.history.find((event) => event.action === 'changed' && event.before?.amountCents === null)?.after?.amountCents ?? amount) : typed;
+  return entryView(c, c.status === 'logged' ? 'approved' : 'removed', [{ name: 'Cleaning', quantity: 1, lineTotalCents: amount }], {
+    kind: 'ok',
+    lines: [{ index: 0, name: 'Cleaning', quantity: 1, lineTotalCents: amount, origin: 'sent', earlier: [] }],
+    itemsCents: amount,
+    taxCents: null,
+    taxShape: 'field',
+    totalCents: amount,
+    sentTotalCents: firstAmount,
+    sentTaxCents: null,
+    corrected: firstAmount !== amount,
+  });
+}
+
+/** What a cleaning's own amount column says while it waits for one (schema version 2). */
+export const NO_AMOUNT_YET = 'No amount yet: an admin types it in the Cleanings tab.';
+
+/** A cleaning as an entry, its fields in the order 37B wrote them. */
+function entryView(c: CleaningView, status: string, lines: CostEntryView['lines'], linesNow: CostEntryView['linesNow']): CostEntryView {
   const first = c.history.find((event) => event.action === 'logged');
-  const firstAmount = c.history.find((event) => event.action === 'changed' && event.before?.amountCents !== undefined)?.before?.amountCents ?? c.amountCents;
   const history: HistoryEventView[] = c.history.map((event) => ({
     at: event.at,
     action: event.action,
@@ -254,7 +298,7 @@ export function cleaningEntryView(c: CleaningView): CostEntryView {
   return {
     id: c.id,
     createdAt: cleaningInstant(c.day),
-    status: c.status === 'logged' ? 'approved' : 'removed',
+    status,
     statusChangedAt: [...c.history].reverse().find((event) => event.action === 'removed')?.at ?? first?.at ?? c.createdAt,
     statusReason: null,
     history,
@@ -263,18 +307,8 @@ export function cleaningEntryView(c: CleaningView): CostEntryView {
     purchasedOn: c.day,
     note: null,
     currency: 'CAD',
-    lines: [{ name: 'Cleaning', quantity: 1, lineTotalCents: c.amountCents }],
-    linesNow: {
-      kind: 'ok',
-      lines: [{ index: 0, name: 'Cleaning', quantity: 1, lineTotalCents: c.amountCents, origin: 'sent', earlier: [] }],
-      itemsCents: c.amountCents,
-      taxCents: null,
-      taxShape: 'field',
-      totalCents: c.amountCents,
-      sentTotalCents: firstAmount,
-      sentTaxCents: null,
-      corrected: firstAmount !== c.amountCents,
-    },
+    lines,
+    linesNow,
     receipts: [],
     taxShape: 'field',
     kind: 'cleaning',

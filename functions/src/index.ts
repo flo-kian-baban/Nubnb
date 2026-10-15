@@ -5,10 +5,14 @@
  *   property's Airbnb calendar and write the stored copy the admin's
  *   Availability page searches (availability_snapshots/current, and the
  *   day's availability_days/{day}). See AVAILABILITY-SEARCH-PLAN.md §2.3.
+ *   Then the cleaning schedule's job sync, inside the same run (Kian's
+ *   ruling of 2026-10-14): jobs made two days before each reservation's
+ *   checkout and watched through it (cleaning_jobs; app/lib/schedule).
  *
- * The code it runs is the app's own app/lib/availability module, copied in
- * under src/lib/ by scripts/functions-sync.mjs before each build: one
- * parser, one builder, one writer, shared with the Vercel routes.
+ * The code it runs is the app's own app/lib/availability and app/lib/schedule
+ * modules, copied in under src/lib/ by scripts/functions-sync.mjs before each
+ * build: one parser, one builder, one writer, one job sync, shared with the
+ * Vercel routes.
  *
  * Runs as the project's default service account (no key anywhere), in
  * us-central1 beside the nam5 Firestore database, on 256 MiB, never more
@@ -49,6 +53,10 @@ export const refreshAvailability = onSchedule(
       failed: run.failed.length,
       pagesChecked: outcome.pagesChecked,
       dayWritten: outcome.dayWritten,
+      jobsCreated: outcome.jobs.created,
+      jobsChanged: outcome.jobs.changed,
+      jobsWatched: outcome.jobs.watched,
+      jobsFailed: outcome.jobs.failed,
     });
   },
 );

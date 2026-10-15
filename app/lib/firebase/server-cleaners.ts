@@ -58,13 +58,18 @@
  * result naming what happened, "not confirmed" included, and never throw.
  */
 
+import type { DocumentReference, Transaction } from 'firebase-admin/firestore';
 import { getAdminDb } from './admin';
-import { adminPinHolds, countTry, readConnectionLock } from './server-admins';
+import { adminPinHolds, countTry, lockStateOf, readConnectionLock } from './server-admins';
+import { readUnmarkedJobs, takeOffJobs } from './server-cleaning-jobs';
+import type { UnmarkedJob } from '@/app/lib/schedule/model';
 import { isDocumentId } from './server-leads';
+import { DAILY_TRIES, MAX_WRONG_TRIES, afterTry, lockHolding, type LockState, type SignInLockView } from '@/app/lib/admins/model';
 import { generateCandidate, reservedReason, type ReservedReason } from '@/app/lib/cleaners/codes';
 import {
   CLEANERS_COLLECTION,
   CLEANER_CODES_COLLECTION,
+  CLEANER_SIGNIN_LOCKS_COLLECTION,
   CLEANER_CODE_SCHEMA_VERSION,
   CLEANER_SCHEMA_VERSION,
   CODE_PATTERN,
@@ -412,8 +417,11 @@ async function issueTyped(
 // ─── Status ────────────────────────────────────────────────────
 
 export type SetCleanerStatusResult =
-  /** `changed` is false when the cleaner already had that status: nothing was written. */
-  | { kind: 'done'; cleaner: CleanerSummary; changed: boolean }
+  /**
+   * `changed` is false when the cleaner already had that status: nothing was written. `jobsTakenOff`: the jobs a
+   * deactivation took them off, which they were on and had not marked (the cleaning schedule, 2026-10-14).
+   */
+  | { kind: 'done'; cleaner: CleanerSummary; changed: boolean; jobsTakenOff: UnmarkedJob[] }
   /** No cleaner has this ID. */
   | { kind: 'not-found' }
   /** The stored session epoch or history is not in a shape that can be advanced. Nothing was written. */
@@ -446,12 +454,14 @@ export async function setCleanerStatus(
 
       const stored = snap.data() ?? {};
       if (stored.status === target) {
-        return { kind: 'done', cleaner: readCleanerSummary(id, stored), changed: false };
+        return { kind: 'done', cleaner: readCleanerSummary(id, stored), changed: false, jobsTakenOff: [] };
       }
 
       const epoch: unknown = stored.sessionEpoch;
       const history: unknown = stored.history;
       if (!isSessionEpoch(epoch) || !Array.isArray(history)) return { kind: 'unreadable' };
+      // Deactivated, they come off every job they are on and have not marked; a reactivation puts them back on none.
+      const jobs = target === 'deactivated' ? await readUnmarkedJobs(tx, id) : [];
 
       const now = new Date().toISOString();
       const event: HistoryEvent = {
@@ -470,7 +480,8 @@ export async function setCleanerStatus(
       };
 
       tx.update(ref, changes);
-      return { kind: 'done', cleaner: readCleanerSummary(id, { ...stored, ...changes }), changed: true };
+      const jobsTakenOff = takeOffJobs(tx, jobs, id, actor, 'deactivated', now);
+      return { kind: 'done', cleaner: readCleanerSummary(id, { ...stored, ...changes }), changed: true, jobsTakenOff };
     });
   } catch (err) {
     console.error(`[cleaners] status change failed: grpc code ${grpcCode(err)}`);
@@ -707,8 +718,8 @@ async function writeCode(
 // ─── Delete ────────────────────────────────────────────────────
 
 export type DeleteCleanerResult =
-  /** The account is gone; `codes` is how many of its code documents were retired (current and replaced). */
-  | { kind: 'deleted'; cleaner: CleanerSummary; codes: number }
+  /** The account is gone; `codes` is how many of its code documents were retired (current and replaced); `jobsTakenOff` the jobs it was on and had not marked. */
+  | { kind: 'deleted'; cleaner: CleanerSummary; codes: number; jobsTakenOff: UnmarkedJob[] }
   /** No cleaner has this ID. */
   | { kind: 'not-found' }
   /** The transaction failed: it may or may not have landed. */
@@ -747,7 +758,7 @@ export const DELETE_CLEANER_REFUSALS: Record<Exclude<DeleteCleanerResult['kind']
  * are counted, never listed: a code never leaves this module but through the
  * list and the create.
  */
-export async function deleteCleaner(id: string): Promise<DeleteCleanerResult> {
+export async function deleteCleaner(actor: Actor, id: string): Promise<DeleteCleanerResult> {
   if (!isDocumentId(id)) return { kind: 'not-found' };
 
   try {
@@ -758,6 +769,8 @@ export async function deleteCleaner(id: string): Promise<DeleteCleanerResult> {
     return await db.runTransaction(async (tx): Promise<DeleteCleanerResult> => {
       const [snap, theirs] = await Promise.all([tx.get(ref), tx.get(codes)]);
       if (!snap.exists) return { kind: 'not-found' };
+      // The jobs they are on and have not marked: they come off them, in this transaction (the cleaning schedule).
+      const jobs = await readUnmarkedJobs(tx, id);
       const stored = snap.data() ?? {};
       const now = new Date().toISOString();
       // Only a code document that is theirs is touched, and only its retirement is written.
@@ -766,7 +779,8 @@ export async function deleteCleaner(id: string): Promise<DeleteCleanerResult> {
         if (doc.get('retiredAt') == null) tx.update(doc.ref, { retiredAt: now });
       }
       tx.delete(ref);
-      return { kind: 'deleted', cleaner: readCleanerSummary(id, stored), codes: mine.length };
+      const jobsTakenOff = takeOffJobs(tx, jobs, id, actor, 'deleted', now);
+      return { kind: 'deleted', cleaner: readCleanerSummary(id, stored), codes: mine.length, jobsTakenOff };
     });
   } catch (err) {
     console.error(`[cleaners] delete failed: grpc code ${grpcCode(err)}`);
@@ -774,66 +788,119 @@ export async function deleteCleaner(id: string): Promise<DeleteCleanerResult> {
   }
 }
 
-// ─── Sign-in ───────────────────────────────────────────────────
+// ─── The cleaner door's lock (2026-10-14, evening) ─────────────
 
-export type FindCleanerResult =
+/** A lock's ID: the keyed hash of a connection (lock.ts). */
+const LOCK_ID = /^[0-9a-f]{64}$/;
+
+export type CleanerSignInResult =
   | { kind: 'found'; cleaner: SignedInCleaner }
-  /** No active cleaner holds this code. Deliberately says no more than that. */
-  | { kind: 'not-recognised' }
-  /** A read failed. Access is never granted on an error. */
+  /** No active cleaner holds this code; `triesLeft` before this connection's lock (`untilLifted`: the day's twentieth). */
+  | { kind: 'not-recognised'; triesLeft: number; untilLifted: boolean }
+  /** Sign-in from this connection is locked until `lockedUntil` (null: until an admin lifts it); `now` when this code locked it. */
+  | { kind: 'locked'; lockedUntil: string | null; now: boolean }
   | { kind: 'unavailable' };
 
-/**
- * The active cleaner a code belongs to.
- *
- * Two reads on a hit, one on a miss: the code's document, then the cleaner
- * it names. The code must not be retired; the cleaner must be active, must
- * still point at this code (`code`), and must have a session epoch a token
- * can carry. Every other outcome is the same `not-recognised`. A version 1
- * code, stored as a digest, is never found here.
- *
- * The caller has already checked that `code` is four digits, without a read;
- * anything else is refused here too, still without one.
- */
-export async function findCleanerByCode(code: string): Promise<FindCleanerResult> {
-  if (!CODE_PATTERN.test(code)) return { kind: 'not-recognised' };
+/** A wrong code counted against the connection, inside the transaction: the admin door's rule (admins/model.ts, afterTry). */
+function countWrongCode(tx: Transaction, lockRef: DocumentReference, lock: LockState, nowMs: number): CleanerSignInResult {
+  const outcome = afterTry(lock, false, nowMs);
+  tx.set(lockRef, { ...outcome.next, lastFailedAt: new Date(nowMs).toISOString() });
+  if (outcome.kind === 'capped-now') {
+    console.log(`[cleaner-session] a connection reached ${DAILY_TRIES} wrong codes in a Toronto day: locked until an admin lifts it`);
+    return { kind: 'locked', lockedUntil: null, now: true };
+  }
+  if (outcome.kind === 'locked-now') {
+    console.log(`[cleaner-session] sign-in locked after ${MAX_WRONG_TRIES} wrong codes in a row from one connection, until ${outcome.lockedUntil}`);
+    return { kind: 'locked', lockedUntil: outcome.lockedUntil, now: true };
+  }
+  return outcome.kind === 'wrong' ? { kind: 'not-recognised', triesLeft: outcome.triesLeft, untilLifted: outcome.untilLifted } : { kind: 'not-recognised', triesLeft: 0, untilLifted: false };
+}
 
+/**
+ * Sign a cleaner in by their code, with the cleaner door's lock (Kian's ruling of 2026-10-14, evening: the admin
+ * door's lock). A locked connection is refused before anything else is read. Otherwise the code's document, then the
+ * cleaner it names: the code must not be retired, and the cleaner must be active, still hold this code and have a
+ * session epoch a token can carry — a version 1 code, stored as a digest, is never found. A code that opens nothing,
+ * whichever check it fails, gets the one answer and counts against the connection:
+ * the fifth in a row locks it for fifteen minutes, the twentieth in a Toronto day until an admin lifts it from the
+ * Team page. A right code clears the tries in a row, not the day's.
+ *
+ * Reads: one when locked; otherwise the lock twice (before and inside the transaction), the code, and on a hit the
+ * cleaner. The caller has already refused, with no read, a code that is not four digits: it is no guess and is not
+ * counted. Never throws: a failed read is `unavailable`, and access is never granted on an error.
+ */
+export async function signInCleaner(code: string, connection: string, nowMs: number = Date.now()): Promise<CleanerSignInResult> {
+  if (!CODE_PATTERN.test(code) || !LOCK_ID.test(connection)) return { kind: 'unavailable' };
   try {
     const db = getAdminDb();
-    const [codeDoc] = await db.getAll(db.collection(CLEANER_CODES_COLLECTION).doc(code), {
-      fieldMask: ['cleanerId', 'retiredAt'],
+    const lockRef = db.collection(CLEANER_SIGNIN_LOCKS_COLLECTION).doc(connection);
+    const before = await lockRef.get();
+    const holding = before.exists ? lockHolding(lockStateOf(before.data()), nowMs) : null;
+    if (holding) return { kind: 'locked', lockedUntil: holding.until, now: false };
+
+    return await db.runTransaction(async (tx): Promise<CleanerSignInResult> => {
+      const lockSnap = await tx.get(lockRef);
+      const lock = lockStateOf(lockSnap.data());
+      const locked = lockHolding(lock, nowMs);
+      if (locked) return { kind: 'locked', lockedUntil: locked.until, now: false };
+
+      let found: SignedInCleaner | null = null;
+      const [codeDoc] = await tx.getAll(db.collection(CLEANER_CODES_COLLECTION).doc(code), { fieldMask: ['cleanerId', 'retiredAt'] });
+      const cleanerId: unknown = codeDoc.exists && codeDoc.get('retiredAt') === null ? codeDoc.get('cleanerId') : null;
+      if (typeof cleanerId === 'string' && AUTO_ID.test(cleanerId)) {
+        const [cleaner] = await tx.getAll(db.collection(CLEANERS_COLLECTION).doc(cleanerId), { fieldMask: ['name', 'status', 'code', 'sessionEpoch', 'role'] });
+        const epoch: unknown = cleaner.get('sessionEpoch');
+        if (cleaner.exists && cleaner.get('status') === 'active' && cleaner.get('code') === code && isSessionEpoch(epoch) && epoch <= MAX_TOKEN_EPOCH) {
+          const name: unknown = cleaner.get('name');
+          found = { id: cleanerId, name: typeof name === 'string' ? name : null, sessionEpoch: epoch, role: roleOf(cleaner.data() ?? {}) };
+        }
+      }
+      if (!found) return countWrongCode(tx, lockRef, lock, nowMs);
+      // A right code: the tries in a row cleared, the Toronto day's kept (they count toward its twenty).
+      if (lockSnap.exists) {
+        const right = afterTry(lock, true, nowMs);
+        if (right.next.dayTries > 0) tx.update(lockRef, { failedTries: 0, lockedUntil: null });
+        else tx.delete(lockRef);
+      }
+      return { kind: 'found', cleaner: found };
     });
-    // `retiredAt` is written as null and set once, when the code is replaced.
-    // A document without it is not in the written shape, and is refused too.
-    if (!codeDoc.exists || codeDoc.get('retiredAt') !== null) return { kind: 'not-recognised' };
-
-    const cleanerId: unknown = codeDoc.get('cleanerId');
-    if (typeof cleanerId !== 'string' || !AUTO_ID.test(cleanerId)) return { kind: 'not-recognised' };
-
-    const [cleaner] = await db.getAll(db.collection(CLEANERS_COLLECTION).doc(cleanerId), {
-      fieldMask: ['name', 'status', 'code', 'sessionEpoch', 'role'],
-    });
-    const epoch: unknown = cleaner.get('sessionEpoch');
-    if (
-      !cleaner.exists ||
-      cleaner.get('status') !== 'active' ||
-      cleaner.get('code') !== code ||
-      !isSessionEpoch(epoch) ||
-      epoch > MAX_TOKEN_EPOCH
-    ) {
-      return { kind: 'not-recognised' };
-    }
-
-    const name: unknown = cleaner.get('name');
-    return {
-      kind: 'found',
-      cleaner: { id: cleanerId, name: typeof name === 'string' ? name : null, sessionEpoch: epoch, role: roleOf(cleaner.data() ?? {}) },
-    };
   } catch (err) {
-    console.error(`[cleaner-session] lookup failed: grpc code ${grpcCode(err)}`);
+    console.error(`[cleaner-session] sign-in failed: grpc code ${grpcCode(err)}`);
     return { kind: 'unavailable' };
   }
 }
+
+/** The cleaner door's locks holding now, for the Team page: until lifted first, then the latest-ending. THROWS when a read fails. */
+export async function listCleanerSignInLocks(nowMs: number = Date.now()): Promise<SignInLockView[]> {
+  const locks = getAdminDb().collection(CLEANER_SIGNIN_LOCKS_COLLECTION);
+  const [timed, capped] = await Promise.all([locks.where('lockedUntil', '>', new Date(nowMs).toISOString()).get(), locks.where('capped', '==', true).get()]);
+  const text = (value: unknown) => (typeof value === 'string' ? value : null);
+  const views = new Map<string, SignInLockView>();
+  for (const doc of capped.docs) views.set(doc.id, { id: doc.id, lockedUntil: null, capped: true, lastFailedAt: text(doc.get('lastFailedAt')) });
+  for (const doc of timed.docs) if (!views.has(doc.id)) views.set(doc.id, { id: doc.id, lockedUntil: String(doc.get('lockedUntil')), capped: false, lastFailedAt: text(doc.get('lastFailedAt')) });
+  return [...views.values()].sort((a, b) => Number(b.capped) - Number(a.capped) || (b.lockedUntil ?? '').localeCompare(a.lockedUntil ?? ''));
+}
+
+/** Lift a connection's cleaner lock, and its count, before its time (any admin, on the Team page). */
+export async function liftCleanerSignInLock(lockId: string): Promise<{ kind: 'lifted' } | { kind: 'not-found' } | { kind: 'failed' }> {
+  if (!LOCK_ID.test(lockId)) return { kind: 'not-found' };
+  try {
+    const db = getAdminDb();
+    const ref = db.collection(CLEANER_SIGNIN_LOCKS_COLLECTION).doc(lockId);
+    return await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) return { kind: 'not-found' as const };
+      tx.delete(ref);
+      return { kind: 'lifted' as const };
+    });
+  } catch (err) {
+    console.error(`[cleaners] lifting a sign-in lock failed: grpc code ${grpcCode(err)}`);
+    return { kind: 'failed' };
+  }
+}
+
+// ─── Sign-in ───────────────────────────────────────────────────
+
 
 export type SessionCleanerRead =
   | { kind: 'valid'; cleaner: SignedInCleaner }

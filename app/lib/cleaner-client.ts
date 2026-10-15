@@ -13,6 +13,7 @@
  */
 
 import type { CleanerEntry, CleanerStart } from '@/app/lib/cleaners/model';
+import type { CleanerJobView } from '@/app/lib/schedule/model';
 
 /** The `entry` part of a send, exactly as POST /api/cleaner/entries reads it. */
 export interface EntryPayload {
@@ -61,9 +62,22 @@ export type StartResult =
 
 export type SignInResult =
   | { kind: 'ok' }
-  | { kind: 'not-recognised' }
+  /** `warning`: the line the server gives on the wrong code before a lock (Kian's ruling of 2026-10-14, evening). */
+  | { kind: 'not-recognised'; warning: string | null }
+  /** Sign-in from this connection is locked: until `until`, or, when null, until the office lifts it. */
+  | { kind: 'locked'; until: string | null }
   | { kind: 'offline' }
   | { kind: 'failed' };
+
+export type JobActionResult =
+  /** Done; `job` is the job as it now stands, or null when it could not be read back (reload to see it). */
+  | { kind: 'ok'; job: CleanerJobView | null }
+  /** The session ended. Nothing was recorded. */
+  | { kind: 'signed-out' }
+  /** The server said no, in words fit for the cleaner. Nothing was recorded. */
+  | { kind: 'refused'; message: string }
+  /** No confirmation. Pressing again is safe: a mark is never made twice. */
+  | { kind: 'not-sent'; offline: boolean };
 
 export type SendResult =
   /** Recorded now, or by an earlier send of the same receipt whose answer was lost. */
@@ -110,7 +124,29 @@ function isCleanerStart(data: unknown): data is CleanerStart {
     Array.isArray(data.recentPropertyIds) &&
     data.recentPropertyIds.every((id) => typeof id === 'string') &&
     Array.isArray(data.itemNames) &&
-    data.itemNames.every((name) => typeof name === 'string')
+    data.itemNames.every((name) => typeof name === 'string') &&
+    Array.isArray(data.jobs) &&
+    data.jobs.every(isCleanerJob) &&
+    typeof data.today === 'string'
+  );
+}
+
+/** A job as the server sends it to a cleaner (the cleaning schedule, 2026-10-14). */
+function isCleanerJob(data: unknown): data is CleanerJobView {
+  return (
+    isRecord(data) &&
+    typeof data.id === 'string' &&
+    typeof data.propertyId === 'string' &&
+    isTextOrNull(data.propertyName) &&
+    isTextOrNull(data.city) &&
+    typeof data.checkout === 'string' &&
+    isTextOrNull(data.checkOutTime) &&
+    isTextOrNull(data.checkInTime) &&
+    isTextOrNull(data.nextCheckIn) &&
+    (data.status === 'open' || data.status === 'booking-changed') &&
+    isTextOrNull(data.markedAt) &&
+    typeof data.canUndo === 'boolean' &&
+    isTextOrNull(data.markRefusal)
   );
 }
 
@@ -197,8 +233,41 @@ export async function signIn(code: string): Promise<SignInResult> {
     return { kind: 'offline' };
   }
   if (res.ok) return { kind: 'ok' };
-  if (res.status === 401) return { kind: 'not-recognised' };
+  if (res.status === 401) {
+    const body = await readJson(res);
+    return { kind: 'not-recognised', warning: typeof body.hint === 'string' && body.hint ? body.hint : null };
+  }
+  if (res.status === 429) {
+    const body = await readJson(res);
+    if (body.code === 'CLEANER_SIGN_IN_LOCKED') return { kind: 'locked', until: typeof body.lockedUntil === 'string' ? body.lockedUntil : null };
+  }
   return { kind: 'failed' };
+}
+
+/** Mark a job cleaned, or undo one's own mark (POST /api/cleaner/jobs/[id]). Never throws. */
+export async function jobAction(jobId: string, action: 'mark' | 'undo'): Promise<JobActionResult> {
+  let res: Response;
+  try {
+    res = await fetch(`/api/cleaner/jobs/${encodeURIComponent(jobId)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action }),
+      cache: 'no-store',
+    });
+  } catch {
+    return { kind: 'not-sent', offline: !navigator.onLine };
+  }
+  const body = await readJson(res);
+  if (res.ok) {
+    const data = isRecord(body.data) ? body.data : {};
+    return { kind: 'ok', job: isCleanerJob(data.job) ? data.job : null };
+  }
+  if (res.status === 401) return { kind: 'signed-out' };
+  if (res.status >= 400 && res.status < 500 && body.success === false) {
+    const message = typeof body.error === 'string' && body.error ? body.error : 'That could not be done.';
+    return { kind: 'refused', message: typeof body.hint === 'string' && body.hint ? `${message} ${body.hint}` : message };
+  }
+  return { kind: 'not-sent', offline: false };
 }
 
 /** Take the session cookie off this phone. True when the server confirmed it. */

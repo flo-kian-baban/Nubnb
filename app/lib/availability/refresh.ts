@@ -1,7 +1,8 @@
 /**
  * One refresh: read the feed URLs, fetch every feed, build the snapshot
- * from the previous one, write it. Run by the scheduled Cloud Function
- * every hour and by POST /api/admin/availability/refresh on demand.
+ * from the previous one, write it, then make and watch the cleaning
+ * schedule's jobs from it (app/lib/schedule). Run by the scheduled Cloud
+ * Function every hour and by POST /api/admin/availability/refresh on demand.
  *
  * Fetches go through the SSRF guard the public routes use: a feed URL is
  * admin-set, and inside a Cloud Function a private address would be the
@@ -22,6 +23,7 @@
 
 import type { Firestore } from 'firebase-admin/firestore';
 import { guardedFetch, GuardedFetchError } from '../api/url-guard';
+import { syncJobs, type JobSyncOutcome } from '../schedule/store';
 import { torontoDay } from './days';
 import { buildSnapshot, type FeedSource, type FetchResult } from './snapshot';
 import { readCurrent, readFeedSources, writeSnapshot } from './store';
@@ -131,6 +133,8 @@ export interface RefreshOutcome {
   snapshot: AvailabilitySnapshot;
   dayWritten: boolean;
   pagesChecked: number;
+  /** The cleaning schedule's jobs, made and watched from the copy just written (Kian's rulings of 2026-10-14). */
+  jobs: JobSyncOutcome;
 }
 
 export async function runRefresh(options: RefreshOptions): Promise<RefreshOutcome> {
@@ -162,10 +166,12 @@ export async function runRefresh(options: RefreshOptions): Promise<RefreshOutcom
   const finishedAt = new Date().toISOString();
   const snapshot = buildSnapshot({ previous, sources, results, pageChecks, source, startedAt, finishedAt, today });
   const { dayWritten } = await writeSnapshot(db, snapshot);
+  // The cleaning schedule: jobs made and watched from the copy just written. Never throws; a failure is in `jobs`.
+  const jobs = await syncJobs(db, snapshot, log);
 
   const failed = snapshot.run.failed;
   log(
-    `refresh done in ${snapshot.run.durationMs} ms: ${snapshot.run.fetched} feeds read, ${failed.length} failed${failed.length ? ` (${failed.map((f) => f.name).join(', ')})` : ''}, ${pageChecks.size} pages checked, day ${snapshot.today} ${dayWritten ? 'written' : 'already kept'}`,
+    `refresh done in ${snapshot.run.durationMs} ms: ${snapshot.run.fetched} feeds read, ${failed.length} failed${failed.length ? ` (${failed.map((f) => f.name).join(', ')})` : ''}, ${pageChecks.size} pages checked, day ${snapshot.today} ${dayWritten ? 'written' : 'already kept'}; jobs ${jobs.created} made, ${jobs.changed} changed, ${jobs.watched} watched${jobs.failed ? `, sync stopped (${jobs.failed})` : ''}`,
   );
-  return { snapshot, dayWritten, pagesChecked: pageChecks.size };
+  return { snapshot, dayWritten, pagesChecked: pageChecks.size, jobs };
 }

@@ -8,7 +8,8 @@
  * one cleaner's cleanings is a property picked (typed into its search) and Log, a day changed when it changes. The
  * amount starts from what that cleaner was last paid for that property, or their default rate (set on the Team
  * page), and the admin changes it freely; the field says where it came from. Nothing is ticked from a list of
- * bookings, and no cleaning is linked to one.
+ * bookings here. A cleaning a cleaner marked on a job (the cleaning schedule, Kian's rulings of 2026-10-14) is linked
+ * to it and reads "marked"; one marked with no amount to start from reads "No amount yet" until an admin types it.
  *
  * Under it, the cleanings in the Costs page's dates, property and cleaner, newest first: each can be changed, removed
  * (it stays, marked, and counts nowhere) or deleted while no finished statement prints it. A cleaning changed or
@@ -54,6 +55,12 @@ interface Props {
   onDeleted: (id: string) => void;
   show: (notice: Notice) => void;
 }
+
+/** "$60.00", or, for a job's cleaning still waiting for one, "no amount yet". */
+const amountWords = (cents: number | null) => (cents === null ? "no amount yet" : formatCents(cents));
+
+/** What removing or deleting a job's cleaning does to the job (Kian's ruling of 2026-10-14, night). */
+const JOB_MARK_KEPT = "Its job keeps the cleaner's mark as removed by the office: they cannot mark it again until it is reopened on the Schedule.";
 
 const SOURCE_WORDS: Record<SuggestedFrom, string> = {
   last: "last paid for this property",
@@ -143,7 +150,7 @@ export function CleaningsTab({ cleanings, team, properties, filters, setFilter, 
     const month = cleaning.day.slice(0, 7);
     show({
       tone: statementMonth === month ? "success" : "info",
-      title: `Logged ${formatCents(cleaning.amountCents)} · ${nameOf(cleaning)} · ${shortDay(cleaning.day)} (${cleanerNameOf(cleaning)}).`,
+      title: `Logged ${amountWords(cleaning.amountCents)} · ${nameOf(cleaning)} · ${shortDay(cleaning.day)} (${cleanerNameOf(cleaning)}).`,
       detail: statementMonth === month ? `It goes on ${monthLabel(month)}'s statement.` : `${monthLabel(month)} is finished: it goes on ${monthLabel(statementMonth)}'s statement.`,
     });
     // Ready for the next one: the same day and cleaner, another property.
@@ -162,13 +169,15 @@ export function CleaningsTab({ cleanings, team, properties, filters, setFilter, 
     [cleanings, filters],
   );
   const logged = useMemo(() => shown.filter((c) => c.status === "logged"), [shown]);
-  const total = useMemo(() => logged.reduce((sum, c) => sum + c.amountCents, 0), [logged]);
+  const total = useMemo(() => logged.reduce((sum, c) => sum + (c.amountCents ?? 0), 0), [logged]);
+  /** Cleanings marked on a job with no amount to start from (the cleaning schedule): each waits for an admin to type one. */
+  const waiting = useMemo(() => logged.filter((c) => c.amountCents === null).length, [logged]);
   /** What each cleaner earned in these dates (Kian's ruling: a cleaning is also the cleaner's earnings record). */
   const earned = useMemo(() => {
     const byCleaner = new Map<string, { name: string; count: number; cents: number }>();
     for (const c of logged) {
       const was = byCleaner.get(c.cleanerId) ?? { name: cleanerNameOf(c) + (c.cleaner.state === "missing" ? " (deleted)" : ""), count: 0, cents: 0 };
-      byCleaner.set(c.cleanerId, { ...was, count: was.count + 1, cents: was.cents + c.amountCents });
+      byCleaner.set(c.cleanerId, { ...was, count: was.count + 1, cents: was.cents + (c.amountCents ?? 0) });
     }
     return [...byCleaner.values()].sort((a, b) => a.name.localeCompare(b.name, "en-CA"));
   }, [logged]);
@@ -189,7 +198,7 @@ export function CleaningsTab({ cleanings, team, properties, filters, setFilter, 
   // ── Change, remove, delete ──
   const [editing, setEditing] = useState<Editing | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const startEditing = (c: CleaningView) => setEditing({ id: c.id, day: c.day, cleanerId: c.cleanerId, amount: amountField(c.amountCents), note: c.note ?? "", reason: "" });
+  const startEditing = (c: CleaningView) => setEditing({ id: c.id, day: c.day, cleanerId: c.cleanerId, amount: c.amountCents === null ? "" : amountField(c.amountCents), note: c.note ?? "", reason: "" });
 
   const failed = (result: { title: string; detail?: string; unknown: boolean; status: number }, what: string) =>
     show(result.unknown ? { tone: "warning", title: `The cleaning may or may not have been ${what}. Refresh to see what is on record.`, detail: result.title } : { tone: "error", title: result.title, detail: [result.detail, result.status === 401 || result.status === 403 ? SESSION_HINT : null].filter(Boolean).join(" ") || undefined });
@@ -229,7 +238,7 @@ export function CleaningsTab({ cleanings, team, properties, filters, setFilter, 
     if (busy) return;
     const yes = await ask({
       title: `Remove the cleaning of ${shortDay(c.day)}?`,
-      lines: [`${nameOf(c)} · ${cleanerNameOf(c)} · ${formatCents(c.amountCents)}.`, "It stays, marked, and counts nowhere. If a finished statement printed it, the next open statement gives it back."],
+      lines: [`${nameOf(c)} · ${cleanerNameOf(c)} · ${amountWords(c.amountCents)}.`, "It stays, marked, and counts nowhere. If a finished statement printed it, the next open statement gives it back.", c.jobId !== null ? JOB_MARK_KEPT : null],
       confirm: "Remove",
     });
     if (!yes) return;
@@ -248,7 +257,7 @@ export function CleaningsTab({ cleanings, team, properties, filters, setFilter, 
     if (busy) return;
     const yes = await ask({
       title: `Delete the cleaning of ${shortDay(c.day)}?`,
-      lines: [`${nameOf(c)} · ${cleanerNameOf(c)} · ${formatCents(c.amountCents)}.`, `It is deleted for good: no record is left of who cleaned or what they were paid. A cleaning a finished statement prints cannot be deleted${c.status === "logged" ? ": remove it instead" : ""}.`],
+      lines: [`${nameOf(c)} · ${cleanerNameOf(c)} · ${amountWords(c.amountCents)}.`, `It is deleted for good: no record is left of who cleaned or what they were paid. A cleaning a finished statement prints cannot be deleted${c.status === "logged" ? ": remove it instead" : ""}.`, c.jobId !== null ? JOB_MARK_KEPT : null],
       confirm: "Delete",
       danger: true,
     });
@@ -318,7 +327,7 @@ export function CleaningsTab({ cleanings, team, properties, filters, setFilter, 
       {/* ── The cleanings in these dates ── */}
       <div className={`${p.blockHead} ${styles.listHead}`}>
         <h3 className={p.blockTitle}>Cleanings</h3>
-        <span className={p.blockTotal}>{logged.length === 0 ? "None" : `${logged.length === 1 ? "1 cleaning" : `${logged.length} cleanings`} · ${formatCents(total)}`}</span>
+        <span className={p.blockTotal}>{logged.length === 0 ? "None" : `${logged.length === 1 ? "1 cleaning" : `${logged.length} cleanings`} · ${formatCents(total)}${waiting > 0 ? ` · ${waiting} without an amount` : ""}`}</span>
       </div>
       <div className={`${p.fields} ${styles.filters}`}>
         <div className={`${p.field} ${p.fieldDates}`}>
@@ -397,8 +406,17 @@ export function CleaningsTab({ cleanings, team, properties, filters, setFilter, 
                     {c.cleaner.state === "missing" && <span className={p.note}> (deleted)</span>}
                   </td>
                   <td className={p.num}>
-                    {c.status === "removed" ? <span className={styles.struck}>{formatCents(c.amountCents)}</span> : formatCents(c.amountCents)}
+                    {c.amountCents === null ? (
+                      <span className={`${p.costMark} ${p.costMarkWarn}`} title="Marked cleaned on a job with no amount to start from: type it with Change">
+                        No amount yet
+                      </span>
+                    ) : c.status === "removed" ? (
+                      <span className={styles.struck}>{formatCents(c.amountCents)}</span>
+                    ) : (
+                      formatCents(c.amountCents)
+                    )}
                     {c.status === "removed" && <span className={`${p.costMark} ${p.costMarkWarn}`}>removed</span>}
+                    {c.jobId !== null && <span className={p.note} title="Made by the cleaner's Mark cleaned on a job, dated its checkout day"> · marked</span>}
                   </td>
                   <td className={styles.noteCell}>{c.note ?? ""}</td>
                   {charges !== null && <td className={styles.chargedCell}>{chargedWords(c)}</td>}

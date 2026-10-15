@@ -114,11 +114,17 @@
   POST   /api/admin/availability/refresh                      recorded as "Refreshed availability"
   GET    /api/admin/availability                              read, not recorded
   POST   /api/admin/cleaners/[id]/code                        recorded as "Changed a team member’s code"
+  GET    /api/admin/cleaners/[id]/jobs                        read, not recorded
   PUT    /api/admin/cleaners/[id]/rate                        recorded as "Set a cleaner’s default rate"
   PATCH  /api/admin/cleaners/[id]                             recorded as "Changed a team member’s status"
   DELETE /api/admin/cleaners/[id]                             recorded as "Deleted a team member"
+  DELETE /api/admin/cleaners/locks/[id]                       recorded as "Lifted a cleaner sign-in lock"
+  GET    /api/admin/cleaners/locks                            read, not recorded
   GET    /api/admin/cleaners                                  read, not recorded
   POST   /api/admin/cleaners                                  recorded as "Added a team member"
+  POST   /api/admin/cleaning-jobs/[id]/reopen                 recorded as "Reopened a cleaning job for a cleaner"
+  PATCH  /api/admin/cleaning-jobs/[id]                        recorded as "Changed who is on a cleaning job"
+  GET    /api/admin/cleaning-jobs                             read, not recorded
   PATCH  /api/admin/cleanings/[id]                            recorded as "Changed or removed a cleaning"
   DELETE /api/admin/cleanings/[id]                            recorded as "Deleted a cleaning"
   POST   /api/admin/cleanings                                 recorded as "Logged a cleaning"
@@ -174,7 +180,7 @@
   POST   /api/properties                                      recorded as "Added a property"
   POST   /api/scrape-airbnb                                   recorded as "Read an Airbnb listing"
   POST   /api/upload-image                                    recorded as "Uploaded an image"
-  67 handlers through adminRoute; problems: 0
+  73 handlers through adminRoute; problems: 0
   routes still on the PIN-signed session: 0
   a route that unlocks an admin's PIN (the first version's per-admin lock): false
 

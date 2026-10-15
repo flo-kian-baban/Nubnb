@@ -23,12 +23,20 @@
  * once there are that many entries. Every query uses Firestore's automatic
  * single-field indexes.
  *
+ * ── Jobs (the cleaning schedule, Kian's rulings of 2026-10-14) ──
+ * A cleaner's jobs come first in their app: those they are on, within the 45
+ * days their list reaches, read with the properties already read here
+ * (server-cleaning-jobs.ts, cleanerJobs). A handyman is never on a job, and
+ * their jobs are not read.
+ *
  * Failure contract, as in server-leads.ts: a failed read THROWS. It never
  * returns an empty list.
  */
 
 import { getAdminDb } from './admin';
+import { cleanerJobs, jobPropertiesOf } from './server-cleaning-jobs';
 import { listCleanerFacingNames } from './server-property-names';
+import { torontoDay } from '@/app/lib/availability/days';
 import { isDocumentId } from './server-leads';
 import { COST_ENTRIES_COLLECTION, type CleanerProperty, type CleanerStart } from '@/app/lib/cleaners/model';
 import { fold } from '@/app/lib/cleaners/text';
@@ -113,17 +121,20 @@ function itemNames(entries: Record<string, unknown>[]): string[] {
  *
  * @throws if any of the three reads fails.
  */
-export async function readCleanerStart(cleanerId: string): Promise<Omit<CleanerStart, 'cleaner'>> {
+export async function readCleanerStart(cleanerId: string, role: string): Promise<Omit<CleanerStart, 'cleaner'>> {
   const db = getAdminDb();
   const entries = db.collection(COST_ENTRIES_COLLECTION);
+  const today = torontoDay();
 
   const [properties, cleanerFacing, own, newest] = await Promise.all([
-    db.collection('properties').select('name', 'addressDetails').get(),
+    db.collection('properties').select('name', 'addressDetails', 'details').get(),
     listCleanerFacingNames(),
     entries.where('cleanerId', '==', cleanerId).select('propertyId', 'createdAt').get(),
     // `createdAt` is on every entry, so ordering by it drops none of them.
     entries.orderBy('createdAt', 'desc').limit(ITEM_SOURCE_ENTRIES).select('lines', 'kind').get(),
   ]);
+
+  const jobs = role === 'cleaner' ? await cleanerJobs(cleanerId, jobPropertiesOf(properties.docs, cleanerFacing), today) : [];
 
   return {
     properties: properties.docs
@@ -131,5 +142,7 @@ export async function readCleanerStart(cleanerId: string): Promise<Omit<CleanerS
       .sort((a, b) => fold(a.name ?? '').localeCompare(fold(b.name ?? ''), 'en-CA') || a.id.localeCompare(b.id)),
     recentPropertyIds: recentFirst(own.docs.map((doc) => doc.data())),
     itemNames: itemNames(newest.docs.map((doc) => doc.data())),
+    jobs,
+    today,
   };
 }

@@ -44,15 +44,17 @@ const dayOf = (date: Date): string => date.toISOString().slice(0, 10);
 
 /**
  * The events of one feed, as stored: kind, UID and whole days only. Events
- * that ended before `today` are dropped; an event with no UID gets one made
- * of its dates, so a refresh can still compare it.
+ * that ended before `today` are dropped; one ending today is kept through
+ * its checkout day, so the cleaning schedule can watch that day's turnover
+ * (it covers no night from today on, so no night's state changes). An event
+ * with no UID gets one made of its dates, so a refresh can still compare it.
  */
 export function eventsFromFeed(text: string, today: string): AvailabilityEvent[] {
   const events: AvailabilityEvent[] = [];
   for (const event of parseIcalEvents(text)) {
     const start = dayOf(event.start);
     const end = dayOf(event.end);
-    if (end <= today) continue;
+    if (end < today) continue;
     events.push({ uid: event.uid || `${start}/${end}`, kind: kindOf(event.summary), start, end });
   }
   events.sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : a.end < b.end ? -1 : a.end > b.end ? 1 : 0));

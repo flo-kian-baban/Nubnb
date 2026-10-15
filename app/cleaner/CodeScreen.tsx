@@ -8,6 +8,10 @@
  * sends the code. A code that does not open the door clears the boxes and
  * says so in three words; the input keeps its focus, so the keyboard stays up
  * for the next try.
+ *
+ * The cleaner door's lock (Kian's ruling of 2026-10-14, evening): the wrong
+ * code before a lock says what the next one does, and a locked connection says
+ * until when — or that the office lifts it — and takes no code until then.
  */
 
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
@@ -17,17 +21,30 @@ import { CleanerBar } from "./CleanerBar";
 
 const CODE_LENGTH = 4;
 
-type CodeState = "idle" | "checking" | SignInResult["kind"];
+type CodeState = { kind: "idle" } | { kind: "checking" } | Exclude<SignInResult, { kind: "ok" }>;
 
-const MESSAGES: Partial<Record<CodeState, string>> = {
-  "not-recognised": "Code not recognised",
-  offline: "No connection. Try again.",
-  failed: "Something went wrong. Try again.",
-};
+/** "19:45", Toronto. */
+const clock = (iso: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Toronto", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(iso));
 
-export function CodeScreen({ onCode }: { onCode: (code: string) => Promise<SignInResult["kind"]> }) {
+/** What the screen says under the boxes, and a second line when there is one. */
+function messageOf(state: CodeState): [string, string | null] | null {
+  switch (state.kind) {
+    case "not-recognised":
+      return ["Code not recognised", state.warning];
+    case "locked":
+      return state.until === null ? ["Too many wrong codes today", "Ask the office to unlock sign-in."] : ["Too many wrong codes", `Try again at ${clock(state.until)}.`];
+    case "offline":
+      return ["No connection. Try again.", null];
+    case "failed":
+      return ["Something went wrong. Try again.", null];
+    default:
+      return null;
+  }
+}
+
+export function CodeScreen({ onCode }: { onCode: (code: string) => Promise<SignInResult> }) {
   const [value, setValue] = useState("");
-  const [state, setState] = useState<CodeState>("idle");
+  const [state, setState] = useState<CodeState>({ kind: "idle" });
   const [focused, setFocused] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -36,32 +53,43 @@ export function CodeScreen({ onCode }: { onCode: (code: string) => Promise<SignI
     inputRef.current?.focus();
   }, []);
 
+  // A lock that ends opens the boxes again by itself.
+  useEffect(() => {
+    if (state.kind !== "locked" || state.until === null) return;
+    const wait = Date.parse(state.until) - Date.now();
+    const timer = window.setTimeout(() => setState({ kind: "idle" }), Math.max(0, wait) + 1_000);
+    return () => window.clearTimeout(timer);
+  }, [state]);
+
+  const locked = state.kind === "locked";
+
   const change = async (event: ChangeEvent<HTMLInputElement>) => {
-    if (state === "checking") return;
+    if (state.kind === "checking" || locked) return;
     const digits = event.target.value.replace(/\D/g, "").slice(0, CODE_LENGTH);
     setValue(digits);
-    setState("idle");
+    setState({ kind: "idle" });
     if (digits.length < CODE_LENGTH) return;
 
-    setState("checking");
+    setState({ kind: "checking" });
     const result = await onCode(digits);
-    if (result === "ok") return;
+    if (result.kind === "ok") return;
     setValue("");
     setState(result);
   };
 
-  const message = MESSAGES[state];
+  const message = messageOf(state);
+  const wrong = state.kind === "not-recognised" || locked;
 
   return (
     <>
       <CleanerBar />
       <main className={styles.codeScreen}>
-        <label className={`${styles.codeBoxes} ${state === "not-recognised" ? styles.codeBoxesWrong : ""}`}>
+        <label className={`${styles.codeBoxes} ${wrong ? styles.codeBoxesWrong : ""}`}>
           {Array.from({ length: CODE_LENGTH }, (_, i) => (
             <span
               key={i}
               aria-hidden
-              className={`${styles.codeBox} ${focused && i === Math.min(value.length, CODE_LENGTH - 1) ? styles.codeBoxActive : ""} ${state === "checking" ? styles.codeBoxChecking : ""}`}
+              className={`${styles.codeBox} ${focused && !locked && i === Math.min(value.length, CODE_LENGTH - 1) ? styles.codeBoxActive : ""} ${state.kind === "checking" ? styles.codeBoxChecking : ""}`}
             >
               {value[i] ?? ""}
             </span>
@@ -77,7 +105,8 @@ export function CodeScreen({ onCode }: { onCode: (code: string) => Promise<SignI
             spellCheck={false}
             maxLength={CODE_LENGTH}
             aria-label="Your code"
-            aria-invalid={state === "not-recognised"}
+            aria-invalid={wrong}
+            disabled={locked}
             value={value}
             onChange={change}
             onFocus={() => setFocused(true)}
@@ -85,7 +114,8 @@ export function CodeScreen({ onCode }: { onCode: (code: string) => Promise<SignI
           />
         </label>
         <p className={styles.codeMessage} role="alert">
-          {message ?? ""}
+          {message ? message[0] : ""}
+          {message?.[1] && <span className={styles.codeHint}>{message[1]}</span>}
         </p>
       </main>
     </>

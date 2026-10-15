@@ -1,0 +1,265 @@
+/* Schedule (the cleaning schedule, 2026-10-14): each turnover's job by checkout day. Everything shared — the header,
+   the toolbar, the selects, the date field, the table — comes from ../page.module.css; this file holds only what is
+   this page's own. */
+
+/* ── How old the calendar copy is ── the same line the Availability page draws */
+.status {
+  margin: 0 0 18px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.5);
+}
+.status strong {
+  color: rgba(255, 255, 255, 0.8);
+  font-weight: 600;
+}
+.statusAlert {
+  color: #f0a63a;
+}
+.statusAlert strong {
+  color: #f6c069;
+}
+.statusLink {
+  padding: 0;
+  border: none;
+  background: none;
+  color: #8dbbe8;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.statusLink:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ── "Needs a cleaner": a toggle in the toolbar ── */
+.toggle {
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(255, 255, 255, 0.75);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.toggle:hover {
+  border-color: rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+.toggleOn,
+.toggleOn:hover {
+  background: #ffffff;
+  border-color: #ffffff;
+  color: #0a0a0c;
+}
+.toggle:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 1px;
+}
+
+/* ── One block per checkout day ── */
+.day {
+  margin-bottom: 22px;
+}
+.dayTitle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 10px 4px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.85);
+}
+.today {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(127, 176, 224, 0.16);
+  color: #9cc4ec;
+  font-size: 11px;
+  font-weight: 700;
+}
+.empty {
+  margin: 8px 0 0 4px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* Every day's table lays its columns out alike, so they line up from one day to the next. */
+.jobs {
+  table-layout: fixed;
+}
+.jobs th:nth-child(1) {
+  width: 29%;
+}
+.jobs th:nth-child(2) {
+  width: 16%;
+}
+.jobs th:nth-child(3) {
+  width: 27%;
+}
+.jobs th:nth-child(4) {
+  width: 17%;
+}
+.jobs th:nth-child(5) {
+  width: 11%;
+}
+.jobs td {
+  padding-top: 12px;
+  padding-bottom: 12px;
+  font-size: 13.5px;
+  overflow-wrap: anywhere;
+}
+.property {
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+}
+.property:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.muted {
+  color: rgba(255, 255, 255, 0.45);
+}
+.warn {
+  color: #f0a63a;
+}
+.turnover {
+  white-space: nowrap;
+}
+.turnover > * + * {
+  margin-left: 8px;
+}
+.sameDay {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(240, 166, 58, 0.14);
+  color: #f6c069;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+/* ── Who is on it ── */
+.chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 12.5px;
+}
+.chipDone {
+  border-color: rgba(110, 231, 160, 0.4);
+  color: #6ee7a0;
+}
+.chipNote {
+  color: #f0a63a;
+  font-size: 11.5px;
+}
+/* A mark whose cleaning the office deleted or removed: it stays, until reopened (2026-10-14, night). Reopen sits
+   beside the person it is for. */
+.chipLine {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.chipRemoved {
+  border-color: rgba(240, 166, 58, 0.4);
+}
+.chipAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: #8dbbe8;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.chipAction:hover:not(:disabled) {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.chipAction:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.chipAction:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 1px;
+}
+
+/* ── The job's state, once ── */
+.state {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.state_needs {
+  background: rgba(240, 166, 58, 0.16);
+  color: #f6c069;
+}
+.state_assigned {
+  background: rgba(127, 176, 224, 0.14);
+  color: #9cc4ec;
+}
+.state_partial {
+  background: rgba(127, 176, 224, 0.14);
+  color: #9cc4ec;
+}
+.state_done {
+  background: rgba(110, 231, 160, 0.14);
+  color: #6ee7a0;
+}
+.state_removed {
+  background: rgba(240, 166, 58, 0.16);
+  color: #f6c069;
+}
+.state_changed {
+  background: rgba(239, 98, 98, 0.14);
+  color: #f19a9a;
+}
+.actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* ── The picker ── */
+.pickList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pickRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+}
+.pickName {
+  font-weight: 600;
+}

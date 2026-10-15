@@ -1281,9 +1281,10 @@ function TotalsRow({ label, totals, strong = false }: { label: string; totals: T
 function TotalCell({ entry }: { entry: CostEntryView }) {
   const now = entry.linesNow;
   if (now.kind !== "ok") {
+    // A cleaning a cleaner marked on a job with no amount to start from waits for an admin to type it (the cleaning schedule).
     return (
       <span className={`${styles.badge} ${styles.badgeOdd}`} title={now.reason}>
-        Cannot add up
+        {entry.kind === "cleaning" ? "No amount yet" : "Cannot add up"}
       </span>
     );
   }

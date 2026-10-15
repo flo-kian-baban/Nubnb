@@ -98,16 +98,17 @@ function cleaningOf(data: MonthPackageData, id: string) {
 }
 
 /** A cleaning's amount after the first `n` events of its history: what a statement printed. */
-export function cleaningAmountAt(cleaning: { amountCents: number; history: { action: string; before?: { amountCents?: number }; after?: { amountCents?: number } }[] }, n: number): number {
+export function cleaningAmountAt(cleaning: { amountCents: number | null; history: { action: string; before?: { amountCents?: number | null }; after?: { amountCents?: number | null } }[] }, n: number): number {
   const changes = cleaning.history.filter((event) => event.action === 'changed' && event.after?.amountCents !== undefined);
-  let amount = changes[0]?.before?.amountCents ?? cleaning.amountCents;
+  let amount: number | null = changes[0]?.before?.amountCents ?? cleaning.amountCents;
   for (const event of cleaning.history.slice(0, n)) if (event.action === 'changed' && event.after?.amountCents !== undefined) amount = event.after.amountCents;
-  return amount;
+  // A job's cleaning waits for its amount until an admin types it (the cleaning schedule); no statement prints it before.
+  return amount ?? 0;
 }
 
 /** A cleaning's history as an owner's workbook prints it: what happened, by the office, and only the day and amount changed — never who cleaned or the note. */
 function cleaningHistoryRows(ref: string, cleaning: NonNullable<ReturnType<typeof cleaningOf>>, n: number): Cell[][] {
-  const words = (fields: { day?: string; amountCents?: number } | undefined) => [fields?.day, fields?.amountCents !== undefined ? formatCents(fields.amountCents) : undefined].filter(Boolean).join(', ');
+  const words = (fields: { day?: string; amountCents?: number | null } | undefined) => [fields?.day, fields?.amountCents === undefined ? undefined : fields.amountCents === null ? 'no amount yet' : formatCents(fields.amountCents)].filter(Boolean).join(', ');
   return cleaning.history.slice(0, n).map((event) => [text(ref), text(whenWords(event.at)), text(event.action), null, null, text(ACTOR_WORDS[event.actor.role] ?? event.actor.role), null, text(words(event.before)), text(words(event.after))]);
 }
 
@@ -467,7 +468,7 @@ export function cleaningsWorkbook(input: CleaningsInput): Uint8Array<ArrayBuffer
       day(c.day),
       text(names.get(c.propertyId) ?? c.propertyNameAtEntry ?? 'Unknown property'),
       text(c.cleanerNameAtEntry ?? 'Unknown cleaner'),
-      money(c.amountCents),
+      c.amountCents === null ? text('No amount yet') : money(c.amountCents),
       text(c.status === 'removed' ? 'Removed' : 'Logged'),
       text(c.note ?? ''),
       text(charges.length === 0 ? 'No statement yet' : charges.map((charge) => `${monthLabel(charge.month)}${charge.finished ? '' : ' (not finished)'} ${formatCents(charge.cents)}`).join('; ')),
@@ -476,7 +477,7 @@ export function cleaningsWorkbook(input: CleaningsInput): Uint8Array<ArrayBuffer
     ]);
     if (c.status !== 'logged' || c.day.slice(0, 7) !== data.month) continue;
     const was = earned.get(c.cleanerId) ?? { name: c.cleanerNameAtEntry ?? 'Unknown cleaner', count: 0, cents: 0 };
-    earned.set(c.cleanerId, { name: was.name, count: was.count + 1, cents: was.cents + c.amountCents });
+    earned.set(c.cleanerId, { name: was.name, count: was.count + 1, cents: was.cents + (c.amountCents ?? 0) });
   }
   if (all.length === 0) rows.push([text(`No cleaning was logged for ${monthLabel(data.month)}.`)]);
   const earnedRows: Cell[][] = [header(['Cleaner', 'Cleanings', 'Earned (CAD)'])];

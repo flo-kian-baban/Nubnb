@@ -1,0 +1,68 @@
+═══ 1. The calendar copy keeps a stay through its checkout day ═══
+  events kept: reserved 2026-10-13→2026-10-15 | blocked 2026-10-15→2026-10-16 (the one that ended yesterday is dropped)
+  tonight's state is unchanged by the stay ending today: blocked, open
+
+═══ 2. Jobs made from a run ═══
+  TESTPROPscheduleaaa1_2026-10-15 · open · stay 2026-10-13→2026-10-15 · next check-in 2026-10-15 (same day)
+  TESTPROPscheduleaaa1_2026-10-16 · open · stay 2026-10-15→2026-10-16 · next check-in 2026-10-16 (same day)
+  TESTPROPscheduleaaa1_2026-10-17 · open · stay 2026-10-16→2026-10-17 · next check-in 2026-10-17 (same day)
+  not made: Test Cottage's block (a block never makes one) and its stay checking out 2026-10-20 (three days ahead); Test Condo (its calendar failed this run); Test Basement (no calendar link)
+  the history's first event: {"at":"2026-10-15T14:00:00.000Z","action":"created","actor":{"role":"system","id":null,"name":"calendar"},"cleanerId":null,"cleanerName":null,"cleaningId":null,"amountCents":null,"reason":null,"change":null,"before":null,"after":{"start":"2026-10-13","end":"2026-10-15"}}
+  a second run with them stored makes none: 0
+  read back: true
+
+═══ 3. What a later run changes on a stored job ═══
+  nothing changed: no change
+  the 16th cancelled: {"status":"booking-changed","change":{"kind":"gone","at":"2026-10-15T14:00:00.000Z","movedTo":null}} · booking-changed/gone
+  the 17th extended to the 19th (same UID): {"status":"booking-changed","change":{"kind":"moved","at":"2026-10-15T14:00:00.000Z","movedTo":{"start":"2026-10-16","end":"2026-10-19"}}} · booking-changed/moved
+  the 16th rebooked: same days, a new UID: {"reservation":{"uid":"r2new","start":"2026-10-15"}} · reservation-replaced
+  the 17th: check-in moved, checkout the same: {"reservation":{"uid":"r3","start":"2026-10-15"}} · check-in-moved
+  the 17th: the next guest cancelled: {"nextCheckIn":null} · next-check-in-changed
+  the calendar link changed and the stay is gone: {"status":"booking-changed","change":{"kind":"calendar-changed","at":"2026-10-15T14:00:00.000Z","movedTo":null}} · booking-changed/calendar-changed
+  the calendar link changed, a stay still ends that day: {"reservation":{"uid":"z2","start":"2026-10-14"},"calendarKey":"2a0560e505","nextCheckIn":null} · reservation-replaced (the calendar link changed), next-check-in-changed
+  the calendar link removed: {"status":"booking-changed","change":{"kind":"calendar-removed","at":"2026-10-15T14:00:00.000Z","movedTo":null}} · booking-changed/calendar-removed
+  the property deleted: {"status":"booking-changed","change":{"kind":"property-deleted","at":"2026-10-15T14:00:00.000Z","movedTo":null}} · booking-changed/property-deleted
+  the calendar failed this run: no change
+  checkout day itself: the stay still there: no change
+  checkout day itself: extended that morning: {"status":"booking-changed","change":{"kind":"moved","at":"2026-10-15T14:00:00.000Z","movedTo":{"start":"2026-10-13","end":"2026-10-18"}}} · booking-changed/moved
+  the day after the 15th's checkout, the stay gone from the feed: no change (settled)
+  a changed job whose day ends a stay again: {"status":"open","change":null,"reservation":{"uid":"r2","start":"2026-10-15"},"calendarKey":"f05a15fb57","nextCheckIn":"2026-10-16"} · reopened
+
+═══ 4. A job's rules: who can mark it, when, and what it reads as ═══
+  Ana (marked) on 2026-10-16: already-marked
+  Ben on 2026-10-15: too-early
+  Ben on 2026-10-16: can mark
+  someone not on it on 2026-10-16: not-assigned
+  Ben after the booking changed: booking-changed · changed after it was marked: true · words: Cancelled
+  done: none false, one of two false, both true · moved words: Moved to Oct 27
+  Ana's cleaning removed by the office: mark refused removed · still a mark 1 of 2 · reopen can reopen · reads back true
+  reopen refused: for Ben (not removed) not-removed · for someone not on it not-removed · after the booking changed booking-changed
+  reopened: Ana can mark · its event reads back mark-reopened
+  refused as not in shape — an ID not its property and checkout: true
+  refused as not in shape — booking changed with no change: true
+  refused as not in shape — an assignment for nobody in cleanerIds: true
+  refused as not in shape — marked with no time: true
+  refused as not in shape — removed with no one who removed it: true
+  refused as not in shape — removed with no mark: true
+  refused as not in shape — an assignment without the removal fields: true
+  refused as not in shape — a history event missing a field: true
+  read as written: true
+
+═══ 5. A job's cleaning ═══
+  read: Ana's $60.00 jobId TESTPROPscheduleaaa1_2026-10-16 · the waiting one, amount null · a version 1 cleaning reads jobId null
+  refused: no amount without a job true · a zero amount true
+  the waiting one as the statements read it: status pending, lines [], linesNow {"kind":"unreadable","reason":"No amount yet: an admin types it in the Cleanings tab."}
+  its amount typed: status approved, total $50.00, sent $50.00, corrected false
+  changed again after: total $52.00, first amount $50.00, corrected true
+  37B's amount for Ben's next mark: from last, $55.00 (the waiting one, with no amount, is not "last paid")
+  with neither a last amount nor a default rate: {"from":"none","cents":null}
+
+═══ 6. Two cleaners on one job, and one waiting for its amount: the owner's statement ═══
+  printed: Revenue · 1 · $500.00 · $500.00 | Expense - Cleaning · 2 · (rate empty) · -$115.00
+  costs charged: TESTCLEANINGjob00001 $60.00, TESTCLEANINGjob00002 $55.00 · left out, pending: 1
+  the PDF holds "Expense - Cleaning": true · names a cleaner: false
+  Finish warns: 1 entry sent in October 2026 is still pending and not in it.
+
+═══ 7. The cleaner door keeps its own key for a connection ═══
+  64 hex: true · differs from the admin door's hash of the same address under the same key: true · stable: true
+  calendar keys: f05a15fb57 for one link, 2a0560e505 for another, '' for none

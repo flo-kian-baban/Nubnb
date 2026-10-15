@@ -17,11 +17,19 @@
  * finished goes on the next open statement; one changed or removed after printing is adjusted on the next month's.
  * The statements do that (reports/statement.ts): a change here is all it takes.
  *
+ * ── The cleaning schedule (Kian's rulings of 2026-10-14) ──
+ * A job's cleaning (schema version 2, `jobId`) is made by the cleaner's Mark cleaned (server-cleaning-jobs.ts), and
+ * changed, removed or deleted here under 37B's rules. Its cleaner stays its cleaner: the job's assignment points at
+ * it (Kian's ruling of the night, accepting the developer's choice). Deleting one keeps the mark on the job as
+ * "removed by the office", in the same transaction, and that cleaner cannot mark it again until an admin reopens it
+ * on the Schedule (Kian's ruling of the night); removing one does the same. The job's history keeps who did it, the
+ * cleaning's ID and its amount.
+ *
  * Failure contract: the reads throw when a read fails; the writes return a result naming what happened, "may or
  * may not have landed" included, and never throw.
  */
 
-import type { Transaction } from 'firebase-admin/firestore';
+import type { DocumentReference, Transaction } from 'firebase-admin/firestore';
 import { getAdminDb } from './admin';
 import { isDocumentId } from './server-leads';
 import { CLEANERS_COLLECTION, fieldText, roleOf, type Actor, type Refusal } from '@/app/lib/cleaners/model';
@@ -38,6 +46,7 @@ import {
   type TeamRate,
 } from '@/app/lib/cleanings/model';
 import { torontoDayOf } from '@/app/lib/costs/report';
+import { CLEANING_JOBS_COLLECTION, jobEvent, readJob, type StoredJob } from '@/app/lib/schedule/model';
 import { MONTHLY_REPORTS_COLLECTION, addMonths, currentReports, monthOfDay, readMonthlyReport } from '@/app/lib/reports/model';
 import { statementMonthFor } from '@/app/lib/reports/statement';
 
@@ -88,7 +97,7 @@ function toView(c: Cleaning & { id: string }, cleaners: Map<string, CleanerNow> 
 const distinct = (ids: string[]) => [...new Set(ids.filter((id) => isDocumentId(id)))];
 
 /** Documents read strictly; one not in the written shape is logged by ID and left out. */
-function readDocs(docs: { id: string; data: () => Record<string, unknown> }[]): (Cleaning & { id: string })[] {
+export function readDocs(docs: { id: string; data: () => Record<string, unknown> }[]): (Cleaning & { id: string })[] {
   const out: (Cleaning & { id: string })[] = [];
   for (const doc of docs) {
     const read = readCleaning(doc.id, doc.data());
@@ -154,7 +163,7 @@ export function cleaningDayProblem(day: string, now: Date = new Date()): string 
 }
 
 /** The statement a cleaning of `month` goes on (Kian's ruling): that month's, or, once it is finished, the next open one's. */
-async function statementMonthOf(propertyId: string, month: string, tx: Transaction): Promise<string> {
+export async function statementMonthOf(propertyId: string, month: string, tx: Transaction): Promise<string> {
   const db = getAdminDb();
   const snap = await tx.get(db.collection(MONTHLY_REPORTS_COLLECTION).where('propertyId', '==', propertyId));
   const reports = snap.docs.map((doc) => readMonthlyReport(doc.id, doc.data())).filter((report) => report !== null);
@@ -162,7 +171,7 @@ async function statementMonthOf(propertyId: string, month: string, tx: Transacti
 }
 
 /** The finished statements of a property, current or since replaced, that print the cleaning: a cost row, `entryIds` or an adjustment. Read from raw fields, so one not in shape still counts. */
-async function statementsPrinting(propertyId: string, cleaningId: string, tx: Transaction): Promise<{ id: string; month: string; reference: string }[]> {
+export async function statementsPrinting(propertyId: string, cleaningId: string, tx: Transaction): Promise<{ id: string; month: string; reference: string }[]> {
   const db = getAdminDb();
   const snap = await tx.get(db.collection(MONTHLY_REPORTS_COLLECTION).where('propertyId', '==', propertyId));
   const names = (rows: unknown) => Array.isArray(rows) && rows.some((row) => !!row && typeof row === 'object' && (row as Record<string, unknown>).entryId === cleaningId);
@@ -248,6 +257,8 @@ export async function logCleaning(actor: Actor, input: CleaningInput): Promise<L
         createdAt: now,
         actor,
         history: [{ at: now, action: 'logged', actor, reason: null }],
+        // Logged by hand: no job (schema version 2).
+        jobId: null,
       };
       tx.create(ref, stored);
       return {
@@ -281,6 +292,8 @@ export type ChangeCleaningResult =
   | { kind: 'printed-month'; statements: { id: string; month: string; reference: string }[] }
   | { kind: 'no-such-cleaner' }
   | { kind: 'not-a-cleaner' }
+  /** A job's cleaning keeps its cleaner: their mark on the job points at it. */
+  | { kind: 'job-cleaner' }
   | { kind: 'unreadable' }
   | { kind: 'failed' };
 
@@ -290,6 +303,7 @@ export const CHANGE_REFUSALS: Record<Exclude<ChangeCleaningResult['kind'], 'chan
   removed: { status: 409, code: 'CLEANING_REMOVED', message: 'This cleaning is removed.', hint: 'Nothing was saved. Log it again if it was done.' },
   'no-such-cleaner': { status: 404, code: 'CLEANER_NOT_FOUND', message: 'That cleaner does not exist.', hint: 'Nothing was saved. Reload the page.' },
   'not-a-cleaner': { status: 422, code: 'NOT_A_CLEANER', message: 'A cleaning is logged for a cleaner, not a handyman.', hint: 'Nothing was saved.' },
+  'job-cleaner': { status: 409, code: 'CLEANING_FROM_JOB', message: 'This cleaning came from its cleaner’s Mark cleaned on a job, so it keeps its cleaner.', hint: 'Nothing was saved. Remove it, and log one by hand for the other cleaner.' },
   unreadable: { status: 500, code: 'CLEANING_UNREADABLE', message: 'This cleaning is not in the shape a change needs.', hint: 'Nothing was saved.' },
   failed: { status: 502, code: 'CLEANING_SAVE_FAILED', message: 'Could not save the cleaning.', hint: 'It may or may not have been saved. Reload to see what is on record.' },
 };
@@ -332,6 +346,7 @@ export async function changeCleaning(actor: Actor, id: string, change: CleaningC
       }
       let cleanerName = stored.cleanerNameAtEntry;
       if (change.cleanerId !== undefined && change.cleanerId !== stored.cleanerId) {
+        if (stored.jobId !== null) return { kind: 'job-cleaner' };
         const cleaner = await pickableCleaner(change.cleanerId, tx, false);
         if (cleaner === 'missing') return { kind: 'no-such-cleaner' };
         if (cleaner === 'not-a-cleaner' || cleaner === 'inactive') return { kind: 'not-a-cleaner' };
@@ -367,11 +382,44 @@ export async function changeCleaning(actor: Actor, id: string, change: CleaningC
   }
 }
 
+// ─── A job's cleaning, removed or deleted by the office ────────
+
+/** A job whose cleaner's mark made this cleaning, found inside the transaction: a read, so it runs before any write. */
+interface MarkOnJob {
+  ref: DocumentReference;
+  job: StoredJob;
+  cleanerId: string;
+}
+
+async function markOnJob(tx: Transaction, jobId: unknown, cleanerId: unknown, cleaningId: string): Promise<MarkOnJob | null> {
+  if (typeof jobId !== 'string' || jobId === '' || typeof cleanerId !== 'string') return null;
+  const ref = getAdminDb().collection(CLEANING_JOBS_COLLECTION).doc(jobId);
+  const snap = await tx.get(ref);
+  const job = snap.exists ? readJob(snap.id, snap.data() ?? {}) : null;
+  return job && job.assignments[cleanerId]?.cleaningId === cleaningId ? { ref, job, cleanerId } : null;
+}
+
+/**
+ * The office removed or deleted the cleaning a cleaner's mark made: the job keeps the mark as "removed by the office"
+ * (its first removal's time and admin, when it is deleted after being removed), and that cleaner cannot mark it again
+ * until an admin reopens it on the Schedule (Kian's ruling of 2026-10-14, night). The job's history names the admin,
+ * the cleaning and its amount.
+ */
+function keepMarkRemoved(tx: Transaction, found: MarkOnJob, action: 'cleaning-removed' | 'cleaning-deleted', actor: Actor, cleaningId: string, amountCents: number | null, at: string): void {
+  const { ref, job, cleanerId } = found;
+  const mark = job.assignments[cleanerId];
+  tx.update(ref, {
+    assignments: { ...job.assignments, [cleanerId]: { ...mark, removedAt: mark.removedAt ?? at, removedBy: mark.removedBy ?? actor } },
+    history: [...job.history, jobEvent(at, action, actor, { cleanerId, cleanerName: mark.nameAtAssignment, cleaningId, amountCents })],
+  });
+}
+
 export type RemoveCleaningResult = { kind: 'removed'; cleaning: CleaningView } | { kind: 'not-found' } | { kind: 'changed-since' } | { kind: 'already-removed' } | { kind: 'unreadable' } | { kind: 'failed' };
 
 /**
  * Remove a cleaning: it stays, marked, and counts nowhere; a statement that printed it is given it back on the next
- * open one (Kian's ruling: the rules costs follow). As the admin saw it (`seen`).
+ * open one (Kian's ruling: the rules costs follow). As the admin saw it (`seen`). A job's cleaning leaves its mark on
+ * the job, removed by the office.
  */
 export async function removeCleaning(actor: Actor, id: string, seen: number, reason: string | null): Promise<RemoveCleaningResult> {
   if (!isDocumentId(id)) return { kind: 'not-found' };
@@ -385,8 +433,11 @@ export async function removeCleaning(actor: Actor, id: string, seen: number, rea
       if (!stored) return { kind: 'unreadable' };
       if (stored.history.length !== seen) return { kind: 'changed-since' };
       if (stored.status === 'removed') return { kind: 'already-removed' };
-      const history = [...stored.history, { at: new Date().toISOString(), action: 'removed' as const, actor, reason }];
+      const onJob = await markOnJob(tx, stored.jobId, stored.cleanerId, id);
+      const at = new Date().toISOString();
+      const history = [...stored.history, { at, action: 'removed' as const, actor, reason }];
       tx.update(ref, { status: 'removed', history });
+      if (onJob) keepMarkRemoved(tx, onJob, 'cleaning-removed', actor, id, stored.amountCents, at);
       return { kind: 'removed', cleaning: { ...stored, status: 'removed', history, cleaner: { state: 'found', name: stored.cleanerNameAtEntry, status: null }, property: { state: 'found', name: stored.propertyNameAtEntry } } };
     });
   } catch (err) {
@@ -408,8 +459,11 @@ export type DeleteCleaningResult =
 /**
  * Delete a cleaning outright, as the admin saw it (`seen`), never while a finished statement — current or since
  * replaced — prints it. A deleted cleaning leaves no record of who cleaned or what they were paid; removing keeps it.
+ * A job's cleaning leaves its mark on the job as "removed by the office", in the same transaction: that cleaner cannot
+ * mark it again until an admin reopens it (Kian's ruling of 2026-10-14, night), and the job's history keeps who
+ * marked it, the cleaning's ID and its amount.
  */
-export async function deleteCleaning(id: string, seen: number): Promise<DeleteCleaningResult> {
+export async function deleteCleaning(actor: Actor, id: string, seen: number): Promise<DeleteCleaningResult> {
   if (!isDocumentId(id)) return { kind: 'not-found' };
   const db = getAdminDb();
   const ref = db.collection(CLEANINGS_COLLECTION).doc(id);
@@ -424,7 +478,13 @@ export async function deleteCleaning(id: string, seen: number): Promise<DeleteCl
         const printing = await statementsPrinting(propertyId, id, tx);
         if (printing.length > 0) return { kind: 'in-statement', statements: printing };
       }
+      // A job's cleaning: its cleaner's mark stays on the job, removed by the office.
+      const onJob = await markOnJob(tx, snap.get('jobId'), snap.get('cleanerId'), id);
       tx.delete(ref);
+      if (onJob) {
+        const amount: unknown = snap.get('amountCents');
+        keepMarkRemoved(tx, onJob, 'cleaning-deleted', actor, id, typeof amount === 'number' ? amount : null, new Date().toISOString());
+      }
       return { kind: 'deleted', id };
     });
   } catch (err) {

@@ -57,12 +57,18 @@ import {
   changeCleanerStatus,
   createCleaner,
   deleteCleaner,
+  fetchCleanerLocks,
   fetchCleaners,
+  fetchUnmarkedJobs,
+  liftCleanerLock,
   setDefaultRate,
   suggestCode,
   type CleanerResult,
   type CodeRequest,
 } from "@/app/lib/cleaners-client";
+import type { SignInLockView } from "@/app/lib/admins/model";
+import type { UnmarkedJob } from "@/app/lib/schedule/model";
+import { dayText } from "@/app/lib/availability/days";
 import {
   CLEANER_ROLE_LABELS,
   CLEANER_STATUS_LABELS,
@@ -100,6 +106,24 @@ const SESSION_HINT = "Your admin session may have expired — reload and sign in
 
 const CODE_CHANGE_EFFECT = "The old code stops working at once. Any phone signed in with it is signed out.";
 
+/** "Lake View (Oct 16), City Skyline (Oct 17)": jobs by property and checkout day. */
+const jobsWords = (jobs: UnmarkedJob[]) => jobs.map((job) => `${job.propertyName ?? "a property"} (${dayText(job.checkout)})`).join(", ");
+
+/** The confirmation's line about the cleaning schedule: the jobs they are on and have not marked, which they come off. */
+async function jobsLine(cleaner: CleanerSummary): Promise<string | null> {
+  if (cleaner.role === "handyman") return null;
+  const result = await fetchUnmarkedJobs(cleaner.id);
+  if (!result.ok) return "Their jobs could not be read: they still come off every job they have not marked.";
+  const jobs = result.data.jobs;
+  return jobs.length === 0 ? null : `They come off ${jobs.length === 1 ? "1 job" : `${jobs.length} jobs`} they have not marked: ${jobsWords(jobs)}. Jobs they marked keep their mark and cleaning.`;
+}
+
+/** What the answer says they came off, for the notice. */
+const takenOffWords = (jobs: UnmarkedJob[]) => (jobs.length === 0 ? null : `Taken off ${jobs.length === 1 ? "1 job" : `${jobs.length} jobs`}: ${jobsWords(jobs)}.`);
+
+/** "Oct 14, 19:45", Toronto. */
+const clockWords = (iso: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Toronto", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(iso));
+
 export default function CleanersPage() {
   return (
     <PinGate>
@@ -132,6 +156,9 @@ function Cleaners() {
   const { notice, show: showNotice, clear: clearNotice } = useNotice();
   /** Every question asked in Nubnb's own dialog (Kian's ruling of 2026-10-12: no native browser dialogs in the admin). */
   const { ask, dialog } = useAsk();
+  /** The cleaner door's locks holding now (Kian's ruling of 2026-10-14, evening): an admin lifts them here. */
+  const [locks, setLocks] = useState<{ kind: "loading" } | { kind: "ready"; locks: SignInLockView[] } | { kind: "error"; title: string }>({ kind: "loading" });
+  const [lifting, setLifting] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -164,10 +191,35 @@ function Cleaners() {
     };
   }, [attempt]);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetchCleanerLocks().then((result) => {
+      if (!cancelled) setLocks(result.ok ? { kind: "ready", locks: result.data.locks } : { kind: "error", title: result.title });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [attempt]);
+
   const reload = () => {
     setList({ kind: "loading" });
     setPatterns({ kind: "loading" });
+    setLocks({ kind: "loading" });
     setAttempt((n) => n + 1);
+  };
+
+  /** Lift a cleaner-door lock before its time: the connection's count goes with it. */
+  const lift = async (lock: SignInLockView) => {
+    if (lifting) return;
+    setLifting(lock.id);
+    const result = await liftCleanerLock(lock.id);
+    setLifting(null);
+    if (!result.ok && result.status !== 404) {
+      showNotice(result.unknown ? { tone: "warning", title: "The lock may or may not have been lifted. Reload to see.", detail: result.title } : { tone: "error", title: result.title, detail: result.detail });
+      return;
+    }
+    setLocks((prev) => (prev.kind === "ready" ? { kind: "ready", locks: prev.locks.filter((l) => l.id !== lock.id) } : prev));
+    showNotice({ tone: "success", title: result.ok ? "Lifted. Sign-in from that connection works again." : "That lock had already ended." });
   };
 
   // Opening the editor puts the cursor in the code field.
@@ -238,10 +290,11 @@ function Cleaners() {
   const changeStatus = async (cleaner: CleanerSummary, target: CleanerStatus) => {
     if (busy) return;
     const who = displayName(cleaner.name);
+    const jobs = target === "deactivated" ? await jobsLine(cleaner) : null;
     const yes =
       target === "deactivated"
-        ? await ask({ title: `Deactivate ${who}?`, lines: ["Their code stops working at once and any signed-in phone is signed out. Their entries keep their name."], confirm: "Deactivate", danger: true })
-        : await ask({ title: `Reactivate ${who}?`, lines: ["Their existing code works again. Phones signed in before are still signed out."], confirm: "Reactivate" });
+        ? await ask({ title: `Deactivate ${who}?`, lines: ["Their code stops working at once and any signed-in phone is signed out. Their entries keep their name.", jobs], confirm: "Deactivate", danger: true })
+        : await ask({ title: `Reactivate ${who}?`, lines: ["Their existing code works again. Phones signed in before are still signed out.", "They are put back on no job."], confirm: "Reactivate" });
     if (!yes) return;
 
     clearNotice();
@@ -266,7 +319,7 @@ function Cleaners() {
     const label = CLEANER_STATUS_LABELS[target].toLowerCase();
     showNotice(
       result.data.changed
-        ? { tone: "success", title: `${target === "deactivated" ? "Deactivated" : "Reactivated"} ${who}.` }
+        ? { tone: "success", title: `${target === "deactivated" ? "Deactivated" : "Reactivated"} ${who}.`, detail: takenOffWords(result.data.jobsTakenOff ?? []) ?? undefined }
         : { tone: "info", title: `Nothing was changed: ${who} was already ${label}.` },
     );
   };
@@ -345,9 +398,10 @@ function Cleaners() {
           ? "They logged no entries."
           : `They logged ${theirs.length === 1 ? "1 entry" : `${theirs.length} entries`}${pending > 0 ? ` (${pending} pending review)` : ""}; those stay on the ledger under the name “${cleaner.name ?? who}”.`;
     const cleaningsLine = cleaned === 0 ? null : `${cleaned === 1 ? "1 cleaning" : `${cleaned} cleanings`} done by them ${cleaned === 1 ? "stays" : "stay"}, under the same name.`;
+    const jobs = await jobsLine(cleaner);
     const yes = await ask({
       title: `Delete ${who} for good?`,
-      lines: [`${role}${cleaner.code ? `, code ${cleaner.code}` : ", no code on record"}. The code stops working at once; any signed-in phone is signed out.`, entriesLine, cleaningsLine, "The account cannot be reactivated. This cannot be undone."],
+      lines: [`${role}${cleaner.code ? `, code ${cleaner.code}` : ", no code on record"}. The code stops working at once; any signed-in phone is signed out.`, entriesLine, cleaningsLine, jobs, "The account cannot be reactivated. This cannot be undone."],
       confirm: "Delete for good",
       danger: true,
     });
@@ -367,10 +421,11 @@ function Cleaners() {
       return;
     }
     setList((prev) => (prev.kind === "ready" ? { kind: "ready", cleaners: prev.cleaners.filter((c) => c.id !== cleaner.id) } : prev));
+    const offWords = takenOffWords(result.data.jobsTakenOff ?? []);
     showNotice({
       tone: "success",
       title: `Deleted ${who}.`,
-      detail: `Their code no longer works.${theirs && theirs.length > 0 ? ` ${theirs.length === 1 ? "1 entry stays" : `${theirs.length} entries stay`} on the ledger under their name.` : ""}`,
+      detail: `Their code no longer works.${theirs && theirs.length > 0 ? ` ${theirs.length === 1 ? "1 entry stays" : `${theirs.length} entries stay`} on the ledger under their name.` : ""}${offWords ? ` ${offWords}` : ""}`,
     });
   };
 
@@ -644,6 +699,27 @@ function Cleaners() {
                   </tbody>
                 </table>
               </div>
+            )}
+
+            {/* ── The cleaner door's locks (Kian's ruling of 2026-10-14, evening): shown only while one holds ── */}
+            {locks.kind === "error" && <NoticeBanner className={shared.pageNotice} notice={{ tone: "warning", title: "The cleaner sign-in locks could not be read.", detail: locks.title }} />}
+            {locks.kind === "ready" && locks.locks.length > 0 && (
+              <section className={styles.locks} aria-label="Cleaner sign-in locks">
+                <h2 className={styles.locksTitle}>Cleaner sign-in locks · {locks.locks.length}</h2>
+                <ul className={styles.locksList}>
+                  {locks.locks.map((lock) => (
+                    <li key={lock.id} className={styles.lockRow}>
+                      <span>
+                        {lock.capped ? "20 wrong codes today · until lifted" : `5 wrong codes in a row · until ${lock.lockedUntil ? clockWords(lock.lockedUntil) : "?"}`}
+                        <span className={styles.lockMeta}> · one connection{lock.lastFailedAt ? `, last wrong code ${clockWords(lock.lastFailedAt)}` : ""}</span>
+                      </span>
+                      <button type="button" className={shared.btnGhost} onClick={() => lift(lock)} disabled={lifting !== null}>
+                        {lifting === lock.id ? "Lifting…" : "Lift"}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
             )}
           </>
         )}

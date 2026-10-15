@@ -71,17 +71,20 @@ no checkout. Do not build toward one unless asked.
 ## Ruled out — do not propose again
 
 - **Upstash, Sentry, rate limiting, analytics.** Ruled out by Kian. Rate
-  limiting is ruled in for admin sign-in only (dispatch 38, below).
+  limiting is ruled in for admin sign-in (dispatch 38, below) and the
+  cleaner door (cleaning schedule, 2026-10-14 evening, below).
 
 ## Accepted risks
 
-- **No rate limiting in production**, except admin sign-in (dispatch 38).
+- **No rate limiting in production**, except admin sign-in (dispatch 38) and
+  the cleaner door (2026-10-14 evening).
 - **No error monitoring.**
 - **No analytics.**
-- **Cleaner codes are 4 digits.** 10,000 combinations and no rate limiting,
-  so the cleaner door can be brute-forced. Exposure is limited to submitting
-  cost entries under another cleaner's name; receipts and admin approval
-  remain required.
+- **Cleaner codes are 4 digits.** 10,000 combinations; the lock (2026-10-14
+  evening) slows guessing from one connection without stopping it, so the
+  cleaner door can be brute-forced. A guessed code can submit cost entries
+  under another cleaner's name, where receipts and admin approval remain
+  required, and it can mark that cleaner's jobs cleaned.
 - **Cleaner codes are stored readably**, by Kian's ruling (2026-09-28): any
   admin can see and change any cleaner's code. A code is its `cleaner_codes`
   document ID and sits on the cleaner's document, so a copy of the database
@@ -457,8 +460,9 @@ no checkout. Do not build toward one unless asked.
   none, and the admin can change it freely. No per-property rate table, no
   dated rates.**
 - **Admins log every cleaning by hand: cleaner, property, date, amount, an
-  optional note. No list of bookings or checkouts to tick; no link between
-  cleanings and bookings.**
+  optional note. No list of bookings or checkouts to tick.** Its "no link
+  between cleanings and bookings" is replaced: jobs link cleanings to
+  bookings (Cleaning schedule, 2026-10-14 evening).
 - **On the owner's statement, a month's cleanings print as one line,
   "Expense - Cleaning", with the total. The ledger lists each cleaning.**
 - **The cleaner is never named on anything an owner receives.**
@@ -525,7 +529,8 @@ today's shared PIN being the main admin's until Kian changes it.
 - **Five wrong PINs from one connection lock sign-in from that connection for
   15 minutes.** The main admin can lift a lock on the Admins page. Store the
   connection only as a keyed hash, never the address itself. Rate limiting
-  stays ruled in for admin sign-in only.
+  stays ruled in for admin sign-in only (and, since 2026-10-14 evening, the
+  cleaner door).
 - **The shared PIN (ADMIN_PIN) stays only as the recovery script's PIN.**
 
 ## Admin PINs — Kian's rulings of 2026-10-13 (night)
@@ -564,3 +569,64 @@ These replace the rulings they change: six-digit admin PINs.
 
 - **Below 1400 px wide, the admin header's section links sit on their own
   row under the brand and actions, on every admin page.**
+
+## Cleaning schedule — Kian's rulings of 2026-10-14 (phase 1)
+
+- **A job is one property's turnover, created automatically two days before
+  an Airbnb reservation's checkout date, from the property's calendar
+  copies. Only reservations create jobs, never owner blocks. Properties
+  without a calendar link get no jobs.**
+- **Admins assign one or more active cleaners to a job.**
+- **In the cleaner app, a cleaner's assigned jobs come first, soonest first,
+  above everything else.**
+- **"Mark cleaned" on a job, by a cleaner assigned to it, from the checkout
+  day on, creates a cleaning record (dispatch 37B's) at once, with no admin
+  confirmation. The cleaner never types the amount; it is 37B's rule (last
+  paid for that property, else their default rate). With neither, the job
+  is done and the cleaning waits for an admin to type its amount.**
+- **With several cleaners on one job, each marks their own; the owner is
+  charged what the cleaners are paid, added up (37B's one
+  "Expense - Cleaning" line already does this).**
+- **A cleaner can undo their own Mark cleaned until that month's statement
+  is finished. After that, admins change or remove it under 37B's rules.**
+- **No proof of cleaning is required.**
+- **A job whose reservation disappears or moves is marked "booking
+  changed", never deleted.**
+
+## Cleaning schedule — Kian's rulings of 2026-10-14 (evening)
+
+- **The plan's recommendations 1–4 are accepted: same dates under a new ID
+  keep the job; a cleaning's day is the checkout day; Undo lasts until a
+  finished statement prints the cleaning; until the function is deployed,
+  jobs come from Refresh now only.**
+- **Jobs link cleanings to bookings; this replaces 37B's "no link"
+  ruling.**
+- **The cleaner door gets the admin door's lock: five wrong codes from one
+  connection lock sign-in for 15 minutes; twenty in a Toronto day lock it
+  until an admin lifts it from the Team page.**
+- **The hourly calendar copy deploys as the existing Cloud Function, with
+  the job sync inside it.**
+- **The developer's own choices in §9 of the plan are accepted unless one
+  changes money, a statement or what an owner receives; any such is listed
+  for Kian first.** His answers on the four listed:
+  - **Undo deletes the cleaning; the job's history keeps who marked it,
+    when, the cleaning's ID and its amount.**
+  - **A booking-changed job cannot be marked cleaned. A job that changes
+    after it was marked keeps its cleaning, charged as usual, and reads
+    "changed after it was marked" for an admin to decide.**
+  - **The cleaner's job list reaches 45 days back; an older unprinted
+    cleaning is changed or removed by admins under 37B.**
+  - **A cleaning with no amount is pending: not charged, and counted by
+    Finish's pending warning. If its amount is typed after its month is
+    finished, it goes on the next open statement, labelled with its
+    month.**
+
+## Cleaning schedule — Kian's rulings of 2026-10-14 (night)
+
+- **A job's cleaning keeps its cleaner** (the developer's choice 1,
+  accepted).
+- **When an admin deletes a job's cleaning, the job keeps the mark as
+  "removed by the office", and that cleaner cannot mark it again. An admin
+  can reopen it for them from the Schedule page, recorded in the job's
+  history.** This replaces the developer's choice 2.
+- **The cleaner-codes risk wording is accepted as written.**

@@ -1323,3 +1323,131 @@
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
+
+/* ── Your jobs (the cleaning schedule, 2026-10-14): first on the screen, above the receipt flow ── */
+.jobs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.jobList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.jobCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--primary);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.jobCardChanged {
+  border-left-color: var(--danger);
+  background: var(--danger-soft);
+}
+.jobDay {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 700;
+}
+.jobChanged {
+  color: var(--danger);
+}
+.jobProperty {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+}
+.jobTimes {
+  margin: 0;
+  color: var(--ink);
+  font-size: 16px;
+}
+.jobNote {
+  margin: 0;
+  color: var(--muted);
+  font-size: 16px;
+  font-weight: 600;
+}
+.jobMessage {
+  margin: 0;
+  color: var(--danger);
+  font-size: 15px;
+  font-weight: 600;
+}
+.jobDoneLabel {
+  margin: 14px 0 4px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.jobDoneList {
+  display: flex;
+  flex-direction: column;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+.jobDoneRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 48px;
+  border-bottom: 1px solid var(--line);
+  font-size: 16px;
+}
+.jobDoneIcon {
+  width: 20px;
+  height: 20px;
+  color: var(--ok);
+  flex: none;
+}
+.jobDoneText {
+  /* Cut short rather than pushing Undo onto a line of its own. */
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jobDoneRow .textButton {
+  flex: none;
+}
+.jobDoneRow .jobMessage {
+  flex-basis: 100%;
+  padding-bottom: 8px;
+}
+/* A mark whose cleaning the office deleted or removed (2026-10-14, night): its own line under the job. */
+.jobRemovedIcon {
+  color: var(--muted);
+}
+.jobRemovedNote {
+  flex-basis: 100%;
+  margin-top: -8px;
+  padding: 0 0 10px 28px;
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* The second line under the code boxes: what the next wrong code does, or when the lock ends (2026-10-14). */
+.codeHint {
+  display: block;
+  margin-top: 6px;
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 600;
+}

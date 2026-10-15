@@ -324,7 +324,7 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
                       </span>
                     ) : (
                       <span className={styles.noteWarn} title={now.reason}>
-                        Cannot add up
+                        {entry.kind === "cleaning" ? "No amount yet" : "Cannot add up"}
                       </span>
                     )}
                     {where !== null && (

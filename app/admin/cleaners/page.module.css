@@ -467,3 +467,37 @@
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
+
+/* ── The cleaner door's locks (2026-10-14, evening): one quiet block under the team, only while one holds ── */
+.locks {
+  margin-top: 28px;
+}
+.locksTitle {
+  margin: 0 0 10px 4px;
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.85);
+}
+.locksList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.lockRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(240, 166, 58, 0.25);
+  background: rgba(240, 166, 58, 0.06);
+  font-size: 13px;
+  color: #f6c069;
+}
+.lockMeta {
+  color: rgba(255, 255, 255, 0.5);
+}

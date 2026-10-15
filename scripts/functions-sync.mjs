@@ -1,16 +1,19 @@
 #!/usr/bin/env node
 /**
- * Copy the availability module into the Cloud Functions package.
+ * Copy the availability and cleaning-schedule modules into the Cloud
+ * Functions package.
  *
  *   node scripts/functions-sync.mjs
  *
  * The Firebase CLI packs only the functions/ directory, and the refresh the
  * function runs is the app's own app/lib/availability module (plus the SSRF
- * guard it fetches through). Rather than a second copy of that code living
+ * guard it fetches through, and app/lib/schedule, the cleaning schedule's
+ * job sync it runs after each copy: Kian's ruling of 2026-10-14). Rather
+ * than a second copy of that code living
  * in git, this copies it in before every build and deploy (functions'
  * `build` script and firebase.json's predeploy both run it), into
  * functions/src/lib/, which is git-ignored. Nothing else is copied: the
- * module imports nothing from the app but url-guard.ts.
+ * modules import nothing from the app but url-guard.ts and each other.
  */
 
 import { cpSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
@@ -23,6 +26,7 @@ const TO = join(ROOT, 'functions', 'src', 'lib');
 
 const COPY = [
   ['availability', 'availability'],
+  ['schedule', 'schedule'],
   ['api/url-guard.ts', 'api/url-guard.ts'],
 ];
 

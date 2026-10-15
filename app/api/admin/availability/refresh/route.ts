@@ -3,9 +3,11 @@
  * stored copy: the Refresh now button, and the fallback if the hourly
  * function ever stops.
  *
- * Response: 200 `{ success: true, data: { snapshot, history, today, now } }`,
+ * Response: 200 `{ success: true, data: { snapshot, history, today, now, jobs } }`,
  * the same answer GET /api/admin/availability gives, so the page replaces
- * what it holds in one step.
+ * what it holds in one step, plus `jobs`: what the cleaning schedule's sync
+ * made and changed from the copy just written (Kian's ruling of 2026-10-14:
+ * until the function is deployed, jobs come from Refresh now only).
  *
  * Runs the same code the Cloud Function runs (app/lib/availability/refresh.ts):
  * 46 guarded fetches, the snapshot built on the previous one, one write, a
@@ -37,7 +39,7 @@ export const POST = adminRoute(async function POST() {
     const today = torontoDay();
     const kept = await readHistoryFrom(db, addDays(today, -HISTORY_DAYS), today);
     const history = kept ? historyView(kept.snapshot, kept.day) : null;
-    return noStore(apiSuccess({ snapshot: outcome.snapshot, history, today, now: new Date().toISOString() }));
+    return noStore(apiSuccess({ snapshot: outcome.snapshot, history, today, now: new Date().toISOString(), jobs: outcome.jobs }));
   } catch (err) {
     // A refresh that failed wrote nothing: the copy the page holds is still the last good one.
     console.error(`[availability] refresh failed: grpc code ${grpcCode(err)}`);

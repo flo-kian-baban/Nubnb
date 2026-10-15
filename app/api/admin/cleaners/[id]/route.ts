@@ -110,10 +110,11 @@ export const PATCH = adminRoute(async function PATCH(request: NextRequest, conte
   const outcome = await setCleanerStatus(actor, id, result.data.status);
   if (outcome.kind !== 'done') return noStore(apiFailure(STATUS_REFUSALS[outcome.kind]));
 
-  return noStore(apiSuccess({ cleaner: outcome.cleaner, changed: outcome.changed }));
+  // The jobs a deactivation took them off (the cleaning schedule): the page names them.
+  return noStore(apiSuccess({ cleaner: outcome.cleaner, changed: outcome.changed, jobsTakenOff: outcome.jobsTakenOff }));
 });
 
-export const DELETE = adminRoute(async function DELETE(request: NextRequest, context: RouteContext) {
+export const DELETE = adminRoute(async function DELETE(request: NextRequest, context: RouteContext, { actor }) {
   // ── Cross-site ── (no body, so no media type to check)
   const crossSite = refuseCrossSite(request);
   if (crossSite) return crossSite;
@@ -121,8 +122,8 @@ export const DELETE = adminRoute(async function DELETE(request: NextRequest, con
   const { id } = await context.params;
   if (!isDocumentId(id)) return noStore(apiError('Invalid cleaner ID', 400));
 
-  const outcome = await deleteCleaner(id);
+  const outcome = await deleteCleaner(actor, id);
   if (outcome.kind !== 'deleted') return noStore(apiFailure(DELETE_CLEANER_REFUSALS[outcome.kind]));
-  // The account as it was, without its code: the list is the only place a code is shown.
-  return noStore(apiSuccess({ deleted: { id: outcome.cleaner.id, name: outcome.cleaner.name, role: outcome.cleaner.role, codes: outcome.codes } }));
+  // The account as it was, without its code: the list is the only place a code is shown. And the jobs it came off.
+  return noStore(apiSuccess({ deleted: { id: outcome.cleaner.id, name: outcome.cleaner.name, role: outcome.cleaner.role, codes: outcome.codes }, jobsTakenOff: outcome.jobsTakenOff }));
 });

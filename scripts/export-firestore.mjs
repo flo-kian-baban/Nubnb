@@ -67,6 +67,9 @@ const EXPECTED_COLLECTIONS = [
   // 2026-10-13 (evening): the PIN index (lookup keys only), and sign-in locks by keyed hash of the connection.
   'admin_pins',
   'admin_signin_locks',
+  // 2026-10-14: the cleaning schedule's jobs, and the cleaner door's sign-in locks by keyed hash of the connection.
+  'cleaning_jobs',
+  'cleaner_signin_locks',
 ];
 
 /** Cap on the per-document subcollection probe, so a huge collection can't blow up the run. */

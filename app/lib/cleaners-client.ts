@@ -20,6 +20,8 @@
 
 import { describeErrorBody, readErrorBody } from '@/app/lib/api/http-failure';
 import { isTooEasyCode, type CleanerRole, type CleanerStatus, type CleanerSummary } from '@/app/lib/cleaners/model';
+import type { SignInLockView } from '@/app/lib/admins/model';
+import type { UnmarkedJob } from '@/app/lib/schedule/model';
 
 export type CleanerResult<T> =
   | { ok: true; data: T }
@@ -49,7 +51,13 @@ export interface CleanerChange {
   changed: boolean;
   /** On a code change: who let the code go, or null. */
   released?: CodeReleased | null;
+  /** On a deactivation: the jobs it took them off (the cleaning schedule). */
+  jobsTakenOff?: UnmarkedJob[];
 }
+
+const isUnmarkedJob = (value: unknown): value is UnmarkedJob =>
+  isRecord(value) && typeof value.id === 'string' && isTextOrNull(value.propertyName) && typeof value.checkout === 'string' && typeof value.status === 'string';
+const isJobsTakenOff = (value: unknown): boolean => value === undefined || (Array.isArray(value) && value.every(isUnmarkedJob));
 
 const isReleased = (value: unknown): boolean => value === null || value === undefined || (isRecord(value) && typeof value.id === 'string' && isTextOrNull(value.name));
 
@@ -202,7 +210,8 @@ export function changeCleanerStatus(
       isCleanerSummary(data.cleaner) &&
       data.cleaner.id === id &&
       data.cleaner.status === status &&
-      typeof data.changed === 'boolean',
+      typeof data.changed === 'boolean' &&
+      isJobsTakenOff(data.jobsTakenOff),
   );
 }
 
@@ -265,7 +274,7 @@ export interface CleanerDeleted {
  * page confirms before calling; CLEANER_DELETE_FAILED means the answer does
  * not say whether the account is gone.
  */
-export function deleteCleaner(id: string): Promise<CleanerResult<{ deleted: CleanerDeleted }>> {
+export function deleteCleaner(id: string): Promise<CleanerResult<{ deleted: CleanerDeleted; jobsTakenOff?: UnmarkedJob[] }>> {
   return call(
     `/api/admin/cleaners/${encodeURIComponent(id)}`,
     { method: 'DELETE' },
@@ -276,7 +285,26 @@ export function deleteCleaner(id: string): Promise<CleanerResult<{ deleted: Clea
       data.deleted.id === id &&
       isTextOrNull(data.deleted.name) &&
       typeof data.deleted.role === 'string' &&
-      typeof data.deleted.codes === 'number',
+      typeof data.deleted.codes === 'number' &&
+      isJobsTakenOff(data.jobsTakenOff),
     ['CLEANER_DELETE_FAILED'],
   );
+}
+
+/** The jobs a team member is on and has not marked: what deactivating or deleting them takes them off (the cleaning schedule). */
+export function fetchUnmarkedJobs(id: string): Promise<CleanerResult<{ jobs: UnmarkedJob[] }>> {
+  return call(`/api/admin/cleaners/${encodeURIComponent(id)}/jobs`, {}, 'Reading their jobs failed', (data) => isRecord(data) && Array.isArray(data.jobs) && data.jobs.every(isUnmarkedJob));
+}
+
+const isLock = (value: unknown): value is SignInLockView =>
+  isRecord(value) && typeof value.id === 'string' && isTextOrNull(value.lockedUntil) && typeof value.capped === 'boolean' && isTextOrNull(value.lastFailedAt);
+
+/** The cleaner door's locks holding now (Kian's ruling of 2026-10-14, evening): the Team page lists them, with Lift. */
+export function fetchCleanerLocks(): Promise<CleanerResult<{ locks: SignInLockView[] }>> {
+  return call('/api/admin/cleaners/locks', {}, 'Loading the locked connections failed', (data) => isRecord(data) && Array.isArray(data.locks) && data.locks.every(isLock));
+}
+
+/** Lift a cleaner-door lock before its time. CLEANER_LOCK_UNCONFIRMED means the answer does not say whether it was. */
+export function liftCleanerLock(id: string): Promise<CleanerResult<{ lifted: { id: string } }>> {
+  return call(`/api/admin/cleaners/locks/${encodeURIComponent(id)}`, { method: 'DELETE' }, 'Lifting the lock failed', (data) => isRecord(data) && isRecord(data.lifted) && data.lifted.id === id, ['CLEANER_LOCK_UNCONFIRMED']);
 }
