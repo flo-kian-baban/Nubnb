@@ -20,6 +20,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useSearchParams } from "next/navigation";
 import { AlertTriangle, Inbox, RefreshCw, Search, SlidersHorizontal } from "lucide-react";
 import { AdminHeader } from "../components/AdminHeader";
+import { PageHead } from "../components/PageHead";
 import { AdminSelect } from "../components/AdminSelect";
 import { PinGate } from "../components/PinGate";
 import { fetchLeads, type LeadResult } from "@/app/lib/leads-client";
@@ -135,14 +136,17 @@ function LeadInbox() {
   return (
     <div className={shared.container}>
       {/* ── Header ── the shared one; this page's action is Refresh */}
-      <AdminHeader current="leads">
-        <button type="button" className={shared.btnGhost} onClick={reload} disabled={list.kind === "loading"}>
-          <RefreshCw size={15} aria-hidden />
-          <span>Refresh</span>
-        </button>
-      </AdminHeader>
+      <AdminHeader current="leads" />
 
       <main className={shared.main}>
+        {/* The page's own buttons, in its head (Kian's ruling of 2026-10-15: none in the navigation). */}
+        <PageHead title="Leads">
+          <button type="button" className={shared.btnGhost} onClick={reload} disabled={list.kind === "loading"}>
+            <RefreshCw size={15} aria-hidden />
+            <span>Refresh</span>
+          </button>
+        </PageHead>
+
         {list.kind === "loading" ? (
           <div className={shared.loading}>
             <div className={shared.spinner} />

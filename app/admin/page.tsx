@@ -8,6 +8,7 @@ import { nightlyPrice } from "@/app/lib/price";
 import { PinGate } from "./components/PinGate";
 import { NoticeBanner, useNotice } from "./components/Notice";
 import { AdminHeader } from "./components/AdminHeader";
+import { PageHead } from "./components/PageHead";
 import { DashboardStats, useStatements } from "./components/DashboardStats";
 import { AdminSelect } from "./components/AdminSelect";
 import { ReportingStatusCell } from "./components/StatementStatus";
@@ -365,12 +366,7 @@ function AdminHome() {
   return (
     <div className={styles.container}>
       {/* ── Header ── the shared one; this page's action is Add Property, which opens its own page (dispatch 30) */}
-      <AdminHeader current="properties">
-        <Link href={NEW_HREF} prefetch={false} className={styles.btnPrimary}>
-          <Plus size={16} aria-hidden />
-          <span>Add Property</span>
-        </Link>
-      </AdminHeader>
+      <AdminHeader current="properties" />
 
       <main className={styles.main}>
         {/* ── Notices (deletes, seeding) ── */}
@@ -381,6 +377,15 @@ function AdminHome() {
 
         {/* Where the Units tile leads: the top of the list. */}
         <div id="properties" className={styles.listAnchor} aria-hidden />
+
+        {/* ── The list's head and its one action (Kian's ruling of 2026-10-15: no page's buttons in the navigation);
+            under the four tiles, which stay on top (Kian's ruling of 2026-10-02) ── */}
+        <PageHead title="Properties">
+          <Link href={NEW_HREF} prefetch={false} className={styles.btnPrimary}>
+            <Plus size={16} aria-hidden />
+            <span>Add Property</span>
+          </Link>
+        </PageHead>
 
         {/* ── Search, filters and sort (2026-09-30) ──
             Search matches every word typed against the name, location, city,

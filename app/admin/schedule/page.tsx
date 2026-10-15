@@ -27,6 +27,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, Check, RefreshCw, RotateCcw, UserPlus, Users } from "lucide-react";
 import { AdminHeader } from "../components/AdminHeader";
+import { PageHead } from "../components/PageHead";
 import { AdminSelect } from "../components/AdminSelect";
 import { useAsk } from "../components/AskDialog";
 import { DateRangeField, type DatePreset } from "../components/DateRangeField";
@@ -238,14 +239,17 @@ function Schedule() {
 
   return (
     <div className={shared.container}>
-      <AdminHeader current="schedule">
-        <button type="button" className={shared.btnGhost} onClick={refresh} disabled={refreshing || loaded.kind === "loading"} aria-busy={refreshing || undefined}>
-          <RefreshCw size={15} aria-hidden className={refreshing ? shared.spinner : undefined} />
-          <span>{refreshing ? "Reading calendars…" : "Refresh calendars"}</span>
-        </button>
-      </AdminHeader>
+      <AdminHeader current="schedule" />
 
       <main className={shared.main}>
+        {/* The page's own buttons, in its head (Kian's ruling of 2026-10-15: none in the navigation). */}
+        <PageHead title="Schedule">
+          <button type="button" className={shared.btnGhost} onClick={refresh} disabled={refreshing || loaded.kind === "loading"} aria-busy={refreshing || undefined}>
+            <RefreshCw size={15} aria-hidden className={refreshing ? shared.spinner : undefined} />
+            <span>{refreshing ? "Reading calendars…" : "Refresh calendars"}</span>
+          </button>
+        </PageHead>
+
         {notice && <NoticeBanner notice={notice} onDismiss={clear} className={shared.pageNotice} />}
 
         {loaded.kind === "loading" ? (

@@ -4,7 +4,7 @@
  * Team: the cleaners and handymen who can log costs, their codes, and
  * whether those codes work. Since dispatch 24 an account has a role — a
  * cleaner logs receipts, a handyman logs work — chosen when it is created
- * (the header's "Add team member", NewMemberDialog.tsx) and shown in its
+ * (the page's "Add team member", NewMemberDialog.tsx) and shown in its
  * row; both come from the one code index. The admin types the code when
  * creating (Kian, dispatch 23H), or fills it with "Generate". Beside each
  * cleaner, their last 90 days of receipts in words (costs/patterns.ts), the
@@ -58,6 +58,7 @@ import { Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from "
 import { useSearchParams } from "next/navigation";
 import { AlertTriangle, KeyRound, RefreshCw, UserPlus, Users } from "lucide-react";
 import { AdminHeader } from "../components/AdminHeader";
+import { PageHead } from "../components/PageHead";
 import { PinGate } from "../components/PinGate";
 import { NoticeBanner, useNotice, type Notice } from "../components/Notice";
 import { fetchCosts } from "@/app/lib/costs-client";
@@ -551,21 +552,27 @@ function Cleaners() {
   return (
     <div className={shared.container}>
       {/* ── Header ── the shared one; Refresh, and Add once the list has loaded */}
-      <AdminHeader current="cleaners">
-        <button type="button" className={shared.btnGhost} onClick={reload} disabled={list.kind === "loading"}>
-          <RefreshCw size={15} aria-hidden />
-          <span>Refresh</span>
-        </button>
-        {/* Never offered before the list has loaded: the person may already exist. */}
-        {list.kind === "ready" && payId === null && (
-          <button type="button" className={shared.btnPrimary} onClick={openAdding}>
-            <UserPlus size={16} aria-hidden />
-            <span>Add team member</span>
-          </button>
-        )}
-      </AdminHeader>
+      <AdminHeader current="cleaners" />
 
       <main className={shared.main}>
+        {/* ── The page's own buttons, in its head (Kian's ruling of 2026-10-15: none in the navigation). A person's pay
+             has a head of its own, with Refresh in it. ── */}
+        {payId === null && (
+          <PageHead title="Team">
+            <button type="button" className={shared.btnGhost} onClick={reload} disabled={list.kind === "loading"}>
+              <RefreshCw size={15} aria-hidden />
+              <span>Refresh</span>
+            </button>
+            {/* Never offered before the list has loaded: the person may already exist. */}
+            {list.kind === "ready" && (
+              <button type="button" className={shared.btnPrimary} onClick={openAdding}>
+                <UserPlus size={16} aria-hidden />
+                <span>Add team member</span>
+              </button>
+            )}
+          </PageHead>
+        )}
+
         {/* ── Notices (creates, status and code changes) ── */}
         <NoticeBanner notice={notice} onDismiss={clearNotice} className={shared.pageNotice} />
 
@@ -891,6 +898,7 @@ function PayBranch({ payId, list, patterns, payments, onBack, onRetry, onPayment
       unreadablePayments={payments.unreadable}
       today={torontoDayOf(new Date())}
       onBack={onBack}
+      onRefresh={onRetry}
       onPayment={onPayment}
       show={show}
       clear={clear}

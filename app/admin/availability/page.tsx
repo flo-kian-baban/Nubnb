@@ -46,6 +46,7 @@ import {
   Users,
 } from "lucide-react";
 import { AdminHeader } from "../components/AdminHeader";
+import { PageHead } from "../components/PageHead";
 import { AdminSelect } from "../components/AdminSelect";
 import { DateRangeField } from "../components/DateRangeField";
 import { PinGate } from "../components/PinGate";
@@ -256,14 +257,17 @@ function Availability() {
 
   return (
     <div className={shared.container}>
-      <AdminHeader current="availability">
-        <button type="button" className={shared.btnGhost} onClick={refreshNow} disabled={refreshing || loading} aria-busy={refreshing || undefined}>
-          <RefreshCw size={15} aria-hidden className={refreshing ? shared.spinner : undefined} />
-          <span>{refreshing ? "Fetching calendars…" : "Refresh now"}</span>
-        </button>
-      </AdminHeader>
+      <AdminHeader current="availability" />
 
       <main className={shared.main}>
+        {/* The page's own buttons, in its head (Kian's ruling of 2026-10-15: none in the navigation). */}
+        <PageHead title="Availability">
+          <button type="button" className={shared.btnGhost} onClick={refreshNow} disabled={refreshing || loading} aria-busy={refreshing || undefined}>
+            <RefreshCw size={15} aria-hidden className={refreshing ? shared.spinner : undefined} />
+            <span>{refreshing ? "Fetching calendars…" : "Refresh now"}</span>
+          </button>
+        </PageHead>
+
         {notice && <NoticeBanner notice={notice} onDismiss={dismissNotice} className={shared.pageNotice} />}
 
         {loading ? (

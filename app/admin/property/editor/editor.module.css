@@ -1221,7 +1221,12 @@
   min-width: 0;
 }
 
-/* ── The save state, in the header beside Save ── */
+/* ── Save and its state, last in the head's title row (Kian's ruling of 2026-10-15: not in the navigation) ── */
+.saveBar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 .saveState {
   display: inline-flex;
   align-items: center;

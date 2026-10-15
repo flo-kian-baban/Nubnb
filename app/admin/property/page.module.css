@@ -26,6 +26,14 @@
   margin-right: auto;
 }
 
+/* The page's own buttons, last in the head (Kian's ruling of 2026-10-15: none in the navigation). */
+.headActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
 /* ── The month and its state, in the left column over the tabs ── */
 .monthBar {
   grid-column: 1;

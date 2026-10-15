@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Adding a team member: a dialog opened from the header's "Add team member",
+ * Adding a team member: a dialog opened from the page's "Add team member",
  * as Add Property opens its form. The role is chosen first, as two cards
  * that say what each role does, then the name, then the code: four digits
  * the admin types (Kian, dispatch 23H), or fills with "Generate" and keeps or

@@ -763,26 +763,11 @@ function Editor({ id, loaded, initialSection, created, mirror, links }: EditorPr
 
   return (
     <div className={shared.container}>
-      <AdminHeader current="properties" title={mode === "new" ? "New property" : `Edit ${title}`}>
-        <span className={`${styles.saveState} ${dirty ? styles.saveStateUnsaved : ""}`} aria-live="polite">
-          {dirty ? (
-            <>
-              <span className={styles.saveDot} aria-hidden />
-              Unsaved changes
-            </>
-          ) : savedAt ? (
-            <>
-              <Check size={13} aria-hidden />
-              Saved {clockTime(savedAt)}
-            </>
-          ) : null}
-        </span>
-        <button type="button" className={shared.btnPrimary} onClick={() => void save()} disabled={saving !== "idle"} title="Save (⌘S)">
-          {saving === "saving" ? "Saving…" : saving === "mirroring" ? "Saved — mirroring images…" : mode === "new" ? "Create property" : "Save"}
-        </button>
-      </AdminHeader>
+      <AdminHeader current="properties" title={mode === "new" ? "New property" : `Edit ${title}`} />
 
       <main className={shared.main}>
+        {/* ── The head: the property, its links, and Save (Kian's ruling of 2026-10-15: no page's buttons in the
+             navigation) ── */}
         <div className={styles.head}>
           <Link href="/admin" prefetch={false} className={styles.backLink}>
             <ArrowLeft size={14} aria-hidden /> Properties
@@ -808,6 +793,24 @@ function Editor({ id, loaded, initialSection, created, mirror, links }: EditorPr
                 )}
               </div>
             )}
+            <div className={styles.saveBar}>
+              <span className={`${styles.saveState} ${dirty ? styles.saveStateUnsaved : ""}`} aria-live="polite">
+                {dirty ? (
+                  <>
+                    <span className={styles.saveDot} aria-hidden />
+                    Unsaved changes
+                  </>
+                ) : savedAt ? (
+                  <>
+                    <Check size={13} aria-hidden />
+                    Saved {clockTime(savedAt)}
+                  </>
+                ) : null}
+              </span>
+              <button type="button" className={shared.btnPrimary} onClick={() => void save()} disabled={saving !== "idle"} title="Save (⌘S)">
+                {saving === "saving" ? "Saving…" : saving === "mirroring" ? "Saved — mirroring images…" : mode === "new" ? "Create property" : "Save"}
+              </button>
+            </div>
           </div>
         </div>
 

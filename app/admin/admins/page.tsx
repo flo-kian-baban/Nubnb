@@ -35,6 +35,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { AlertTriangle, RefreshCw, ShieldCheck, UserPlus } from "lucide-react";
 import { AdminHeader } from "../components/AdminHeader";
+import { PageHead } from "../components/PageHead";
 import { PinGate, useAdminSession } from "../components/PinGate";
 import { NoticeBanner, useNotice, type Notice } from "../components/Notice";
 import { useAsk } from "../components/AskDialog";
@@ -209,20 +210,23 @@ function AdminsList() {
 
   return (
     <div className={shared.container}>
-      <AdminHeader current="admins">
-        <button type="button" className={shared.btnGhost} onClick={reload} disabled={admins.kind === "loading"}>
-          <RefreshCw size={15} aria-hidden />
-          <span>Refresh</span>
-        </button>
-        {admins.kind === "ready" && (
-          <button type="button" className={shared.btnPrimary} onClick={() => { clear(); setAdding(true); }}>
-            <UserPlus size={16} aria-hidden />
-            <span>Add admin</span>
-          </button>
-        )}
-      </AdminHeader>
+      <AdminHeader current="admins" />
 
       <main className={shared.main}>
+        {/* The page's own buttons, in its head (Kian's ruling of 2026-10-15: none in the navigation). */}
+        <PageHead title="Admins">
+          <button type="button" className={shared.btnGhost} onClick={reload} disabled={admins.kind === "loading"}>
+            <RefreshCw size={15} aria-hidden />
+            <span>Refresh</span>
+          </button>
+          {admins.kind === "ready" && (
+            <button type="button" className={shared.btnPrimary} onClick={() => { clear(); setAdding(true); }}>
+              <UserPlus size={16} aria-hidden />
+              <span>Add admin</span>
+            </button>
+          )}
+        </PageHead>
+
         <NoticeBanner notice={notice} onDismiss={clear} className={shared.pageNotice} />
 
         {admins.kind === "loading" ? (

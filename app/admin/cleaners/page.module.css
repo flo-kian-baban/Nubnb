@@ -543,7 +543,14 @@ table td.payCol {
 }
 
 .payTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
   margin: 0 0 18px;
+}
+.payWho {
+  min-width: 0;
 }
 .payBack {
   display: inline-flex;

@@ -124,6 +124,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { AlertTriangle, ChevronRight, Eye, FileSpreadsheet, FileText, ImageIcon, Pencil, Receipt, RefreshCw, Search } from "lucide-react";
 import { AdminHeader } from "../components/AdminHeader";
+import { PageHead } from "../components/PageHead";
 import { AdminSelect } from "../components/AdminSelect";
 import { DateRangeField } from "../components/DateRangeField";
 import { PinGate } from "../components/PinGate";
@@ -645,14 +646,17 @@ function Costs() {
   return (
     <div className={shared.container}>
       {/* ── Header ── the shared one; this page's action is Refresh */}
-      <AdminHeader current="costs" title={section === "cleanings" ? "Cleanings" : ledger ? "Ledger" : "Costs"}>
-        <button type="button" className={shared.btnGhost} onClick={reload} disabled={list.kind === "loading"}>
-          <RefreshCw size={15} aria-hidden />
-          <span>Refresh</span>
-        </button>
-      </AdminHeader>
+      <AdminHeader current="costs" title={section === "cleanings" ? "Cleanings" : ledger ? "Ledger" : "Costs"} />
 
       <main className={shared.main}>
+        {/* The page's own buttons, in its head (Kian's ruling of 2026-10-15: none in the navigation). */}
+        <PageHead title="Costs">
+          <button type="button" className={shared.btnGhost} onClick={reload} disabled={list.kind === "loading"}>
+            <RefreshCw size={15} aria-hidden />
+            <span>Refresh</span>
+          </button>
+        </PageHead>
+
         <NoticeBanner notice={notice} onDismiss={clear} className={shared.pageNotice} />
 
         {/* ── The page's two tabs (dispatch 37B: cleanings are a tab inside the Costs page) ── */}

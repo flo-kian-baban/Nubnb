@@ -355,22 +355,32 @@ function PropertyPageInner() {
 
   const failed = costs.kind === "error" ? costs : statements.kind === "error" ? statements : null;
   const loading = costs.kind === "loading" || statements.kind === "loading";
+  /** The status line's figures, once everything it reads is in: the head shows it then. */
+  const ready = !failed && !loading && data && costData && months && monthNow && status && charges ? { status } : null;
 
   return (
     <div className={shared.container}>
-      <AdminHeader current="properties" title={propertyName ?? "Property"}>
-        <button type="button" className={shared.btnGhost} onClick={reload} disabled={loading}>
-          <RefreshCw size={15} aria-hidden />
-          <span>Refresh</span>
-        </button>
-        {/* The property's edit page (dispatch 30): its listing, photos and internal fields. */}
-        <Link href={`/admin/property/edit?id=${encodeURIComponent(propertyId)}`} prefetch={false} className={shared.btnGhost} title="Edit the listing, its photos and its internal fields">
-          <Pencil size={14} aria-hidden />
-          <span>Edit property</span>
-        </Link>
-      </AdminHeader>
+      <AdminHeader current="properties" title={propertyName ?? "Property"} />
 
       <main className={shared.main}>
+        {/* ── The head: the property, what is due for it (dispatch 23G), and the page's own buttons (Kian's ruling of
+            2026-10-15: none in the navigation), in every state, as they were in the header ── */}
+        <div className={styles.head}>
+          <h2 className={styles.title}>{propertyName ?? "Property"}</h2>
+          {ready && <ReportingStatusLine status={ready.status} current={month} onMonth={setMonth} />}
+          <div className={styles.headActions}>
+            <button type="button" className={shared.btnGhost} onClick={reload} disabled={loading}>
+              <RefreshCw size={15} aria-hidden />
+              <span>Refresh</span>
+            </button>
+            {/* The property's edit page (dispatch 30): its listing, photos and internal fields. */}
+            <Link href={`/admin/property/edit?id=${encodeURIComponent(propertyId)}`} prefetch={false} className={shared.btnGhost} title="Edit the listing, its photos and its internal fields">
+              <Pencil size={14} aria-hidden />
+              <span>Edit property</span>
+            </Link>
+          </div>
+        </div>
+
         <NoticeBanner notice={notice} onDismiss={clear} className={shared.pageNotice} />
 
         {failed ? (
@@ -397,11 +407,6 @@ function PropertyPageInner() {
           </div>
         ) : (
           <>
-            {/* ── The head: the property, and what is due for it (dispatch 23G) ── */}
-            <div className={styles.head}>
-              <h2 className={styles.title}>{data.propertyName}</h2>
-              <ReportingStatusLine status={status} current={month} onMonth={setMonth} />
-            </div>
 
             {/* ── The month and its state over the tabs, the preview beside both. The bar is outside MonthWork,
                  which is remounted with each month, so the arrows keep focus as the admin steps through months. ── */}

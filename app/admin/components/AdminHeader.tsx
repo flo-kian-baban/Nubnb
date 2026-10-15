@@ -3,21 +3,24 @@
 /**
  * The one admin header (2026-09-30), the same on every admin page:
  *
- *   NUBNB  Admin   Properties · Leads · Costs · Income · Team · Availability   View Site ↗  [page action]
+ *   NUBNB  Admin   Properties · Leads · Costs · Income · Team · Availability · Schedule   [the admin's name ▾]
+ *
+ * Navigation only (Kian's ruling of 2026-10-15): no link to the public site, and no page's own buttons — "Add
+ * property", "Add team member", Refresh and the rest sit on the page they belong to (PageHead.tsx).
  *
  * "Team" (dispatch 24) is the cleaners page, which now holds handymen too.
  * "Income" (dispatch 27, Kian's ruling of 2026-10-04) sits beside Costs: the
  * one place income comes in for all properties.
  * "Admins" (dispatch 38, Kian's ruling of 2026-10-13: the main admin adds
  * and removes admins and sets their level) is shown to a main admin only, last.
- * The signed-in admin's name sits before View Site (AccountMenu.tsx): Change
+ * The signed-in admin's name sits at the right (AccountMenu.tsx): Change
  * name, Change PIN and Sign out.
  *
  * Kian's ruling of 2026-10-13 (evening): below 1400 px wide, the section links
  * sit on their own row under the brand and the actions, on every admin page
  * (page.module.css). Wider, they take their own row too whenever the brand,
- * the links and the actions do not fit on one: a long name, or a page with
- * several actions, would otherwise run the links under the actions. The
+ * the links and the admin's name do not fit on one: a long name would
+ * otherwise run the links under it. The
  * header measures that itself: the links' own widths, which do not change
  * with the layout, against the room the row has. Nothing is ever cut off or
  * scrolled sideways at desktop widths.
@@ -31,13 +34,12 @@
  * button goes, Leads had no link at all, and the property page mixed two
  * section links with its Add button in one cluster. Now navigation is on
  * the left, always in the same order, with the current section marked (and
- * read out as the page's heading); what the page itself can do is on the
- * right, its primary action last.
+ * read out as the page's heading).
  *
  * It follows the public site's own nav (app/about/page.tsx): the NUBNB
- * wordmark (without the logo mark, at Kian's request), quiet 13 px links,
- * and a white pill for the one call to action. Every control is 36 px tall and pill-shaped; the styles
- * are in ../page.module.css, which every admin page shares.
+ * wordmark (without the logo mark, at Kian's request) and quiet 13 px links.
+ * Every control is 36 px tall and pill-shaped; the styles are in
+ * ../page.module.css, which every admin page shares.
  *
  * Section links do not prefetch: an admin taps one on purpose, and the
  * admin pages are never warmed for nothing (the same reason the property
@@ -45,8 +47,8 @@
  */
 
 import Link from "next/link";
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { Banknote, CalendarSearch, ClipboardCheck, ExternalLink, Inbox, LayoutGrid, Receipt, ShieldCheck, Users } from "lucide-react";
+import { useLayoutEffect, useRef, useState } from "react";
+import { Banknote, CalendarSearch, ClipboardCheck, Inbox, LayoutGrid, Receipt, ShieldCheck, Users } from "lucide-react";
 import styles from "../page.module.css";
 import { AccountMenu } from "./AccountMenu";
 import { useAdminSession } from "./PinGate";
@@ -73,11 +75,9 @@ interface AdminHeaderProps {
   current: AdminSection;
   /** The page's heading for a screen reader, when it is not the section's name (a property's ledger). */
   title?: string;
-  /** The page's own actions, primary last. */
-  children?: ReactNode;
 }
 
-/** Whether the brand, the section links and the actions need more than one row's room. */
+/** Whether the brand, the section links and the admin's name need more than one row's room. */
 function crowdedRow(inner: HTMLElement, brand: HTMLElement, nav: HTMLElement, actions: HTMLElement): boolean {
   const row = getComputedStyle(inner);
   const gap = parseFloat(row.columnGap) || 0;
@@ -88,7 +88,7 @@ function crowdedRow(inner: HTMLElement, brand: HTMLElement, nav: HTMLElement, ac
   return brand.getBoundingClientRect().width + gap + linksWidth + gap + actions.getBoundingClientRect().width > room + 0.5;
 }
 
-export function AdminHeader({ current, title, children }: AdminHeaderProps) {
+export function AdminHeader({ current, title }: AdminHeaderProps) {
   const session = useAdminSession();
   const sections = session?.admin.level === "main" ? [...SECTIONS, ADMINS_SECTION] : SECTIONS;
   const heading = title ?? sections.find((section) => section.key === current)?.label ?? "Admin";
@@ -98,7 +98,7 @@ export function AdminHeader({ current, title, children }: AdminHeaderProps) {
   const actionsRef = useRef<HTMLDivElement>(null);
   const [stacked, setStacked] = useState(false);
 
-  // Before the first paint and on every change of width (the window, the name, the page's actions): one row or two.
+  // Before the first paint and on every change of width (the window, the admin's name): one row or two.
   useLayoutEffect(() => {
     const [inner, brand, nav, actions] = [innerRef.current, brandRef.current, navRef.current, actionsRef.current];
     if (!inner || !brand || !nav || !actions) return;
@@ -136,11 +136,6 @@ export function AdminHeader({ current, title, children }: AdminHeaderProps) {
 
         <div ref={actionsRef} className={styles.headerActions}>
           <AccountMenu />
-          <a href="/" target="_blank" rel="noopener" className={styles.viewSite}>
-            <span>View Site</span>
-            <ExternalLink size={13} aria-hidden />
-          </a>
-          {children}
         </div>
       </div>
     </header>

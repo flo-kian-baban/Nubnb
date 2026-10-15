@@ -16,7 +16,7 @@
  */
 
 import { useMemo, useState, type FormEvent, type MouseEvent } from "react";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, RefreshCw } from "lucide-react";
 import { AdminSelect } from "../components/AdminSelect";
 import { DateRangeField, type DatePreset } from "../components/DateRangeField";
 import type { Notice } from "../components/Notice";
@@ -39,6 +39,8 @@ interface PayViewProps {
   unreadablePayments: number;
   today: string;
   onBack: () => void;
+  /** Read the team, the cost list and the payments again: the Team page's Refresh, in this page's head. */
+  onRefresh: () => void;
   /** A payment as the server stored it, recorded or deleted. */
   onPayment: (payment: PaymentView) => void;
   show: (notice: Notice) => void;
@@ -67,7 +69,7 @@ function amountText(typed: string): string | null {
   return match ? `${Number(match[1])}.${(match[2] ?? "0").padEnd(2, "0")}` : null;
 }
 
-export function PayView({ member, cleanings, entries, payments, unreadablePayments, today, onBack, onPayment, show, clear, ask }: PayViewProps) {
+export function PayView({ member, cleanings, entries, payments, unreadablePayments, today, onBack, onRefresh, onPayment, show, clear, ask }: PayViewProps) {
   const name = member.name !== null && member.name.trim() !== "" ? member.name : "this team member";
   const [range, setRange] = useState(() => presetRange("this-month", today));
   const pay = useMemo(() => memberPay(member.id, { cleanings, entries, payments }, range), [member.id, cleanings, entries, payments, range]);
@@ -158,24 +160,30 @@ export function PayView({ member, cleanings, entries, payments, unreadablePaymen
 
   return (
     <>
-      {/* ── Who ── */}
+      {/* ── Who, and the page's own button (Kian's ruling of 2026-10-15: none in the navigation) ── */}
       <div className={styles.payTop}>
-        <a
-          href="/admin/cleaners"
-          className={styles.payBack}
-          onClick={(event) => {
-            if (!plainClick(event)) return;
-            event.preventDefault();
-            onBack();
-          }}
-        >
-          <ChevronLeft size={16} aria-hidden />
-          <span>Team</span>
-        </a>
-        <h2 className={styles.payTitle}>{name}</h2>
-        <p className={styles.payMeta}>
-          {role} · {status} · <span className={styles.mono}>ID {member.id}</span>
-        </p>
+        <div className={styles.payWho}>
+          <a
+            href="/admin/cleaners"
+            className={styles.payBack}
+            onClick={(event) => {
+              if (!plainClick(event)) return;
+              event.preventDefault();
+              onBack();
+            }}
+          >
+            <ChevronLeft size={16} aria-hidden />
+            <span>Team</span>
+          </a>
+          <h2 className={styles.payTitle}>{name}</h2>
+          <p className={styles.payMeta}>
+            {role} · {status} · <span className={styles.mono}>ID {member.id}</span>
+          </p>
+        </div>
+        <button type="button" className={shared.btnGhost} onClick={onRefresh} disabled={busy !== null}>
+          <RefreshCw size={15} aria-hidden />
+          <span>Refresh</span>
+        </button>
       </div>
 
       {/* ── Earned, Paid, Balance: all time ── */}

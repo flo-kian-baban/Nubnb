@@ -57,6 +57,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { AlertTriangle, ChevronLeft, ChevronRight, FileText, RefreshCw, Upload } from "lucide-react";
 import { AdminHeader } from "../components/AdminHeader";
+import { PageHead } from "../components/PageHead";
 import { AdminSelect } from "../components/AdminSelect";
 import { PinGate } from "../components/PinGate";
 import { NoticeBanner, useNotice } from "../components/Notice";
@@ -432,14 +433,17 @@ function IncomePageInner() {
 
   return (
     <div className={shared.container}>
-      <AdminHeader current="income">
-        <button type="button" className={shared.btnGhost} onClick={reload} disabled={loading}>
-          <RefreshCw size={15} aria-hidden />
-          <span>Refresh</span>
-        </button>
-      </AdminHeader>
+      <AdminHeader current="income" />
 
       <main className={shared.main}>
+        {/* The page's own buttons, in its head (Kian's ruling of 2026-10-15: none in the navigation). */}
+        <PageHead title="Income">
+          <button type="button" className={shared.btnGhost} onClick={reload} disabled={loading}>
+            <RefreshCw size={15} aria-hidden />
+            <span>Refresh</span>
+          </button>
+        </PageHead>
+
         <NoticeBanner notice={notice} onDismiss={clear} className={shared.pageNotice} />
 
         {/* ── The month, and the upload ── */}

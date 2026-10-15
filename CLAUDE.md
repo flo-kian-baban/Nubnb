@@ -573,6 +573,13 @@ These replace the rulings they change: six-digit admin PINs.
 - **Below 1400 px wide, the admin header's section links sit on their own
   row under the brand and actions, on every admin page.**
 
+## Admin navigation — Kian's ruling of 2026-10-15
+
+- **The admin navigation bar does not contain a link to the live public
+  site. The buttons specific to each page — "Add Property", "Add team
+  member" and the like — are not part of the navigation; they are part of
+  the page they belong to.**
+
 ## Cleaning schedule — Kian's rulings of 2026-10-14 (phase 1)
 
 - **A job is one property's turnover, created automatically two days before

@@ -36,11 +36,12 @@
 
 /* ── Header ──
    One header for every admin page (components/AdminHeader.tsx): the brand,
-   the four sections, and the page's actions. It follows the public site's
-   nav on /about — the NUBNB wordmark, quiet 13 px links, and a white pill
-   for the one call to action — so the admin reads as the same product. Every control in it is 36 px tall and pill-shaped, and each
-   group keeps its own gap: 4 px between sections, 8 px between actions,
-   28 px between groups. */
+   the sections, and the signed-in admin's name — navigation only (Kian's
+   ruling of 2026-10-15); a page's own buttons are in its head (.pageHead).
+   It follows the public site's nav on /about — the NUBNB wordmark and quiet
+   13 px links — so the admin reads as the same product. Every control in it
+   is 36 px tall and pill-shaped, and each group keeps its own gap: 4 px
+   between sections, 28 px between groups. */
 .header {
   background: rgba(10, 10, 14, 0.85);
   backdrop-filter: blur(24px);
@@ -93,9 +94,8 @@
   min-width: 0;
 }
 
-/* Every control in the header: the same height, the same pill. */
+/* Every control in the header, and every page's buttons: the same height, the same pill. */
 .navItem,
-.viewSite,
 .btnPrimary,
 .btnGhost {
   display: inline-flex;
@@ -116,7 +116,6 @@
 }
 .brand:focus-visible,
 .navItem:focus-visible,
-.viewSite:focus-visible,
 .btnPrimary:focus-visible,
 .btnGhost:focus-visible {
   outline: 2px solid #7fb0e0;
@@ -143,14 +142,6 @@
   gap: 8px;
   margin-left: auto;
   flex-shrink: 0;
-}
-
-.viewSite {
-  padding: 0 12px;
-  color: rgba(255, 255, 255, 0.55);
-}
-.viewSite:hover {
-  color: #ffffff;
 }
 
 /* ── Buttons ── */
@@ -204,6 +195,30 @@
   padding: 32px 40px 64px;
   max-width: 1440px;
   margin: 0 auto;
+}
+
+/* ── A section page's head (components/PageHead.tsx): its name, and its own buttons on the right ── */
+.pageHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  min-height: 40px;
+  margin: 0 0 24px;
+}
+.pageTitle {
+  margin: 0 auto 0 0;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 28px;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+}
+.pageActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 /* ── The six figures (components/DashboardStats.tsx) ──
@@ -867,12 +882,8 @@
   .sortSelect {
     margin-left: 0;
   }
-  .brandTag,
-  .viewSite span {
+  .brandTag {
     display: none;
-  }
-  .viewSite {
-    padding: 0 10px;
   }
   .btnPrimary {
     padding: 0 16px;
