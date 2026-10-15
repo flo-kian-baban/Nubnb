@@ -32,7 +32,8 @@
  * ── Jobs (the cleaning schedule, Kian's rulings of 2026-10-14) ──
  * A cleaner's jobs come first in their app: those they are on, within the 45
  * days their list reaches, read with the properties already read here
- * (server-cleaning-jobs.ts, cleanerJobs): only their own jobs are read. A
+ * (server-cleaning-jobs.ts, cleanerJobs): only their own jobs of those days
+ * are read, through the composite index on `cleanerIds` and `checkout`. A
  * handyman is never on a job, and their jobs are not read.
  *
  * Failure contract, as in server-leads.ts: a failed read THROWS. It never

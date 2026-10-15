@@ -266,15 +266,17 @@ async function printedAmong(byProperty: Map<string, string[]>): Promise<Set<stri
  * A cleaner's jobs as their app shows them: the jobs they are on whose checkout is within the 45 days their list
  * reaches (Kian's answer of the evening), or ahead; a job whose booking changed only until its checkout day has
  * passed, unless they marked it. Each with whether they can mark it now, and, once marked, whether Undo still holds.
- * Reads: the jobs they are on (`cleanerIds` array-contains: theirs only, never every job of the 45 days, Kian's
- * instruction of 2026-10-15), the cleanings they marked, and the finished statements of those properties.
+ * Reads: the jobs they are on within those days (`cleanerIds` array-contains and `checkout` from 45 days back: theirs
+ * only, never every job of the 45 days, Kian's instruction of 2026-10-15, and never their older jobs, Kian's approval
+ * of the index the same day), the cleanings they marked, and the finished statements of those properties. The query
+ * needs the composite index on `cleanerIds` and `checkout` in firestore.indexes.json; without it Firestore refuses it.
  *
  * @throws if a read fails.
  */
 export async function cleanerJobs(cleanerId: string, properties: ReadonlyMap<string, JobProperty>, today: string = torontoDay(), paidThrough: string | null = null): Promise<CleanerJobView[]> {
   const db = getAdminDb();
-  const snap = await db.collection(CLEANING_JOBS_COLLECTION).where('cleanerIds', 'array-contains', cleanerId).get();
   const from = cleanerListFrom(today);
+  const snap = await db.collection(CLEANING_JOBS_COLLECTION).where('cleanerIds', 'array-contains', cleanerId).where('checkout', '>=', from).get();
   const mine = readJobs(snap.docs).jobs.filter((job) => job.cleanerIds.includes(cleanerId) && job.checkout >= from);
   const marked = mine.filter((job) => job.assignments[cleanerId].cleaningId !== null && job.assignments[cleanerId].removedAt === null);
   const cleaningIds = distinct(marked.map((job) => job.assignments[cleanerId].cleaningId as string));

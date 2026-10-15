@@ -3330,7 +3330,7 @@ Kian's rulings are in `CLAUDE.md` under *Team pay*. The design is TEAM-PAY-PLAN.
 - **An entry that cannot add up** counts nowhere, is named beside the balance, and none of its changes is said to move what it adds.
 - **A payment no one can read** marks every balance not whole: it cannot be told whose it was.
 - **The form** starts on the balance owed, today and e-transfer; **the filter** on this month.
-- **The jobs read grows with the person's own jobs, ever:** 1 read today for a person on no job; a cleaner on most turnovers would pass the old read (every job of 45 days, about 190 once the schedule runs a while) within weeks. Bounding it to 45 days needs a composite index (`cleanerIds` array-contains, `checkout`), an index deploy, which this release does not make.
+- **The jobs read grows with the person's own jobs, ever:** 1 read today for a person on no job; a cleaner on most turnovers would pass the old read (every job of 45 days, about 190 once the schedule runs a while) within weeks. Bounding it to 45 days needs a composite index (`cleanerIds` array-contains, `checkout`), an index deploy, which this release does not make. (Kian approved the index the same day: §48.4.)
 
 ### 48.3 How it was checked (2026-10-15, 10:04 – 10:20 Toronto)
 
@@ -3345,3 +3345,21 @@ Kian's rulings are in `CLAUDE.md` under *Team pay*. The design is TEAM-PAY-PLAN.
   - **The start call's reads** (`readCleanerStart`, the same data, committed 49ccd4c against this tree): Ana 137 → 131, Ben 136 → 128 (jobs 11 → 1 each), Sam 123 → 125 (his pay, 2). Over HTTP with the session: 132, 129, 126. A Team page load: 94.
 - **Cleanup:** the two recorded payments deleted, the 3 cleanings and 5 entries (their 4 photos with them), the 3 members and the property, all through the app; 40 records by exact ID from the test's ledger (the 3 payments, the job, the 3 codes, the test admin and its records), 18 already gone; the 4 photos confirmed gone from Storage. Exports `2026-10-15T14-04-30Z` and `2026-10-15T14-20-22Z`: 18 of 18 files byte-identical. 3 writes refused, all before the guard allowed the admin connection's lock: an ordinary admin's typed codes count on it, and the creates stopped there, writing nothing.
 - **Reads:** 12,406 counted, under the 15,000 asked (the two builds 3,890 and 3,952; exports 974 each; the server 1,737; the start-call comparison 780; the rest the test's own).
+
+### 48.4 The jobs read bounded (Kian's approval of the index, 2026-10-15)
+
+Kian approved the composite index the same day. `firestore.indexes.json` (new, named in `firebase.json`) holds one index: `cleaning_jobs`, `cleanerIds` array-contains, `checkout` ascending. The start call's jobs query is now `cleanerIds` array-contains and `checkout` from 45 days back; the code still drops anything earlier, as before.
+
+- **Deployed first:** `firebase deploy --only firestore:indexes --non-interactive` at 14:31Z. Production had no composite index and no field override before (the CLI's listing and the Firestore API agreed), so nothing was removed. CREATING, then READY at 14:35:48Z.
+- **Refused without it:** the bounded query, run while the index built: `9 FAILED_PRECONDITION: The query requires an index. That index is currently building and cannot be used yet.` The local server's first call, about 12 s after READY, was refused the same way once (grpc code 9); every call after it answered. The code was pushed only after the checks below.
+- **Checked** on a local build reading production: Ana, a `__TEST__` cleaner, on jobs of two unlisted `__TEST__` properties; `readCleanerStart` run from a46b6cc and from this tree on the same data, and her app's own call:
+
+  | Ana's jobs | a46b6cc | this tree | her app's call | jobs read (a46b6cc → this tree) |
+  |---|---|---|---|---|
+  | 1 in the window | 123 | 123 | 124 | 1 → 1 |
+  | 60 in the window | 182 | 182 | 183 | 60 → 60 |
+  | 60 in it and 60 before it | 242 | 182 | 183 | 120 → 60 |
+
+  Every run listed the same jobs: from Sep 16 to Oct 15, on the two test properties, none before the window (Aug 31).
+- **Cleanup:** the 120 jobs by exact ID, then Ana and the two properties through the app, then 10 records by ID from the test's ledger. Exports `2026-10-15T14-33-17Z` and `2026-10-15T14-38-10Z`: 18 of 18 files byte-identical. 8,265 reads (the build 3,890; exports 974 each).
+- **Unchanged:** the two other `cleanerIds` queries — a cleaner's unmarked jobs, read when they are deactivated or deleted — have no range, need no index, and still read all of that cleaner's jobs; they run only then.
