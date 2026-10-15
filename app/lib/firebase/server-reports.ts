@@ -57,6 +57,7 @@ import { getAdminBucket, getAdminDb } from './admin';
 import { directPlatformLines } from './server-direct';
 import { createdMonthOf } from './created-month';
 import { isDocumentId } from './server-leads';
+import { getCleanerFacingName } from './server-property-names';
 import { listCosts, listPropertyEntries, propertyEntriesInTransaction, toCents } from './server-cost-entries';
 import { getManagement, listManagement, toBasisPoints } from './server-management';
 import { type Actor, type CostEntryView, type Refusal } from '@/app/lib/cleaners/model';
@@ -278,13 +279,19 @@ async function propertyReports(propertyId: string, tx?: Transaction): Promise<Mo
   return reports.sort((a, b) => b.finishedAt.localeCompare(a.finishedAt) || a.id.localeCompare(b.id));
 }
 
-/** A property's name, and the Toronto month its document was created (Firestore's own create time); null when it does not exist. */
-async function propertyFacts(propertyId: string): Promise<{ name: string; createdMonth: string | null } | null> {
+/**
+ * A property's name, and the Toronto month its document was created (Firestore's own create time); null when it does
+ * not exist. `name` is what its statements print and its page is headed by: the cleaner-facing name, usually the street
+ * address, else the public title (Kian's rulings of 2026-10-15, evening); `publicName` is the public title. A statement
+ * already finished keeps the name it printed (`propertyNameAtFinish`).
+ */
+async function propertyFacts(propertyId: string): Promise<{ name: string; publicName: string; createdMonth: string | null } | null> {
   const db = getAdminDb();
-  const [doc] = await db.getAll(db.collection('properties').doc(propertyId), { fieldMask: ['name'] });
+  const [[doc], facing] = await Promise.all([db.getAll(db.collection('properties').doc(propertyId), { fieldMask: ['name'] }), getCleanerFacingName(propertyId)]);
   if (!doc.exists) return null;
   const name: unknown = doc.get('name');
-  return { name: typeof name === 'string' && name.trim() !== '' ? name : 'Unnamed property', createdMonth: createdMonthOf(doc.createTime) };
+  const publicName = typeof name === 'string' && name.trim() !== '' ? name : 'Unnamed property';
+  return { name: facing ?? publicName, publicName, createdMonth: createdMonthOf(doc.createTime) };
 }
 
 async function propertyName(propertyId: string): Promise<string | null> {
@@ -333,7 +340,10 @@ export async function readStatementBundle(propertyId: string, month: string): Pr
 
 /** Everything a property's page shows about its statements (dispatch 23D). */
 export interface PropertyStatements {
+  /** What its statements print and its page is headed by: the cleaner-facing name, else the public title (Kian's rulings of 2026-10-15, evening). */
   propertyName: string;
+  /** Its public title, shown under the head. */
+  publicName: string;
   /** The Toronto month the property's document was created: no month before it is owed (Kian's ruling of 2026-10-03). */
   createdMonth: string | null;
   /** Every finished report of the property, whole, newest first. */
@@ -385,7 +395,7 @@ export async function readPropertyStatements(propertyId: string): Promise<Proper
     else unreadable.downloads += 1;
   }
   reports.sort((a, b) => b.finishedAt.localeCompare(a.finishedAt) || a.id.localeCompare(b.id));
-  return { propertyName: name, createdMonth: facts.createdMonth, reports, drafts, downloads, management, unreadable };
+  return { propertyName: name, publicName: facts.publicName, createdMonth: facts.createdMonth, reports, drafts, downloads, management, unreadable };
 }
 
 /**

@@ -14,6 +14,7 @@
 import { DocumentReference, GeoPoint, Timestamp } from 'firebase-admin/firestore';
 import { getAdminDb } from './admin';
 import { toSlug } from '@/app/lib/slug';
+import { PROPERTY_CLEANER_NAMES_COLLECTION } from '@/app/lib/cleaners/model';
 import {
   stayOf,
   toLeadSummary,
@@ -84,10 +85,39 @@ function newestFirst(a: LeadSummary, b: LeadSummary): number {
  * @throws if the read fails.
  */
 export async function listLeads(): Promise<LeadSummary[]> {
-  const snapshot = await getAdminDb().collection(COLLECTION).get();
-  return snapshot.docs
-    .map((doc) => toLeadSummary(doc.id, toPlain(doc.data()) as LeadFields))
-    .sort(newestFirst);
+  const db = getAdminDb();
+  const snapshot = await db.collection(COLLECTION).get();
+  const leads = snapshot.docs.map((doc) => toLeadSummary(doc.id, toPlain(doc.data()) as LeadFields));
+  const names = await cleanerFacingNames(leads.map((lead) => lead.propertyId));
+  return leads.map((lead) => ({ ...lead, propertyInternalName: lead.propertyId ? (names.get(lead.propertyId) ?? null) : null })).sort(newestFirst);
+}
+
+/** A usable stored cleaner-facing name, or null. */
+function facingName(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() !== '' ? value : null;
+}
+
+/**
+ * The cleaner-facing names (usually street addresses) of the properties some leads name, by ID, which the inbox shows
+ * above the title the renter saw (Kian's rulings of 2026-10-15, evening). One read per property named. A failed read
+ * leaves the inbox on the titles, never failing it.
+ */
+async function cleanerFacingNames(propertyIds: (string | null)[]): Promise<Map<string, string>> {
+  const ids = [...new Set(propertyIds.filter((id): id is string => id !== null && isDocumentId(id)))];
+  if (ids.length === 0) return new Map();
+  try {
+    const db = getAdminDb();
+    const docs = await db.getAll(...ids.map((id) => db.collection(PROPERTY_CLEANER_NAMES_COLLECTION).doc(id)), { fieldMask: ['name'] });
+    const names = new Map<string, string>();
+    for (const doc of docs) {
+      const name = doc.exists ? facingName(doc.get('name')) : null;
+      if (name !== null) names.set(doc.id, name);
+    }
+    return names;
+  } catch (err) {
+    console.error(`[leads] could not look up the properties' cleaner-facing names: grpc code ${typeof (err as { code?: unknown } | null)?.code === 'number' ? (err as { code: number }).code : 'unknown'}`);
+    return new Map();
+  }
 }
 
 /**
@@ -96,13 +126,15 @@ export async function listLeads(): Promise<LeadSummary[]> {
  * Looked up by ID rather than by the stored name, so the link still resolves
  * after the listing is renamed. Only `name` and `slug` are read. A failed
  * lookup does not fail the lead — the operator still needs the message.
+ * Its cleaner-facing name, usually the street address, comes with it
+ * (Kian's rulings of 2026-10-15, evening).
  */
 async function findProperty(propertyId: string): Promise<PropertyLink> {
   if (!isDocumentId(propertyId)) return { state: 'missing' };
 
   try {
     const db = getAdminDb();
-    const [doc] = await db.getAll(db.collection('properties').doc(propertyId), {
+    const [doc, facing] = await db.getAll(db.collection('properties').doc(propertyId), db.collection(PROPERTY_CLEANER_NAMES_COLLECTION).doc(propertyId), {
       fieldMask: ['name', 'slug'],
     });
     if (!doc.exists) return { state: 'missing' };
@@ -112,7 +144,7 @@ async function findProperty(propertyId: string): Promise<PropertyLink> {
     // The canonical slug first, as resolvePropertySlug does; the stored one
     // also resolves there, so it is a valid fallback.
     const slug = toSlug(name) || storedSlug;
-    return { state: 'found', name, href: slug ? `/property/${slug}` : null };
+    return { state: 'found', name, internalName: facing.exists ? facingName(facing.get('name')) : null, href: slug ? `/property/${slug}` : null };
   } catch (err) {
     console.error(`[leads] Could not look up property ${propertyId}:`, err);
     return { state: 'unreadable' };

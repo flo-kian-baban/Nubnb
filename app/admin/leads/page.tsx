@@ -285,10 +285,14 @@ function LeadInbox() {
                               </td>
                               <td>
                                 <SourceBadge source={lead.source} />
+                                {/* The address, then the title the renter asked about (Kian's rulings of 2026-10-15, evening). */}
                                 {lead.source === "property" && (
                                   <span className={styles.subline}>
-                                    <FieldText value={lead.propertyName} />
+                                    <FieldText value={lead.propertyInternalName ?? lead.propertyName} />
                                   </span>
+                                )}
+                                {lead.source === "property" && lead.propertyInternalName !== null && lead.propertyName !== null && lead.propertyName !== lead.propertyInternalName && (
+                                  <span className={styles.publicTitle}>{lead.propertyName}</span>
                                 )}
                               </td>
                               <td className={styles.statusCell}>

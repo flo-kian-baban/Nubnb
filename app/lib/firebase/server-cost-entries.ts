@@ -107,6 +107,7 @@ import type { PaymentView } from '@/app/lib/pay/model';
 import { cleaningEntryView } from '@/app/lib/cleanings/model';
 import { createdMonthOf } from './created-month';
 import { isDocumentId } from './server-leads';
+import { cleanerFacingNamesOf, internalNameOf, listCleanerFacingNames } from './server-property-names';
 import type { ReadingAttachment } from '@/app/lib/cleaners/readings';
 import { byLedgerDay, inRange, ledgerDay } from '@/app/lib/costs/report';
 import { MONTHLY_REPORTS_COLLECTION } from '@/app/lib/reports/model';
@@ -126,6 +127,7 @@ import {
   ENTRY_TIME_ZONE,
   LIMITS,
   OFFICE_APPROVAL_REASON,
+  PROPERTY_CLEANER_NAMES_COLLECTION,
   RECEIPTS_PREFIX,
   SUBMISSION_KEY_PATTERN,
   dayIn,
@@ -934,6 +936,8 @@ interface CleanerNow {
 
 interface PropertyNow {
   name: string | null;
+  /** The name the admin shows and owners receive: its cleaner-facing name, else its public title (Kian's rulings of 2026-10-15, evening). */
+  internalName: string | null;
   /** The Toronto month the document was created, from Firestore's create time; only the whole-collection lookup reads it. */
   createdMonth?: string | null;
 }
@@ -965,18 +969,21 @@ async function lookUpCleaners(ids: string[]): Promise<Map<string, CleanerNow> | 
   }
 }
 
-/** The properties that exist, by ID; null when the lookup failed. */
+/** The properties that exist, by ID, with their public titles and the names the admin shows; null when the lookup failed. */
 async function lookUpProperties(ids: string[]): Promise<Map<string, PropertyNow> | null> {
   if (ids.length === 0) return new Map();
   try {
     const db = getAdminDb();
-    const docs = await db.getAll(...ids.map((id) => db.collection('properties').doc(id)), {
-      fieldMask: ['name'],
-    });
+    const [docs, facing] = await Promise.all([
+      db.getAll(...ids.map((id) => db.collection('properties').doc(id)), {
+        fieldMask: ['name'],
+      }),
+      cleanerFacingNamesOf(ids),
+    ]);
     return new Map(
       docs
         .filter((doc) => doc.exists)
-        .map((doc): [string, PropertyNow] => [doc.id, { name: fieldText(doc.get('name')) }]),
+        .map((doc): [string, PropertyNow] => [doc.id, { name: fieldText(doc.get('name')), internalName: internalNameOf(facing, doc.id, fieldText(doc.get('name'))) }]),
     );
   } catch (err) {
     console.error(`[cost-entries] could not look up properties: grpc code ${grpcCode(err)}`);
@@ -1018,6 +1025,7 @@ function toView(
       nameAtEntry: entry.propertyNameAtEntry,
       state: property.state,
       name: property.now?.name ?? null,
+      internalName: property.now?.internalName ?? null,
     },
     purchasedOn: entry.purchasedOn,
     note: entry.note,
@@ -1040,8 +1048,13 @@ function toView(
  */
 async function lookUpAllProperties(): Promise<Map<string, PropertyNow> | null> {
   try {
-    const snapshot = await getAdminDb().collection('properties').select('name').get();
-    return new Map(snapshot.docs.map((doc): [string, PropertyNow] => [doc.id, { name: fieldText(doc.get('name')), createdMonth: createdMonthOf(doc.createTime) }]));
+    const [snapshot, facing] = await Promise.all([getAdminDb().collection('properties').select('name').get(), listCleanerFacingNames()]);
+    return new Map(
+      snapshot.docs.map((doc): [string, PropertyNow] => [
+        doc.id,
+        { name: fieldText(doc.get('name')), internalName: internalNameOf(facing, doc.id, fieldText(doc.get('name'))), createdMonth: createdMonthOf(doc.createTime) },
+      ]),
+    );
   } catch (err) {
     console.error(`[cost-entries] could not look up properties: grpc code ${grpcCode(err)}`);
     return null;
@@ -1090,8 +1103,8 @@ export async function listCosts(): Promise<CostsView> {
       properties === null
         ? null
         : [...properties.entries()]
-            .map(([id, now]) => ({ id, name: now.name, createdMonth: now.createdMonth ?? null }))
-            .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', 'en-CA') || a.id.localeCompare(b.id)),
+            .map(([id, now]) => ({ id, name: now.name, internalName: now.internalName, createdMonth: now.createdMonth ?? null }))
+            .sort((a, b) => (a.internalName ?? '').localeCompare(b.internalName ?? '', 'en-CA') || a.id.localeCompare(b.id)),
   };
 }
 
@@ -1693,7 +1706,8 @@ export async function recordReportExport(actor: Actor, claim: ReportClaim): Prom
     const exportRef = db.collection(COST_REPORT_EXPORTS_COLLECTION).doc();
 
     outcome = await db.runTransaction(async (tx) => {
-      const [property] = await tx.getAll(db.collection('properties').doc(claim.propertyId), { fieldMask: ['name'] });
+      // The property's public title and its cleaner-facing name: the PDF prints the latter when it has one (Kian's rulings of 2026-10-15, evening).
+      const [property, facing] = await tx.getAll(db.collection('properties').doc(claim.propertyId), db.collection(PROPERTY_CLEANER_NAMES_COLLECTION).doc(claim.propertyId), { fieldMask: ['name'] });
       const snapshot = await tx.get(
         db.collection(COST_ENTRIES_COLLECTION).where('propertyId', '==', claim.propertyId),
       );
@@ -1726,8 +1740,9 @@ export async function recordReportExport(actor: Actor, claim: ReportClaim): Prom
         });
       }
 
-      // The live name, or, for a property that no longer exists, the name its newest entry recorded.
-      const liveName: unknown = property.exists ? property.get('name') : undefined;
+      // The live name — the cleaner-facing one, else the public title — or, for a property that no longer exists, the name its newest entry recorded.
+      const facingName: unknown = property.exists && facing.exists ? facing.get('name') : undefined;
+      const liveName: unknown = typeof facingName === 'string' && facingName.trim() !== '' ? facingName : property.exists ? property.get('name') : undefined;
       const recordedName = all.find((entry) => entry.propertyNameAtEntry !== null)?.propertyNameAtEntry ?? cleanings.find((entry) => entry.property.nameAtEntry !== null)?.property.nameAtEntry ?? null;
       const stored: ReportExport = {
         schemaVersion: COST_REPORT_EXPORT_SCHEMA_VERSION,

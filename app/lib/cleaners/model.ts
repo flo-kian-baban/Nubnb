@@ -717,6 +717,8 @@ export interface CostEntryView {
     state: LookupState;
     /** The property's current name; null unless found. */
     name: string | null;
+    /** The name the admin shows and owners receive: its cleaner-facing name, usually the street address, else its public title (Kian's rulings of 2026-10-15, evening); null unless found. */
+    internalName?: string | null;
   };
   purchasedOn: string | null;
   note: string | null;
@@ -827,6 +829,8 @@ export interface ReportExportView {
 export interface PropertyNameView {
   id: string;
   name: string | null;
+  /** The name the admin shows and owners receive: its cleaner-facing name, usually the street address, else its public title (Kian's rulings of 2026-10-15, evening); null unless found. */
+  internalName?: string | null;
   /** The Toronto month the property's document was created, by Firestore's own create time (the owed-months rule, Kian's ruling of 2026-10-03). */
   createdMonth?: string | null;
 }

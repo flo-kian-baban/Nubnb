@@ -101,6 +101,8 @@ export interface AdminProperties {
   unlistedIds: Set<string>;
   /** The Toronto month each property's document was created, by Firestore's own create time (the owed-months rule needs it). */
   createdMonths: Map<string, string | null>;
+  /** The name each admin list shows: its cleaner-facing name, usually the street address, else its public title (Kian's rulings of 2026-10-15, evening). */
+  internalNames: Map<string, string>;
 }
 
 /**
@@ -116,18 +118,20 @@ export async function getPropertiesResult(): Promise<ReadResult<AdminProperties>
     return { ok: false, error: error instanceof Error ? error.message : 'Could not reach the server.' };
   }
   const body = await res.json().catch(() => ({}));
-  const data = body && typeof body === 'object' ? (body as { data?: { properties?: unknown; unlistedIds?: unknown; createdMonths?: unknown } }).data : undefined;
+  const data = body && typeof body === 'object' ? (body as { data?: { properties?: unknown; unlistedIds?: unknown; createdMonths?: unknown; internalNames?: unknown } }).data : undefined;
   if (!res.ok || !data || !Array.isArray(data.properties) || !Array.isArray(data.unlistedIds)) {
     const said = body && typeof body === 'object' && typeof (body as { error?: unknown }).error === 'string' ? (body as { error: string }).error : null;
     return { ok: false, error: said ?? `Could not load the properties (HTTP ${res.status}).` };
   }
   const months = data.createdMonths && typeof data.createdMonths === 'object' ? Object.entries(data.createdMonths as Record<string, unknown>) : [];
+  const internal = data.internalNames && typeof data.internalNames === 'object' ? Object.entries(data.internalNames as Record<string, unknown>) : [];
   return {
     ok: true,
     data: {
       properties: data.properties as Property[],
       unlistedIds: new Set(data.unlistedIds.filter((id): id is string => typeof id === 'string')),
       createdMonths: new Map(months.map(([id, month]) => [id, typeof month === 'string' ? month : null])),
+      internalNames: new Map(internal.filter((pair): pair is [string, string] => typeof pair[1] === 'string' && pair[1].trim() !== '')),
     },
   };
 }

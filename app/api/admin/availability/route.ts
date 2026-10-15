@@ -19,6 +19,7 @@
 
 import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiFailure, apiSuccess, noStore } from '@/app/lib/api/safe-response';
+import { failedNamedInternally } from '@/app/lib/firebase/server-property-names';
 import { getAdminDb } from '@/app/lib/firebase/admin';
 import { addDays, torontoDay } from '@/app/lib/availability/days';
 import { historyView } from '@/app/lib/availability/attention';
@@ -36,7 +37,8 @@ export const GET = adminRoute(async function GET() {
     const today = torontoDay();
     const [snapshot, kept] = await Promise.all([readCurrent(db), readHistoryFrom(db, addDays(today, -HISTORY_DAYS), today)]);
     const history = kept ? historyView(kept.snapshot, kept.day) : null;
-    return noStore(apiSuccess({ snapshot, history, today, now: new Date().toISOString() }));
+    // The calendars that could not be read, named as the admin names them (Kian's rulings of 2026-10-15, evening).
+    return noStore(apiSuccess({ snapshot: await failedNamedInternally(snapshot), history, today, now: new Date().toISOString() }));
   } catch (err) {
     console.error(`[availability] read failed: grpc code ${grpcCode(err)}`);
     return noStore(

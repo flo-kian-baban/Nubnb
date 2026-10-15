@@ -32,6 +32,7 @@
 import type { DocumentReference, Transaction } from 'firebase-admin/firestore';
 import { getAdminDb } from './admin';
 import { isDocumentId } from './server-leads';
+import { cleanerFacingNamesOf, internalNameOf } from './server-property-names';
 import { CLEANERS_COLLECTION, fieldText, roleOf, type Actor, type Refusal } from '@/app/lib/cleaners/model';
 import {
   CLEANINGS_COLLECTION,
@@ -61,8 +62,14 @@ function grpcCode(err: unknown): string {
 
 type CleanerNow = { name: string | null; status: string | null; role: string };
 
-/** The cleaners and the properties that exist, by ID, with their current names; a failed lookup leaves names unknown, never wrong. */
-async function lookUps(cleanerIds: string[], propertyIds: string[]): Promise<{ cleaners: Map<string, CleanerNow> | null; properties: Map<string, string | null> | null }> {
+type PropertyNow = { name: string | null; internalName: string | null };
+
+/**
+ * The cleaners and the properties that exist, by ID, with their current names — a property's public title and the name
+ * the admin shows, its cleaner-facing name else that title (Kian's rulings of 2026-10-15, evening); a failed lookup
+ * leaves names unknown, never wrong.
+ */
+async function lookUps(cleanerIds: string[], propertyIds: string[]): Promise<{ cleaners: Map<string, CleanerNow> | null; properties: Map<string, PropertyNow> | null }> {
   const db = getAdminDb();
   const cleaners = cleanerIds.length === 0
     ? new Map<string, CleanerNow>()
@@ -74,10 +81,15 @@ async function lookUps(cleanerIds: string[], propertyIds: string[]): Promise<{ c
           return null;
         });
   const properties = propertyIds.length === 0
-    ? new Map<string, string | null>()
-    : await db
-        .getAll(...propertyIds.map((id) => db.collection('properties').doc(id)), { fieldMask: ['name'] })
-        .then((docs) => new Map(docs.filter((doc) => doc.exists).map((doc): [string, string | null] => [doc.id, fieldText(doc.get('name'))])))
+    ? new Map<string, PropertyNow>()
+    : await Promise.all([db.getAll(...propertyIds.map((id) => db.collection('properties').doc(id)), { fieldMask: ['name'] }), cleanerFacingNamesOf(propertyIds)])
+        .then(([docs, facing]) =>
+          new Map(
+            docs
+              .filter((doc) => doc.exists)
+              .map((doc): [string, PropertyNow] => [doc.id, { name: fieldText(doc.get('name')), internalName: internalNameOf(facing, doc.id, fieldText(doc.get('name'))) }]),
+          ),
+        )
         .catch((err) => {
           console.error(`[cleanings] could not look up properties: grpc code ${grpcCode(err)}`);
           return null;
@@ -86,13 +98,13 @@ async function lookUps(cleanerIds: string[], propertyIds: string[]): Promise<{ c
 }
 
 /** A stored cleaning with its lookups: `missing` when its cleaner or property no longer exists — a deleted cleaner's cleanings still read, by the name they were logged with. */
-function toView(c: Cleaning & { id: string }, cleaners: Map<string, CleanerNow> | null, properties: Map<string, string | null> | null): CleaningView {
+function toView(c: Cleaning & { id: string }, cleaners: Map<string, CleanerNow> | null, properties: Map<string, PropertyNow> | null): CleaningView {
   const cleaner = cleaners === null ? null : (cleaners.get(c.cleanerId) ?? undefined);
   const property = properties === null ? null : properties.has(c.propertyId) ? (properties.get(c.propertyId) ?? null) : undefined;
   return {
     ...c,
     cleaner: cleaner === null ? { state: 'unreadable', name: null, status: null } : cleaner === undefined ? { state: 'missing', name: null, status: null } : { state: 'found', name: cleaner.name, status: cleaner.status },
-    property: property === undefined ? { state: 'missing', name: null } : properties === null ? { state: 'unreadable', name: null } : { state: 'found', name: property },
+    property: property === undefined ? { state: 'missing', name: null } : properties === null || property === null ? { state: 'unreadable', name: null } : { state: 'found', name: property.name, internalName: property.internalName },
   };
 }
 

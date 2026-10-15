@@ -312,11 +312,14 @@ function PropertyValue({
   id: string | null;
   link: PropertyLink | null;
 }) {
+  // The address heads it, and the title the renter asked about sits under it (Kian's rulings of 2026-10-15, evening).
+  const address = link?.state === "found" ? link.internalName : null;
   return (
     <div className={styles.propertyValue}>
       <span>
-        <FieldText value={name} />
+        <FieldText value={address ?? name} />
       </span>
+      {address !== null && name !== null && name !== address && <span className={styles.note}>{name}</span>}
       {link?.state === "found" &&
         (link.href ? (
           <a href={link.href} target="_blank" rel="noopener noreferrer" className={styles.link}>

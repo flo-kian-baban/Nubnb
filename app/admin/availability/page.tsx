@@ -69,7 +69,6 @@ import type {
   SearchQuery,
   SearchRow,
 } from "@/app/lib/availability/types";
-import type { Property } from "@/app/types/property";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
 
@@ -111,7 +110,8 @@ function Availability() {
   const [loadedAt, setLoadedAt] = useState(0);
   const [attempt, setAttempt] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
-  const [properties, setProperties] = useState<Read<Property[]>>({ kind: "loading" });
+  // Each property as availability reads it, named as the admin names it (Kian's rulings of 2026-10-15, evening).
+  const [properties, setProperties] = useState<Read<AvailabilityProperty[]>>({ kind: "loading" });
   // The browser clock, read on load and once a minute, so the copy's age moves on while the page is open.
   const [nowMs, setNowMs] = useState(0);
 
@@ -139,7 +139,7 @@ function Availability() {
     });
     getPropertiesResult().then((result) => {
       if (cancelled) return;
-      setProperties(result.ok ? { kind: "ready", data: result.data.properties } : { kind: "error", title: result.error, status: 0 });
+      setProperties(result.ok ? { kind: "ready", data: result.data.properties.map((property) => toAvailabilityProperty(property, result.data.internalNames.get(property.id))) } : { kind: "error", title: result.error, status: 0 });
     });
     return () => {
       cancelled = true;
@@ -203,7 +203,7 @@ function Availability() {
   const nowIso = data.kind === "ready" ? new Date(Date.parse(data.data.now) + Math.max(0, nowMs - loadedAt)).toISOString() : data.kind === "loading" ? "" : "";
 
   const availProps: AvailabilityProperty[] = useMemo(
-    () => (properties.kind === "ready" ? properties.data.map(toAvailabilityProperty) : []),
+    () => (properties.kind === "ready" ? properties.data : []),
     [properties],
   );
   const inScope = useMemo(
@@ -729,12 +729,14 @@ function PropertyCell({ property, notes }: { property: AvailabilityProperty; not
       </span>
       <span className={styles.nameBlock}>
         {property.slug ? (
-          <a href={`/property/${property.slug}`} target="_blank" rel="noopener" className={styles.nameLink} title={`Open ${property.name} on the site`}>
+          <a href={`/property/${property.slug}`} target="_blank" rel="noopener" className={styles.nameLink} title={`Open ${property.publicName || property.name} on the site`}>
             {name}
           </a>
         ) : (
           name
         )}
+        {/* The public title renters ask about, under the address (Kian's rulings of 2026-10-15, evening). */}
+        {property.publicName && property.publicName !== property.name && <span className={styles.publicTitle}>{property.publicName}</span>}
         <span className={styles.sub}>{[property.area, property.city].filter(Boolean).join(" · ")}</span>
         {notes}
       </span>
@@ -746,7 +748,7 @@ function RowActions({ property }: { property: AvailabilityProperty }) {
   return (
     <div className={styles.actions}>
       {property.airbnbUrl && (
-        <a href={property.airbnbUrl} target="_blank" rel="noopener" className={shared.rowAction} title={`Open ${property.name} on Airbnb`}>
+        <a href={property.airbnbUrl} target="_blank" rel="noopener" className={shared.rowAction} title={`Open ${property.publicName || property.name} on Airbnb`}>
           <ExternalLink size={13} aria-hidden />
           <span>Airbnb</span>
         </a>

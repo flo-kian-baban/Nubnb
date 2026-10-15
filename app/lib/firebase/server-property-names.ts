@@ -13,6 +13,10 @@
  * A property without a document here has no cleaner-facing name, and the
  * cleaner app shows its real name. Clearing a name deletes the document,
  * so "absent" stays the one way of saying "none".
+ *
+ * Since Kian's rulings of 2026-10-15 (evening) the same name is also what
+ * every admin list shows and what owners receive (`internalNameOf`); the
+ * public site still never reads it.
  */
 
 import { getAdminDb } from './admin';
@@ -65,6 +69,50 @@ export async function getCleanerFacingName(propertyId: string): Promise<string |
   if (!isDocumentId(propertyId)) return null;
   const doc = await getAdminDb().collection(PROPERTY_CLEANER_NAMES_COLLECTION).doc(propertyId).get();
   return doc.exists ? storedName(doc.data()) : null;
+}
+
+/**
+ * The cleaner-facing names of some properties, by ID: one read per ID, and
+ * only the properties that have one are in the map.
+ *
+ * @throws if the read fails.
+ */
+export async function cleanerFacingNamesOf(propertyIds: string[]): Promise<Map<string, string>> {
+  const ids = [...new Set(propertyIds.filter(isDocumentId))];
+  if (ids.length === 0) return new Map();
+  const db = getAdminDb();
+  const docs = await db.getAll(...ids.map((id) => db.collection(PROPERTY_CLEANER_NAMES_COLLECTION).doc(id)));
+  const names = new Map<string, string>();
+  for (const doc of docs) {
+    const name = doc.exists ? storedName(doc.data()) : null;
+    if (name !== null) names.set(doc.id, name);
+  }
+  return names;
+}
+
+/**
+ * The name every internal surface shows for a property, and what owners
+ * receive (Kian's rulings of 2026-10-15, evening): its cleaner-facing name,
+ * usually its street address, else its public title. The public title stays
+ * what the public site, the property's address on it and the Airbnb title
+ * matching use.
+ */
+export function internalNameOf(facing: Map<string, string>, propertyId: string, publicName: string): string;
+export function internalNameOf(facing: Map<string, string>, propertyId: string, publicName: string | null): string | null;
+export function internalNameOf(facing: Map<string, string>, propertyId: string, publicName: string | null): string | null {
+  return facing.get(propertyId) ?? publicName;
+}
+
+/**
+ * A calendar refresh's "could not be read" list, each property named as the admin names it (display only): the
+ * stored copy keeps the public title it was read under. One read per property listed.
+ *
+ * @throws if the read fails.
+ */
+export async function failedNamedInternally<T extends { run: { failed: { propertyId: string; name: string }[] } }>(snapshot: T | null): Promise<T | null> {
+  if (snapshot === null || snapshot.run.failed.length === 0) return snapshot;
+  const facing = await cleanerFacingNamesOf(snapshot.run.failed.map((f) => f.propertyId));
+  return { ...snapshot, run: { ...snapshot.run, failed: snapshot.run.failed.map((f) => ({ ...f, name: internalNameOf(facing, f.propertyId, f.name) })) } };
 }
 
 export type SetCleanerFacingNameResult =

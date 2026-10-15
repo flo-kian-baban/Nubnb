@@ -1,0 +1,55 @@
+═══ 1. internalLabel: the cleaner-facing name, else the public title ═══
+    {"name":"Test Corner Penthouse","internalName":"1 Test St, unit 4"} → "1 Test St, unit 4"
+   ok   shows "1 Test St, unit 4"
+    {"name":"Test Corner Penthouse","internalName":null} → "Test Corner Penthouse"
+   ok   shows "Test Corner Penthouse"
+    {"name":"Test Corner Penthouse","internalName":"   "} → "Test Corner Penthouse"
+   ok   shows "Test Corner Penthouse"
+    {"name":"Test Corner Penthouse"} → "Test Corner Penthouse"
+   ok   shows "Test Corner Penthouse"
+    {"name":"","internalName":null} → null
+   ok   shows null
+    null → null
+   ok   shows null
+
+═══ 2. Costs: propertyLabel, as the queue, the ledger and its exports name a property ═══
+    {"name":"Test Corner Penthouse","internalName":"1 Test St, unit 4"} → "1 Test St, unit 4"
+   ok   labelled "1 Test St, unit 4"
+    {"name":"Test Corner Penthouse","internalName":null} → "Test Corner Penthouse"
+   ok   labelled "Test Corner Penthouse"
+    {"name":"Test Corner Penthouse"} → "Test Corner Penthouse"
+   ok   labelled "Test Corner Penthouse"
+    {"state":"missing","name":null,"internalName":null} → "Test Old Title"
+   ok   labelled "Test Old Title"
+    ledger PDF named: nubnb-costs-1-test-st-unit-4-2026-09-01-to-2026-09-30.pdf
+   ok   the export file is named by the address
+
+═══ 3. Availability: named by the address, found by either ═══
+    with a cleaner-facing name: name "2 Test Ave, suite 9" · public "Test Sunlit Boho Skyline Stay"
+    without:                    name "Test Sunlit Boho Skyline Stay" · public "Test Sunlit Boho Skyline Stay"
+   ok   the address is the name; the public title rides beside it
+   ok   with no cleaner-facing name, the public title is the name
+    "boho skyline" → found
+   ok   "boho skyline" finds it
+    "test ave" → found
+   ok   "test ave" finds it
+    "suite 9" → found
+   ok   "suite 9" finds it
+    "penthouse" → not found
+   ok   "penthouse" does not find it
+
+═══ 4. Income: the page shows the address; titles still match the public title ═══
+   ok   an Airbnb title equal to the public title suggests the property
+   ok   an Airbnb title equal to the address suggests nothing (matching never reads the address)
+    to review: TESTPROP0003 "3 Test Rd, lower" (1)
+   ok   the review group is named by the address
+
+═══ 5. Leads: the inbox search ═══
+    "walkout" → found
+   ok   "walkout" finds the lead
+    "test cres" → found
+   ok   "test cres" finds the lead
+    "nothing like it" → not found
+   ok   "nothing like it" does not find the lead
+
+every check passed

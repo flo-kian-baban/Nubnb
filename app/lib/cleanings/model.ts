@@ -115,7 +115,12 @@ export interface Cleaning {
 export interface CleaningView extends Cleaning {
   id: string;
   cleaner: { state: LookupState; name: string | null; status: string | null };
-  property: { state: LookupState; name: string | null };
+  property: {
+    state: LookupState;
+    name: string | null;
+    /** The name the admin shows and owners receive: its cleaner-facing name, usually the street address, else its public title (Kian's rulings of 2026-10-15, evening); null unless found. */
+    internalName?: string | null;
+  };
 }
 
 /** A team member as the cleaning form needs them: who can be picked, and their default rate. */

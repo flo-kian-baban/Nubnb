@@ -41,14 +41,15 @@ export interface PayCleaning {
   status: string;
   history: CleaningEvent[];
   propertyNameAtEntry: string | null;
-  property?: { name: string | null } | null;
+  /** The property now: its public title, and the name the admin shows (Kian's rulings of 2026-10-15, evening). */
+  property?: { name: string | null; internalName?: string | null } | null;
   createdAt: string;
 }
 
 /** A cost entry as pay reads it: the fields of a CostEntryView it needs. */
 export type PayEntry = Pick<CostEntryView, 'id' | 'kind' | 'status' | 'statusReason' | 'createdAt' | 'month' | 'paidWith' | 'lines' | 'history' | 'linesNow' | 'taxShape'> & {
   cleaner: { id: string | null };
-  property: { nameAtEntry: string | null; name: string | null };
+  property: { nameAtEntry: string | null; name: string | null; internalName?: string | null };
 };
 
 export interface PaySources {
@@ -189,7 +190,7 @@ function cleaningRow(c: PayCleaning, memberId: string, covering: Covering): PayR
   });
 
   const was = (change: PayChange | null) => (change && change.owedBefore > 0 ? ` · was ${formatCents(change.owedBefore)}` : '');
-  const base = { kind: 'cleaning' as const, id: c.id, day: c.day, at: c.createdAt, property: c.property?.name ?? c.propertyNameAtEntry, detail: null, paidCents: null, amountCents: c.amountCents, changes, amber: changes.some((change) => change.afterPayment !== null), payment: null };
+  const base = { kind: 'cleaning' as const, id: c.id, day: c.day, at: c.createdAt, property: c.property?.internalName ?? c.property?.name ?? c.propertyNameAtEntry, detail: null, paidCents: null, amountCents: c.amountCents, changes, amber: changes.some((change) => change.afterPayment !== null), payment: null };
   if (c.cleanerId !== memberId) {
     const moved = lastMoved as PayChange | null;
     return { ...base, earnedCents: null, state: 'moved', note: `${moved ? `${moved.words} ${byWords(moved.at, moved.by)}` : 'Given to another cleaner'}${was(moved)}` };
@@ -249,7 +250,7 @@ function entryRow(e: PayEntry, covering: Covering): PayRow {
   const total = e.linesNow.kind === 'ok' ? e.linesNow.totalCents : null;
   const lines = e.linesNow.kind === 'ok' ? e.linesNow.lines : [];
   const detail = kind === 'work' ? (lines[0]?.name ?? null) : e.linesNow.kind === 'ok' ? (lines.length === 1 ? '1 item' : `${lines.length} items`) : null;
-  const base = { kind, id: e.id, day, at: e.createdAt, property: e.property.name ?? e.property.nameAtEntry, detail, paidCents: null, amountCents: total, changes, amber: changes.some((change) => change.afterPayment !== null), payment: null };
+  const base = { kind, id: e.id, day, at: e.createdAt, property: e.property.internalName ?? e.property.name ?? e.property.nameAtEntry, detail, paidCents: null, amountCents: total, changes, amber: changes.some((change) => change.afterPayment !== null), payment: null };
   const status = lastStatus as { at: string; by: string | null; reason: string | null; owedBefore: number } | null;
   const card = lastCard as { at: string; by: string | null; owedBefore: number } | null;
   const was = (owedBefore: number | undefined) => (owedBefore && owedBefore > 0 ? ` · was ${formatCents(owedBefore)}` : '');

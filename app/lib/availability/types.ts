@@ -85,7 +85,10 @@ export interface AvailabilitySnapshot {
 /** The slice of a property document the search and the ranking read. Built by the page from `Property`. */
 export interface AvailabilityProperty {
   id: string;
+  /** The name the admin shows: its cleaner-facing name, usually the street address, else its public title (Kian's rulings of 2026-10-15, evening). */
   name: string;
+  /** Its public title, the one renters see on the site and on Airbnb: shown under the name, and searched. */
+  publicName: string;
   slug: string;
   city: string;
   area: string;

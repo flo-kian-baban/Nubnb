@@ -168,6 +168,7 @@ import {
   type EntryPdfState,
   type Totals,
 } from "@/app/lib/costs/report";
+import { internalLabel } from "@/app/lib/property-names";
 import { splitText, watchList, worthALookText } from "@/app/lib/costs/patterns";
 import { pdfFor } from "@/app/lib/costs/pdf";
 import { workbookFor } from "@/app/lib/costs/xlsx";
@@ -444,7 +445,8 @@ function Costs() {
    */
   const properties = useMemo(() => {
     const byId = new Map<string, string>();
-    for (const property of known ?? []) byId.set(property.id, property.name?.trim() || "Unnamed property");
+    // By the name the admin shows: its cleaner-facing name, usually the address, else its public title (Kian's rulings of 2026-10-15, evening).
+    for (const property of known ?? []) byId.set(property.id, internalLabel(property) ?? "Unnamed property");
     const withEntries = new Set<string>();
     for (const entry of entries) {
       if (entry.property.id === null) continue;

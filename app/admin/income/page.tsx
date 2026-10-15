@@ -163,9 +163,11 @@ function IncomePageInner() {
   const data = read.kind === "ready" ? read.data : null;
   const view = useMemo(() => (data ? monthView({ ...data, month }) : null), [data, month]);
   const renames = useMemo(() => new Map((data?.renames ?? []).map((r) => [`${r.platform}|${r.title}`, r])), [data]);
-  const names = useMemo(() => new Map((data?.properties ?? []).map((p) => [p.id, p.name])), [data]);
+  // Each property by the name the admin shows: its cleaner-facing name, usually the address, else its public title (Kian's
+  // rulings of 2026-10-15, evening). Titles are still matched against the public title (`suggestedProperty`).
+  const names = useMemo(() => new Map((data?.properties ?? []).map((p) => [p.id, p.internalName ?? p.name])), [data]);
   const uploadName = useMemo(() => new Map((data?.uploads ?? []).map((u) => [u.id, u.file.name])), [data]);
-  const propertyOptions = useMemo(() => [{ options: [{ value: "", label: "Choose a property" }, ...(data?.properties ?? []).map((p) => ({ value: p.id, label: p.name }))] }], [data]);
+  const propertyOptions = useMemo(() => [{ options: [{ value: "", label: "Choose a property" }, ...(data?.properties ?? []).map((p) => ({ value: p.id, label: p.internalName ?? p.name }))] }], [data]);
   const monthOptions = useMemo(() => [{ options: monthsBetween(STATEMENTS_FROM_DEFAULT < month ? STATEMENTS_FROM_DEFAULT : month, thisMonth).reverse().map((m) => ({ value: m, label: monthLabel(m) })) }], [month, thisMonth]);
 
   // ── What a write's failure says ──

@@ -273,6 +273,14 @@
   color: rgba(255, 255, 255, 0.4);
   white-space: nowrap;
 }
+/* The public title, under the name (the address): what renters ask about (Kian's rulings of 2026-10-15, evening). */
+.publicTitle {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+  overflow-wrap: anywhere;
+}
 
 /* The nights asked for, one cell each: open, booked or blocked. */
 .strip {

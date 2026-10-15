@@ -224,9 +224,13 @@ function firstNamed(...names: (string | null)[]): string | null {
   return names.find((name): name is string => name !== null && name.trim() !== '') ?? null;
 }
 
-/** The property's name now, or the one recorded with the entry. */
+/**
+ * The property's name now — its cleaner-facing name, usually the street address, else its public title (Kian's rulings
+ * of 2026-10-15, evening: what the admin shows and owners receive) — or, for one that is gone, the name recorded with
+ * the entry.
+ */
 export function propertyLabel(entry: CostEntryView): string {
-  return firstNamed(entry.property.name, entry.property.nameAtEntry) ?? 'Unknown property';
+  return firstNamed(entry.property.internalName ?? null, entry.property.name, entry.property.nameAtEntry) ?? 'Unknown property';
 }
 
 /** Who logged the entry: the cleaner's or handyman's name now, or the one recorded with the entry; "Nubnb office" on an office entry (dispatch 23D). */

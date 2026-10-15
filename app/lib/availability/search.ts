@@ -60,15 +60,16 @@ export function fold(text: string): string {
 }
 
 /**
- * Every word typed starts some word of the name, area, city, type, slug or
- * an offer: "basement markham" finds a basement in Markham, "hot tub" finds
- * a hot tub and not hot water beside a bathtub, "park" finds free parking.
+ * Every word typed starts some word of the name (the address), the public
+ * title, area, city, type, slug or an offer: "basement markham" finds a
+ * basement in Markham, "hot tub" finds a hot tub and not hot water beside a
+ * bathtub, "park" finds free parking, and the title a renter names finds it.
  */
 export function matchesText(property: AvailabilityProperty, text: string): boolean {
   const words = fold(text).split(/[^a-z0-9]+/).filter(Boolean);
   if (words.length === 0) return true;
   const haystack = fold(
-    [property.name, property.area, property.city, property.location, property.type, property.slug, ...property.offerNames].join(' '),
+    [property.name, property.publicName, property.area, property.city, property.location, property.type, property.slug, ...property.offerNames].join(' '),
   )
     .split(/[^a-z0-9]+/)
     .filter(Boolean);

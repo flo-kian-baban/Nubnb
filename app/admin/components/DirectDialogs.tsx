@@ -77,7 +77,8 @@ function Actions({ busy, label, onClose, disabled }: { busy: boolean; label: str
 
 export interface RecordPaymentDialogProps {
   /** The properties to choose from (the Income page); null when the property is fixed (its page). */
-  properties: { id: string; name: string }[] | null;
+  /** Picked by the name the admin shows (`internalName`, Kian's rulings of 2026-10-15, evening), else the public title. */
+  properties: { id: string; name: string; internalName?: string }[] | null;
   propertyId: string;
   /** Every arrangement the page holds: the chosen property's are offered. */
   arrangements: readonly ArrangementView[];
@@ -166,7 +167,7 @@ export function RecordPaymentDialog(props: RecordPaymentDialogProps) {
           {props.properties && (
             <div className={`${styles.field} ${styles.fieldFull}`}>
               <span className={styles.label}>Property</span>
-              <AdminSelect label="Property" value={propertyId} onChange={pickProperty} searchable groups={[{ options: props.properties.map((p) => ({ value: p.id, label: p.name })) }]} disabled={busy} />
+              <AdminSelect label="Property" value={propertyId} onChange={pickProperty} searchable groups={[{ options: props.properties.map((p) => ({ value: p.id, label: p.internalName ?? p.name })) }]} disabled={busy} />
             </div>
           )}
           <div className={`${styles.field} ${styles.fieldFull}`}>

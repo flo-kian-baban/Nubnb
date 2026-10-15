@@ -31,7 +31,7 @@ type Read = { kind: "loading" } | { kind: "error"; title: string } | { kind: "re
 
 const propertyHref = (id: string, month: string) => `/admin/property?id=${encodeURIComponent(id)}&month=${month}`;
 
-export function DirectSection({ month, properties, show, onRecorded }: { month: string; properties: { id: string; name: string }[]; show: (notice: Notice) => void; onRecorded: () => void }) {
+export function DirectSection({ month, properties, show, onRecorded }: { month: string; properties: { id: string; name: string; internalName?: string }[]; show: (notice: Notice) => void; onRecorded: () => void }) {
   const [read, setRead] = useState<Read>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
   const [recording, setRecording] = useState(false);
@@ -47,7 +47,8 @@ export function DirectSection({ month, properties, show, onRecorded }: { month: 
   const reread = useCallback(() => setAttempt((n) => n + 1), []);
 
   const data = read.kind === "ready" ? read.data : null;
-  const names = useMemo(() => new Map(properties.map((p) => [p.id, p.name])), [properties]);
+  // By the name the admin shows: its cleaner-facing name, usually the address, else its public title (Kian's rulings of 2026-10-15, evening).
+  const names = useMemo(() => new Map(properties.map((p) => [p.id, p.internalName ?? p.name])), [properties]);
   const nameOf = (id: string, fallback: string | null) => names.get(id) ?? fallback ?? "A deleted property";
 
   const due = useMemo(() => {

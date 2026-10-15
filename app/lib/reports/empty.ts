@@ -72,7 +72,7 @@ export interface EmptyInputs {
   month: string;
   /** Today, yyyy-mm-dd in Toronto. */
   today: string;
-  properties: { id: string; name: string | null; createdMonth?: string | null }[];
+  properties: { id: string; name: string | null; internalName?: string | null; createdMonth?: string | null }[];
   management: PropertyManagementView[];
   /** Every finished report, of every property. */
   reports: MonthlyReportView[];
@@ -101,7 +101,8 @@ export function emptyMonth(input: EmptyInputs): EmptyMonth {
   for (const property of input.properties) {
     const record = records.get(property.id) ?? null;
     if (isExcludedFromReporting(record)) continue;
-    const name = property.name?.trim() || 'Unnamed property';
+    // The name the admin shows: its cleaner-facing name, else its public title (Kian's rulings of 2026-10-15, evening).
+    const name = property.internalName?.trim() || property.name?.trim() || 'Unnamed property';
     const reports = input.reports.filter((report) => report.propertyId === property.id);
     const current = currentReports(reports);
     const finished = current.some((report) => report.month === month);

@@ -10,11 +10,13 @@ import type { AvailabilityProperty } from './types';
 const str = (value: unknown): string => (typeof value === 'string' ? value : '');
 const num = (value: unknown, fallback = 0): number => (typeof value === 'number' && Number.isFinite(value) ? value : fallback);
 
-export function toAvailabilityProperty(property: Property): AvailabilityProperty {
+/** `internalName` is the name the admin shows (its cleaner-facing name, Kian's rulings of 2026-10-15, evening); absent, the public title. */
+export function toAvailabilityProperty(property: Property, internalName?: string): AvailabilityProperty {
   const address = property.addressDetails ?? { city: '', area: '', state: '', country: '' };
   return {
     id: property.id,
-    name: str(property.name),
+    name: internalName ?? str(property.name),
+    publicName: str(property.name),
     slug: str(property.slug),
     city: str(address.city),
     area: str(address.area),

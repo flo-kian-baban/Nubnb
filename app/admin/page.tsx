@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, type MouseEvent } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback, type MouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Property } from "@/app/types/property";
 import { getPropertiesResult, deleteProperty } from "@/app/lib/firebase/properties";
@@ -63,10 +63,13 @@ const BEDS_OPTIONS: { value: BedsFilter; label: string; match: (bedrooms: number
 /** Accents and case set aside, so "Étobicoke" and "etobicoke" are the same word. */
 const fold = (text: string) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
-/** Everything a property can be found by, as one folded string: name, location, city, area, province, type, tag and slug. */
-function searchText(p: Property): string {
+/**
+ * Everything a property can be found by, as one folded string: the name the list shows (its cleaner-facing name,
+ * usually the address), its public title, location, city, area, province, type, tag and slug.
+ */
+function searchText(p: Property, internalName: string | undefined): string {
   return fold(
-    [p.name, p.location, p.addressDetails?.city, p.addressDetails?.area, p.addressDetails?.state, p.type, p.propertyTypeTag, p.slug]
+    [internalName, p.name, p.location, p.addressDetails?.city, p.addressDetails?.area, p.addressDetails?.state, p.type, p.propertyTypeTag, p.slug]
       .filter(Boolean)
       .join(" "),
   );
@@ -146,6 +149,13 @@ function AdminHome() {
   const [unlistedIds, setUnlistedIds] = useState<Set<string>>(new Set());
   /** The month each property was created (Firestore's create time): no statement is owed before it (Kian's ruling of 2026-10-03). */
   const [createdMonths, setCreatedMonths] = useState<Map<string, string | null>>(new Map());
+  /**
+   * The name the list shows for each property: its cleaner-facing name, usually the street address, else its public
+   * title (Kian's rulings of 2026-10-15, evening: no internal list is titled by the Airbnb title). Read beside the
+   * documents, never inside one.
+   */
+  const [internalNames, setInternalNames] = useState<Map<string, string>>(new Map());
+  const nameOf = useCallback((p: Property) => internalNames.get(p.id) ?? p.name, [internalNames]);
   const [isLoading, setIsLoading] = useState(true);
   // null = the read succeeded. A failed read must never render as "no properties
   // yet", which invites re-creating records that already exist.
@@ -249,6 +259,7 @@ function AdminHome() {
         setProperties(result.data.properties);
         setUnlistedIds(result.data.unlistedIds);
         setCreatedMonths(result.data.createdMonths);
+        setInternalNames(result.data.internalNames);
         setLoadError(null);
       } else {
         setProperties([]);
@@ -268,7 +279,7 @@ function AdminHome() {
     () => BEDS_OPTIONS.map((option) => ({ ...option, count: properties.filter((p) => option.match(p.bedrooms ?? 0)).length })),
     [properties],
   );
-  const searchable = useMemo(() => new Map(properties.map((p) => [p.id, searchText(p)])), [properties]);
+  const searchable = useMemo(() => new Map(properties.map((p) => [p.id, searchText(p, internalNames.get(p.id))])), [properties, internalNames]);
 
   // Searched, filtered, then sorted.
   const filteredProperties = useMemo(() => {
@@ -292,10 +303,10 @@ function AdminHome() {
         result.sort((a, b) => nightlyPrice(b) - nightlyPrice(a));
         break;
       case "name-asc":
-        result.sort((a, b) => a.name.localeCompare(b.name, "en-CA"));
+        result.sort((a, b) => nameOf(a).localeCompare(nameOf(b), "en-CA"));
         break;
       case "beds-desc":
-        result.sort((a, b) => (b.bedrooms ?? 0) - (a.bedrooms ?? 0) || a.name.localeCompare(b.name, "en-CA"));
+        result.sort((a, b) => (b.bedrooms ?? 0) - (a.bedrooms ?? 0) || nameOf(a).localeCompare(nameOf(b), "en-CA"));
         break;
       case "attention": {
         const rank = new Map(result.map((p) => [p.id, attentionOf([statuses?.get(p.id)?.tone, columns?.get(p.id)?.income.tone, columns?.get(p.id)?.cleaning.tone])]));
@@ -307,7 +318,7 @@ function AdminHome() {
     }
 
     return result;
-  }, [properties, searchable, searchQuery, cityFilter, typeFilter, bedsFilter, sortBy, statuses, columns]);
+  }, [properties, searchable, searchQuery, cityFilter, typeFilter, bedsFilter, sortBy, statuses, columns, nameOf]);
 
   /** What is narrowing the list right now, each with a way to take it off. */
   const activeFilters: { key: string; label: string; clear: () => void }[] = [];
@@ -554,7 +565,7 @@ function AdminHome() {
                     key={p.id}
                     className={styles.propertyRow}
                     onClick={(event) => openPage(event, p.id)}
-                    aria-label={`Open ${p.name}`}
+                    aria-label={`Open ${nameOf(p)}`}
                   >
                     <td>
                       {/* The picture and the name are one link to the property's page. Not prefetched:
@@ -564,7 +575,7 @@ function AdminHome() {
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img src={p.coverImage} alt="" className={styles.thumb} />
                         </span>
-                        <span className={styles.propertyName}>{p.name}</span>
+                        <span className={styles.propertyName}>{nameOf(p)}</span>
                         {unlistedIds.has(p.id) && (
                           <span className={`${styles.stateBadge} ${styles.stateOpen} ${styles.unlistedBadge}`} title="Not on the public site: hidden from the homepage, the map, its own page and the property API">
                             Unlisted
@@ -597,21 +608,21 @@ function AdminHome() {
                           href={propertyHref(p.id)}
                           prefetch={false}
                           className={styles.rowAction}
-                          title={`${p.name}: its costs, income and statements`}
+                          title={`${nameOf(p)}: its costs, income and statements`}
                         >
                           <FileText size={14} aria-hidden />
                           <span>Open</span>
                         </Link>
-                        <Link href={editHref(p.id)} prefetch={false} className={styles.rowAction} title={`Edit ${p.name}`}>
+                        <Link href={editHref(p.id)} prefetch={false} className={styles.rowAction} title={`Edit ${nameOf(p)}`}>
                           <Edit2 size={14} aria-hidden />
                           <span>Edit</span>
                         </Link>
                         <button
                           type="button"
                           className={styles.iconBtnDelete}
-                          onClick={() => setAskingDelete({ id: p.id, name: p.name })}
+                          onClick={() => setAskingDelete({ id: p.id, name: nameOf(p) })}
                           title="Delete"
-                          aria-label={`Delete ${p.name}`}
+                          aria-label={`Delete ${nameOf(p)}`}
                         >
                           <Trash2 size={15} />
                         </button>

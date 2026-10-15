@@ -725,7 +725,9 @@ function Editor({ id, loaded, initialSection, created, mirror, links }: EditorPr
   });
 
   const name = (draft.property.name ?? "").trim();
-  const title = name || (mode === "new" ? "New property" : "Untitled property");
+  // The address heads the page, the public title under it (Kian's rulings of 2026-10-15, evening): its cleaner-facing name, else that title.
+  const address = draft.cleanerName.trim();
+  const title = address || name || (mode === "new" ? "New property" : "Untitled property");
   const publicSlug = stored && !held.unlisted ? toSlug(stored.name) : null;
 
   const panel = (() => {
@@ -773,7 +775,14 @@ function Editor({ id, loaded, initialSection, created, mirror, links }: EditorPr
             <ArrowLeft size={14} aria-hidden /> Properties
           </Link>
           <div className={styles.titleRow}>
-            <h2 className={`${styles.title} ${name ? "" : styles.titleEmpty}`}>{title}</h2>
+            <div className={styles.titleBlock}>
+              <h2 className={`${styles.title} ${address || name ? "" : styles.titleEmpty}`}>{title}</h2>
+              {address !== "" && name !== "" && name !== address && (
+                <p className={styles.publicTitle} title="Its public title, on the site and on Airbnb">
+                  {name}
+                </p>
+              )}
+            </div>
             {draft.unlisted && (
               <span className={`${shared.stateBadge} ${shared.stateOpen}`} title="Not on the public site">
                 Unlisted

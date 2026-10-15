@@ -46,6 +46,7 @@ import { FieldPath, type Transaction } from 'firebase-admin/firestore';
 import { getAdminBucket, getAdminDb } from './admin';
 import { directPlatformLines } from './server-direct';
 import { isDocumentId } from './server-leads';
+import { cleanerFacingNamesOf, internalNameOf, listCleanerFacingNames } from './server-property-names';
 import { type Actor, type Refusal } from '@/app/lib/cleaners/model';
 import { torontoDayOf } from '@/app/lib/costs/report';
 import { addDays } from '@/app/lib/availability/days';
@@ -337,7 +338,8 @@ export interface IncomeMonth {
   /** The last month each linked title was in a file, by link ID. */
   lastSeen: Record<string, string>;
   /** Every property, A to Z. */
-  properties: { id: string; name: string }[];
+  /** `name` is the public title (titles are matched against it); `internalName` is what the page shows (Kian's rulings of 2026-10-15, evening). */
+  properties: { id: string; name: string; internalName?: string }[];
   /** Every property-month with a draft, a finished statement, or accepted lines placed in the month. */
   statements: MonthStatement[];
   /** Check-ins in the month on the stored calendars, and which daily copies they were read from. */
@@ -409,7 +411,7 @@ function monthStatementOf(input: { propertyId: string; month: string; reports: M
 export async function readIncomeMonth(month: string): Promise<IncomeMonth> {
   const db = getAdminDb();
   const { from, to } = monthRange(month);
-  const [uploadsSnap, linesSnap, acceptedSnap, linksSnap, propertiesSnap, draftsSnap, reportsSnap, managementSnap, daysSnap, directLines] = await Promise.all([
+  const [uploadsSnap, linesSnap, acceptedSnap, linksSnap, propertiesSnap, draftsSnap, reportsSnap, managementSnap, daysSnap, directLines, facing] = await Promise.all([
     db.collection(EARNINGS_UPLOADS_COLLECTION).get(),
     db.collection(EARNINGS_LINES_COLLECTION).where('month', '==', month).get(),
     db.collection(EARNINGS_LINES_COLLECTION).where('status', '==', 'accepted').get(),
@@ -421,6 +423,8 @@ export async function readIncomeMonth(month: string): Promise<IncomeMonth> {
     db.collection(DAYS_COLLECTION).where(FieldPath.documentId(), '>=', from).where(FieldPath.documentId(), '<=', addDays(to, 7)).get(),
     // The recorded direct payments (part B): the month's statements place them as they place Airbnb's lines.
     directPlatformLines(),
+    // The names the page shows (Kian's rulings of 2026-10-15, evening).
+    listCleanerFacingNames(),
   ]);
   let unreadable = 0;
 
@@ -449,12 +453,15 @@ export async function readIncomeMonth(month: string): Promise<IncomeMonth> {
     const months = allUploads.filter((u) => u.platform === link.platform && u.titles.some((t) => t.title === link.title)).map((u) => u.month);
     if (months.length > 0) lastSeen[link.id] = months.sort()[months.length - 1];
   }
+  // `name` stays the public title, which Airbnb titles are matched against; `internalName` is what the page shows: the
+  // cleaner-facing name, usually the address, else the public title (Kian's rulings of 2026-10-15, evening).
   const properties = propertiesSnap.docs
     .map((doc) => {
       const name: unknown = doc.get('name');
-      return { id: doc.id, name: typeof name === 'string' && name.trim() !== '' ? name : 'Unnamed property' };
+      const publicName = typeof name === 'string' && name.trim() !== '' ? name : 'Unnamed property';
+      return { id: doc.id, name: publicName, internalName: internalNameOf(facing, doc.id, publicName) };
     })
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort((a, b) => a.internalName.localeCompare(b.internalName));
 
   const reportsByProperty = new Map<string, MonthlyReportView[]>();
   for (const doc of reportsSnap.docs) {
@@ -866,7 +873,8 @@ export async function readPropertyTitles(propertyId: string): Promise<PropertyTi
   const others = links.filter((link) => link.propertyId !== propertyId);
   const otherIds = [...new Set(others.map((link) => link.propertyId).filter((id): id is string => id !== null))];
   const otherDocs = otherIds.length > 0 ? await db.getAll(...otherIds.map((id) => db.collection('properties').doc(id)), { fieldMask: ['name'] }) : [];
-  const otherNames = new Map(otherDocs.filter((doc) => doc.exists).map((doc) => [doc.id, typeof doc.get('name') === 'string' ? (doc.get('name') as string) : 'Unnamed property']));
+  const facing = await cleanerFacingNamesOf(otherIds);
+  const otherNames = new Map(otherDocs.filter((doc) => doc.exists).map((doc) => [doc.id, internalNameOf(facing, doc.id, typeof doc.get('name') === 'string' ? (doc.get('name') as string) : 'Unnamed property')]));
   return {
     titles: mine.map((link) => ({ link, lastSeen: monthsOf(link.platform, link.title).at(-1) ?? null })),
     candidates: [...candidates.values()].sort((a, b) => a.title.localeCompare(b.title)),

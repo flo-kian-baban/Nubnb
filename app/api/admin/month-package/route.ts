@@ -53,6 +53,7 @@ import { CLEANINGS_COLLECTION } from '@/app/lib/cleanings/model';
 import { EARNINGS_LINES_COLLECTION, platformLinesOf, readEarningsLine, type EarningsLineView } from '@/app/lib/income/model';
 import { createdMonthOf } from '@/app/lib/firebase/created-month';
 import { directPlatformLines } from '@/app/lib/firebase/server-direct';
+import { internalNameOf, listCleanerFacingNames } from '@/app/lib/firebase/server-property-names';
 
 /** The one thing logged about a Firestore or Storage error: its code. */
 function errorCode(err: unknown): string {
@@ -78,7 +79,7 @@ export const GET = adminRoute(async function GET(request: NextRequest, _context:
   let selection: ReturnType<typeof selectMonthPackage>;
   const madeAt = new Date();
   try {
-    const [properties, entries, reports, drafts, downloads, management, earnings, cleanings, directLines] = await Promise.all([
+    const [properties, entries, reports, drafts, downloads, management, earnings, cleanings, directLines, facing] = await Promise.all([
       db.collection('properties').select('name').get(),
       db.collection(COST_ENTRIES_COLLECTION).get(),
       db.collection(MONTHLY_REPORTS_COLLECTION).get(),
@@ -92,13 +93,15 @@ export const GET = adminRoute(async function GET(request: NextRequest, _context:
       db.collection(CLEANINGS_COLLECTION).get(),
       // Every recorded direct payment (part B): read where it is stored, the statements place it as they place Airbnb's lines.
       directPlatformLines(),
+      // The names the folders and workbooks carry: the cleaner-facing name, else the public title (Kian's rulings of 2026-10-15, evening).
+      listCleanerFacingNames(),
     ]);
     const accepted = earnings.docs.map((doc) => readEarningsLine(doc.id, doc.data())).filter((line): line is EarningsLineView => line !== null);
     const input: SelectInputs = {
       month,
       today: torontoDayOf(madeAt),
       madeAt: madeAt.toISOString(),
-      properties: properties.docs.map((doc) => ({ id: doc.id, name: typeof doc.get('name') === 'string' ? (doc.get('name') as string) : null, createdMonth: createdMonthOf(doc.createTime) })),
+      properties: properties.docs.map((doc) => ({ id: doc.id, name: internalNameOf(facing, doc.id, typeof doc.get('name') === 'string' ? (doc.get('name') as string) : null), createdMonth: createdMonthOf(doc.createTime) })),
       entries: entries.docs.map((doc) => ({ id: doc.id, stored: doc.data() })),
       reports: reports.docs.flatMap((doc) => {
         const view = readMonthlyReport(doc.id, doc.data());

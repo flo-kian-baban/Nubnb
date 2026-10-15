@@ -23,7 +23,19 @@
   /* 28 px, not 1.25 (27.5 px): a whole-pixel line keeps the month bar, the tabs and the preview below it on whole pixels. */
   line-height: 28px;
   overflow-wrap: anywhere;
+}
+
+/* The heading, the address, and under it the public title (Kian's rulings of 2026-10-15, evening): first in the head. */
+.titleBlock {
+  min-width: 0;
   margin-right: auto;
+}
+.publicTitle {
+  margin: 2px 0 0;
+  font-size: 13px;
+  line-height: 18px;
+  color: rgba(255, 255, 255, 0.55);
+  overflow-wrap: anywhere;
 }
 
 /* The page's own buttons, last in the head (Kian's ruling of 2026-10-15: none in the navigation). */

@@ -32,6 +32,7 @@ import { useAsk } from "../components/AskDialog";
 import type { Notice } from "../components/Notice";
 import { changeCleaning, deleteCleaning, logCleaning, removeCleaning } from "@/app/lib/costs-client";
 import { formatCents, type PropertyNameView } from "@/app/lib/cleaners/model";
+import { internalLabel } from "@/app/lib/property-names";
 import { amountField, cleanerNameOf, lastCleanerOf, readAmountCents, suggestedAmount, type CleaningView, type SuggestedFrom, type TeamRate } from "@/app/lib/cleanings/model";
 import { RANGE_PRESETS, presetRange, shortDay } from "@/app/lib/costs/report";
 import { chargesByMonth, type Charge } from "@/app/lib/money/month";
@@ -81,8 +82,9 @@ interface Editing {
 
 export function CleaningsTab({ cleanings, team, properties, filters, setFilter, charges, today, focusId, onSaved, onDeleted, show }: Props) {
   const { ask, dialog } = useAsk();
-  const names = useMemo(() => new Map((properties ?? []).map((property) => [property.id, property.name?.trim() || "Unnamed property"])), [properties]);
-  const nameOf = (c: Pick<CleaningView, "propertyId" | "propertyNameAtEntry" | "property">) => c.property.name?.trim() || names.get(c.propertyId) || c.propertyNameAtEntry || "Unknown property";
+  // Each property by the name the admin shows: its cleaner-facing name, usually the address, else its public title (Kian's rulings of 2026-10-15, evening).
+  const names = useMemo(() => new Map((properties ?? []).map((property) => [property.id, internalLabel(property) ?? "Unnamed property"])), [properties]);
+  const nameOf = (c: Pick<CleaningView, "propertyId" | "propertyNameAtEntry" | "property">) => names.get(c.propertyId) || internalLabel(c.property) || c.propertyNameAtEntry || "Unknown property";
   /** Who can be picked: active cleaners, not handymen. */
   const pickable = useMemo(() => team.filter((member) => member.role === "cleaner" && member.status === "active"), [team]);
   const rateOf = (cleanerId: string) => team.find((member) => member.id === cleanerId)?.defaultRateCents ?? null;

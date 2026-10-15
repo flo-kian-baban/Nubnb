@@ -48,7 +48,8 @@ export interface MonthInputs {
   lines: EarningsLineView[];
   links: TitleLinkView[];
   lastSeen: Record<string, string>;
-  properties: { id: string; name: string }[];
+  /** `name` is the public title, which titles are matched against; `internalName` is what the page shows (Kian's rulings of 2026-10-15, evening). */
+  properties: { id: string; name: string; internalName?: string }[];
   statements: { propertyId: string; finished: boolean; lines: Line[]; sent?: Line[] | null }[];
   calendar: { checkIns: { propertyId: string; days: string[] }[] };
   /** Properties that owe no statement for the month, and why (I5): excluded from reporting, or outside their record's months. */
@@ -139,7 +140,8 @@ export function linkOf(links: TitleLinkView[], platform: IncomeChannel, title: s
 }
 
 export function monthView(input: MonthInputs): MonthView {
-  const names = new Map(input.properties.map((p) => [p.id, p.name]));
+  // Shown by the name the admin shows: its cleaner-facing name, usually the address, else its public title (Kian's rulings of 2026-10-15, evening).
+  const names = new Map(input.properties.map((p) => [p.id, p.internalName ?? p.name]));
   const statements = new Map(input.statements.map((s) => [s.propertyId, s]));
 
   // ── Titles: every title in the month's lines, with its rows, total and link ──

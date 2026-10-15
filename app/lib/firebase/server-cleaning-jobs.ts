@@ -33,7 +33,7 @@
 import type { DocumentReference, Transaction } from 'firebase-admin/firestore';
 import { getAdminDb } from './admin';
 import { isDocumentId } from './server-leads';
-import { getCleanerFacingName, listCleanerFacingNames } from './server-property-names';
+import { cleanerFacingNamesOf, getCleanerFacingName, internalNameOf, listCleanerFacingNames } from './server-property-names';
 import { cleaningDayProblem, readDocs, statementMonthOf, statementsPrinting } from './server-cleanings';
 import { paymentOnOrAfter } from './server-pay';
 import type { PaymentView } from '@/app/lib/pay/model';
@@ -107,14 +107,18 @@ export async function readSchedule(from: string, to: string): Promise<ScheduleRe
 
   const propertyIds = distinct(jobs.map((job) => job.propertyId));
   const cleaningIds = distinct(jobs.flatMap((job) => job.cleanerIds.filter((cid) => job.assignments[cid].removedAt === null).map((cid) => job.assignments[cid].cleaningId).filter((id): id is string => id !== null)));
-  const [propertyDocs, cleaningDocs] = await Promise.all([
+  const failedIds = copy ? Object.entries(copy.properties).filter(([, entry]) => entry.status === 'failed').map(([propertyId]) => propertyId) : [];
+  const [propertyDocs, cleaningDocs, facing] = await Promise.all([
     propertyIds.length ? db.getAll(...propertyIds.map((id) => db.collection('properties').doc(id)), { fieldMask: ['name', 'details'] }) : Promise.resolve([]),
     cleaningIds.length ? db.getAll(...cleaningIds.map((id) => db.collection(CLEANINGS_COLLECTION).doc(id)), { fieldMask: ['status', 'amountCents'] }) : Promise.resolve([]),
+    cleanerFacingNamesOf([...propertyIds, ...failedIds]),
   ]);
+  // Each property by the name the admin shows: its cleaner-facing name, usually the address, else its public title
+  // (Kian's rulings of 2026-10-15, evening), as the cleaner app's job list already names it.
   const properties = new Map(propertyDocs.filter((doc) => doc.exists).map((doc) => {
     const details = doc.get('details');
     const d = details && typeof details === 'object' ? (details as Record<string, unknown>) : {};
-    return [doc.id, { name: fieldText(doc.get('name')), checkOut: text(d.checkOut), checkIn: text(d.checkIn) }];
+    return [doc.id, { name: internalNameOf(facing, doc.id, fieldText(doc.get('name'))), checkOut: text(d.checkOut), checkIn: text(d.checkIn) }];
   }));
   const cleanings = new Map(cleaningDocs.filter((doc) => doc.exists).map((doc) => {
     const amount: unknown = doc.get('amountCents');
@@ -143,7 +147,7 @@ export async function readSchedule(from: string, to: string): Promise<ScheduleRe
   const failed = copy
     ? Object.entries(copy.properties)
         .filter(([, entry]) => entry.status === 'failed')
-        .map(([propertyId, entry]) => ({ propertyId, name: entry.name, since: entry.failedSince ?? null }))
+        .map(([propertyId, entry]) => ({ propertyId, name: internalNameOf(facing, propertyId, entry.name), since: entry.failedSince ?? null }))
     : [];
   return { jobs: views, team, calendar: { refreshedAt: copy?.refreshedAt ?? null, failed }, unreadable };
 }
@@ -596,9 +600,11 @@ export async function reopenMark(actor: Actor, jobId: string, cleanerId: string,
 export async function unmarkedJobsOf(cleanerId: string): Promise<UnmarkedJob[]> {
   if (!isDocumentId(cleanerId)) return [];
   const snap = await getAdminDb().collection(CLEANING_JOBS_COLLECTION).where('cleanerIds', 'array-contains', cleanerId).get();
-  return readJobs(snap.docs)
-    .jobs.filter((job) => job.assignments[cleanerId]?.cleaningId === null)
-    .map((job) => ({ id: job.id, propertyName: job.propertyNameAtCreation, checkout: job.checkout, status: job.status }))
+  const jobs = readJobs(snap.docs).jobs.filter((job) => job.assignments[cleanerId]?.cleaningId === null);
+  // Named as the admin names the property: its cleaner-facing name, else the title the job was made under (Kian's rulings of 2026-10-15, evening).
+  const facing = await cleanerFacingNamesOf(jobs.map((job) => job.propertyId));
+  return jobs
+    .map((job) => ({ id: job.id, propertyName: internalNameOf(facing, job.propertyId, job.propertyNameAtCreation), checkout: job.checkout, status: job.status }))
     .sort((a, b) => a.checkout.localeCompare(b.checkout) || a.id.localeCompare(b.id));
 }
 
@@ -606,22 +612,24 @@ export async function unmarkedJobsOf(cleanerId: string): Promise<UnmarkedJob[]> 
  * Inside the deactivation's or the deletion's transaction: the jobs the cleaner is on and has not marked. A read, so
  * it runs before the transaction's first write; `takeOffJobs` writes after.
  */
-export async function readUnmarkedJobs(tx: Transaction, cleanerId: string): Promise<{ ref: DocumentReference; job: StoredJob }[]> {
+export async function readUnmarkedJobs(tx: Transaction, cleanerId: string): Promise<{ ref: DocumentReference; job: StoredJob; propertyName: string | null }[]> {
   const snap = await tx.get(getAdminDb().collection(CLEANING_JOBS_COLLECTION).where('cleanerIds', 'array-contains', cleanerId));
   const out: { ref: DocumentReference; job: StoredJob }[] = [];
   for (const doc of snap.docs) {
     const job = readJob(doc.id, doc.data());
     if (job && job.assignments[cleanerId]?.cleaningId === null) out.push({ ref: doc.ref, job });
   }
-  return out;
+  // The name the admin is told, display only (outside the transaction's reads): the cleaner-facing name, else the title the job was made under.
+  const facing = await cleanerFacingNamesOf(out.map(({ job }) => job.propertyId));
+  return out.map((found) => ({ ...found, propertyName: internalNameOf(facing, found.job.propertyId, found.job.propertyNameAtCreation) }));
 }
 
 /**
  * Take a cleaner off the jobs `readUnmarkedJobs` found, in the same transaction: each job's history says who did it
  * and why ("deactivated", "deleted"). A job they marked keeps their mark and their cleaning: their earnings record.
  */
-export function takeOffJobs(tx: Transaction, found: { ref: DocumentReference; job: StoredJob }[], cleanerId: string, actor: Actor, reason: 'deactivated' | 'deleted', at: string): UnmarkedJob[] {
-  return found.map(({ ref, job }) => {
+export function takeOffJobs(tx: Transaction, found: { ref: DocumentReference; job: StoredJob; propertyName: string | null }[], cleanerId: string, actor: Actor, reason: 'deactivated' | 'deleted', at: string): UnmarkedJob[] {
+  return found.map(({ ref, job, propertyName }) => {
     const assignments = { ...job.assignments };
     const name = assignments[cleanerId]?.nameAtAssignment ?? null;
     delete assignments[cleanerId];
@@ -630,6 +638,6 @@ export function takeOffJobs(tx: Transaction, found: { ref: DocumentReference; jo
       assignments,
       history: [...job.history, jobEvent(at, 'unassigned', actor, { cleanerId, cleanerName: name, reason })],
     });
-    return { id: job.id, propertyName: job.propertyNameAtCreation, checkout: job.checkout, status: job.status };
+    return { id: job.id, propertyName, checkout: job.checkout, status: job.status };
   });
 }

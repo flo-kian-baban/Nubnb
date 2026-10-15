@@ -1099,7 +1099,7 @@ export interface TrackerInputs {
   /** Today, yyyy-mm-dd in Toronto: a month that has not ended is open, never outstanding (dispatch 23D). */
   today: string;
   /** Each property with the Toronto month its document was created, when known (Kian's ruling of 2026-10-03), and the months it has money in (2026-10-04). */
-  properties: { id: string; name: string | null; createdMonth?: string | null; moneyMonths?: readonly string[] }[];
+  properties: { id: string; name: string | null; internalName?: string | null; createdMonth?: string | null; moneyMonths?: readonly string[] }[];
   reports: MonthlyReportSummaryLike[];
   drafts: DraftLike[];
   downloads: { reportId: string; at: string }[];
@@ -1146,7 +1146,8 @@ export function trackerRows(input: TrackerInputs): TrackerRow[] {
     const downloads = live ? input.downloads.filter((d) => d.reportId === live.id).map((d) => d.at).sort() : [];
     rows.push({
       propertyId: property.id,
-      propertyName: property.name?.trim() || 'Unnamed property',
+      // The name the admin shows: its cleaner-facing name, else its public title (Kian's rulings of 2026-10-15, evening).
+      propertyName: property.internalName?.trim() || property.name?.trim() || 'Unnamed property',
       state,
       standing: monthStanding({ month: input.month, today: input.today, owed: inScope, finished: live !== null }),
       downloads: downloads.length,

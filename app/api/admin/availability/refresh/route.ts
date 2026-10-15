@@ -23,6 +23,7 @@
 
 import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiFailure, apiSuccess, noStore } from '@/app/lib/api/safe-response';
+import { failedNamedInternally } from '@/app/lib/firebase/server-property-names';
 import { getAdminDb } from '@/app/lib/firebase/admin';
 import { addDays, torontoDay } from '@/app/lib/availability/days';
 import { HISTORY_DAYS, historyView } from '@/app/lib/availability/attention';
@@ -69,7 +70,8 @@ export const POST = adminRoute(async function POST() {
     const today = torontoDay();
     const kept = await readHistoryFrom(db, addDays(today, -HISTORY_DAYS), today);
     const history = kept ? historyView(kept.snapshot, kept.day) : null;
-    return noStore(apiSuccess({ snapshot: outcome.snapshot, history, today, now: new Date().toISOString(), jobs: outcome.jobs }));
+    // The calendars that could not be read, named as the admin names them (Kian's rulings of 2026-10-15, evening).
+    return noStore(apiSuccess({ snapshot: await failedNamedInternally(outcome.snapshot), history, today, now: new Date().toISOString(), jobs: outcome.jobs }));
   } catch (err) {
     // A refresh that failed wrote nothing: the copy the page holds is still the last good one.
     console.error(`[availability] refresh failed: grpc code ${grpcCode(err)}`);

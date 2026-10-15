@@ -119,6 +119,7 @@ import { Dialog, Tick } from "./editor/controls";
 import { fromReport, fromStored, heldPartsOf, savablePayload, sha256Hex, suggestedTyped, toDraft, toPayload, type HeldParts, type ReportForDraft, type Typed } from "./statement-form";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
+import { internalLabel } from "@/app/lib/property-names";
 import ed from "./editor/editor.module.css";
 
 type Read<T> = { kind: "loading" } | { kind: "ready"; data: T } | { kind: "error"; title: string; detail?: string; status: number };
@@ -367,7 +368,9 @@ function PropertyPageInner() {
     });
   }, [data, draftLikes, moneyMonths, propertyId, today, thisMonth]);
 
-  const propertyName = data?.propertyName ?? costData?.properties?.find((p) => p.id === propertyId)?.name ?? null;
+  // The address heads the page (Kian's rulings of 2026-10-15, evening): the cleaner-facing name, else the public title, which shows under it.
+  const propertyName = data?.propertyName ?? internalLabel(costData?.properties?.find((p) => p.id === propertyId)) ?? null;
+  const publicName = data?.publicName ?? null;
 
   if (!valid) {
     return (
@@ -400,7 +403,10 @@ function PropertyPageInner() {
         {/* ── The head: the property, what is due for it (dispatch 23G), and the page's own buttons (Kian's ruling of
             2026-10-15: none in the navigation), in every state, as they were in the header ── */}
         <div className={styles.head}>
-          <h2 className={styles.title}>{propertyName ?? "Property"}</h2>
+          <div className={styles.titleBlock}>
+            <h2 className={styles.title}>{propertyName ?? "Property"}</h2>
+            {publicName !== null && publicName !== propertyName && <p className={styles.publicTitle} title="Its public title, on the site and on Airbnb">{publicName}</p>}
+          </div>
           {ready && <ReportingStatusLine status={ready.status} current={month} onMonth={setMonth} />}
           <div className={styles.headActions}>
             <button type="button" className={shared.btnGhost} onClick={reload} disabled={loading}>

@@ -71,7 +71,7 @@ export function CleanersSection({ ctx }: { ctx: SectionContext }) {
             {fieldIssue(ctx, "cleanerName") ?? `The name could not be read. ${UNREADABLE}`}
           </span>
         )}
-        <span className={styles.hint}>Cleaners see this instead of the title in their app: in search, on the property screen and on their receipts. Empty shows them &ldquo;{title}&rdquo;.</span>
+        <span className={styles.hint}>Shown instead of the title in the cleaners&rsquo; app, on every admin list, and on statements and cost exports. Empty uses &ldquo;{title}&rdquo;.</span>
       </Tile>
     </Panel>
   );

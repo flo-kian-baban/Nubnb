@@ -49,6 +49,7 @@ import { looseEnds, trackerCounts, trackerRows, type ReportingStatus, type Track
 import { carriedAllCents, payableText } from "@/app/lib/money/month";
 import type { PanelFigures } from "@/app/lib/reports-client";
 import { SentAt, whenText } from "../costs/cost-display";
+import { internalLabel } from "@/app/lib/property-names";
 import shared from "../page.module.css";
 import styles from "./StatementsPanel.module.css";
 
@@ -87,7 +88,7 @@ export function StatementsPanel({ data, statuses, month, today, onMonth, onClose
     return [...byMonth.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }, [statuses, month]);
   const ends = useMemo(() => {
-    const names = new Map(data.properties.map((p) => [p.id, p.name?.trim() || "Unnamed property"]));
+    const names = new Map(data.properties.map((p) => [p.id, internalLabel(p) ?? "Unnamed property"]));
     return looseEnds(month, data.entries, data.reports, data.management, (id) => names.get(id) ?? "Unknown property");
   }, [data, month]);
 

@@ -720,3 +720,18 @@ On the admin home's property list, and PROPERTY-LIST-COLUMNS-PLAN.md:
 - **The short-stay threshold is 30 nights, not 28, until Kian's accountant
   confirms otherwise.** Kian's ruling of 2026-10-15, after the part B report.
 - **The developer's other choices in the part B report are accepted.**
+
+## Property names — Kian's rulings of 2026-10-15 (evening)
+
+- **"All the internal lists should not have airbnb as title (addresses, the
+  cleaner names should be on the listing)."** A property's cleaner-facing
+  name, usually its address, is its name on every admin list.
+- **Availability and Leads also show the public title as a small grey line
+  under it, because renters ask about a listing by that title. Search
+  everywhere matches both. The property page and its edit page are headed by
+  the address, with the public title under it.**
+- **What owners receive switches to the address too: new statements, the
+  costs ledger's PDF and Excel, and the backup folders. A finished statement
+  keeps the name it printed.**
+- Dispatch 21's rulings stand: a property without a cleaner-facing name falls
+  back to its public title, and the public site never sees the name.

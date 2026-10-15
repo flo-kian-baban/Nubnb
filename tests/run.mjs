@@ -27,6 +27,7 @@ export const CHECKS = [
   { name: 'pay-balance', script: 'pay/balance.mjs', args: [] },
   { name: 'property-columns', script: 'home/columns.mjs', args: [] },
   { name: 'direct-payments', script: 'direct/payments.mjs', args: [] },
+  { name: 'internal-names', script: 'names/internal-names.mjs', args: [] },
 ];
 
 const argv = process.argv.slice(2);

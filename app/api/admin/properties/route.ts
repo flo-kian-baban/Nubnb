@@ -1,7 +1,7 @@
 /**
  * GET /api/admin/properties — every property, whole, for the admin (dispatch 24).
  *
- * Response: 200 `{ success: true, data: { properties: Property[], unlistedIds: string[], createdMonths: { [id]: 'yyyy-mm' } } }`
+ * Response: 200 `{ success: true, data: { properties: Property[], unlistedIds: string[], createdMonths: { [id]: 'yyyy-mm' }, internalNames: { [id]: string } } }`
  *
  * The admin list and the Availability page read the collection from the
  * browser until dispatch 24. The Firestore rules now refuse a browser that
@@ -13,7 +13,10 @@
  * what it was given. Which properties are unlisted comes beside them, never
  * inside a document, so a form cannot write it onto one; so does the Toronto
  * month each document was created, by Firestore's own create time, which the
- * owed-months rule needs (Kian's ruling of 2026-10-03).
+ * owed-months rule needs (Kian's ruling of 2026-10-03); and so does the name
+ * the admin lists show, the cleaner-facing name (usually the street address)
+ * else the public title (Kian's rulings of 2026-10-15, evening), which must
+ * never land on the world-readable property document.
  *
  * Every response is no-store.
  */
@@ -21,6 +24,7 @@
 import { getAdminDb } from '@/app/lib/firebase/admin';
 import { unlistedPropertyIds } from '@/app/lib/firebase/server-visibility';
 import { createdMonthOf } from '@/app/lib/firebase/created-month';
+import { internalNameOf, listCleanerFacingNames } from '@/app/lib/firebase/server-property-names';
 import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiFailure, apiSuccess, noStore } from '@/app/lib/api/safe-response';
 
@@ -30,12 +34,18 @@ function grpcCode(err: unknown): string {
   return typeof code === 'number' ? String(code) : 'unknown';
 }
 
+/** A stored public title, or "" when it is not usable text. */
+function publicNameOf(name: unknown): string {
+  return typeof name === 'string' ? name : '';
+}
+
 export const GET = adminRoute(async function GET() {
   try {
-    const [snapshot, unlisted] = await Promise.all([getAdminDb().collection('properties').get(), unlistedPropertyIds()]);
+    const [snapshot, unlisted, facing] = await Promise.all([getAdminDb().collection('properties').get(), unlistedPropertyIds(), listCleanerFacingNames()]);
     const properties = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
     const createdMonths = Object.fromEntries(snapshot.docs.map((doc) => [doc.id, createdMonthOf(doc.createTime)]));
-    return noStore(apiSuccess({ properties, unlistedIds: [...unlisted].sort(), createdMonths }));
+    const internalNames = Object.fromEntries(snapshot.docs.map((doc) => [doc.id, internalNameOf(facing, doc.id, publicNameOf(doc.get('name')))]));
+    return noStore(apiSuccess({ properties, unlistedIds: [...unlisted].sort(), createdMonths, internalNames }));
   } catch (err) {
     console.error(`[admin/properties] read failed: grpc code ${grpcCode(err)}`);
     return noStore(apiFailure({ message: 'Could not load the properties.', status: 503, code: 'PROPERTIES_UNAVAILABLE' }));

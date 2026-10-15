@@ -120,16 +120,21 @@ export interface LeadSummary {
   /** As stored: possibly outside LEAD_STATUSES. */
   status: string | null;
   source: LeadSource;
-  /** Only a stay request names a property. */
+  /** Only a stay request names a property: by the title the renter saw, as they sent it. */
   propertyName: string | null;
   propertyId: string | null;
+  /** The property's cleaner-facing name, usually its street address, which the inbox shows above that title (Kian's rulings of 2026-10-15, evening); null when it has none. */
+  propertyInternalName: string | null;
   notification: NotificationState;
 }
 
 /** The live listing a stay request names, looked up by ID when the lead is opened. */
 export type PropertyLink =
-  /** `href` is null only for a listing with no name, which has no public URL. */
-  | { state: 'found'; name: string; href: string | null }
+  /**
+   * `href` is null only for a listing with no name, which has no public URL. `internalName` is its cleaner-facing name,
+   * usually its street address, shown above the title (Kian's rulings of 2026-10-15, evening); null when it has none.
+   */
+  | { state: 'found'; name: string; internalName: string | null; href: string | null }
   /** No property has this ID now. */
   | { state: 'missing' }
   /** The lookup failed. The lead itself still loaded. */
@@ -218,15 +223,17 @@ export function toLeadSummary(id: string, fields: LeadFields): LeadSummary {
     source: classifySource(fields).source,
     propertyName: stay ? fieldText(stay.propertyName) : null,
     propertyId: stay ? fieldText(stay.propertyId) : null,
+    // Filled by the admin read (listLeads), which looks it up by the property's ID.
+    propertyInternalName: null,
     notification: notificationOf(fields).state,
   };
 }
 
-/** Search by name, email or property — the property's name or its ID. */
+/** Search by name, email or property — the property's title, its address or its ID. */
 export function matchesLeadSearch(lead: LeadSummary, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
-  return [lead.name, lead.email, lead.propertyName, lead.propertyId].some((value) =>
+  return [lead.name, lead.email, lead.propertyName, lead.propertyInternalName, lead.propertyId].some((value) =>
     value?.toLowerCase().includes(q),
   );
 }

@@ -39,7 +39,8 @@ export interface IncomeMonth {
   lines: EarningsLineView[];
   links: TitleLinkView[];
   lastSeen: Record<string, string>;
-  properties: { id: string; name: string }[];
+  /** `name` is the public title (titles are matched against it); `internalName` is what the page shows (Kian's rulings of 2026-10-15, evening). */
+  properties: { id: string; name: string; internalName?: string }[];
   statements: MonthStatement[];
   calendar: { days: string[]; checkIns: { propertyId: string; days: string[] }[] };
   /** Properties that owe no statement for the month, and why (dispatch 37C, I5). */
