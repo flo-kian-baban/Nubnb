@@ -2,15 +2,15 @@
   all 10,000 four-digit PINs: the app's verdict (pinProblem) for 10000, another for 0
   too easy: the app's list has 24, the script's 24, the same PINs: true
   the script's four-digit pattern is the app's: true
-  three digits               script: "Not four digits." · app: "Four digits."
-  five digits                script: "Not four digits." · app: "Four digits."
-  six digits (the night's)   script: "Not four digits." · app: "Four digits."
-  letters                    script: "Not four digits." · app: "Four digits."
-  a space                    script: "Not four digits." · app: "Four digits."
-  empty                      script: "Not four digits." · app: "Four digits."
-  a number, not text         script: "Not four digits." · app: "not text"
-  too easy (a run)           script: "Too easy to guess: it is on the list cleaner codes refuse." · app: "Too easy to guess: choose another."
-  too easy (a repeat)        script: "Too easy to guess: it is on the list cleaner codes refuse." · app: "Too easy to guess: choose another."
+  three digits               script: "A PIN is four digits." · app: "A PIN is four digits."
+  five digits                script: "A PIN is four digits." · app: "A PIN is four digits."
+  six digits (the night's)   script: "A PIN is four digits." · app: "A PIN is four digits."
+  letters                    script: "A PIN is four digits." · app: "A PIN is four digits."
+  a space                    script: "A PIN is four digits." · app: "A PIN is four digits."
+  empty                      script: "A PIN is four digits." · app: "A PIN is four digits."
+  a number, not text         script: "A PIN is four digits." · app: "not text"
+  too easy (a run)           script: "Too easy to guess: four of one digit, or a straight run like 1234." · app: "Too easy to guess: four of one digit, or a straight run like 1234."
+  too easy (a repeat)        script: "Too easy to guess: four of one digit, or a straight run like 1234." · app: "Too easy to guess: four of one digit, or a straight run like 1234."
   the shared PIN: script "That is the shared PIN (ADMIN_PIN), which is never an admin’s own." · the app's sharedPinMatches: true
   another PIN, the shared one set: script null · the app's sharedPinMatches: false
   samePin gives the app's answer for 6 of 6 pairs
@@ -18,14 +18,14 @@
   and their index entries: [null,"<old four-digit PIN>","<old six-digit PIN>","<lookup key>",null,null,null]
 
 2. Refused, with nothing written
-  not four digits                              → {"kind":"refused","reason":"Not four digits."} · 0 reads · writes: none · everything unchanged: true
-  too easy                                     → {"kind":"refused","reason":"Too easy to guess: it is on the list cleaner codes refuse."} · 0 reads · writes: none · everything unchanged: true
+  not four digits                              → {"kind":"refused","reason":"A PIN is four digits."} · 0 reads · writes: none · everything unchanged: true
+  too easy                                     → {"kind":"refused","reason":"Too easy to guess: four of one digit, or a straight run like 1234."} · 0 reads · writes: none · everything unchanged: true
   the shared PIN                               → {"kind":"refused","reason":"That is the shared PIN (ADMIN_PIN), which is never an admin’s own."} · 0 reads · writes: none · everything unchanged: true
-  an ordinary admin's PIN                      → {"kind":"refused","reason":"Another admin’s PIN."} · 3 reads · writes: none · everything unchanged: true
-  another main admin's PIN                     → {"kind":"refused","reason":"Another admin’s PIN."} · 3 reads · writes: none · everything unchanged: true
+  an ordinary admin's PIN                      → {"kind":"refused","reason":"Another admin has that PIN."} · 4 reads · writes: none · everything unchanged: true
+  another main admin's PIN                     → {"kind":"refused","reason":"Another admin has that PIN."} · 4 reads · writes: none · everything unchanged: true
   a current cleaner code                       → {"kind":"refused","reason":"A current cleaner code."} · 3 reads · writes: none · everything unchanged: true
   a retired cleaner code                       → {"kind":"refused","reason":"A retired cleaner code: no admin PIN may equal a code ever issued."} · 3 reads · writes: none · everything unchanged: true
-  their PIN already                            → {"kind":"refused","reason":"That is their PIN already."} · 4 reads · writes: none · everything unchanged: true
+  their PIN already                            → {"kind":"refused","reason":"That is their PIN already."} · 5 reads · writes: none · everything unchanged: true
   not a main admin                             → {"kind":"refused","reason":"Not a main admin: a main admin sets their PIN on the Admins page."} · 4 reads · writes: none · everything unchanged: true
   no such admin                                → {"kind":"refused","reason":"The admin is gone."} · 3 reads · writes: none · everything unchanged: true
 
@@ -37,14 +37,24 @@
     the document: pin {"state":"readable","value":"<new PIN>"} · pinSetAt 2026-10-14T05:00:00.000Z · epoch 3 · history [["created","system",null,"first sign-in",null],["pin_changed","system",null,"recovery script","own"]]
     kept as they were: name Main, level main, failedTries 0, lockedUntil null, schemaVersion 2
     the index: {"adminId":"MAIN0000000000000001","createdAt":"2026-10-14T05:00:00.000Z"} · entries naming them: 1
-  the same again                               → {"kind":"refused","reason":"That is their PIN already."} · 4 reads · writes: none · everything unchanged: true
-  another main admin, to the PIN just set      → {"kind":"refused","reason":"Another admin’s PIN."} · 4 reads · writes: none · everything unchanged: true
+  the same again                               → {"kind":"refused","reason":"That is their PIN already."} · 5 reads · writes: none · everything unchanged: true
+  another main admin, to the PIN just set      → {"kind":"refused","reason":"Another admin has that PIN."} · 5 reads · writes: none · everything unchanged: true
   a readable four-digit PIN                    → {"kind":"set","from":"readable","epoch":6,"freed":true} · 4 reads · writes: update admins/MAIN0000000000000002 {pin, pinSetAt, sessionEpoch, history} · create admin_pins/<second new PIN> {"adminId":"MAIN0000000000000002","createdAt":"2026-10-14T05:00:00.000Z"} · delete admin_pins/<old four-digit PIN>
     old entry there: false · the new one names: MAIN0000000000000002
   the night's six digits                       → {"kind":"set","from":"set","epoch":2,"freed":true} · 4 reads · writes: update admins/MAIN0000000000000003 {pin, pinSetAt, sessionEpoch, history} · create admin_pins/<second new PIN> {"adminId":"MAIN0000000000000003","createdAt":"2026-10-14T05:00:00.000Z"} · delete admin_pins/<old six-digit PIN>
     old entry there: false · the history says from: set
   the evening's lookup key, epoch at its cap   → {"kind":"set","from":"set","epoch":999999999,"freed":true} · 4 reads · writes: update admins/MAIN0000000000000004 {pin, pinSetAt, sessionEpoch, history} · create admin_pins/<second new PIN> {"adminId":"MAIN0000000000000004","createdAt":"2026-10-14T05:00:00.000Z"} · delete admin_pins/<lookup key>
     old entry there: false · epoch 999999999
+
+4b. A PIN no admin holds any more may be set again (Kian’s ruling of 2026-10-17): an entry left behind is written over
+  an entry naming an admin who is gone         → {"kind":"set","from":"own","epoch":3,"freed":false} · 4 reads · writes: update admins/MAIN0000000000000001 {pin, pinSetAt, sessionEpoch, history} · set admin_pins/<new PIN> {"adminId":"MAIN0000000000000001","createdAt":"2026-10-14T05:00:00.000Z"}
+    the entry now names: MAIN0000000000000001 · written at 2026-10-14T05:00:00.000Z
+  an entry naming Ada, who is on another PIN   → {"kind":"set","from":"readable","epoch":6,"freed":true} · 5 reads · writes: update admins/MAIN0000000000000002 {pin, pinSetAt, sessionEpoch, history} · set admin_pins/<new PIN> {"adminId":"MAIN0000000000000002","createdAt":"2026-10-14T05:00:00.000Z"} · delete admin_pins/<old four-digit PIN>
+    the entry now names: MAIN0000000000000002 · Ada's PIN and entry kept: true
+  an entry naming themselves, on another PIN   → {"kind":"set","from":"own","epoch":3,"freed":false} · 4 reads · writes: update admins/MAIN0000000000000001 {pin, pinSetAt, sessionEpoch, history} · set admin_pins/<new PIN> {"adminId":"MAIN0000000000000001","createdAt":"2026-10-14T05:00:00.000Z"}
+  Main Two moves off their PIN: {"kind":"set","from":"readable","epoch":6,"freed":true}
+  Main Two, back to the PIN they held before   → {"kind":"set","from":"readable","epoch":7,"freed":true} · 4 reads · writes: update admins/MAIN0000000000000002 {pin, pinSetAt, sessionEpoch, history} · create admin_pins/<old four-digit PIN> {"adminId":"MAIN0000000000000002","createdAt":"2026-10-14T05:00:00.000Z"} · delete admin_pins/<new PIN>
+  then Main, to the PIN Main Two held before   → {"kind":"set","from":"own","epoch":3,"freed":false} · 3 reads · writes: update admins/MAIN0000000000000001 {pin, pinSetAt, sessionEpoch, history} · create admin_pins/<new PIN> {"adminId":"MAIN0000000000000001","createdAt":"2026-10-14T05:00:00.000Z"}
 
 5. Two at once: the second, which read before the first committed, is refused whole at its commit
   the first (Main): {"kind":"set","from":"own","epoch":3,"freed":false}

@@ -5,9 +5,10 @@
  * as Add Property opens its form. The role is chosen first, as two cards
  * that say what each role does, then the name, then the code: four digits
  * the admin types (Kian, dispatch 23H), or fills with "Generate" and keeps or
- * changes. The page makes the call: a refusal — the admin PIN, a code on the
- * reserved list, one already in use or used before — is shown here with
- * what was typed kept; a create closes the dialog and the page's notice
+ * changes. The page makes the call: a refusal — an admin's PIN, a code an
+ * active account holds — is shown here in one plain line that says why, with
+ * what was typed kept (an easy code such as 1234 is not refused: Kian's
+ * rulings of 2026-10-17); a create closes the dialog and the page's notice
  * repeats the code.
  */
 

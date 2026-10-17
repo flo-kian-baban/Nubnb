@@ -178,9 +178,10 @@ export function createCleaner(name: string, role: CleanerRole, code: string): Pr
 
 /**
  * A code to offer in the create dialog: four digits drawn uniformly from the
- * browser's CSPRNG, never one on the reserved list. Only a suggestion, typed
- * into the field for the admin to keep or change: the server still refuses
- * the admin PIN and any code issued before.
+ * browser's CSPRNG, never an easy code. Only a suggestion, typed into the
+ * field for the admin to keep or change: an easy code the admin types is
+ * accepted (Kian's ruling of 2026-10-17), and the server still refuses an
+ * admin's PIN and a code an active account holds.
  */
 export function suggestCode(): string {
   const draw = new Uint16Array(1);

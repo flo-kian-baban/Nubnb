@@ -7,13 +7,14 @@
  * and answers 200 `{ cleaner, changed }` with the cleaner as now stored, new
  * code included.
  *
- * Refused, with nothing written:
+ * An easy code (1234, 0000 …) is accepted (Kian's ruling of 2026-10-17).
+ * Refused, with nothing written, each in one plain line that says why
+ * (Kian's ruling of 2026-10-17):
  *   422 CLEANER_CODE_IS_ADMIN_PIN  an admin PIN — the shared one, or any
  *                                  admin's (Kian's rulings of 2026-10-13, late
  *                                  night) — is never a cleaner's code: both
  *                                  are four digits, so the cleaner would open
  *                                  /admin with it
- *   422 CLEANER_CODE_TOO_EASY      on the reserved list (1111, 1234, 9876 …)
  *   409 CLEANER_CODE_TAKEN         an active account's code now; any other
  *                                  code is free (Kian's ruling of 2026-10-02),
  *                                  a deactivated holder then having none
@@ -86,7 +87,7 @@ const CODE_REFUSALS: Record<
   exhausted: {
     status: 409,
     code: 'CLEANER_CODE_UNAVAILABLE',
-    message: 'No unused code could be drawn. Nothing was changed. Try again.',
+    message: 'Every code drawn was already in use: try again.',
   },
   unreadable: {
     status: 500,
@@ -107,23 +108,14 @@ const CODE_REFUSALS: Record<
 const ADMIN_PIN_REFUSAL: Refusal = {
   status: 422,
   code: 'CLEANER_CODE_IS_ADMIN_PIN',
-  message: 'That is an admin PIN.',
-  hint: 'A cleaner’s code can never be an admin PIN (Kian’s ruling of 2026-10-13): they would open /admin with it. Nothing was changed.',
-};
-
-const TOO_EASY_REFUSAL: Refusal = {
-  status: 422,
-  code: 'CLEANER_CODE_TOO_EASY',
-  message: 'That code is too easy to guess.',
-  hint: 'Four of the same digit and runs like 1234 or 9876 are never used. Nothing was changed.',
+  message: 'That is an admin PIN, and a code can never be one.',
 };
 
 function takenRefusal(holder: string | null): Refusal {
   return {
     status: 409,
     code: 'CLEANER_CODE_TAKEN',
-    message: holder ? `That code is ${holder}’s.` : 'That code belongs to someone else on the team.',
-    hint: 'Change their code or delete them to reuse it, or choose another. Nothing was changed.',
+    message: holder ? `${holder} already has that code.` : 'Someone else on the team already has that code.',
   };
 }
 
@@ -180,7 +172,7 @@ export const POST = adminRoute(async function POST(request: NextRequest, context
     case 'not-a-code':
       return noStore(apiValidationError([{ path: 'code', message: CODE_MESSAGE }]));
     case 'reserved':
-      return noStore(apiFailure(outcome.reason === 'admin-pin' ? ADMIN_PIN_REFUSAL : TOO_EASY_REFUSAL));
+      return noStore(apiFailure(ADMIN_PIN_REFUSAL));
     case 'admin-pin':
       return noStore(apiFailure(ADMIN_PIN_REFUSAL));
     case 'locked':

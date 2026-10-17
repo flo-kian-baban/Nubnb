@@ -200,7 +200,7 @@ function ChooseFour({ admin, current, onSet, onSignOut }: { admin: SignedInAdmin
     const result = await changeOwnPin(now, next);
     setBusy(false);
     if (result.ok) return onSet(result.data);
-    if (isLockedAnswer(result)) setError(`Sign-in from here is locked until ${lockTimeWords(result.lockedUntil)}.`);
+    if (isLockedAnswer(result)) setError(`Too many tries: sign-in from here is locked until ${lockTimeWords(result.lockedUntil)}.`);
     else if (result.code === "ADMIN_CURRENT_PIN_WRONG") {
       setError(current ? "The shared PIN has changed: sign out, and sign in again." : "That is not your current PIN.");
       if (!current) setNow("");

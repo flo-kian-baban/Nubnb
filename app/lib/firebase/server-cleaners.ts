@@ -67,7 +67,7 @@ import { memberPay } from '@/app/lib/pay/balance';
 import type { UnmarkedJob } from '@/app/lib/schedule/model';
 import { isDocumentId } from './server-leads';
 import { DAILY_TRIES, MAX_WRONG_TRIES, afterTry, lockHolding, type LockState, type SignInLockView } from '@/app/lib/admins/model';
-import { generateCandidate, reservedReason, type ReservedReason } from '@/app/lib/cleaners/codes';
+import { generateCandidate, isDrawable, reservedReason, type ReservedReason } from '@/app/lib/cleaners/codes';
 import {
   CLEANERS_COLLECTION,
   CLEANER_CODES_COLLECTION,
@@ -248,11 +248,11 @@ export type IssueCleanerResult =
   | { kind: 'unavailable' }
   /** The typed code is not four digits. Nothing was read or written. */
   | { kind: 'not-a-code' }
-  /** The typed code is the admin PIN, or on the reserved list. Nothing was read or written. */
+  /** The typed code is the admin PIN (ADMIN_PIN). Nothing was read or written. */
   | { kind: 'reserved'; reason: ReservedReason }
   /** The typed code is an active account's now (`holder` is their name). Nothing was written. */
   | { kind: 'taken'; holder: string | null }
-  /** Every candidate was reserved or already issued. Nothing was written. */
+  /** Every candidate was reserved, easy or already issued. Nothing was written. */
   | { kind: 'exhausted' }
   /** The write failed in a way that does not say whether it landed. Never retried. */
   | { kind: 'unconfirmed' };
@@ -293,7 +293,7 @@ function newCleaner(name: string, role: CleanerRole, code: string, now: string, 
  *
  * A typed code goes through one transaction that reads an ordinary admin's
  * connection lock first (refused while it holds), then decides: the admin PIN
- * or the reserved list, an admin's PIN, a code an active account holds — the
+ * (ADMIN_PIN), an admin's PIN, a code an active account holds — the
  * same refusals as a code change (setCleanerCode) — and counts the try on the
  * connection whatever the answer (Kian's rulings of 2026-10-13, late night). A
  * main admin's is neither held by the lock nor counted (CodeTyper).
@@ -334,8 +334,8 @@ export async function issueCleaner(
 
   for (let n = 1; n <= MAX_CANDIDATES; n++) {
     const code = generateCandidate();
-    if (reservedReason(code, adminPin)) {
-      console.warn(`[cleaners] reserved candidate skipped (candidate ${n}/${MAX_CANDIDATES})`);
+    if (!isDrawable(code, adminPin)) {
+      console.warn(`[cleaners] reserved or easy candidate skipped (candidate ${n}/${MAX_CANDIDATES})`);
       continue;
     }
 
@@ -369,14 +369,14 @@ export async function issueCleaner(
     return { kind: 'created', cleaner: readCleanerSummary(cleanerRef.id, cleaner), released: null };
   }
 
-  console.error(`[cleaners] no code issued: all ${MAX_CANDIDATES} candidates were reserved or taken`);
+  console.error(`[cleaners] no code issued: all ${MAX_CANDIDATES} candidates were reserved, easy or taken`);
   return { kind: 'exhausted' };
 }
 
 /**
  * Create a cleaner holding the code the admin typed, in one transaction: an
- * ordinary admin's connection lock first, then the refusals — the admin PIN or
- * the reserved list, an admin's PIN, a code an active account holds (Kian's
+ * ordinary admin's connection lock first, then the refusals — the admin PIN
+ * (ADMIN_PIN), an admin's PIN, a code an active account holds (Kian's
  * ruling of 2026-10-02: a replaced code, a deleted account's or a deactivated
  * account's is taken over) — and their try counted on the connection whatever
  * the answer. A main admin's is not counted (CodeTyper).
@@ -563,11 +563,11 @@ export type SetCleanerCodeResult =
   | { kind: 'not-a-code' }
   /** No admin PIN to keep codes clear of. Nothing was read or written. */
   | { kind: 'admin-pin-missing' }
-  /** The typed code is the admin PIN, or on the reserved list. Nothing was read or written. */
+  /** The typed code is the admin PIN (ADMIN_PIN). Nothing was read or written. */
   | { kind: 'reserved'; reason: ReservedReason }
   /** The typed code is an active account's now (`holder` is their name). Nothing was written. */
   | { kind: 'taken'; holder: string | null }
-  /** Every candidate drawn was reserved or taken. Nothing was written. */
+  /** Every candidate drawn was reserved, easy or taken. Nothing was written. */
   | { kind: 'exhausted' }
   /** The stored session epoch or history is not in a shape that can be advanced. Nothing was written. */
   | { kind: 'unreadable' }
@@ -577,10 +577,12 @@ export type SetCleanerCodeResult =
 /**
  * Give a cleaner a new code, typed by the admin or drawn here.
  *
- * Refused before anything is read: a code that is the admin PIN or on the
- * reserved list. Refused by the transaction: a code an active account holds
- * now (Kian's ruling of 2026-10-02: any other code is free — replaced, a
- * deleted account's, or a deactivated account's, who then has none).
+ * Refused before anything is read: a code that is the admin PIN (ADMIN_PIN).
+ * An easy code is not refused (Kian's ruling of 2026-10-17: cleaner and
+ * handyman codes may be easy codes). Refused by the transaction: an admin's
+ * PIN, and a code an active account holds now (Kian's ruling of 2026-10-02:
+ * any other code is free — replaced, a deleted account's, or a deactivated
+ * account's, who then has none).
  *
  * One transaction, all or nothing: it writes the new code's document,
  * marks the old one retired (kept, so the record says whose it was), and
@@ -593,7 +595,8 @@ export type SetCleanerCodeResult =
  * the old code is signed out on its next request, as after a deactivation.
  *
  * A generated code is drawn like an issued one, up to five candidates; a
- * candidate that is reserved, taken, or the cleaner's own code is skipped.
+ * candidate that is reserved, easy, taken, or the cleaner's own code is
+ * skipped.
  */
 export async function setCleanerCode(
   actor: Actor,
@@ -613,8 +616,8 @@ export async function setCleanerCode(
 
   for (let n = 1; n <= MAX_CANDIDATES; n++) {
     const code = generateCandidate();
-    if (reservedReason(code, adminPin)) {
-      console.warn(`[cleaners] reserved candidate skipped (candidate ${n}/${MAX_CANDIDATES})`);
+    if (!isDrawable(code, adminPin)) {
+      console.warn(`[cleaners] reserved or easy candidate skipped (candidate ${n}/${MAX_CANDIDATES})`);
       continue;
     }
     const result = await writeCode(actor, id, code, { kind: 'drawn' });
@@ -622,7 +625,7 @@ export async function setCleanerCode(
     console.warn(`[cleaners] code collision (candidate ${n}/${MAX_CANDIDATES})`);
   }
 
-  console.error(`[cleaners] no code generated: all ${MAX_CANDIDATES} candidates were reserved or taken`);
+  console.error(`[cleaners] no code generated: all ${MAX_CANDIDATES} candidates were reserved, easy or taken`);
   return { kind: 'exhausted' };
 }
 

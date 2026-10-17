@@ -248,7 +248,9 @@ no checkout. Do not build toward one unless asked.
   code** rather than being given a generated one. Offer to generate one, but
   let them type it. The existing refusals hold: a code already in use, a code
   equal to the admin PIN, and the reserved list. Changing a code afterwards
-  is unchanged.
+  is unchanged. The reserved list is replaced by Kian's ruling of
+  2026-10-17: cleaner and handyman codes may be easy codes (Codes and PINs,
+  below).
 - **An admin can delete a cost entry entirely — the document, its history,
   and its receipt object in Storage.** This reverses the earlier ruling that
   nothing is deleted. **Consequence: a deleted entry leaves no record of what
@@ -567,7 +569,9 @@ These replace the rulings they change: six-digit admin PINs.
 - **Everything else from tonight stands: main admins set and see every PIN,
   sign-in by PIN alone, unique PINs, Admin as the default level.**
 - **The "too easy" list for four digits is the one cleaner codes already
-  use, and ADMIN_PIN stays refused as any admin's own PIN.**
+  use, and ADMIN_PIN stays refused as any admin's own PIN.** Cleaner codes
+  no longer refuse that list, by Kian's ruling of 2026-10-17 (Codes and
+  PINs, below); admin PINs still do.
 - **Kian's account: the recovery script puts him on the shared PIN, and Set
   your PIN takes four digits.**
 
@@ -787,3 +791,15 @@ Kian's review of 2026-10-17:
   timed out, or absent from a partial copy) keeps its jobs exactly as they
   are. "Calendar removed" and "property deleted" are recorded only when that
   is known from the property itself.**
+
+## Codes and PINs — Kian's rulings of 2026-10-17
+
+These replace what they change: the reserved list for cleaner codes (dispatch
+23H) and cleaner codes using the "too easy" list (2026-10-13, late night).
+
+1. **Cleaner and handyman codes may be easy codes (all same digits, straight
+   runs): the "too easy" refusal is removed for them.**
+2. **An admin PIN no admin holds any more may be set again.**
+3. **Kept: admin PINs refuse the easy list; no admin PIN equals any cleaner
+   code ever issued; no two accounts share a code or PIN.**
+4. **Every refusal that remains says why in one plain line.**

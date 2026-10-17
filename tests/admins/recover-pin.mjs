@@ -96,6 +96,7 @@ function standIn(docs) {
       if (op === 'create' && store.has(path)) throw new Error(`ALREADY_EXISTS ${path}`);
       if (op === 'update' && !store.has(path)) throw new Error(`NOT_FOUND ${path}`);
     }
+    // A set writes the whole document, there or not.
     for (const [op, path, data] of ops) {
       if (op === 'delete') store.delete(path);
       else store.set(path, op === 'update' ? { ...store.get(path), ...structuredClone(data) } : structuredClone(data));
@@ -112,6 +113,7 @@ function standIn(docs) {
         return readFrom(ref.path);
       },
       create: (ref, data) => ops.push(['create', ref.path, data]),
+      set: (ref, data) => ops.push(['set', ref.path, data]),
       update: (ref, data) => ops.push(['update', ref.path, data]),
       delete: (ref) => ops.push(['delete', ref.path]),
     };
@@ -135,7 +137,7 @@ const world = () => ({
   [`cleaner_codes/${CODE_NOW}`]: { cleanerId: 'CLEANER0000000000001', issuedAt: AT, retiredAt: null },
   [`cleaner_codes/${CODE_GONE}`]: { cleanerId: 'CLEANER0000000000002', issuedAt: AT, retiredAt: AT },
 });
-const writesIn = (ops) => (ops.length === 0 ? 'none' : ops.map(([op, path, data]) => `${op} ${path}${op === 'update' ? ` {${Object.keys(data).join(', ')}}` : op === 'create' ? ` ${JSON.stringify(data)}` : ''}`).join(' · '));
+const writesIn = (ops) => (ops.length === 0 ? 'none' : ops.map(([op, path, data]) => `${op} ${path}${op === 'update' ? ` {${Object.keys(data).join(', ')}}` : op === 'create' || op === 'set' ? ` ${JSON.stringify(data)}` : ''}`).join(' · '));
 async function attempt(label, adminId, pin, { write = true, w = standIn(world()) } = {}) {
   const before = JSON.stringify([...w.store.entries()]);
   const t = w.transaction();
@@ -175,6 +177,24 @@ const six = await attempt("the night's six digits", MAIN3, NEW2);
 out(shown(`    old entry there: ${six.store.has(`admin_pins/${SIX}`)} · the history says from: ${six.store.get(`admins/${MAIN3}`).history.at(-1).from}`));
 const evening = await attempt("the evening's lookup key, epoch at its cap", MAIN4, NEW2);
 out(`    old entry there: ${evening.store.has(`admin_pins/${LOOKUP}`)} · epoch ${evening.store.get(`admins/${MAIN4}`).sessionEpoch}`);
+
+out('\n4b. A PIN no admin holds any more may be set again (Kian\u2019s ruling of 2026-10-17): an entry left behind is written over');
+const left = (adminId) => {
+  const w2 = standIn(world());
+  w2.store.set(`admin_pins/${NEW}`, { adminId, createdAt: CREATED_AT });
+  return w2;
+};
+const gone = await attempt('an entry naming an admin who is gone', MAIN1, NEW, { w: left(GONE) });
+out(shown(`    the entry now names: ${gone.store.get(`admin_pins/${NEW}`)?.adminId} · written at ${gone.store.get(`admin_pins/${NEW}`)?.createdAt}`));
+const moved = await attempt('an entry naming Ada, who is on another PIN', MAIN2, NEW, { w: left(ADA) });
+out(shown(`    the entry now names: ${moved.store.get(`admin_pins/${NEW}`)?.adminId} · Ada's PIN and entry kept: ${moved.store.get(`admins/${ADA}`).pin.value === ADA_PIN && moved.store.get(`admin_pins/${ADA_PIN}`)?.adminId === ADA}`));
+await attempt('an entry naming themselves, on another PIN', MAIN1, NEW, { w: left(MAIN1) });
+const back = standIn(world());
+const away = back.transaction();
+out(shown(`  Main Two moves off their PIN: ${JSON.stringify(await rules.setOwnPin(back.db, away.tx, { adminId: MAIN2, pin: NEW, sharedPin: SHARED, at: AT, write: true }))}`));
+back.commit(away.ops);
+await attempt('Main Two, back to the PIN they held before', MAIN2, OLD4, { w: back });
+await attempt('then Main, to the PIN Main Two held before', MAIN1, NEW, { w: back });
 
 out('\n5. Two at once: the second, which read before the first committed, is refused whole at its commit');
 const live = standIn(world());

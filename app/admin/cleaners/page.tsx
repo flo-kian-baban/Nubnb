@@ -19,9 +19,11 @@
  * By Kian's ruling of 2026-09-28 a cleaner's code is visible to admins at any
  * time and can be changed: each row shows the current code, and "Change
  * code" takes four typed digits or draws a random code. The server refuses
- * the admin PIN, the reserved list and a code an active account holds; any
- * other code is free (Kian's ruling of 2026-10-02), a deactivated account
- * that held it then having none. The old code stops working at once.
+ * an admin's PIN and a code an active account holds, each in one plain line
+ * that says why; any other code is free (Kian's ruling of 2026-10-02), easy
+ * codes such as 1234 or 0000 included (Kian's rulings of 2026-10-17), a
+ * deactivated account that held it then having none. The old code stops
+ * working at once.
  *
  * A create whose outcome is unknown — no answer, or an answer that does not
  * say — is reported as such and never retried: a retry could create the same
@@ -360,7 +362,7 @@ function Cleaners() {
       return;
     }
     // A refusal stays in the dialog, with what was typed.
-    setCreateError({ tone: "error", title: result.title, detail: describeFailure(result, "Nothing was created.") });
+    setCreateError({ tone: "error", title: result.title, detail: codeRefusalDetail(result, "Nothing was created.") });
   };
 
   const changeStatus = async (cleaner: CleanerSummary, target: CleanerStatus) => {
@@ -438,7 +440,7 @@ function Cleaners() {
               title: "The code change may or may not have been saved. Reload to see the stored code.",
               detail: result.title,
             }
-          : { tone: "error", title: result.title, detail: describeFailure(result, "The code was not changed.") },
+          : { tone: "error", title: result.title, detail: codeRefusalDetail(result, "The code was not changed.") },
       );
       return;
     }
@@ -1025,6 +1027,17 @@ function displayName(name: string | null): string {
 
 function sentence(text: string): string {
   return /[.!?]$/.test(text) ? text : `${text}.`;
+}
+
+/**
+ * A typed code refused for a reason its one line says (Kian's ruling of 2026-10-17: every refusal says why in one
+ * plain line): an admin's PIN, an active account's code, no code free to draw, or a locked connection.
+ */
+const ONE_LINE_REFUSALS: ReadonlySet<string> = new Set(['CLEANER_CODE_IS_ADMIN_PIN', 'CLEANER_CODE_TAKEN', 'CLEANER_CODE_UNAVAILABLE', 'ADMIN_SIGN_IN_LOCKED']);
+
+/** A code refusal's detail: none for one whose line says why, else describeFailure's. */
+function codeRefusalDetail(failure: CleanerFailure, nothingDone: string): string | undefined {
+  return failure.code !== undefined && ONE_LINE_REFUSALS.has(failure.code) ? undefined : describeFailure(failure, nothingDone);
 }
 
 /** A refusal's detail, with what it means for a signed-out admin. */

@@ -21,14 +21,17 @@ export const signedInView = (admin: SignedInAdmin): SignedInAdminView => ({ id: 
  */
 export function lockedResponse(lockedUntil: string | null, lockedNow: boolean): NextResponse {
   const capped = lockedUntil === null;
+  const seconds = capped ? 0 : Math.max(1, Math.ceil((Date.parse(lockedUntil) - Date.now()) / 1_000));
+  const minutes = Math.ceil(seconds / 60);
+  // Why, in one plain line (Kian's ruling of 2026-10-17): the Team page shows it as it is for a typed code.
   const error = capped
     ? lockedNow
       ? `${DAILY_TRIES} tries today: sign-in from this connection is locked until a main admin lifts it.`
-      : 'Sign-in from this connection is locked until a main admin lifts it.'
+      : 'Too many tries today: sign-in from this connection is locked until a main admin lifts it.'
     : lockedNow
       ? `Five tries in a row: sign-in from this connection is locked for ${LOCK_MINUTES} minutes.`
-      : 'Sign-in from this connection is locked.';
-  const headers: Record<string, string> = capped ? {} : { 'Retry-After': String(Math.max(1, Math.ceil((Date.parse(lockedUntil) - Date.now()) / 1000))) };
+      : `Too many tries in a row: sign-in from this connection is locked for ${minutes === 1 ? '1 more minute' : `${minutes} more minutes`}.`;
+  const headers: Record<string, string> = capped ? {} : { 'Retry-After': String(seconds) };
   return noStore(NextResponse.json({ success: false, error, code: 'ADMIN_SIGN_IN_LOCKED', lockedUntil, capped, lockedNow }, { status: 429, headers }));
 }
 
@@ -45,14 +48,16 @@ export const ACCOUNT_REFUSALS: Record<'not-found' | 'main-admin' | 'last-main-ad
   yourself: { status: 409, code: 'ADMIN_IS_YOU', message: 'Change your own PIN from your name in the header.', hint: 'Nothing was changed.' },
 };
 
-/** 409: another admin holds that PIN (PINs stay unique). Nothing was changed. */
-export const PIN_TAKEN: Refusal = { status: 409, code: 'ADMIN_PIN_TAKEN', message: 'Another admin has that PIN.', hint: 'Choose another. Nothing was changed.' };
+/*
+ * The refusals of a PIN being set, each one plain line that says why (Kian's ruling of 2026-10-17), and the same
+ * words for the main admin setting one and an admin choosing their own. Nothing was changed.
+ */
 
-/** 409: a cleaner code, current or retired, is those four digits (Kian's ruling of 2026-10-13, late night). Nothing was changed. */
-export const PIN_IS_A_CODE: Refusal = { status: 409, code: 'ADMIN_PIN_IS_A_CODE', message: 'A cleaner code, current or retired, is those four digits.', hint: 'Choose another. Nothing was changed.' };
+/** 409: another admin holds that PIN now (PINs stay unique; one no admin holds any more may be set again). */
+export const PIN_TAKEN: Refusal = { status: 409, code: 'ADMIN_PIN_TAKEN', message: 'Another admin has that PIN.' };
 
-/** For an admin choosing their own PIN, either refusal reads the same: both are counted tries. */
-export const PIN_UNAVAILABLE: Refusal = { status: 409, code: 'ADMIN_PIN_TAKEN', message: 'That PIN is taken.', hint: 'Choose another. Nothing was changed.' };
+/** 409: a cleaner code, current or retired, is those four digits (Kian's rulings of 2026-10-13, late night, and 2026-10-17). */
+export const PIN_IS_A_CODE: Refusal = { status: 409, code: 'ADMIN_PIN_IS_A_CODE', message: 'That is a cleaner code, now or before, and an admin PIN can never be one.' };
 
 /** 409: a PIN kept before is not changed by its holder (Kian's ruling of 2026-10-13, late night). Nothing was changed. */
 export const PIN_KEPT_BEFORE: Refusal = {
@@ -63,4 +68,4 @@ export const PIN_KEPT_BEFORE: Refusal = {
 };
 
 /** 422: the PIN is the shared PIN, ADMIN_PIN, which is the recovery script's alone. Nothing was changed. */
-export const PIN_IS_SHARED: Refusal = { status: 422, code: 'ADMIN_PIN_IS_SHARED', message: 'That is the shared PIN.', hint: 'Choose another. Nothing was changed.' };
+export const PIN_IS_SHARED: Refusal = { status: 422, code: 'ADMIN_PIN_IS_SHARED', message: 'That is the shared PIN, which only the recovery script uses.' };

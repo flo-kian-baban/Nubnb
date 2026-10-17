@@ -18,8 +18,9 @@
  * --set-pin runs every check the app runs when a PIN is set, in one
  * transaction (scripts/admin-pin-rules.mjs): four digits; not on the
  * too-easy list; not ADMIN_PIN (as .env.local holds it); not another admin's
- * PIN; not any cleaner code ever issued. Any failure is refused with its
- * reason and writes nothing. Otherwise the PIN is stored readably, its index
+ * PIN now (one no admin holds any more may be set again: Kian's ruling of
+ * 2026-10-17); not any cleaner code ever issued. Any failure is refused with
+ * its reason, in one plain line, and writes nothing. Otherwise the PIN is stored readably, its index
  * entry written, the admin's old entry removed, "pin_changed" by the recovery
  * script recorded in their history, and their session epoch moved, so every
  * session they hold ends. The PIN is never printed. An argument that looks

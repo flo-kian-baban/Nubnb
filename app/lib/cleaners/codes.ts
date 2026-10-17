@@ -28,8 +28,8 @@ export const CODE_LENGTH = 4;
  * 0000–9999.
  *
  * Deliberately exactly `randomInt(0, 10_000)`, synchronous, with nothing
- * injected: the generator is the operating system's, and the reserved-code
- * check below runs on whatever it returns.
+ * injected: the generator is the operating system's, and the checks below
+ * (reservedReason, isDrawable) run on whatever it returns.
  */
 export function generateCandidate(): string {
   return String(randomInt(0, 10_000)).padStart(CODE_LENGTH, '0');
@@ -60,21 +60,32 @@ function isAdminPin(code: string, adminPin: string): boolean {
 }
 
 /** Why a code may never be a cleaner's, or null if it may. */
-export type ReservedReason = 'admin-pin' | 'too-easy';
+export type ReservedReason = 'admin-pin';
 
 /**
- * Whether a code is reserved: the admin PIN, or on the reserved list (the
- * twenty-four too easy to guess: isTooEasyCode in model.ts). Issuance draws
- * again; a code an admin types is refused with the reason.
+ * Whether a code is reserved: the admin PIN. Issuance draws again; a code an
+ * admin types is refused with the reason.
  *
- * A code an active account holds now is refused too, but that is a fact
- * about the database, not the digits: the transaction that writes the
- * code's `cleaner_codes` document checks it (server-cleaners.ts). Any other
- * code — replaced, a deleted account's, a deactivated account's — is free
- * (Kian's ruling of 2026-10-02).
+ * Easy codes — four of one digit, straight runs — are not reserved: cleaner
+ * and handyman codes may be easy codes (Kian's ruling of 2026-10-17), so an
+ * admin who types 1234 or 0000 gets it. Only a code drawn here or suggested
+ * by the Team page's Generate skips them (isDrawable).
+ *
+ * A code an active account holds now is refused too, and so is an admin's
+ * PIN, but those are facts about the database, not the digits: the
+ * transaction that writes the code's `cleaner_codes` document checks them
+ * (server-cleaners.ts). Any other code — replaced, a deleted account's, a
+ * deactivated account's — is free (Kian's ruling of 2026-10-02).
  */
 export function reservedReason(code: string, adminPin: string): ReservedReason | null {
-  if (isAdminPin(code, adminPin)) return 'admin-pin';
-  if (isTooEasyCode(code)) return 'too-easy';
-  return null;
+  return isAdminPin(code, adminPin) ? 'admin-pin' : null;
+}
+
+/**
+ * Whether a drawn code may be given out: not reserved, and not an easy code.
+ * Nothing refuses an easy code an admin types; a code chosen at random simply
+ * has no reason to be one.
+ */
+export function isDrawable(code: string, adminPin: string): boolean {
+  return reservedReason(code, adminPin) === null && !isTooEasyCode(code);
 }

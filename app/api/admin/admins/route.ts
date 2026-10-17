@@ -15,11 +15,14 @@
  * POST request:  `{ name, level: 'main' | 'admin', pin }`
  * POST response: 201 `{ admin: AdminSummary }`. 409 ADMIN_NAME_TAKEN when the
  *                name, case and spacing aside, is another admin's; 409
- *                ADMIN_PIN_TAKEN when another admin holds the PIN, 409
- *                ADMIN_PIN_IS_A_CODE when a cleaner code, current or retired,
- *                is those digits (late night); 422 for a name not allowed, or
- *                a PIN that is not four digits, is too easy, or is the shared
- *                PIN. 502: it may or may not have been added.
+ *                ADMIN_PIN_TAKEN when another admin holds the PIN now (one no
+ *                admin holds any more may be set again: Kian's ruling of
+ *                2026-10-17), 409 ADMIN_PIN_IS_A_CODE when a cleaner code,
+ *                current or retired, is those digits (late night); 422 for a
+ *                name not allowed, or a PIN that is not four digits, is too
+ *                easy, or is the shared PIN. Each PIN refusal is one plain line
+ *                that says why (Kian's ruling of 2026-10-17). 502: it may or
+ *                may not have been added.
  *
  * A refused admin (403 MAIN_ADMIN_ONLY) gets nothing, the list included.
  */
@@ -72,7 +75,7 @@ export const POST = adminRoute(
       if (outcome.kind === 'name-taken') {
         return noStore(apiFailure({ status: 409, code: 'ADMIN_NAME_TAKEN', message: 'Another admin has that name.', hint: 'Names are matched without regard to case or spacing. Nothing was added.' }));
       }
-      if (outcome.kind === 'pin-taken') return noStore(apiFailure({ ...(outcome.by === 'code' ? PIN_IS_A_CODE : PIN_TAKEN), hint: 'Choose another. Nothing was added.' }));
+      if (outcome.kind === 'pin-taken') return noStore(apiFailure(outcome.by === 'code' ? PIN_IS_A_CODE : PIN_TAKEN));
       console.log(`[admins] ${actor.id} added ${outcome.admin.id} as ${parsed.data.level}`);
       return noStore(apiSuccess({ admin: outcome.admin }, 201));
     } catch (err) {

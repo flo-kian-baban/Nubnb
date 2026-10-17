@@ -28,7 +28,11 @@
  * `admin_names/{nameKey}` → `{ adminId }` keeps names unique. `admin_pins/
  * {PIN}` → `{ adminId }` finds an admin by PIN and keeps PINs unique, the way
  * `cleaner_codes/{code}` works; older entries (six digits, or the evening's
- * 64-hex lookup keys) are only ever deleted, with their admin's PIN.
+ * 64-hex lookup keys) are only ever deleted, with their admin's PIN. An entry
+ * counts only while the admin it names still holds those digits (pinHeld):
+ * by Kian's ruling of 2026-10-17 an admin PIN no admin holds any more may be
+ * set again, so an entry left behind — its admin gone, or on another PIN — is
+ * free, and the PIN set next writes over it.
  *
  * ── Admin PINs and cleaner codes (Kian's rulings of 2026-10-13, late night) ──
  * Both are four digits, and no four digits may be both: no admin PIN may
@@ -168,6 +172,34 @@ function lookupOf(pin: unknown): string | null {
 /** The ID of the `admin_pins` document a stored PIN is kept under: the PIN (four digits, or the night's six), or the evening's lookup key. */
 const indexIdOf = (pin: unknown): string | null => storedValueOf(pin) ?? lookupOf(pin);
 
+/** Whether four digits are an admin's PIN now (`held`, and whose), or free: no entry, or one left behind (`stale`). */
+type PinHeld = { kind: 'held'; adminId: string } | { kind: 'free'; stale: boolean };
+
+/**
+ * Whether an admin holds these digits as their PIN now, read inside the caller's transaction: the digits'
+ * `admin_pins` entry, and the admin it names, who must still exist and hold them (Kian's ruling of 2026-10-17: an
+ * admin PIN no admin holds any more may be set again). An entry naming nobody who holds them is `stale`: free, and
+ * written over (set, not created) by the PIN set next.
+ */
+async function pinHeld(tx: Transaction, digits: string): Promise<PinHeld> {
+  const db = getAdminDb();
+  const entry = await tx.get(db.collection(ADMIN_PINS_COLLECTION).doc(digits));
+  if (!entry.exists) return { kind: 'free', stale: false };
+  const adminId = text(entry.get('adminId'));
+  if (adminId && isDocumentId(adminId)) {
+    const admin = await tx.get(db.collection(ADMINS_COLLECTION).doc(adminId));
+    if (admin.exists && indexIdOf(admin.get('pin')) === digits) return { kind: 'held', adminId };
+  }
+  return { kind: 'free', stale: true };
+}
+
+/** A new PIN's index entry, inside the transaction: created, or written over one left behind (pinHeld). */
+function writePinEntry(tx: Transaction, ref: DocumentReference, held: PinHeld, adminId: string, nowIso: string): void {
+  const entry = { adminId, createdAt: nowIso };
+  if (held.kind === 'free' && held.stale) tx.set(ref, entry);
+  else tx.create(ref, entry);
+}
+
 /** The `pin` field of a PIN set now. */
 const readablePin = (value: string) => ({ state: 'readable', value });
 
@@ -289,9 +321,12 @@ export async function readConnectionLock(tx: Transaction, connection: string, no
   return { ref, lock, holding: lockHolding(lock, nowMs) };
 }
 
-/** Whether an admin's PIN is these four digits, read inside the caller's transaction (server-cleaners.ts, before a code is given out). */
+/**
+ * Whether an admin's PIN is these four digits now, read inside the caller's transaction (server-cleaners.ts, before a
+ * code is given out). An entry left behind by an admin no longer holding them does not count (pinHeld).
+ */
 export async function adminPinHolds(tx: Transaction, digits: string): Promise<boolean> {
-  return (await tx.get(getAdminDb().collection(ADMIN_PINS_COLLECTION).doc(digits))).exists;
+  return (await pinHeld(tx, digits)).kind === 'held';
 }
 
 /** Locks holding now: until lifted first, then the latest-ending. THROWS when a read fails. */
@@ -442,8 +477,8 @@ export type ChangePinResult =
   | { kind: 'changed'; admin: SignedInAdmin; lockedUntil?: string | null }
   /** The current PIN typed was wrong: it counts against the connection like a sign-in. */
   | { kind: 'wrong'; triesLeft: number; untilLifted: boolean }
-  /** Another admin, or a cleaner code current or retired, holds the new PIN. Counted against the connection like every change. */
-  | { kind: 'taken'; triesLeft: number; untilLifted: boolean }
+  /** Another admin now (`by` 'admin'), or a cleaner code current or retired ('code'), holds the new PIN. Counted against the connection like every change. */
+  | { kind: 'taken'; by: PinHolder; triesLeft: number; untilLifted: boolean }
   /** The new PIN is the one already set. Nothing changed, nothing counted. */
   | { kind: 'same' }
   /** A PIN kept before (the first version's, the evening's, the night's six digits): its holder does not set their own. */
@@ -470,8 +505,11 @@ function isCurrentPin(stored: unknown, typed: string): boolean {
  * a main admin sets an ordinary admin's, and a main admin on one goes through
  * the recovery script (Kian's ruling of 2026-10-13, late night).
  *
- * The new PIN must be free in both indexes: no other admin's PIN, and no
- * cleaner code ever issued, current or retired. A wrong current PIN counts
+ * The new PIN must be free in both indexes: no other admin's PIN now (one no
+ * admin holds any more, their own before included, may be set again: Kian's
+ * ruling of 2026-10-17), and no cleaner code ever issued, current or retired.
+ * A refusal says which (Kian's ruling of 2026-10-17: every refusal says why in
+ * one plain line). A wrong current PIN counts
  * against the connection like a sign-in; so does every change, refused or
  * not: a refusal because an admin holds the digits tells the chooser that
  * admin's PIN, and counting keeps choosing no faster than guessing at the
@@ -508,19 +546,20 @@ export async function changeOwnPin(admin: SignedInAdmin, currentPin: string, new
       // Every PIN change moves the epoch: the same epoch means the PIN checked is still the one stored.
       if (!current.exists || current.get('sessionEpoch') !== admin.sessionEpoch) return { kind: 'session-ended' as const };
       const newRef = db.collection(ADMIN_PINS_COLLECTION).doc(newPin);
-      const takenByAdmin = await tx.get(newRef);
+      const held = await pinHeld(tx, newPin);
       const takenByCode = await tx.get(db.collection(CLEANER_CODES_COLLECTION).doc(newPin));
       const oldId = indexIdOf(current.get('pin'));
       const oldRef = oldId ? db.collection(ADMIN_PINS_COLLECTION).doc(oldId) : null;
       const oldIndex = oldRef ? await tx.get(oldRef) : null;
       if (!right) return countWrong(tx, lockRef, lock, nowMs);
       const counted = countTry(tx, lockRef, lock, nowMs);
-      if (takenByAdmin.exists || takenByCode.exists) return counted.kind === 'locked' ? counted : { kind: 'taken' as const, triesLeft: counted.triesLeft, untilLifted: counted.untilLifted };
+      const by: PinHolder | null = held.kind === 'held' ? 'admin' : takenByCode.exists ? 'code' : null;
+      if (by) return counted.kind === 'locked' ? counted : { kind: 'taken' as const, by, triesLeft: counted.triesLeft, untilLifted: counted.untilLifted };
       const data = current.data() ?? {};
       const epoch = Math.min(admin.sessionEpoch + 1, MAX_TOKEN_EPOCH);
       const event: AdminHistoryEvent = { at: nowIso, action: 'pin_changed', actor: { role: 'admin', id: admin.id, name: admin.name }, from: viewStateOf(data.pin) ?? '' };
       tx.update(ref, { pin: readablePin(newPin), pinSetAt: nowIso, sessionEpoch: epoch, history: [...historyOf(data), event] });
-      tx.create(newRef, { adminId: admin.id, createdAt: nowIso });
+      writePinEntry(tx, newRef, held, admin.id, nowIso);
       if (oldRef && oldIndex?.exists && oldIndex.get('adminId') === admin.id) tx.delete(oldRef);
       return { kind: 'changed' as const, epoch, lockedUntil: counted.kind === 'locked' ? counted.lockedUntil : undefined };
     });
@@ -591,9 +630,10 @@ export type CreateAdminResult = { kind: 'created'; admin: AdminSummary } | { kin
  * Add an admin with the name, level and PIN the main admin sets (Kian's
  * rulings: the main admin sets each admin's PIN when adding them; PINs stay
  * unique and are stored readably). The name must be free, case and spacing
- * aside, and the PIN free in both indexes: no other admin's, and no cleaner
- * code ever issued, current or retired (late night). The PIN's shape is the
- * route's to check. THROWS when Firestore fails.
+ * aside, and the PIN free in both indexes: no other admin's now (one no admin
+ * holds any more may be set again: 2026-10-17), and no cleaner code ever
+ * issued, current or retired (late night). The PIN's shape is the route's to
+ * check. THROWS when Firestore fails.
  */
 export async function createAdmin(actor: Actor, input: { name: string; level: AdminLevel; pin: string }): Promise<CreateAdminResult> {
   const name = cleanAdminName(input.name);
@@ -618,14 +658,14 @@ export async function createAdmin(actor: Actor, input: { name: string; level: Ad
   };
   const outcome = await db.runTransaction(async (tx) => {
     const existing = await tx.get(nameRef);
-    const takenByAdmin = await tx.get(pinRef);
+    const held = await pinHeld(tx, input.pin);
     const takenByCode = await tx.get(db.collection(CLEANER_CODES_COLLECTION).doc(input.pin));
     if (existing.exists) return { kind: 'name-taken' as const };
-    if (takenByAdmin.exists) return { kind: 'pin-taken' as const, by: 'admin' as const };
+    if (held.kind === 'held') return { kind: 'pin-taken' as const, by: 'admin' as const };
     if (takenByCode.exists) return { kind: 'pin-taken' as const, by: 'code' as const };
     tx.create(ref, stored);
     tx.create(nameRef, { adminId: ref.id, name, createdAt: nowIso });
-    tx.create(pinRef, { adminId: ref.id, createdAt: nowIso });
+    writePinEntry(tx, pinRef, held, ref.id, nowIso);
     return { kind: 'created' as const };
   });
   if (outcome.kind !== 'created') return outcome;
@@ -681,8 +721,9 @@ export type SetPinResult = { kind: 'done'; admin: AdminSummary; changed: boolean
  * ruling: the main admin can change any ordinary admin's PIN). Their sessions
  * end. Never a main admin's (Kian's ruling of 2026-10-13: theirs alone), and
  * never one's own (Change PIN in one's menu). The PIN must be free in both
- * indexes, like any PIN set. The PIN's shape is the route's to check. THROWS
- * when Firestore fails.
+ * indexes, like any PIN set: one no admin holds any more, theirs before
+ * included, may be set again (Kian's ruling of 2026-10-17). The PIN's shape is
+ * the route's to check. THROWS when Firestore fails.
  */
 export async function setAdminPin(actor: Actor, adminId: string, pin: string): Promise<SetPinResult> {
   if (adminId === actor.id) return { kind: 'yourself' };
@@ -695,21 +736,21 @@ export async function setAdminPin(actor: Actor, adminId: string, pin: string): P
     const snap = await tx.get(ref);
     if (!snap.exists) return { kind: 'not-found' as const };
     const data = snap.data() ?? {};
-    const takenByAdmin = await tx.get(newRef);
+    const held = await pinHeld(tx, pin);
     const takenByCode = await tx.get(db.collection(CLEANER_CODES_COLLECTION).doc(pin));
     const oldId = indexIdOf(data.pin);
     const oldRef = oldId ? db.collection(ADMIN_PINS_COLLECTION).doc(oldId) : null;
     const oldIndex = oldRef ? await tx.get(oldRef) : null;
     const verdict = accountVerdict('set-pin', { self: false, targetIsMain: data.level === 'main' }, 0);
     if (verdict === 'main-admin') return { kind: 'main-admin' as const };
-    const held = readableOf(data.pin);
-    if (held !== null && samePin(held, pin)) return { kind: 'done' as const, admin: readAdminSummary(adminId, data), changed: false };
-    if (takenByAdmin.exists) return { kind: 'pin-taken' as const, by: 'admin' as const };
+    const theirs = readableOf(data.pin);
+    if (theirs !== null && samePin(theirs, pin)) return { kind: 'done' as const, admin: readAdminSummary(adminId, data), changed: false };
+    if (held.kind === 'held') return { kind: 'pin-taken' as const, by: 'admin' as const };
     if (takenByCode.exists) return { kind: 'pin-taken' as const, by: 'code' as const };
     const event: AdminHistoryEvent = { at: nowIso, action: 'pin_set', actor };
     const update = { pin: readablePin(pin), pinSetAt: nowIso, sessionEpoch: Math.min(epochOf(data) + 1, MAX_TOKEN_EPOCH), history: [...historyOf(data), event] };
     tx.update(ref, update);
-    tx.create(newRef, { adminId, createdAt: nowIso });
+    writePinEntry(tx, newRef, held, adminId, nowIso);
     if (oldRef && oldIndex?.exists && oldIndex.get('adminId') === adminId) tx.delete(oldRef);
     return { kind: 'done' as const, admin: readAdminSummary(adminId, { ...data, ...update }), changed: true };
   });

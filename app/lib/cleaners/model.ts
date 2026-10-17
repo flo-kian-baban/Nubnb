@@ -208,12 +208,16 @@ function runsIn(digits: string): string[] {
 }
 
 /**
- * The reserved list: the twenty-four codes too easy to guess or to type by
- * accident — the ten same-digit codes (0000 … 9999), the seven ascending
- * runs (0123 … 6789) and the seven descending runs (9876 … 3210). With only
- * ten thousand codes, these are the first an attacker would try. Here, not in
- * codes.ts, so the Team page's "Generate" can skip them too (dispatch 23H);
- * the server's refusal (reservedReason) is still what decides.
+ * The easy list: the twenty-four four-digit codes too easy to guess or to
+ * type by accident — the ten same-digit codes (0000 … 9999), the seven
+ * ascending runs (0123 … 6789) and the seven descending runs (9876 … 3210).
+ * With only ten thousand codes, these are the first an attacker would try.
+ *
+ * Admin PINs refuse them (admins/model.ts, isTooEasyPin). Cleaner and
+ * handyman codes may be easy codes (Kian's ruling of 2026-10-17): nothing
+ * refuses one an admin types, and only a code chosen at random — the
+ * server's draw (codes.ts, isDrawable) and the Team page's "Generate" —
+ * skips them. Here, not in codes.ts, so the browser can use it too.
  */
 const TOO_EASY_CODES: ReadonlySet<string> = new Set([
   ...'0123456789'.split('').map((digit) => digit.repeat(4)),
@@ -221,7 +225,7 @@ const TOO_EASY_CODES: ReadonlySet<string> = new Set([
   ...runsIn('9876543210'),
 ]);
 
-/** Whether a code is on the reserved list. */
+/** Whether four digits are on the easy list. */
 export function isTooEasyCode(code: string): boolean {
   return TOO_EASY_CODES.has(code);
 }

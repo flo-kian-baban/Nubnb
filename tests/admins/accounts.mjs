@@ -18,6 +18,7 @@ const { connectionOf } = await import(`${ROOT}/app/lib/admins/connection.ts`);
 const session = await import(`${ROOT}/app/lib/admins/session.ts`);
 const { createCleanerToken } = await import(`${ROOT}/app/lib/cleaners/session.ts`);
 const { isTooEasyCode } = await import(`${ROOT}/app/lib/cleaners/model.ts`);
+const codes = await import(`${ROOT}/app/lib/cleaners/codes.ts`);
 
 const out = (...a) => console.log(...a);
 const T0 = Date.parse('2026-10-13T20:00:00.000Z');
@@ -31,9 +32,16 @@ for (const name of ['Kian', '  kian  ', 'KIAN', 'Ana  Maria', 'Ana Maria', '', '
 out(`  the first main admin: ${m.FIRST_MAIN_ADMIN_NAME}, key ${m.nameKeyOf(m.FIRST_MAIN_ADMIN_NAME)}`);
 
 // ─── 2. PINs ───
-out('\n2. PINs: set by the main admin or the admin, four digits, never on the cleaner codes\u2019 too-easy list; sign-in takes four');
-const easy = [...Array(10000).keys()].map((n) => String(n).padStart(4, '0')).filter(m.isTooEasyPin);
-out(`  too easy: ${easy.length} (${easy.join(' ')}) · the same list as cleaner codes: ${easy.every(isTooEasyCode) && [...Array(10000).keys()].map((n) => String(n).padStart(4, '0')).filter(isTooEasyCode).length === easy.length}`);
+out('\n2. PINs: set by the main admin or the admin, four digits, never on the easy list; sign-in takes four');
+const ALL4 = [...Array(10000).keys()].map((n) => String(n).padStart(4, '0'));
+const easy = ALL4.filter(m.isTooEasyPin);
+out(`  too easy: ${easy.length} (${easy.join(' ')}) · the same list as the easy codes: ${easy.every(isTooEasyCode) && ALL4.filter(isTooEasyCode).length === easy.length}`);
+// Kian's ruling of 2026-10-17: cleaner and handyman codes may be easy codes; only the shared PIN is refused by its digits.
+const SHARED_CODE = '5839';
+const refusedCodes = ALL4.filter((c) => codes.reservedReason(c, SHARED_CODE) !== null);
+out(`  cleaner codes refused by their digits alone: ${refusedCodes.length} of 10,000, the shared PIN only: ${refusedCodes.length === 1 && refusedCodes[0] === SHARED_CODE} · ${['1234', '0000', '9876', '7777'].map((c) => `${c} ${JSON.stringify(codes.reservedReason(c, SHARED_CODE))}`).join(', ')}`);
+const drawable = ALL4.filter((c) => codes.isDrawable(c, SHARED_CODE));
+out(`  a drawn or suggested code skips the easy ones and the shared PIN: ${drawable.length} drawable, ${10000 - drawable.length} skipped`);
 for (const p of ['5839', '0429', '0000', '1234', '9876', '583920', '583', '58392', '12a4', ' 5839', '']) {
   out(`  ${JSON.stringify(p).padEnd(10)} problem ${JSON.stringify(m.pinProblem(p))} · PIN shape ${m.PIN_PATTERN.test(p)} · sign-in shape ${m.SIGN_IN_PIN_PATTERN.test(p)}`);
 }

@@ -7,12 +7,13 @@
  * Both roles come from the one code index, so a code is unique across both.
  * `code` (dispatch 23H) is the four digits the admin typed — the Team page
  * always sends one, which its "Generate" may have filled in; when absent, the
- * server draws one, as before. A typed code is refused, with nothing
- * written, exactly as on a code change:
+ * server draws one, as before. An easy code (1234, 0000 …) is accepted
+ * (Kian's ruling of 2026-10-17). A typed code is refused, with nothing
+ * written, exactly as on a code change, each refusal in one plain line that
+ * says why (Kian's ruling of 2026-10-17):
  *   422 CLEANER_CODE_IS_ADMIN_PIN  an admin PIN: the shared one, or any
  *                                  admin's (Kian's rulings of 2026-10-13,
  *                                  late night)
- *   422 CLEANER_CODE_TOO_EASY      on the reserved list (1111, 1234, 9876 …)
  *   409 CLEANER_CODE_TAKEN         an active account's code now (any other
  *                                  code is free: Kian's ruling of 2026-10-02)
  *   429 ADMIN_SIGN_IN_LOCKED       an ordinary admin's connection is locked
@@ -110,7 +111,7 @@ const ISSUE_REFUSALS: Record<Exclude<IssueCleanerResult['kind'], 'created' | 'no
   exhausted: {
     status: 409,
     code: 'CLEANER_CODE_UNAVAILABLE',
-    message: 'No unused code could be issued. Nothing was created. Try again.',
+    message: 'Every code drawn was already in use: try again.',
   },
   unconfirmed: {
     status: 502,
@@ -124,23 +125,14 @@ const ISSUE_REFUSALS: Record<Exclude<IssueCleanerResult['kind'], 'created' | 'no
 const ADMIN_PIN_REFUSAL: Refusal = {
   status: 422,
   code: 'CLEANER_CODE_IS_ADMIN_PIN',
-  message: 'That is an admin PIN.',
-  hint: 'A code can never be an admin PIN (Kian’s ruling of 2026-10-13): whoever held it would open /admin with it. Nothing was created.',
-};
-
-const TOO_EASY_REFUSAL: Refusal = {
-  status: 422,
-  code: 'CLEANER_CODE_TOO_EASY',
-  message: 'That code is too easy to guess.',
-  hint: 'Four of the same digit and runs like 1234 or 9876 are never used. Nothing was created.',
+  message: 'That is an admin PIN, and a code can never be one.',
 };
 
 function takenRefusal(holder: string | null): Refusal {
   return {
     status: 409,
     code: 'CLEANER_CODE_TAKEN',
-    message: holder ? `That code is ${holder}’s.` : 'That code belongs to someone else on the team.',
-    hint: 'Change their code or delete them to reuse it, or choose another. Nothing was created.',
+    message: holder ? `${holder} already has that code.` : 'Someone else on the team already has that code.',
   };
 }
 
@@ -213,7 +205,7 @@ export const POST = adminRoute(async function POST(request: NextRequest, _contex
     case 'not-a-code':
       return noStore(apiValidationError([{ path: 'code', message: CODE_MESSAGE }]));
     case 'reserved':
-      return noStore(apiFailure(outcome.reason === 'admin-pin' ? ADMIN_PIN_REFUSAL : TOO_EASY_REFUSAL));
+      return noStore(apiFailure(ADMIN_PIN_REFUSAL));
     case 'admin-pin':
       return noStore(apiFailure(ADMIN_PIN_REFUSAL));
     case 'locked':

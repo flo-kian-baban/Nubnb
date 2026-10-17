@@ -7,8 +7,10 @@
  * The current PIN first, then the new one twice, all in masked boxes (PIN
  * boxes mask their digits). A wrong current PIN counts toward this
  * connection's lock, and so does every change: a PIN refused because another
- * admin holds it tells the chooser that admin's PIN. Every other session the
- * admin holds ends; this one carries on with a new cookie.
+ * admin holds it tells the chooser that admin's PIN. A refusal says why in one
+ * plain line (Kian's ruling of 2026-10-17): another admin's PIN, a cleaner
+ * code, too easy. Every other session the admin holds ends; this one carries
+ * on with a new cookie.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -62,11 +64,12 @@ export function ChangePinDialog({ admin, onChanged, onClose }: Props) {
     }
     // The server's warning before the try that locks, which names the lock: fifteen minutes, or until lifted.
     const lastTry = result.hint?.match(/One more [^.]*\./)?.[0];
-    if (isLockedAnswer(result)) setError(`Sign-in from here is locked until ${lockTimeWords(result.lockedUntil)}.`);
+    if (isLockedAnswer(result)) setError(`Too many tries: sign-in from here is locked until ${lockTimeWords(result.lockedUntil)}.`);
     else if (result.code === "ADMIN_CURRENT_PIN_WRONG") {
       setError(lastTry ? `That is not your current PIN. ${lastTry}` : "That is not your current PIN.");
       setCurrent("");
-    } else if (result.code === "ADMIN_PIN_TAKEN") setError(lastTry ? `That PIN is taken: choose another. ${lastTry}` : "That PIN is taken: choose another.");
+      // Another admin's PIN, or a cleaner code: the server's one line says which (Kian's ruling of 2026-10-17).
+    } else if (result.code === "ADMIN_PIN_TAKEN" || result.code === "ADMIN_PIN_IS_A_CODE") setError(lastTry ? `${result.title} ${lastTry}` : result.title);
     else setError(result.unknown ? `${result.title} It may or may not have changed.` : result.title);
   };
 

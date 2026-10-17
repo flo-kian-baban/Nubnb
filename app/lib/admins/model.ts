@@ -25,7 +25,11 @@
  *     cleaner code ever issued, current or retired, and no cleaner code may
  *     be an admin PIN; twenty wrong PINs from one connection in a Toronto day
  *     lock it until a main admin lifts it; the too-easy list is the cleaner
- *     codes' own.
+ *     codes' own;
+ *   - (2026-10-17) cleaner and handyman codes may be easy codes, and admin
+ *     PINs still refuse them; an admin PIN no admin holds any more may be set
+ *     again; no admin PIN equals any cleaner code ever issued; no two
+ *     accounts share a code or PIN; every refusal says why in one plain line.
  *
  * ── The PIN's states ──
  *   readable   the PIN as chosen, stored readably: `{ state, value }`; its
@@ -114,18 +118,23 @@ export const isReadablePin = (state: string | null | undefined): boolean => stat
 export const isKeptBefore = (state: string | null | undefined): boolean => state === 'set' || state === 'own' || state === 'temporary';
 
 /**
- * The PINs never accepted: the cleaner codes' reserved list (Kian's ruling: the
- * too-easy list for four digits is the one cleaner codes already use) — the
- * ten of one digit, the seven ascending runs and the seven descending.
+ * The PINs never accepted: the easy list (cleaners/model.ts) — the ten of one
+ * digit, the seven ascending runs and the seven descending. Kian's rulings:
+ * the too-easy list for four digits is the one cleaner codes used (2026-10-13,
+ * late night); admin PINs refuse it, while cleaner and handyman codes may be
+ * easy codes (2026-10-17).
  */
 export function isTooEasyPin(pin: string): boolean {
   return isTooEasyCode(pin);
 }
 
-/** Why a PIN cannot be set, by its shape alone, or null. Whether another admin or a cleaner code holds it is the server's to say. */
+/**
+ * Why a PIN cannot be set, by its shape alone, in one plain line that says why (Kian's ruling of 2026-10-17), or
+ * null. Whether another admin or a cleaner code holds it is the server's to say.
+ */
 export function pinProblem(pin: string): string | null {
-  if (!PIN_PATTERN.test(pin)) return 'Four digits.';
-  if (isTooEasyPin(pin)) return 'Too easy to guess: choose another.';
+  if (!PIN_PATTERN.test(pin)) return 'A PIN is four digits.';
+  if (isTooEasyPin(pin)) return 'Too easy to guess: four of one digit, or a straight run like 1234.';
   return null;
 }
 

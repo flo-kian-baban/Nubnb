@@ -10,10 +10,12 @@
  * session the admin holds ends. Not for yourself (409 ADMIN_IS_YOU: Change
  * PIN in your own menu), never for another main admin (409
  * MAIN_ADMIN_PROTECTED: only they set their own). 409 ADMIN_PIN_TAKEN when
- * another admin holds it, 409 ADMIN_PIN_IS_A_CODE when a cleaner code, current
- * or retired, is those digits (late night); 422 for a PIN that is not four
- * digits, is too easy, or is the shared PIN. 404 ADMIN_NOT_FOUND. 502: it may
- * or may not have been set.
+ * another admin holds it now (one no admin holds any more, theirs before
+ * included, may be set again: Kian's ruling of 2026-10-17), 409
+ * ADMIN_PIN_IS_A_CODE when a cleaner code, current or retired, is those digits
+ * (late night); 422 for a PIN that is not four digits, is too easy, or is the
+ * shared PIN, each in one plain line that says why (2026-10-17). 404
+ * ADMIN_NOT_FOUND. 502: it may or may not have been set.
  */
 
 import { NextRequest } from 'next/server';

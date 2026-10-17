@@ -16,9 +16,12 @@
  * also how a main admin on the shared PIN, after the recovery script, sets
  * their own.
  *
- * Refusals, nothing changed: 401 ADMIN_SESSION_INVALID; 401
- * ADMIN_CURRENT_PIN_WRONG; 409 ADMIN_PIN_TAKEN (another admin's, or a cleaner
- * code's: the same words, both counted); 409 ADMIN_PIN_SAME; 409
+ * Refusals, nothing changed, each in one plain line that says why (Kian's
+ * ruling of 2026-10-17): 401 ADMIN_SESSION_INVALID; 401
+ * ADMIN_CURRENT_PIN_WRONG; 409 ADMIN_PIN_TAKEN (another admin's now: one no
+ * admin holds any more, their own before included, may be set again) and 409
+ * ADMIN_PIN_IS_A_CODE (a cleaner code, current or retired), both counted, with
+ * the warning before the try that locks as the hint; 409 ADMIN_PIN_SAME; 409
  * ADMIN_PIN_KEPT_BEFORE for a PIN set before PINs were four digits; 422 for a
  * new PIN that is not four digits, is too easy, or is the shared PIN; 429
  * ADMIN_SIGN_IN_LOCKED; 503 when the keys are not set. 502: it may or may not
@@ -34,7 +37,7 @@ import { apiError, apiFailure, apiSuccess, apiValidationError, noStore } from '@
 import { connectionOf } from '@/app/lib/admins/connection';
 import { SIGN_IN_PIN_PATTERN, lastTryWords } from '@/app/lib/admins/model';
 import { sharedPinMatches } from '@/app/lib/admins/pin';
-import { PIN_IS_SHARED, PIN_KEPT_BEFORE, PIN_UNAVAILABLE, lockedResponse, signedInView } from '@/app/lib/admins/responses';
+import { PIN_IS_A_CODE, PIN_IS_SHARED, PIN_KEPT_BEFORE, PIN_TAKEN, lockedResponse, signedInView } from '@/app/lib/admins/responses';
 import { ChangePinSchema } from '@/app/lib/admins/schemas';
 import { ADMIN_AUTH_NOT_CONFIGURED, getAdminPinKey, getAdminSessionKey } from '@/app/lib/admins/secrets';
 import { ADMIN_SESSION_INVALID, createAdminToken, setAdminSessionCookie } from '@/app/lib/admins/session';
@@ -72,8 +75,11 @@ export const POST = adminRoute(async function POST(request: NextRequest, _contex
   switch (outcome.kind) {
     case 'wrong':
       return noStore(apiFailure(WRONG(outcome.triesLeft, outcome.untilLifted)));
-    case 'taken':
-      return noStore(apiFailure({ ...PIN_UNAVAILABLE, hint: outcome.triesLeft === 1 ? `Choose another. ${lastTryWords('try', outcome.untilLifted)}` : PIN_UNAVAILABLE.hint }));
+    case 'taken': {
+      // Which holds it, in one plain line (Kian's ruling of 2026-10-17); the warning before the try that locks, under it.
+      const refusal = outcome.by === 'code' ? PIN_IS_A_CODE : PIN_TAKEN;
+      return noStore(apiFailure(outcome.triesLeft === 1 ? { ...refusal, hint: lastTryWords('try', outcome.untilLifted) } : refusal));
+    }
     case 'kept-before':
       return noStore(apiFailure(PIN_KEPT_BEFORE));
     case 'same':
