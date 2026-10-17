@@ -207,6 +207,10 @@ no checkout. Do not build toward one unless asked.
   3. leads coming in — only the new leads number;
   4. past due reports to be generated.
 
+  Replaced by Kian's rulings of 2026-10-17 (Admin home, below): Statements
+  due, Costs to review, New leads, Turnovers in the next 2 days; the units
+  count moves to the table's header.
+
 ## Statements — Kian's rulings of 2026-10-02 (dispatch 23G)
 
 - **Nubnb's cycle: admins write the previous month's statements between the
@@ -581,7 +585,9 @@ These replace the rulings they change: six-digit admin PINs.
 ## Admin header — Kian's ruling of 2026-10-13 (evening)
 
 - **Below 1400 px wide, the admin header's section links sit on their own
-  row under the brand and actions, on every admin page.**
+  row under the brand and actions, on every admin page.** Replaced by Kian's
+  rulings of 2026-10-17: the navigation is a left-hand column (Admin home,
+  below).
 
 ## Admin navigation — Kian's ruling of 2026-10-15
 
@@ -814,3 +820,42 @@ Kian's review of 2026-10-17:
   accepted:** a code chosen at random still skips easy codes; an admin
   choosing their own PIN is told whether another admin or a cleaner code
   holds it; easy cleaner codes are an accepted risk (Accepted risks, above).
+
+## Admin home — Kian's rulings of 2026-10-17
+
+These replace the four tiles of 2026-10-02 and the header row of 2026-10-13
+(evening).
+
+1. **Admin navigation moves to a left-hand column on every admin page,
+   grouped: Operations (Properties, Schedule, Availability), Money (Costs,
+   Income), People (Team, Leads, Admins); the admin's name and menu at its
+   foot. Built so a section can take sub-pages later.**
+2. **Every admin page shows a small "Calendars read <time>" tag with a
+   Refresh button that refreshes all calendars and jobs (the existing
+   refresh, with its one-run-at-a-time rule). Amber past 24 hours, red past
+   48.**
+3. **Home tiles: Statements due (blocked · ready · finished, counting due
+   and past due); Costs to review; New leads; Turnovers in the next 2 days
+   (with how many need a cleaner). The units count moves to the table's
+   header.**
+4. **Property rows: Price / Night and Open go. A click on the row opens the
+   property page; Edit and Delete stay as icons. Public prices are unchanged
+   everywhere else.**
+5. **Filters: Type and Bedrooms go. Above the table, one row of chips with
+   counts that filter the list: Needs attention, Statements blocked,
+   Statements ready, Airbnb lines to review, Needs a cleaner, Calendar not
+   read, Direct overdue. Search and City stay. Sort: Needs attention
+   (default), Next checkout, Address.**
+6. **Each row has a Next step: the single most pressing action, linking to
+   where it's done (Add Report For name, Finish <month>, Assign a cleaner
+   for <day>, Review n Airbnb lines, Calendar not read, Record direct
+   payment). "Up to date" when nothing is needed. A statement is "blocked"
+   when Finish would refuse it.**
+7. **The Statement, Income and Cleaning cells stay, quiet unless they need
+   something. A property whose calendar failed in the last refresh, or has
+   no link, reads "Calendar not read", never "No turnover".**
+
+Kian's review of 2026-10-17:
+- **The left navigation shows icons only below 1440 px wide, each with its
+  name on hover and focus; full labels at 1440 and up.**
+- **The design note in CLEANER-COSTS-DESIGN.md §53 is accepted.**

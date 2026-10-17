@@ -52,7 +52,8 @@ import { DateRangeField } from "../components/DateRangeField";
 import { PinGate } from "../components/PinGate";
 import { NoticeBanner, useNotice } from "../components/Notice";
 import { getPropertiesResult } from "@/app/lib/firebase/properties";
-import { fetchAvailability, refreshAvailability, type AvailabilityData } from "@/app/lib/availability-client";
+import { fetchAvailability, type AvailabilityData } from "@/app/lib/availability-client";
+import { refreshCalendarsNow, useCalendarsRefreshed, useCalendarsRefreshing } from "@/app/lib/calendar-refresh-client";
 import { toAvailabilityProperty } from "@/app/lib/availability/property";
 import { addDays, dayText, isDay, rangeText, torontoDay, weekendStay } from "@/app/lib/availability/days";
 import { BEDROOM_OPTIONS, isBedroomsFilter, searchProperties } from "@/app/lib/availability/search";
@@ -109,7 +110,7 @@ function Availability() {
   const [data, setData] = useState<Read<AvailabilityData>>({ kind: "loading" });
   const [loadedAt, setLoadedAt] = useState(0);
   const [attempt, setAttempt] = useState(0);
-  const [refreshing, setRefreshing] = useState(false);
+  const refreshing = useCalendarsRefreshing();
   // Each property as availability reads it, named as the admin names it (Kian's rulings of 2026-10-15, evening).
   const [properties, setProperties] = useState<Read<AvailabilityProperty[]>>({ kind: "loading" });
   // The browser clock, read on load and once a minute, so the copy's age moves on while the page is open.
@@ -175,16 +176,16 @@ function Availability() {
     setAttempt((n) => n + 1);
   };
 
-  const refreshNow = async () => {
-    setRefreshing(true);
-    const result = await refreshAvailability();
-    setRefreshing(false);
+  // Refresh is the tag's in the navigation (Kian's rulings of 2026-10-17: on every admin page), one at a time; this
+  // page takes the copy each refresh answers, from whichever control pressed it, and says what it read.
+  const refreshNow = () => void refreshCalendarsNow();
+  useCalendarsRefreshed((result) => {
     if (result.ok) {
       const at = Date.now();
       setLoadedAt(at);
       setNowMs(at);
-      setData({ kind: "ready", data: result.data });
-      const { run } = result.data.snapshot ?? { run: null };
+      setData({ kind: "ready", data: result.data.availability });
+      const { run } = result.data.availability.snapshot ?? { run: null };
       showNotice({
         tone: run && run.failed.length > 0 ? "warning" : "success",
         title: run ? `Every calendar fetched: ${run.fetched} read${run.failed.length ? `, ${run.failed.length} could not be` : ""}.` : "Refreshed.",
@@ -193,7 +194,7 @@ function Availability() {
     } else {
       showNotice({ tone: result.code === "REFRESH_RUNNING" ? "info" : "error", title: result.title, detail: result.detail });
     }
-  };
+  });
 
   // ── What everything is worked out from ──
   const snapshot: AvailabilitySnapshot | null = data.kind === "ready" ? data.data.snapshot : null;
@@ -260,13 +261,8 @@ function Availability() {
       <AdminHeader current="availability" />
 
       <main className={shared.main}>
-        {/* The page's own buttons, in its head (Kian's ruling of 2026-10-15: none in the navigation). */}
-        <PageHead title="Availability">
-          <button type="button" className={shared.btnGhost} onClick={refreshNow} disabled={refreshing || loading} aria-busy={refreshing || undefined}>
-            <RefreshCw size={15} aria-hidden className={refreshing ? shared.spinner : undefined} />
-            <span>{refreshing ? "Fetching calendars…" : "Refresh now"}</span>
-          </button>
-        </PageHead>
+        {/* Refresh is the tag in the navigation, on every admin page (Kian's rulings of 2026-10-17). */}
+        <PageHead title="Availability" />
 
         {notice && <NoticeBanner notice={notice} onDismiss={dismissNotice} className={shared.pageNotice} />}
 

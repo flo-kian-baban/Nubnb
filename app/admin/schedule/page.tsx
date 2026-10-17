@@ -26,6 +26,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, Check, RefreshCw, RotateCcw, UserPlus, Users } from "lucide-react";
+import { refreshCalendarsNow, useCalendarsRefreshed, useCalendarsRefreshing } from "@/app/lib/calendar-refresh-client";
 import { AdminHeader } from "../components/AdminHeader";
 import { PageHead } from "../components/PageHead";
 import { AdminSelect } from "../components/AdminSelect";
@@ -37,7 +38,7 @@ import { Dialog, Tick } from "../property/editor/controls";
 import ed from "../property/editor/editor.module.css";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
-import { fetchSchedule, mergeJob, refreshCalendars, reopenJobFor, setJobCleaners, type ScheduleAnswer } from "@/app/lib/schedule-client";
+import { fetchSchedule, mergeJob, reopenJobFor, setJobCleaners, type ScheduleAnswer } from "@/app/lib/schedule-client";
 import { addDays, dayText, isDay, minutesBetween } from "@/app/lib/availability/days";
 import { changeWords, isSameDay, type AssigneeView, type JobView, type TeamMember } from "@/app/lib/schedule/model";
 
@@ -92,7 +93,7 @@ function Schedule() {
   const [propertyId, setPropertyId] = useState(link.property);
   const [cleanerId, setCleanerId] = useState("");
   const [needsOnly, setNeedsOnly] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
+  const refreshing = useCalendarsRefreshing();
   const [assigning, setAssigning] = useState<{ job: JobView; picked: string[] } | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
   const { notice, show, clear } = useNotice();
@@ -151,12 +152,13 @@ function Schedule() {
 
   const needsCount = useMemo(() => (answer ? answer.jobs.filter((job) => job.status === "open" && job.cleanerIds.length === 0).length : 0), [answer]);
 
-  const refresh = async () => {
-    if (refreshing) return;
+  // Refresh is the tag's in the navigation (Kian's rulings of 2026-10-17: on every admin page), one at a time; this
+  // page says what each refresh did, from whichever control pressed it, and reads its jobs again.
+  const refresh = () => {
     clear();
-    setRefreshing(true);
-    const result = await refreshCalendars();
-    setRefreshing(false);
+    void refreshCalendarsNow();
+  };
+  useCalendarsRefreshed(async (result) => {
     if (!result.ok) {
       if (result.code === "REFRESH_RUNNING") show({ tone: "info", title: result.title, detail: result.detail });
       else show(result.unknown ? { tone: "warning", title: "The refresh may or may not have run. Reload to see.", detail: result.title } : { tone: "error", title: result.title, detail: result.detail });
@@ -169,7 +171,7 @@ function Schedule() {
         : { tone: "success", title: jobs.created + jobs.changed === 0 ? "Calendars read. No job changed." : `Calendars read. ${plural(jobs.created, "job", "jobs")} made, ${jobs.changed} changed.` },
     );
     await load(range?.from, range?.to);
-  };
+  });
 
   const team = useMemo(() => answer?.team ?? [], [answer]);
   const active = useMemo(() => team.filter((member) => member.role === "cleaner" && member.status === "active"), [team]);
@@ -242,13 +244,8 @@ function Schedule() {
       <AdminHeader current="schedule" />
 
       <main className={shared.main}>
-        {/* The page's own buttons, in its head (Kian's ruling of 2026-10-15: none in the navigation). */}
-        <PageHead title="Schedule">
-          <button type="button" className={shared.btnGhost} onClick={refresh} disabled={refreshing || loaded.kind === "loading"} aria-busy={refreshing || undefined}>
-            <RefreshCw size={15} aria-hidden className={refreshing ? shared.spinner : undefined} />
-            <span>{refreshing ? "Reading calendars…" : "Refresh calendars"}</span>
-          </button>
-        </PageHead>
+        {/* Refresh calendars is the tag in the navigation, on every admin page (Kian's rulings of 2026-10-17). */}
+        <PageHead title="Schedule" />
 
         {notice && <NoticeBanner notice={notice} onDismiss={clear} className={shared.pageNotice} />}
 

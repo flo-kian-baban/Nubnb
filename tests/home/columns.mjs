@@ -111,12 +111,15 @@ const cases = [
   ['assigned', [job(P(8), '2026-10-16', [c(ANA, { marked: true }), c(BEN)])], true],
   ['done', [job(P(9), '2026-10-05', [c(ANA, { marked: true })]), job(P(9), '2026-10-12', [c(BEN, { marked: true })])], true],
   ['no-turnover', [job(P(10), '2026-09-30'), job(P(10), '2026-10-12', [], { status: 'booking-changed', change: 'Cancelled' })], true],
-  ['no-calendar', [], false],
+  ['not-read', [], false],
+  // Kian's rulings of 2026-10-17 (admin home): a calendar the last refresh could not read is "Calendar not read", never "No turnover".
+  ['not-read', [], true, false],
+  ['needs', [job(P(13), '2026-10-16')], true, false],
 ];
-for (const [key, jobs, hasCalendar] of cases) {
-  const s = cleaning.cleaningStanding(jobs, { today: TODAY, hasCalendar });
-  console.log(`  ${jobs[0]?.propertyId ?? P(11)}: ${show(s)}`);
-  check(s.key === key, `${key}`);
+for (const [key, jobs, hasCalendar, calendarRead] of cases) {
+  const s = cleaning.cleaningStanding(jobs, { today: TODAY, hasCalendar, calendarRead });
+  console.log(`  ${jobs[0]?.propertyId ?? (calendarRead === false ? P(12) : P(11))}: ${show(s)}`);
+  check(s.key === key, `${key}${calendarRead === false ? ' (calendar not read in the last refresh)' : ''}`);
 }
 check(cleaning.cleaningStanding(cases[1][1], { today: TODAY, hasCalendar: true }).title.includes('+1 more needs something'), 'Not marked names the other job needing a cleaner');
 check(cleaning.cleaningStanding([job(P(7), '2026-10-15', [c(ANA)])], { today: TODAY, hasCalendar: true }).key === 'assigned', 'on its checkout day an unmarked job is Assigned, not red');

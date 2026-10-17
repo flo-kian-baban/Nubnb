@@ -11,6 +11,14 @@
   overflow-x: auto;
 }
 
+/* Ten columns: 14 px either side of each cell (the shared table's 20 is too wide), so the whole table fits beside the
+   navigation at 1280 and 1440 px (Kian's instruction of 2026-10-17). */
+.teamTable th,
+.teamTable td {
+  padding-left: 14px;
+  padding-right: 14px;
+}
+
 /* ── Buttons ── */
 .btnGhost {
   display: inline-flex;

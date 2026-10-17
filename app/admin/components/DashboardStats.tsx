@@ -1,58 +1,43 @@
 "use client";
 
 /**
- * The four figures on the admin home (Kian's ruling of 2026-10-02), left to
- * right, each a way to where the work is:
+ * The four figures on the admin home (Kian's rulings of 2026-10-17, admin home, replacing those of 2026-10-02),
+ * left to right, each a way to where the work is:
  *
- *   Units                → the property list below          what the platform holds
- *   Costs to review      → the costs queue                  act on it
- *   New leads            → the inbox, filtered to new       act on it
- *   Statements past due  → opens the statements panel       which statements are owed
+ *   Statements due              → opens the statements panel     blocked · ready · finished
+ *   Costs to review             → the costs queue                act on it
+ *   New leads                   → the inbox, filtered to new     act on it
+ *   Turnovers in the next 2 days → the Schedule                  how many need a cleaner
  *
- * Every figure is a count; none is an amount of money. They replace seven
- * (2026-09-30 to 2026-10-01): Leads in the last 30 days, Cleaning costs this
- * month and the two availability figures (Empty nights, Free this weekend)
- * are gone from the home. The Availability page still has both views.
+ * Every figure is a count; none is an amount of money. The units count moved to the property table's header.
  *
- * Units is every property document the page already holds — the list under
- * the tiles, delisted ones included (they stay listed, by Kian's ruling).
+ * Statements due counts every statement owed: the month due and every month past due, each blocked (Finish would
+ * refuse it: its property has no Report For name) or ready; finished is the month due's finished statements. The
+ * figures are `statementFigures`'s (app/lib/home/next-step.ts), over `reportingStatus` — the rule the list's
+ * Statement column, its Next step and the panel use. A click opens the statements panel under the tiles (dispatch
+ * 23F), the cross-property view, with a month control and one row per property; the panel and the list read the same
+ * answer the tile does, GET /api/admin/monthly-reports, held by the page (`useStatements`). Which month the panel
+ * shows is kept in the address bar (?statements=yyyy-mm) so a reload keeps it open.
  *
- * The Statements tile is the one that stays on the page (dispatch 23F,
- * Kian's ruling of 2026-10-01): a click opens the statements panel under
- * the tiles — the cross-property view that was the Reports section — with
- * a month control, one row per property and each row the way into that
- * property's page for that month. Its figure is the statements past due in
- * Nubnb's cycle (dispatch 23G: months two or more back with no finished
- * statement), its detail the previous month's due and finished — every
- * number from `reportingStatus`, the rule the property list's column and
- * the panel use. The panel and the list read the same answer the tile does,
- * GET /api/admin/monthly-reports, held by the page (`useStatements`), so
- * neither costs a call more. Which month the panel shows is kept in the
- * address bar (?statements=yyyy-mm) so a reload keeps it open.
+ * Turnovers counts the open cleaning jobs with a checkout today or tomorrow, and of them those with nobody on them,
+ * from the read the list's Cleaning column makes (GET /api/admin/property-status), held by the page.
  *
- * Three reads besides the property list: the lead list, the cost list and
- * the tracker, the same ones the inbox, the costs page and the panel make.
- * Each tile shows its own read's state, so a failed read is shown as a
- * failure, never as 0.
+ * "To review" is the pending entries plus, since dispatch 24, the receipts approved automatically that no admin has
+ * looked at: what the queue holds for an admin. Its detail line counts the two, and names when a cleaner is worth a
+ * look (costs/patterns.ts), in the same words as the queue.
  *
- * "To review" is the pending entries plus, since dispatch 24, the receipts
- * approved automatically that no admin has looked at: what the queue holds
- * for an admin. (The queue's default view is wider still — rejected and
- * removed entries stay there, marked.) Its detail line counts the two, and
- * names when a cleaner is worth a look (costs/patterns.ts), in the same
- * words as the queue.
+ * Each tile shows its own read's state, so a failed read is shown as a failure, never as 0.
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, Building2, FileText, Inbox, Receipt } from "lucide-react";
+import { AlertTriangle, ArrowRight, ClipboardCheck, FileText, Inbox, Receipt } from "lucide-react";
 import { fetchLeads } from "@/app/lib/leads-client";
 import { fetchCosts } from "@/app/lib/costs-client";
 import { fetchTracker, type TrackerData } from "@/app/lib/reports-client";
-import { isMonth, lastClosedMonth, monthLabel, type ReportDownloadView } from "@/app/lib/reports/model";
+import { isMonth, lastClosedMonth, type ReportDownloadView } from "@/app/lib/reports/model";
 import { reportingCounts, type ReportingStatus } from "@/app/lib/reports/statement";
 import { StatementsPanel } from "./StatementsPanel";
-import type { Property } from "@/app/types/property";
 import { mayBeUnnotified, type LeadSummary } from "@/app/lib/leads";
 import { ENTRY_TIME_ZONE, awaitingLook, dayIn, type CostEntryView } from "@/app/lib/cleaners/model";
 import { watchList } from "@/app/lib/costs/patterns";
@@ -161,19 +146,19 @@ function FailedTile({ href, label, title }: { href: string; label: string; title
 }
 
 interface DashboardStatsProps {
-  /** The property list the page holds; null until it has loaded, or when it could not. */
-  properties: Property[] | null;
-  /** Why the property list could not be read; null when it was, or while it loads. */
-  propertiesError: string | null;
   /** The tracker's read, held by the page (`useStatements`). */
   statements: StatementsRead;
   /** Every property's status from that read, by property ID — the same map the list's column draws; null until it has loaded. */
   statuses: Map<string, ReportingStatus> | null;
   /** Today, yyyy-mm-dd in Toronto. */
   today: string;
+  /** Every statement owed, blocked and ready, and the month due's finished (`statementFigures`); null until the tracker has loaded. */
+  figures: { due: number; blocked: number; ready: number; finished: number } | null;
+  /** The jobs with a checkout today or tomorrow (`turnoverFigures`), from the page's status read. */
+  turnovers: Read<{ count: number; needCleaner: number; from: string; to: string }>;
 }
 
-export function DashboardStats({ properties, propertiesError, statements: read, statuses, today }: DashboardStatsProps) {
+export function DashboardStats({ statements: read, statuses, today, figures, turnovers }: DashboardStatsProps) {
   const [leads, setLeads] = useState<Read<ReturnType<typeof leadFigures>>>({ kind: "loading" });
   const [costs, setCosts] = useState<Read<ReturnType<typeof costFigures>>>({ kind: "loading" });
   const { statements, refresh: refreshStatements, refreshing, downloaded } = read;
@@ -192,7 +177,7 @@ export function DashboardStats({ properties, propertiesError, statements: read, 
     if (url.href !== window.location.href) window.history.replaceState(null, "", url.href);
   }, [panelMonth]);
 
-  /** The tile's figures: every property's status, counted; whatever month the panel shows. */
+  /** Statements past due, for the tile's colour: red while any is. */
   const statementCounts = useMemo(() => (statuses ? reportingCounts([...statuses.values()]) : null), [statuses]);
   const previousMonth = lastClosedMonth(today);
   const togglePanel = () => {
@@ -218,15 +203,18 @@ export function DashboardStats({ properties, propertiesError, statements: read, 
   return (
     <>
     <section className={styles.statsGrid} aria-label="At a glance">
-      {propertiesError !== null ? (
-        <FailedTile href="#properties" label="Units could not be read" title={propertiesError} />
+      {statements.kind === "error" ? (
+        <Tile onClick={togglePanel} open={false} icon={<AlertTriangle size={20} />} value="Unavailable" label="Statements could not be read" detail={`${statements.title} Click to try again.`} tone="alert" />
       ) : (
         <Tile
-          href="#properties"
-          icon={<Building2 size={20} />}
-          value={properties !== null ? properties.length : "…"}
-          label="Units"
-          busy={properties === null}
+          onClick={togglePanel}
+          open={panelMonth !== null}
+          icon={<FileText size={20} />}
+          value={figures ? figures.due : "…"}
+          label="Statements due"
+          detail={figures ? `${figures.blocked} blocked · ${figures.ready} ready · ${figures.finished} finished` : null}
+          tone={figures && statementCounts ? (figures.blocked > 0 || statementCounts.pastDue > 0 ? "alert" : figures.due > 0 ? "accent" : undefined) : undefined}
+          busy={statements.kind === "loading"}
         />
       )}
 
@@ -276,24 +264,25 @@ export function DashboardStats({ properties, propertiesError, statements: read, 
         />
       )}
 
-      {statements.kind === "error" ? (
-        <Tile onClick={togglePanel} open={false} icon={<AlertTriangle size={20} />} value="Unavailable" label="Statements could not be read" detail={`${statements.title} Click to try again.`} tone="alert" />
+      {turnovers.kind === "error" ? (
+        <FailedTile href="/admin/schedule" label="Turnovers could not be read" title={turnovers.title} />
       ) : (
         <Tile
-          onClick={togglePanel}
-          open={panelMonth !== null}
-          icon={<FileText size={20} />}
-          value={statementCounts ? statementCounts.pastDue : "…"}
-          label="Statements past due"
+          href="/admin/schedule"
+          icon={<ClipboardCheck size={20} />}
+          value={turnovers.kind === "ready" ? turnovers.data.count : "…"}
+          label="Turnovers in the next 2 days"
           detail={
-            statementCounts
-              ? statementCounts.owed === 0 && statementCounts.pastDue === 0
-                ? "None due yet"
-                : `${monthLabel(previousMonth)}: ${statementCounts.due} due · ${statementCounts.finished} finished`
+            turnovers.kind === "ready"
+              ? turnovers.data.needCleaner > 0
+                ? `${plural(turnovers.data.needCleaner, "needs a cleaner", "need a cleaner")}`
+                : turnovers.data.count === 0
+                  ? "None today or tomorrow"
+                  : "Each has a cleaner"
               : null
           }
-          tone={statementCounts ? (statementCounts.pastDue > 0 ? "alert" : statementCounts.due > 0 ? "accent" : undefined) : undefined}
-          busy={statements.kind === "loading"}
+          tone={turnovers.kind === "ready" && turnovers.data.needCleaner > 0 ? "accent" : undefined}
+          busy={turnovers.kind === "loading"}
         />
       )}
     </section>

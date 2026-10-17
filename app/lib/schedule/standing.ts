@@ -3,7 +3,7 @@
  * property's most pressing cleaning job, in one badge. Pure and dependency-free, like model.ts.
  *
  * It looks at the jobs with a checkout from 14 days back to 2 days ahead (jobs are made 2 days ahead: nothing later
- * exists). Its words are the Schedule's, and four of its own: Not marked, Amount needed, No turnover, No calendar.
+ * exists). Its words are the Schedule's, and four of its own: Not marked, Amount needed, No turnover, Calendar not read.
  *
  *   red     a checkout passed with nobody on it, or with someone on it who has not marked it cleaned (from the day
  *           after the checkout: on the day itself an unmarked job is the normal state)
@@ -11,7 +11,11 @@
  *           marked; a cleaning waiting for its amount
  *   blue    the next job, with someone on it
  *   green   the latest job done, nothing ahead
- *   words   no job in the days looked at, or no calendar link at all
+ *   words   no job in the days looked at
+ *
+ * With no job to show, a property whose calendar has no link, or could not be read in the last refresh, reads
+ * "Calendar not read" in amber, never "No turnover" (Kian's ruling of 2026-10-17, admin home): no turnover is known
+ * there. A job already made from an earlier read still shows as itself.
  *
  * A booking that changed before anyone marked it is not shown: it is not a problem.
  */
@@ -67,7 +71,7 @@ export function homeJobOf(job: StoredJob, cleanings: CleaningLookup): HomeJob {
 export type CleaningTone = 'problem' | 'warning' | 'assigned' | 'done' | 'none';
 
 export interface CleaningStanding {
-  key: 'needs-past' | 'not-marked' | 'needs' | 'removed' | 'changed' | 'amount' | 'assigned' | 'done' | 'no-turnover' | 'no-calendar';
+  key: 'needs-past' | 'not-marked' | 'needs' | 'removed' | 'changed' | 'amount' | 'assigned' | 'done' | 'no-turnover' | 'not-read';
   label: string;
   tone: CleaningTone;
   /** The job's checkout; null for the quiet words. */
@@ -102,14 +106,15 @@ const DETAIL: Record<CleaningStanding['key'], string> = {
   assigned: 'someone is on it',
   done: 'cleaned',
   'no-turnover': '',
-  'no-calendar': '',
+  'not-read': '',
 };
 
 /**
  * One property's badge: the most pressing of its jobs in the days looked at. Of two of the same kind, a problem or a
- * warning shows the earliest (the longest waiting), Assigned the next one, Done the latest.
+ * warning shows the earliest (the longest waiting), Assigned the next one, Done the latest. `calendarRead` is false
+ * when the last refresh could not read the property's calendar (absent: read).
  */
-export function cleaningStanding(jobs: readonly HomeJob[], input: { today: string; hasCalendar: boolean }): CleaningStanding {
+export function cleaningStanding(jobs: readonly HomeJob[], input: { today: string; hasCalendar: boolean; calendarRead?: boolean }): CleaningStanding {
   const from = addDays(input.today, -COLUMN_DAYS_BACK);
   const to = addDays(input.today, COLUMN_DAYS_AHEAD);
   const seen = jobs
@@ -117,9 +122,9 @@ export function cleaningStanding(jobs: readonly HomeJob[], input: { today: strin
     .map((job) => ({ job, state: standingOf(job, input.today) }))
     .filter((x): x is { job: HomeJob; state: Omit<CleaningStanding, 'title'> } => x.state !== null);
   if (seen.length === 0) {
-    return input.hasCalendar
-      ? { key: 'no-turnover', label: 'No turnover', tone: 'none', day: null, title: `No checkout from ${dayText(from)} to ${dayText(to)}` }
-      : { key: 'no-calendar', label: 'No calendar', tone: 'none', day: null, title: 'No calendar link, so no cleaning jobs' };
+    if (!input.hasCalendar) return { key: 'not-read', label: 'Calendar not read', tone: 'warning', day: null, title: 'No calendar link, so no cleaning jobs' };
+    if (input.calendarRead === false) return { key: 'not-read', label: 'Calendar not read', tone: 'warning', day: null, title: 'The last refresh could not read its calendar, so its turnovers are not known' };
+    return { key: 'no-turnover', label: 'No turnover', tone: 'none', day: null, title: `No checkout from ${dayText(from)} to ${dayText(to)}` };
   }
   const rank = (key: CleaningStanding['key']) => ORDER.indexOf(key);
   seen.sort((a, b) => rank(a.state.key) - rank(b.state.key) || (a.state.key === 'done' ? b.job.checkout.localeCompare(a.job.checkout) : a.job.checkout.localeCompare(b.job.checkout)));

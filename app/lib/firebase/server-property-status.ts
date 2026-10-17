@@ -3,9 +3,10 @@
  * PROPERTY-LIST-COLUMNS-PLAN.md): what both read, in one answer, for GET /api/admin/property-status.
  *
  * Reads, and nothing else: the month's uploads and lines, every title link, every direct arrangement and payment
- * (part B), the jobs with a checkout from 14 days back to 2 days ahead, and the cleanings their marks made (status and
- * amount only). No property, no cleaner and no
- * calendar is read: the page has the properties, and a job keeps its cleaners' names.
+ * (part B), the jobs with a checkout from 14 days back to 2 days ahead, the cleanings their marks made (status and
+ * amount only), and the stored calendar copy (Kian's rulings of 2026-10-17, admin home: "Calendar not read" and the
+ * Next checkout sort), of which only each property's read state and next checkout are sent. No property and no
+ * cleaner is read: the page has the properties, and a job keeps its cleaners' names. No feed is fetched.
  *
  * Read whole, no limit: a failed read throws, and the page shows the two columns as not known, never as empty.
  */
@@ -20,12 +21,33 @@ import { directStanding, type DirectStanding } from '@/app/lib/direct/periods';
 import { lastClosedMonth } from '@/app/lib/reports/model';
 import { CLEANING_JOBS_COLLECTION, readJob, type StoredJob } from '@/app/lib/schedule/model';
 import { COLUMN_DAYS_AHEAD, COLUMN_DAYS_BACK, homeJobOf, type HomeJob } from '@/app/lib/schedule/standing';
+import { readCurrent } from '@/app/lib/availability/store';
+import type { AvailabilitySnapshot, FeedStatus } from '@/app/lib/availability/types';
+
+/** One property in the last calendar copy: whether its calendar was read, and its next checkout from today on. */
+export interface CalendarFacts {
+  status: FeedStatus;
+  /** The end of the soonest reservation ending today or later, from the last good read; null when none. */
+  nextCheckout: string | null;
+}
+
+/** Every property the last copy holds, by property ID; a property not here is not in the copy (added since). */
+export function calendarFactsOf(snapshot: AvailabilitySnapshot | null, today: string): { refreshedAt: string | null; properties: Record<string, CalendarFacts> } {
+  const properties: Record<string, CalendarFacts> = {};
+  for (const [id, entry] of Object.entries(snapshot?.properties ?? {})) {
+    const ends = (entry.events ?? []).filter((event) => event.kind === 'reserved' && event.end >= today).map((event) => event.end).sort();
+    properties[id] = { status: entry.status, nextCheckout: ends[0] ?? null };
+  }
+  return { refreshedAt: snapshot?.refreshedAt ?? null, properties };
+}
 
 export interface PropertyStatusRead {
   /** Toronto. */
   today: string;
   income: IncomeRead;
   cleaning: { from: string; to: string; jobs: HomeJob[] };
+  /** The last calendar copy, as the list needs it. */
+  calendar: { refreshedAt: string | null; properties: Record<string, CalendarFacts> };
   /** Documents not in a written shape: left out, never guessed at. */
   unreadable: number;
 }
@@ -36,13 +58,14 @@ export async function readPropertyStatus(now: Date = new Date()): Promise<Proper
   const month = lastClosedMonth(today);
   const from = addDays(today, -COLUMN_DAYS_BACK);
   const to = addDays(today, COLUMN_DAYS_AHEAD);
-  const [uploadsSnap, linesSnap, linksSnap, jobsSnap, arrangementsSnap, paymentsSnap] = await Promise.all([
+  const [uploadsSnap, linesSnap, linksSnap, jobsSnap, arrangementsSnap, paymentsSnap, snapshot] = await Promise.all([
     db.collection(EARNINGS_UPLOADS_COLLECTION).where('month', '==', month).get(),
     db.collection(EARNINGS_LINES_COLLECTION).where('month', '==', month).get(),
     db.collection(EARNINGS_TITLE_LINKS_COLLECTION).get(),
     db.collection(CLEANING_JOBS_COLLECTION).where('checkout', '>=', from).where('checkout', '<=', to).get(),
     db.collection(DIRECT_ARRANGEMENTS_COLLECTION).get(),
     db.collection(DIRECT_PAYMENTS_COLLECTION).get(),
+    readCurrent(db),
   ]);
   let unreadable = 0;
   const strictly = <T>(docs: { id: string; data: () => Record<string, unknown> }[], read: (id: string, fields: Record<string, unknown>) => T | null, what: string): T[] => {
@@ -83,5 +106,5 @@ export async function readPropertyStatus(now: Date = new Date()): Promise<Proper
       }),
   );
 
-  return { today, income: { ...incomeReadOf({ month, uploads, lines, links }), direct }, cleaning: { from, to, jobs: jobs.map((job) => homeJobOf(job, cleanings)) }, unreadable };
+  return { today, income: { ...incomeReadOf({ month, uploads, lines, links }), direct }, cleaning: { from, to, jobs: jobs.map((job) => homeJobOf(job, cleanings)) }, calendar: calendarFactsOf(snapshot, today), unreadable };
 }

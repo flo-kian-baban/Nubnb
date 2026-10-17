@@ -1,7 +1,8 @@
 "use client";
 
 /**
- * The signed-in admin in the header (dispatch 38): their name, and a menu
+ * The signed-in admin at the foot of the navigation (dispatch 38; the left column since Kian's rulings of
+ * 2026-10-17, where the menu opens upward): their name, and a menu
  * with Change name, Change PIN and Sign out (Kian's rulings of 2026-10-13:
  * Change name beside Change PIN; an admin can still change their own PIN).
  * While the admin's PIN is not stored readably — the shared PIN, or one kept
@@ -17,6 +18,12 @@ import { ChangeNameDialog } from "./ChangeNameDialog";
 import { ChangePinDialog } from "./ChangePinDialog";
 import styles from "./AccountMenu.module.css";
 
+/** "Kian Baban" → "KB": the name's first two words' first letters or digits, for the icons-only navigation. */
+function initialsOf(name: string): string {
+  const words = name.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  return words.slice(0, 2).map((word) => word[0].toUpperCase()).join("") || "?";
+}
+
 /** A PIN to set again, in words. */
 const OLD_PIN_WORDS: Partial<Record<PinState, string>> = {
   shared: "shared PIN",
@@ -25,7 +32,7 @@ const OLD_PIN_WORDS: Partial<Record<PinState, string>> = {
   set: "PIN kept before",
 };
 
-export function AccountMenu() {
+export function AccountMenu({ placement = "down" }: { placement?: "down" | "up" }) {
   const session = useAdminSession();
   const [open, setOpen] = useState(false);
   const [dialog, setDialog] = useState<"name" | "pin" | null>(null);
@@ -56,16 +63,19 @@ export function AccountMenu() {
   };
 
   return (
-    <div ref={rootRef} className={styles.root}>
+    <div ref={rootRef} className={`${styles.root} ${placement === "up" ? styles.up : ""}`}>
       <button
         type="button"
         className={styles.trigger}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((was) => !was)}
-        title={oldPin ? `Still on a ${oldPin}: Change PIN sets yours` : undefined}
+        title={oldPin ? `Still on a ${oldPin}: Change PIN sets yours` : admin.name}
       >
         {oldPin && <span className={styles.dot} aria-hidden />}
+        <span className={styles.initials} aria-hidden>
+          {initialsOf(admin.name)}
+        </span>
         <span className={styles.name}>{admin.name}</span>
         <ChevronDown size={14} aria-hidden />
       </button>

@@ -32,41 +32,40 @@
   --popover-bg: rgba(14, 15, 18, 0.97);
   --popover-border: rgba(255, 255, 255, 0.1);
   --popover-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+
+  /* The navigation's column (components/AdminHeader.tsx) is fixed to the window's left edge: the page leaves it free. */
+  --admin-nav-w: 216px;
+  padding-left: var(--admin-nav-w);
 }
 
-/* ── Header ──
-   One header for every admin page (components/AdminHeader.tsx): the brand,
-   the sections, and the signed-in admin's name — navigation only (Kian's
-   ruling of 2026-10-15); a page's own buttons are in its head (.pageHead).
-   It follows the public site's nav on /about — the NUBNB wordmark and quiet
-   13 px links — so the admin reads as the same product. Every control in it
-   is 36 px tall and pill-shaped, and each group keeps its own gap: 4 px
-   between sections, 28 px between groups. */
-.header {
-  background: rgba(10, 10, 14, 0.85);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  position: sticky;
+/* ── The navigation ──
+   A column on the left on every admin page (components/AdminHeader.tsx, Kian's rulings of 2026-10-17): the brand,
+   the sections in three groups, and at its foot the calendars' tag and the signed-in admin's name. Navigation only
+   (Kian's ruling of 2026-10-15); a page's own buttons are in its head (.pageHead). It keeps the public site's
+   wordmark and quiet 13 px links. Fixed to the window, so it stays in view as a page scrolls; its groups scroll on
+   their own when a window is too short for them. */
+.sideNav {
+  position: fixed;
   top: 0;
+  bottom: 0;
+  left: 0;
   z-index: 50;
-}
-
-.headerInner {
+  width: var(--admin-nav-w);
   display: flex;
-  align-items: center;
-  gap: 28px;
-  min-height: 64px;
-  max-width: 1440px;
-  margin: 0 auto;
-  padding: 0 32px;
+  flex-direction: column;
+  gap: 22px;
+  padding: 20px 14px 14px;
+  background: rgba(10, 10, 14, 0.92);
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .brand {
   display: inline-flex;
   align-items: center;
+  align-self: flex-start;
   gap: 10px;
   flex-shrink: 0;
+  padding: 6px 10px;
   color: #ffffff;
   text-decoration: none;
   border-radius: 999px;
@@ -86,15 +85,56 @@
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 999px;
 }
-
-.sectionNav {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
+/* The brand's initial, for the column's icons-only width. */
+.brandMark {
+  display: none;
+  font-size: 15px;
+  font-weight: 700;
 }
 
-/* Every control in the header, and every page's buttons: the same height, the same pill. */
+.sideNavGroups {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  scrollbar-width: thin;
+}
+
+.navGroupLabel {
+  margin: 0 0 6px;
+  padding: 0 12px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.navList,
+.navSub {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* A section's sub-pages, when it has some: under it, indented. */
+.navSub {
+  margin: 2px 0 4px 22px;
+}
+
+.sideNavFoot {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Every link in the navigation, and every page's buttons: the same height. */
 .navItem,
 .btnPrimary,
 .btnGhost {
@@ -125,6 +165,14 @@
 .navItem {
   color: rgba(255, 255, 255, 0.55);
 }
+/* In the column, a section is a full-width row. */
+.sideNav .navItem {
+  display: flex;
+  width: 100%;
+  gap: 10px;
+  padding: 0 12px;
+  border-radius: 10px;
+}
 .navItem:hover {
   color: #ffffff;
   background: rgba(255, 255, 255, 0.06);
@@ -134,14 +182,6 @@
   color: #ffffff;
   font-weight: 600;
   background: rgba(255, 255, 255, 0.1);
-}
-
-.headerActions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-  flex-shrink: 0;
 }
 
 /* ── Buttons ── */
@@ -230,6 +270,7 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 28px;
+  container-type: inline-size;
 }
 /* Four tiles (2026-10-02): one row on a wide window, two even rows below it. */
 @media (min-width: 1200px) {
@@ -314,6 +355,23 @@
   transform: translateX(2px);
 }
 
+/* Four tiles in a row narrower than about 1,080 px (a 1,280 px window beside the navigation's column): a smaller
+   icon and no arrow, so the labels keep to one line. */
+@container (max-width: 1080px) {
+  .statCard {
+    gap: 12px;
+    padding: 16px;
+  }
+  .statIcon {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+  }
+  .statArrow {
+    display: none;
+  }
+}
+
 /* Something to act on: the brand blue. */
 .statCardAccent {
   border-color: rgba(101, 153, 205, 0.35);
@@ -365,10 +423,10 @@
   color: rgba(239, 83, 80, 0.8);
 }
 
-/* ── Toolbar: search, filters and sort ──
+/* ── Toolbar: search, the city and sort ──
    One row: the search (with "/" as its hint, × once something is typed),
-   the three filters, and sort on its own at the right. Under it, the count
-   and the chips for whatever is narrowing the list. */
+   the city, and sort on its own at the right. Under it, the chips that
+   filter the list, each with its count (Kian's rulings of 2026-10-17). */
 .toolbar {
   display: flex;
   flex-direction: column;
@@ -435,55 +493,62 @@
   margin-left: auto;
 }
 
-.toolbarStatus {
+/* The chips: one row, each a toggle with its count; one on at a time. */
+.chipRow {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  min-height: 28px;
 }
-
-/* A filter that is on: one chip, removed by a press. */
-.chip {
+.filterChip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 8px 0 12px;
-  border: 1px solid rgba(101, 153, 205, 0.35);
+  gap: 8px;
+  height: 30px;
+  padding: 0 6px 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 999px;
-  background: rgba(101, 153, 205, 0.1);
-  color: #cfe0f5;
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(255, 255, 255, 0.72);
   font: inherit;
   font-size: 12px;
   font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
-  transition: border-color 0.15s ease, background-color 0.15s ease;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
 }
-.chip:hover {
-  border-color: rgba(101, 153, 205, 0.6);
-  background: rgba(101, 153, 205, 0.16);
+.filterChip:hover:not(:disabled) {
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.06);
 }
-.chip:focus-visible {
+.filterChip:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.filterChip:focus-visible {
   outline: 2px solid #7fb0e0;
   outline-offset: 2px;
 }
-
-.clearAll {
-  padding: 4px 8px;
-  border: none;
-  border-radius: 6px;
-  background: none;
-  color: rgba(255, 255, 255, 0.55);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
+.chipCount {
+  min-width: 22px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 11.5px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
-.clearAll:hover {
+.filterChipOn,
+.filterChipOn:hover:not(:disabled) {
+  border-color: rgba(101, 153, 205, 0.55);
+  background: rgba(101, 153, 205, 0.14);
+  color: #cfe0f5;
+}
+.filterChipOn .chipCount {
+  background: rgba(101, 153, 205, 0.28);
   color: #ffffff;
-  text-decoration: underline;
-  text-underline-offset: 3px;
 }
 
 .searchIcon {
@@ -600,11 +665,6 @@
   margin-bottom: 8px;
 }
 
-/* The Units tile's target: the top of the property list, a little air above it. */
-.listAnchor {
-  scroll-margin-top: 24px;
-}
-
 /* ── Table ── */
 .tableContainer {
   background: rgba(255, 255, 255, 0.02);
@@ -658,7 +718,7 @@
   background: rgba(255, 255, 255, 0.025);
 }
 
-/* ── Property row: a click anywhere but the actions opens its costs ── */
+/* ── Property row: a click anywhere but a link or the actions opens its page ── */
 .propertyRow {
   cursor: pointer;
 }
@@ -723,19 +783,12 @@
   color: rgba(255, 255, 255, 0.5);
 }
 
-.priceText {
-  font-size: 13.5px;
-  font-weight: 600;
-  color: #ffffff;
-  white-space: nowrap;
-}
-
 /* ── The property list's columns ──
-   The name takes what is left; Statement, Income, Cleaning, Price and
+   The name takes what is left; Statement, Income, Cleaning, Next step and
    Actions are each as wide as their widest entry, so every column stands
-   40 px from the next (the cells' 20 px either side). The price and the
-   actions keep to the right edge of their column, under their heads. Scoped
-   to this table: the other pages' tables share .table and .actionsHeader. */
+   40 px from the next (the cells' 20 px either side). The actions keep to
+   the right edge. Scoped to this table: the other pages' tables share
+   .table and .actionsHeader. */
 .propertyTable th.colFit,
 .propertyTable td.colFit {
   width: 1%;
@@ -744,9 +797,6 @@
 .propertyTable th.colEnd,
 .propertyTable td.colEnd {
   text-align: right;
-}
-.propertyTable .priceText {
-  font-variant-numeric: tabular-nums;
 }
 
 /* ── Action Buttons ── */
@@ -791,6 +841,29 @@
   outline-offset: 2px;
 }
 
+/* Edit on the property list (Kian's rulings of 2026-10-17): an icon, as Delete is. */
+.iconBtn {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 7px;
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.55);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.iconBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.iconBtn:focus-visible,
+.iconBtnDelete:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 2px;
+}
+
 .iconBtnDelete {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -811,60 +884,150 @@
 }
 
 /* ── Responsive ── */
-@media (max-width: 1024px) {
-  .headerInner {
-    gap: 20px;
-    padding: 0 24px;
+/* Below 1440 px the navigation's column takes room the pages had: their side padding gives some of it back. */
+@media (max-width: 1439px) {
+  .main {
+    padding: 28px 24px 56px;
   }
+  .propertyTable th,
+  .propertyTable td {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+}
+
+/* Kian's ruling of 2026-10-17 (after his review): below 1440 px the column shows icons only, each with its name on
+   hover and focus. The name stays in the link as its text (a screen reader reads it); here it is drawn as a tooltip
+   beside the icon. The groups are told apart by a rule; their names stay for a screen reader. Below 900 px the
+   column is a block across the top, with its labels (below). */
+@media (min-width: 900px) and (max-width: 1439px) {
+  .container {
+    --admin-nav-w: 72px;
+  }
+  .sideNav {
+    gap: 18px;
+    padding: 18px 12px 12px;
+  }
+  .brand {
+    align-self: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+  }
+  .brandWordmark,
+  .brandTag {
+    display: none;
+  }
+  .brandMark {
+    display: inline;
+  }
+  .sideNavGroups {
+    overflow: visible;
+    gap: 12px;
+  }
+  .navGroup + .navGroup {
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
+  }
+  .navGroupLabel {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+  .sideNav .navItem {
+    position: relative;
+    justify-content: center;
+    padding: 0;
+  }
+  .sideNav .navLabel {
+    position: absolute;
+    left: calc(100% + 12px);
+    top: 50%;
+    transform: translateY(-50%);
+    padding: 7px 11px;
+    border-radius: 8px;
+    background: var(--popover-bg);
+    border: 1px solid var(--popover-border);
+    box-shadow: var(--popover-shadow);
+    color: #ffffff;
+    font-size: 12.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s ease;
+  }
+  .sideNav .navItem:hover .navLabel,
+  .sideNav .navItem:focus-visible .navLabel {
+    opacity: 1;
+  }
+  .sideNavFoot {
+    align-items: stretch;
+  }
+}
+
+@media (max-width: 1024px) {
   .main {
     padding: 24px;
   }
 }
 
-/* Kian's ruling of 2026-10-13 (evening): below 1400 px wide, the section links sit on their own row under the
-   brand and the actions, on every admin page. Wider, AdminHeader adds .headerStacked whenever the three do not fit
-   on one row (a long name, a page with several actions). */
-@media (max-width: 1399px) {
-  .headerInner {
-    flex-wrap: wrap;
-    row-gap: 6px;
-    padding-top: 10px;
-    padding-bottom: 10px;
+/* Below 900 px the column becomes a block across the top: the brand and the foot on one row, the sections on the
+   next, scrolling sideways when a phone is narrower than they are. */
+@media (max-width: 899px) {
+  .container {
+    padding-left: 0;
   }
-  .sectionNav {
+  .sideNav {
+    position: static;
+    width: auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 16px;
+    padding: 12px 20px;
+    border-right: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+  .sideNavGroups {
     order: 3;
     flex-basis: 100%;
-    margin-left: -6px;
-  }
-}
-.headerStacked .headerInner {
-  flex-wrap: wrap;
-  row-gap: 6px;
-  padding-top: 10px;
-  padding-bottom: 10px;
-}
-.headerStacked .sectionNav {
-  order: 3;
-  flex-basis: 100%;
-  margin-left: -6px;
-}
-
-/* The sections take their own row under the brand and the actions, and scroll when a phone is narrower than they are. */
-@media (max-width: 860px) {
-  .headerInner {
-    flex-wrap: wrap;
-    row-gap: 6px;
-    padding: 10px 20px;
-  }
-  .sectionNav {
-    order: 3;
-    flex-basis: 100%;
+    flex-direction: row;
     overflow-x: auto;
+    overflow-y: visible;
+    gap: 16px;
     scrollbar-width: none;
-    margin-left: -6px;
   }
-  .sectionNav::-webkit-scrollbar {
+  .sideNavGroups::-webkit-scrollbar {
     display: none;
+  }
+  .navGroup {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .navGroupLabel {
+    margin: 0;
+    padding: 0;
+  }
+  .navList {
+    flex-direction: row;
+  }
+  .sideNav .navItem {
+    width: auto;
+  }
+  .sideNavFoot {
+    margin-left: auto;
+    flex-direction: row;
+    align-items: center;
+    padding-top: 0;
+    border-top: none;
   }
 }
 

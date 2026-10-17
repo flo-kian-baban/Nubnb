@@ -42,6 +42,29 @@
 .quiet {
   font-size: 12px;
   color: rgba(255, 255, 255, 0.4);
+  white-space: nowrap;
+}
+
+/* The property list's Next step (Kian's rulings of 2026-10-17): the action in the brand blue, a link to where it is done. */
+.step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #8dbbe8;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.step:hover {
+  color: #b5d4f2;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.step:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 3px;
+  border-radius: 6px;
 }
 
 /* The property page's head: each standing with its months, side by side. */

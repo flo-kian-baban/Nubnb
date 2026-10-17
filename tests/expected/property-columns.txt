@@ -50,8 +50,12 @@
    ok   done
   TESTPROP0010: no-turnover · "No turnover" · none · - · No checkout from Oct 1 to Oct 17
    ok   no-turnover
-  TESTPROP0011: no-calendar · "No calendar" · none · - · No calendar link, so no cleaning jobs
-   ok   no-calendar
+  TESTPROP0011: not-read · "Calendar not read" · warning · - · No calendar link, so no cleaning jobs
+   ok   not-read
+  TESTPROP0012: not-read · "Calendar not read" · warning · - · The last refresh could not read its calendar, so its turnovers are not known
+   ok   not-read (calendar not read in the last refresh)
+  TESTPROP0013: needs · "Needs a cleaner" · warning · 2026-10-16 · Checkout Oct 16: nobody is on it yet
+   ok   needs (calendar not read in the last refresh)
    ok   Not marked names the other job needing a cleaner
    ok   on its checkout day an unmarked job is Assigned, not red
    ok   the day after, it is Not marked

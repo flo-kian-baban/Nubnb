@@ -4,64 +4,38 @@ import { useState, useEffect, useMemo, useRef, useCallback, type MouseEvent } fr
 import { useRouter } from "next/navigation";
 import { Property } from "@/app/types/property";
 import { getPropertiesResult, deleteProperty } from "@/app/lib/firebase/properties";
-import { nightlyPrice } from "@/app/lib/price";
 import { PinGate } from "./components/PinGate";
 import { NoticeBanner, useNotice } from "./components/Notice";
 import { AdminHeader } from "./components/AdminHeader";
 import { PageHead } from "./components/PageHead";
-import { DashboardStats, useStatements } from "./components/DashboardStats";
+import { DashboardStats, useStatements, type Read } from "./components/DashboardStats";
 import { AdminSelect } from "./components/AdminSelect";
 import { ReportingStatusCell } from "./components/StatementStatus";
-import { CleaningCell, IncomeCell, UnknownCell } from "./components/PropertyColumns";
+import { CleaningCell, IncomeCell, NextStepCell, UnknownCell } from "./components/PropertyColumns";
 import { torontoDayOf } from "@/app/lib/costs/report";
 import { reportingStatuses, type ReportingTone } from "@/app/lib/reports/statement";
 import { fetchPropertyStatus, type PropertyStatusResult } from "@/app/lib/property-status-client";
 import { incomeStanding, type IncomeStanding, type IncomeTone } from "@/app/lib/income/standing";
 import { cleaningStanding, type CleaningStanding, type CleaningTone, type HomeJob } from "@/app/lib/schedule/standing";
+import { byAttention, byNextCheckout, CHIPS, rowView, statementFigures, turnoverFigures, type ChipKey, type RowView } from "@/app/lib/home/next-step";
+import { useCalendarsRefreshed } from "@/app/lib/calendar-refresh-client";
 import { Dialog } from "./property/editor/controls";
 import styles from "./page.module.css";
 import ed from "./property/editor/editor.module.css";
-import {
-  Plus,
-  Edit2,
-  Trash2,
-  Search,
-  LayoutGrid,
-  AlertTriangle,
-  RefreshCw,
-  FileText,
-  MapPin,
-  Building2,
-  BedDouble,
-  ArrowUpDown,
-  X,
-} from "lucide-react";
+import { Plus, Edit2, Trash2, Search, LayoutGrid, AlertTriangle, RefreshCw, MapPin, ArrowUpDown, X } from "lucide-react";
 import Link from "next/link";
 
-type SortOption = "default" | "attention" | "name-asc" | "price-asc" | "price-desc" | "beds-desc";
-type BedsFilter = "all" | "0" | "1" | "2" | "3" | "4+";
+/** The list's three orders (Kian's rulings of 2026-10-17, admin home): Needs attention first by default. */
+type SortOption = "attention" | "next-checkout" | "address";
 
 const SORT_OPTIONS: { value: SortOption; label: string }[] = [
-  { value: "default", label: "Default order" },
-  { value: "attention", label: "Needs attention first" },
-  { value: "name-asc", label: "Name: A → Z" },
-  { value: "price-asc", label: "Price: low → high" },
-  { value: "price-desc", label: "Price: high → low" },
-  { value: "beds-desc", label: "Bedrooms: most first" },
-];
-
-/** Exact bedroom counts, the way an admin thinks of a property ("the 3-bedroom in Markham"), with 4+ as one bucket. */
-const BEDS_OPTIONS: { value: BedsFilter; label: string; match: (bedrooms: number) => boolean }[] = [
-  { value: "all", label: "Any bedrooms", match: () => true },
-  { value: "0", label: "Studio", match: (n) => n === 0 },
-  { value: "1", label: "1 bedroom", match: (n) => n === 1 },
-  { value: "2", label: "2 bedrooms", match: (n) => n === 2 },
-  { value: "3", label: "3 bedrooms", match: (n) => n === 3 },
-  { value: "4+", label: "4+ bedrooms", match: (n) => n >= 4 },
+  { value: "attention", label: "Needs attention" },
+  { value: "next-checkout", label: "Next checkout" },
+  { value: "address", label: "Address" },
 ];
 
 /** Accents and case set aside, so "Étobicoke" and "etobicoke" are the same word. */
-const fold = (text: string) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+const fold = (text: string) => text.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
 /**
  * Everything a property can be found by, as one folded string: the name the list shows (its cleaner-facing name,
@@ -93,30 +67,22 @@ function counted(properties: Property[], field: (p: Property) => string | undefi
   return [...counts.entries()].map(([value, count]) => ({ value, count })).sort((a, b) => a.value.localeCompare(b.value, "en-CA"));
 }
 
-/** The search, filters and sort the address bar carries when the page opens; nothing on the server. */
+/** The search, the city, the chip and the sort the address bar carries when the page opens; nothing on the server. */
 function filtersFromUrl() {
   const params = typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search);
-  const beds = params.get("beds");
   const sort = params.get("sort");
+  const show = params.get("show");
   return {
     q: params.get("q") ?? "",
     city: params.get("city") ?? "all",
-    type: params.get("type") ?? "all",
-    beds: BEDS_OPTIONS.some((option) => option.value === beds) ? (beds as BedsFilter) : "all",
-    sort: SORT_OPTIONS.some((option) => option.value === sort) ? (sort as SortOption) : "default",
+    show: CHIPS.some((chip) => chip.key === show) ? (show as ChipKey) : null,
+    sort: SORT_OPTIONS.some((option) => option.value === sort) ? (sort as SortOption) : ("attention" as SortOption),
   };
 }
 
-/**
- * How much a row needs, for "Needs attention first" (Kian's rulings of 2026-10-15): the worst of its Statement,
- * Income and Cleaning cells, red before amber, then how many of the three need something. Rows that tie keep the
- * default order.
- */
+/** A cell's tone as the Needs attention sort weighs it: red 2, amber 1, anything else 0. */
 const SEVERITY: Partial<Record<ReportingTone | IncomeTone | CleaningTone, number>> = { problem: 2, warning: 1 };
-function attentionOf(tones: (ReportingTone | IncomeTone | CleaningTone | undefined)[]): [number, number] {
-  const levels = tones.map((tone) => (tone === undefined ? 0 : (SEVERITY[tone] ?? 0)));
-  return [Math.max(0, ...levels), levels.filter((level) => level > 0).length];
-}
+const worstOf = (tones: (ReportingTone | IncomeTone | CleaningTone | undefined)[]) => Math.max(0, ...tones.map((tone) => (tone === undefined ? 0 : (SEVERITY[tone] ?? 0))));
 
 /**
  * A property's page (dispatch 23F): everything about it, bound to a month —
@@ -170,22 +136,35 @@ function AdminHome() {
   // the list's Statement column (dispatch 23G): every property's status by the one rule, `reportingStatus`.
   const statementsRead = useStatements();
   const today = torontoDayOf(new Date());
+  const tracker = statementsRead.statements.kind === "ready" ? statementsRead.statements.data : null;
   const statuses = useMemo(() => {
-    const read = statementsRead.statements;
-    if (read.kind !== "ready") return null;
+    if (!tracker) return null;
     // The list's properties and the tracker's: the same documents; both are included, so a property
     // added since either read still has a status, with the month it was created from whichever read has it.
-    const created = new Map(read.data.properties.map((p) => [p.id, p.createdMonth ?? null]));
+    const created = new Map(tracker.properties.map((p) => [p.id, p.createdMonth ?? null]));
     for (const [id, month] of createdMonths) if (month !== null) created.set(id, month);
     // The months with money in them (Kian's ruling of 2026-10-04) come from the tracker's read alone.
-    const money = new Map(read.data.properties.map((p) => [p.id, p.moneyMonths ?? []]));
-    const ids = new Map([...read.data.properties, ...properties].map((p) => [p.id, { id: p.id, createdMonth: created.get(p.id) ?? null, moneyMonths: money.get(p.id) ?? [] }]));
-    return reportingStatuses({ today, properties: [...ids.values()], management: read.data.management, reports: read.data.reports });
-  }, [statementsRead.statements, properties, createdMonths, today]);
+    const money = new Map(tracker.properties.map((p) => [p.id, p.moneyMonths ?? []]));
+    const ids = new Map([...tracker.properties, ...properties].map((p) => [p.id, { id: p.id, createdMonth: created.get(p.id) ?? null, moneyMonths: money.get(p.id) ?? [] }]));
+    return reportingStatuses({ today, properties: [...ids.values()], management: tracker.management, reports: tracker.reports });
+  }, [tracker, properties, createdMonths, today]);
+  /** The properties whose management record holds a Report For name: Finish refuses a statement without one (Kian's rulings of 2026-10-12). */
+  const withReportFor = useMemo(
+    () => (tracker ? new Set(tracker.management.filter((record) => (record.reportFor?.name ?? "").trim() !== "").map((record) => record.propertyId)) : null),
+    [tracker],
+  );
+  /** The Statements due tile: every statement owed, blocked and ready (app/lib/home/next-step.ts). */
+  const figures = useMemo(
+    () => (statuses && withReportFor ? statementFigures([...statuses].map(([id, status]) => ({ status, hasReportFor: withReportFor.has(id) }))) : null),
+    [statuses, withReportFor],
+  );
 
-  // The Income and Cleaning columns' read (Kian's rulings of 2026-10-15): its own call, so a failure leaves the tiles
-  // and the Statement column as they are and shows only these two as not known.
+  // The Income and Cleaning columns' read (Kian's rulings of 2026-10-15), with the calendar copy's facts and the jobs the
+  // Turnovers tile counts (Kian's rulings of 2026-10-17): its own call, so a failure leaves the Statement column as it is
+  // and shows only what it feeds as not known. Read again after a refresh of the calendars, keeping what is shown until
+  // the answer comes.
   const [propertyStatus, setPropertyStatus] = useState<PropertyStatusResult | null>(null);
+  const [statusAttempt, setStatusAttempt] = useState(0);
   useEffect(() => {
     let cancelled = false;
     fetchPropertyStatus().then((result) => {
@@ -194,27 +173,60 @@ function AdminHome() {
     return () => {
       cancelled = true;
     };
-  }, []);
-  /** Each property's two cells, by the two functions that decide them (app/lib/income/standing.ts, app/lib/schedule/standing.ts). */
-  const columns = useMemo(() => {
-    if (!propertyStatus?.ok) return null;
-    const { income, cleaning, today: day } = propertyStatus.data;
+  }, [statusAttempt]);
+  useCalendarsRefreshed((outcome) => {
+    if (outcome.ok) setStatusAttempt((n) => n + 1);
+  });
+  const statusData = propertyStatus?.ok ? propertyStatus.data : null;
+  const statusFailed = propertyStatus && !propertyStatus.ok ? propertyStatus.title : null;
+  const turnovers: Read<ReturnType<typeof turnoverFigures>> = statusData
+    ? { kind: "ready", data: turnoverFigures(statusData.cleaning.jobs, statusData.today) }
+    : statusFailed !== null
+      ? { kind: "error", title: statusFailed }
+      : { kind: "loading" };
+
+  /**
+   * Each property's cells, by the functions that decide them (app/lib/income/standing.ts, app/lib/schedule/standing.ts),
+   * its next checkout, and its Next step (app/lib/home/next-step.ts) once the statements are read too.
+   */
+  const rows = useMemo(() => {
+    if (!statusData) return null;
+    const { income, cleaning, calendar, today: day } = statusData;
     const jobs = new Map<string, HomeJob[]>();
     for (const job of cleaning.jobs) jobs.set(job.propertyId, [...(jobs.get(job.propertyId) ?? []), job]);
-    return new Map<string, { income: IncomeStanding; cleaning: CleaningStanding }>(
-      properties.map((p) => [p.id, { income: incomeStanding(income, p.id), cleaning: cleaningStanding(jobs.get(p.id) ?? [], { today: day, hasCalendar: (p.icalUrl ?? "").trim() !== "" }) }]),
+    return new Map<string, { income: IncomeStanding; cleaning: CleaningStanding; nextCheckout: string | null; view: RowView | null }>(
+      properties.map((p) => {
+        const hasCalendarLink = (p.icalUrl ?? "").trim() !== "";
+        const copy = calendar.properties[p.id];
+        // Read: it has a link and the last refresh read it. Not in the copy (added since) is not read either.
+        const calendarRead = hasCalendarLink && copy?.status === "ok";
+        const own = jobs.get(p.id) ?? [];
+        const status = statuses?.get(p.id);
+        return [
+          p.id,
+          {
+            income: incomeStanding(income, p.id),
+            cleaning: cleaningStanding(own, { today: day, hasCalendar: hasCalendarLink, calendarRead }),
+            nextCheckout: copy?.nextCheckout ?? null,
+            view:
+              status && withReportFor
+                ? rowView({ propertyId: p.id, today: day, status, hasReportFor: withReportFor.has(p.id), incomeMonth: income.month, review: income.properties[p.id]?.review ?? 0, direct: income.direct[p.id] ?? null, jobs: own, hasCalendarLink, calendarRead })
+                : null,
+          },
+        ];
+      }),
     );
-  }, [propertyStatus, properties]);
-  const columnsFailed = propertyStatus && !propertyStatus.ok ? propertyStatus.title : null;
+  }, [statusData, properties, statuses, withReportFor]);
+  /** Why a Next step is not known: the read that failed. */
+  const viewsFailed = statusFailed ?? (statementsRead.statements.kind === "error" ? statementsRead.statements.title : null);
+  const viewsReady = rows !== null && statuses !== null && withReportFor !== null;
 
-  // Search, filters and sort (2026-09-30). They start from the address bar
-  // and are written back to it (?q=&city=&type=&beds=&sort=), so a reload or
-  // a shared link keeps them, as on the costs page.
+  // Search, the city, a chip and the sort (Kian's rulings of 2026-10-17). They start from the address bar and are
+  // written back to it (?q=&city=&show=&sort=), so a reload or a shared link keeps them.
   const [initial] = useState(filtersFromUrl);
   const [searchQuery, setSearchQuery] = useState(initial.q);
   const [cityFilter, setCityFilter] = useState(initial.city);
-  const [typeFilter, setTypeFilter] = useState(initial.type);
-  const [bedsFilter, setBedsFilter] = useState<BedsFilter>(initial.beds);
+  const [chip, setChip] = useState<ChipKey | null>(initial.show);
   const [sortBy, setSortBy] = useState<SortOption>(initial.sort);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -224,11 +236,11 @@ function AdminHome() {
       value === off ? url.searchParams.delete(key) : url.searchParams.set(key, value);
     set("q", searchQuery.trim(), "");
     set("city", cityFilter, "all");
-    set("type", typeFilter, "all");
-    set("beds", bedsFilter, "all");
-    set("sort", sortBy, "default");
+    set("show", chip ?? "", "");
+    set("sort", sortBy, "attention");
+    for (const gone of ["type", "beds"]) url.searchParams.delete(gone);
     if (url.href !== window.location.href) window.history.replaceState(null, "", url.href);
-  }, [searchQuery, cityFilter, typeFilter, bedsFilter, sortBy]);
+  }, [searchQuery, cityFilter, chip, sortBy]);
 
   // "/" puts the cursor in the search, as long as nothing else is being typed into.
   useEffect(() => {
@@ -272,68 +284,48 @@ function AdminHome() {
     }
   };
 
-  // What the filters offer, each option with its count.
+  // What the City filter offers, each option with its count.
   const cities = useMemo(() => counted(properties, (p) => p.addressDetails?.city), [properties]);
-  const propertyTypes = useMemo(() => counted(properties, (p) => p.type), [properties]);
-  const bedroomOptions = useMemo(
-    () => BEDS_OPTIONS.map((option) => ({ ...option, count: properties.filter((p) => option.match(p.bedrooms ?? 0)).length })),
-    [properties],
-  );
   const searchable = useMemo(() => new Map(properties.map((p) => [p.id, searchText(p, internalNames.get(p.id))])), [properties, internalNames]);
 
-  // Searched, filtered, then sorted.
+  /** Searched and narrowed to the city: what the chips count, so a chip's count is the rows it shows. */
+  const searched = useMemo(
+    () => properties.filter((p) => matchesSearch(searchable.get(p.id) ?? "", searchQuery) && (cityFilter === "all" || p.addressDetails?.city === cityFilter)),
+    [properties, searchable, searchQuery, cityFilter],
+  );
+  const chipCounts = useMemo(() => {
+    if (!viewsReady) return null;
+    return new Map(CHIPS.map(({ key }) => [key, searched.filter((p) => rows!.get(p.id)?.view?.under[key]).length]));
+  }, [viewsReady, searched, rows]);
+
+  // Then the chip, then sorted.
   const filteredProperties = useMemo(() => {
-    const beds = BEDS_OPTIONS.find((option) => option.value === bedsFilter) ?? BEDS_OPTIONS[0];
-    const result = properties.filter(
-      (p) =>
-        matchesSearch(searchable.get(p.id) ?? "", searchQuery) &&
-        (cityFilter === "all" || p.addressDetails?.city === cityFilter) &&
-        (typeFilter === "all" || p.type === typeFilter) &&
-        beds.match(p.bedrooms ?? 0),
-    );
-
-    switch (sortBy) {
-      // Sorted on the nightly price, which is what the list shows and what
-      // renters see. Sorting on the legacy `price` field put one listing in
-      // the order of a $239 stay while it advertised $699.
-      case "price-asc":
-        result.sort((a, b) => nightlyPrice(a) - nightlyPrice(b));
-        break;
-      case "price-desc":
-        result.sort((a, b) => nightlyPrice(b) - nightlyPrice(a));
-        break;
-      case "name-asc":
-        result.sort((a, b) => nameOf(a).localeCompare(nameOf(b), "en-CA"));
-        break;
-      case "beds-desc":
-        result.sort((a, b) => (b.bedrooms ?? 0) - (a.bedrooms ?? 0) || nameOf(a).localeCompare(nameOf(b), "en-CA"));
-        break;
-      case "attention": {
-        const rank = new Map(result.map((p) => [p.id, attentionOf([statuses?.get(p.id)?.tone, columns?.get(p.id)?.income.tone, columns?.get(p.id)?.cleaning.tone])]));
-        result.sort((a, b) => rank.get(b.id)![0] - rank.get(a.id)![0] || rank.get(b.id)![1] - rank.get(a.id)![1]);
-        break;
-      }
-      default:
-        break;
+    const result = chip && viewsReady ? searched.filter((p) => rows!.get(p.id)?.view?.under[chip]) : [...searched];
+    const byName = (a: Property, b: Property) => nameOf(a).localeCompare(nameOf(b), "en-CA");
+    if (sortBy === "next-checkout" && rows) {
+      result.sort((a, b) => byNextCheckout({ nextCheckout: rows.get(a.id)?.nextCheckout ?? null, name: nameOf(a) }, { nextCheckout: rows.get(b.id)?.nextCheckout ?? null, name: nameOf(b) }));
+    } else if (sortBy === "attention" && viewsReady) {
+      const ranked = new Map(
+        result.map((p) => {
+          const row = rows!.get(p.id)!;
+          return [p.id, { step: row.view!.step, worst: worstOf([statuses!.get(p.id)?.tone, row.income.tone, row.cleaning.tone]), name: nameOf(p) }];
+        }),
+      );
+      result.sort((a, b) => byAttention(ranked.get(a.id)!, ranked.get(b.id)!));
+    } else {
+      // By address, and while what the other orders need is still being read.
+      result.sort(byName);
     }
-
     return result;
-  }, [properties, searchable, searchQuery, cityFilter, typeFilter, bedsFilter, sortBy, statuses, columns, nameOf]);
+  }, [searched, chip, viewsReady, rows, sortBy, statuses, nameOf]);
 
-  /** What is narrowing the list right now, each with a way to take it off. */
-  const activeFilters: { key: string; label: string; clear: () => void }[] = [];
-  if (searchQuery.trim() !== "") activeFilters.push({ key: "q", label: `“${searchQuery.trim()}”`, clear: () => setSearchQuery("") });
-  if (cityFilter !== "all") activeFilters.push({ key: "city", label: cityFilter, clear: () => setCityFilter("all") });
-  if (typeFilter !== "all") activeFilters.push({ key: "type", label: typeFilter, clear: () => setTypeFilter("all") });
-  if (bedsFilter !== "all") {
-    activeFilters.push({ key: "beds", label: BEDS_OPTIONS.find((option) => option.value === bedsFilter)?.label ?? bedsFilter, clear: () => setBedsFilter("all") });
-  }
+  const narrowed = searchQuery.trim() !== "" || cityFilter !== "all" || chip !== null;
   const clearFilters = () => {
     setSearchQuery("");
     setCityFilter("all");
-    setTypeFilter("all");
-    setBedsFilter("all");
+    setChip(null);
   };
+  const units = (n: number) => `${n} ${n === 1 ? "unit" : "units"}`;
 
   /** The property the Delete dialog asks about (Kian's ruling of 2026-10-12: no native browser dialogs anywhere in the admin). */
   const [askingDelete, setAskingDelete] = useState<{ id: string; name: string } | null>(null);
@@ -363,10 +355,9 @@ function AdminHome() {
   };
 
   /**
-   * Clicking a property opens its page. The name and the Open control are
-   * real links, for the keyboard and for opening in a new tab; a click
-   * anywhere else on the row goes to the same place. A click on a control is
-   * that control's own, and one that ends a text selection is not a click.
+   * A click on the row opens the property's page (Kian's rulings of 2026-10-17). The name is a real link, for the
+   * keyboard and for opening in a new tab; a click anywhere else on the row goes to the same place. A click on a
+   * cell's own link or a control is that one's, and one that ends a text selection is not a click.
    */
   const openPage = (event: MouseEvent<HTMLTableRowElement>, id: string) => {
     if ((event.target as HTMLElement).closest("a, button")) return;
@@ -376,18 +367,15 @@ function AdminHome() {
 
   return (
     <div className={styles.container}>
-      {/* ── Header ── the shared one; this page's action is Add Property, which opens its own page (dispatch 30) */}
+      {/* ── The navigation: the column on the left, the same on every admin page ── */}
       <AdminHeader current="properties" />
 
       <main className={styles.main}>
-        {/* ── Notices (deletes, seeding) ── */}
+        {/* ── Notices (deletes) ── */}
         <NoticeBanner notice={notice} onDismiss={clearNotice} className={styles.pageNotice} />
 
         {/* ── The four figures: each a way to where the work is (components/DashboardStats.tsx) ── */}
-        <DashboardStats properties={isLoading || loadError ? null : properties} propertiesError={isLoading ? null : loadError} statements={statementsRead} statuses={statuses} today={today} />
-
-        {/* Where the Units tile leads: the top of the list. */}
-        <div id="properties" className={styles.listAnchor} aria-hidden />
+        <DashboardStats statements={statementsRead} statuses={statuses} today={today} figures={figures} turnovers={turnovers} />
 
         {/* ── The list's head and its one action (Kian's ruling of 2026-10-15: no page's buttons in the navigation);
             under the four tiles, which stay on top (Kian's ruling of 2026-10-02) ── */}
@@ -398,12 +386,10 @@ function AdminHome() {
           </Link>
         </PageHead>
 
-        {/* ── Search, filters and sort (2026-09-30) ──
-            Search matches every word typed against the name, location, city,
-            area, type and slug. The filters narrow by city, type and bedrooms,
-            each option with its count; sort stands apart on the right. What is
-            active shows as chips under the bar, each removable, with the count
-            of what is left. "/" puts the cursor in the search. */}
+        {/* ── Search, the city and the sort; under them, the chips that filter the list, each with its count (Kian's
+            rulings of 2026-10-17). Search matches every word typed against the address, the public title, the
+            location, city, area, type and slug. A chip shows the rows under it; pressed again, every row. "/" puts the
+            cursor in the search. ── */}
         {!isLoading && properties.length > 0 && (
           <section className={styles.toolbar} aria-label="Search, filters and sort">
             <div className={styles.toolbarRow}>
@@ -413,8 +399,8 @@ function AdminHome() {
                   ref={searchRef}
                   type="search"
                   className={styles.searchInput}
-                  placeholder="Search by name, area, city or type"
-                  aria-label="Search properties by name, area, city or type"
+                  placeholder="Search by address, title or city"
+                  aria-label="Search properties by address, title or city"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onKeyDown={(e) => {
@@ -442,29 +428,13 @@ function AdminHome() {
                 )}
               </div>
 
-              <div className={styles.filterGroup}>
-                <AdminSelect
-                  label="City"
-                  icon={<MapPin size={14} />}
-                  value={cityFilter}
-                  onChange={setCityFilter}
-                  groups={[{ options: [{ value: "all", label: "All cities" }, ...cities.map((c) => ({ value: c.value, label: `${c.value} (${c.count})` }))] }]}
-                />
-                <AdminSelect
-                  label="Type"
-                  icon={<Building2 size={14} />}
-                  value={typeFilter}
-                  onChange={setTypeFilter}
-                  groups={[{ options: [{ value: "all", label: "All types" }, ...propertyTypes.map((t) => ({ value: t.value, label: `${t.value} (${t.count})` }))] }]}
-                />
-                <AdminSelect
-                  label="Bedrooms"
-                  icon={<BedDouble size={14} />}
-                  value={bedsFilter}
-                  onChange={(value) => setBedsFilter(value as BedsFilter)}
-                  groups={[{ options: bedroomOptions.map((o) => ({ value: o.value, label: o.value === "all" ? o.label : `${o.label} (${o.count})` })) }]}
-                />
-              </div>
+              <AdminSelect
+                label="City"
+                icon={<MapPin size={14} />}
+                value={cityFilter}
+                onChange={setCityFilter}
+                groups={[{ options: [{ value: "all", label: "All cities" }, ...cities.map((c) => ({ value: c.value, label: `${c.value} (${c.count})` }))] }]}
+              />
 
               <AdminSelect
                 className={styles.sortSelect}
@@ -476,23 +446,25 @@ function AdminHome() {
               />
             </div>
 
-            <div className={styles.toolbarStatus}>
-              <span className={styles.resultCount} aria-live="polite">
-                {activeFilters.length === 0
-                  ? `${properties.length} properties`
-                  : `${filteredProperties.length} of ${properties.length}`}
-              </span>
-              {activeFilters.map((filter) => (
-                <button key={filter.key} type="button" className={styles.chip} onClick={filter.clear} aria-label={`Remove ${filter.label}`}>
-                  <span>{filter.label}</span>
-                  <X size={12} aria-hidden />
-                </button>
-              ))}
-              {activeFilters.length > 1 && (
-                <button type="button" className={styles.clearAll} onClick={clearFilters}>
-                  Clear all
-                </button>
-              )}
+            <div className={styles.chipRow} role="group" aria-label="Show only">
+              {CHIPS.map(({ key, label }) => {
+                const on = chip === key;
+                const count = chipCounts?.get(key);
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    className={`${styles.filterChip} ${on ? styles.filterChipOn : ""}`}
+                    aria-pressed={on}
+                    disabled={chipCounts === null}
+                    title={chipCounts === null ? (viewsFailed ?? "Loading") : undefined}
+                    onClick={() => setChip(on ? null : key)}
+                  >
+                    <span>{label}</span>
+                    <span className={styles.chipCount}>{count === undefined ? (viewsFailed ? "—" : "…") : count}</span>
+                  </button>
+                );
+              })}
             </div>
           </section>
         )}
@@ -539,7 +511,7 @@ function AdminHome() {
           <div className={styles.empty}>
             <Search size={48} strokeWidth={1} />
             <h2>No matching properties</h2>
-            <p>Nothing matches {activeFilters.map((filter) => filter.label).join(" · ")}. Try fewer words, or another city, type or bedroom count.</p>
+            <p>Nothing matches. Try fewer words, another city, or no chip.</p>
             <button type="button" className={styles.btnGhost} onClick={clearFilters}>
               <X size={15} aria-hidden />
               <span>Clear search and filters</span>
@@ -551,85 +523,73 @@ function AdminHome() {
             <table className={`${styles.table} ${styles.propertyTable}`}>
               <thead>
                 <tr>
-                  <th>Property</th>
+                  {/* The units count (Kian's rulings of 2026-10-17: it moved here from the tiles). */}
+                  <th aria-live="polite">{narrowed ? `${filteredProperties.length} of ${units(properties.length)}` : units(properties.length)}</th>
                   <th className={styles.colFit}>Statement</th>
                   <th className={styles.colFit}>Income</th>
                   <th className={styles.colFit}>Cleaning</th>
-                  <th className={`${styles.colFit} ${styles.colEnd}`}>Price / Night</th>
-                  <th className={`${styles.colFit} ${styles.colEnd}`}>Actions</th>
+                  <th className={styles.colFit}>Next step</th>
+                  {/* Named for a screen reader, not drawn: a visually hidden span here is absolutely placed and, when the table
+                      scrolls, it escapes the table's box and widens the page. */}
+                  <th className={`${styles.colFit} ${styles.colEnd}`} aria-label="Actions" />
                 </tr>
               </thead>
               <tbody>
-                {filteredProperties.map((p) => (
-                  <tr
-                    key={p.id}
-                    className={styles.propertyRow}
-                    onClick={(event) => openPage(event, p.id)}
-                    aria-label={`Open ${nameOf(p)}`}
-                  >
-                    <td>
-                      {/* The picture and the name are one link to the property's page. Not prefetched:
-                          every row in view would ask the server for the page before anyone clicked. */}
-                      <Link href={propertyHref(p.id)} prefetch={false} className={styles.propertyCell}>
-                        <span className={styles.thumbWrapper}>
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={p.coverImage} alt="" className={styles.thumb} />
-                        </span>
-                        <span className={styles.propertyName}>{nameOf(p)}</span>
-                        {unlistedIds.has(p.id) && (
-                          <span className={`${styles.stateBadge} ${styles.stateOpen} ${styles.unlistedBadge}`} title="Not on the public site: hidden from the homepage, the map, its own page and the property API">
-                            Unlisted
+                {filteredProperties.map((p) => {
+                  const row = rows?.get(p.id);
+                  return (
+                    <tr key={p.id} className={styles.propertyRow} onClick={(event) => openPage(event, p.id)} aria-label={`Open ${nameOf(p)}`}>
+                      <td>
+                        {/* The picture and the name are one link to the property's page. Not prefetched:
+                            every row in view would ask the server for the page before anyone clicked. */}
+                        <Link href={propertyHref(p.id)} prefetch={false} className={styles.propertyCell}>
+                          <span className={styles.thumbWrapper}>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={p.coverImage} alt="" className={styles.thumb} />
                           </span>
+                          <span className={styles.propertyName}>{nameOf(p)}</span>
+                          {unlistedIds.has(p.id) && (
+                            <span className={`${styles.stateBadge} ${styles.stateOpen} ${styles.unlistedBadge}`} title="Not on the public site: hidden from the homepage, the map, its own page and the property API">
+                              Unlisted
+                            </span>
+                          )}
+                        </Link>
+                      </td>
+                      {/* The reporting cycle's status for the property, a link to its page at the month in question (dispatch 23G). */}
+                      <td className={styles.colFit}>
+                        {statuses?.get(p.id) ? (
+                          <ReportingStatusCell propertyId={p.id} status={statuses.get(p.id)!} />
+                        ) : statementsRead.statements.kind === "error" ? (
+                          <span className={styles.locationText} title={statementsRead.statements.title}>—</span>
+                        ) : (
+                          <span className={styles.locationText} aria-busy>…</span>
                         )}
-                      </Link>
-                    </td>
-                    {/* The reporting cycle's status for the property, a link to its page at the month in question (dispatch 23G). */}
-                    <td className={styles.colFit}>
-                      {statuses?.get(p.id) ? (
-                        <ReportingStatusCell propertyId={p.id} status={statuses.get(p.id)!} />
-                      ) : statementsRead.statements.kind === "error" ? (
-                        <span className={styles.locationText} title={statementsRead.statements.title}>—</span>
-                      ) : (
-                        <span className={styles.locationText} aria-busy>…</span>
-                      )}
-                    </td>
-                    {/* The month due's income and the most pressing cleaning job (Kian's rulings of 2026-10-15), each a link to where the work is. */}
-                    <td className={styles.colFit}>
-                      {columns?.get(p.id) ? <IncomeCell propertyId={p.id} standing={columns.get(p.id)!.income} /> : <UnknownCell failed={columnsFailed} />}
-                    </td>
-                    <td className={styles.colFit}>
-                      {columns?.get(p.id) && propertyStatus?.ok ? <CleaningCell propertyId={p.id} standing={columns.get(p.id)!.cleaning} today={propertyStatus.data.today} /> : <UnknownCell failed={columnsFailed} />}
-                    </td>
-                    <td className={`${styles.colFit} ${styles.colEnd}`}><span className={styles.priceText}>${nightlyPrice(p).toLocaleString()} {p.currency}</span></td>
-                    {/* A click in this cell that misses a control does nothing: it is beside Delete. */}
-                    <td className={`${styles.actionsCell} ${styles.colFit}`} onClick={(event) => event.stopPropagation()} title="">
-                      <div className={styles.actionsFlex}>
-                        <Link
-                          href={propertyHref(p.id)}
-                          prefetch={false}
-                          className={styles.rowAction}
-                          title={`${nameOf(p)}: its costs, income and statements`}
-                        >
-                          <FileText size={14} aria-hidden />
-                          <span>Open</span>
-                        </Link>
-                        <Link href={editHref(p.id)} prefetch={false} className={styles.rowAction} title={`Edit ${nameOf(p)}`}>
-                          <Edit2 size={14} aria-hidden />
-                          <span>Edit</span>
-                        </Link>
-                        <button
-                          type="button"
-                          className={styles.iconBtnDelete}
-                          onClick={() => setAskingDelete({ id: p.id, name: nameOf(p) })}
-                          title="Delete"
-                          aria-label={`Delete ${nameOf(p)}`}
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      {/* The month due's income and the most pressing cleaning job (Kian's rulings of 2026-10-15), each a link to where the work is. */}
+                      <td className={styles.colFit}>{row ? <IncomeCell propertyId={p.id} standing={row.income} /> : <UnknownCell failed={statusFailed} />}</td>
+                      <td className={styles.colFit}>{row && statusData ? <CleaningCell propertyId={p.id} standing={row.cleaning} today={statusData.today} /> : <UnknownCell failed={statusFailed} />}</td>
+                      {/* The one most pressing action (Kian's rulings of 2026-10-17). */}
+                      <td className={styles.colFit}>{row?.view ? <NextStepCell step={row.view.step} /> : <UnknownCell failed={viewsFailed} />}</td>
+                      {/* A click in this cell that misses a control does nothing: it is beside Delete. */}
+                      <td className={`${styles.actionsCell} ${styles.colFit}`} onClick={(event) => event.stopPropagation()} title="">
+                        <div className={styles.actionsFlex}>
+                          <Link href={editHref(p.id)} prefetch={false} className={styles.iconBtn} title={`Edit ${nameOf(p)}`} aria-label={`Edit ${nameOf(p)}`}>
+                            <Edit2 size={15} aria-hidden />
+                          </Link>
+                          <button
+                            type="button"
+                            className={styles.iconBtnDelete}
+                            onClick={() => setAskingDelete({ id: p.id, name: nameOf(p) })}
+                            title="Delete"
+                            aria-label={`Delete ${nameOf(p)}`}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

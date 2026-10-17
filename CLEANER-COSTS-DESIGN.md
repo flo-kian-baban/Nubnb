@@ -3499,3 +3499,70 @@ Kian's review of 2026-10-17: he accepted the three decisions put to him in the r
   - **Not exercised:** the new lock wording (no connection was locked: the Team page's line, Change PIN's and Set your PIN's); Set your PIN's refusal on screen (it shows the same server line as Change PIN); two writes over one left-behind entry at the same moment.
 - **The guard** recorded 94 writes, 93 allowed. The one refused was a code the guard's first list did not hold (its transaction wrote nothing; the list was widened and the step run again with a new value).
 - **Cleanup:** the four team members and the four admins through the app (the test main admin last, by itself); 43 records by exact ID from the test's ledger after export `2026-10-17T07-04-46Z` (31 activity lines, 8 retired test codes, 3 test-address locks, 1 entry left behind). Exports `2026-10-17T06-56-57Z` and `2026-10-17T07-06-14Z`: 20 of 20 files byte-identical, 510 documents. Storage 6,624 objects before and after, same names and generations. About 5,300 reads, besides the exports (the build 3,890). Evidence in `~/Backups/Nubnb/codes-pins-1017`; its scan: 0 production codes or PINs.
+
+## 53. The admin home and the navigation column: Kian's rulings of 2026-10-17
+
+His seven rulings are in CLAUDE.md under *Admin home — Kian's rulings of 2026-10-17*. What follows is how they were carried out, and the choices that were mine.
+
+### 53.1 As built
+
+- **The column** (`AdminHeader.tsx`, the same component every page already rendered): fixed to the window's left edge, 216 px; `.container` leaves the width free. Groups Operations, Money, People in his order; Admins for a main admin only. Items may carry `children`, shown indented under the current section. Below 900 px it becomes a block across the top.
+- **The tag** (`CalendarTag.tsx`, in the column's foot above the name): `GET /api/admin/availability/status` (two reads: the refresh state and the copy's time and run by a field mask). Plain to 24 h, amber past 24, red past 48, red when never read. Refresh is the existing `POST /api/admin/availability/refresh`; one press at a time in the page (`calendar-refresh-client.ts`: a second press joins the first), one run at a time on the server (409 reads "Already being read"). While another trigger's run holds the lease the tag reads "Reading calendars…" and looks again every 15 s.
+- **Schedule and Availability** lost their own Refresh buttons (the tag's is the same refresh); their notices and reloads now follow any refresh (`useCalendarsRefreshed`). Their stale-state inline links call the same refresh.
+- **Next step, chips, orders, tiles**: one pure module, `app/lib/home/next-step.ts`, tested in `tests/home/next-step.mjs`. `GET /api/admin/property-status` now also sends each property's calendar state and next checkout from the stored copy (one more read).
+- **Cells**: badges only in red and amber; Finished, Received, Assigned, Done in quiet words. The Cleaning cell reads "Calendar not read" (amber) for no link or a calendar the last refresh did not read, when no job shows.
+
+### 53.2 My choices
+
+1. **The Next step's order:** Assign a cleaner → Add Report For name → Review n Airbnb lines → Record direct payment → Finish <month> → Calendar not read → Up to date. A turnover cannot wait; whatever changes what a statement holds comes before finishing it; a calendar not read is said last.
+2. **Blocked** is a statement owed (the month due or past due) on a property with no Report For name, the one check Finish refuses by his ruling of 2026-10-12. The reference, the date and a fee rate with no base are fields the Finish tab asks for while drafting; counting them would read every draft and change statement code.
+3. **Turnovers in the next 2 days** counts open jobs with a checkout today or tomorrow, as the cleaner app's home shows.
+4. **Needs a cleaner** and *Assign a cleaner* use the Cleaning column's window (14 days back to 2 ahead), so a past checkout with nobody on it still asks.
+5. **Chips:** one on at a time; counted over the search and the city, so a chip's count is the rows it shows; disabled until every read is in, "—" when one failed. A chip with 0 can be pressed and shows the empty list.
+6. **Needs attention order:** by step, then its day or month (earliest first), then the worst cell, then the address. **Next checkout:** the soonest reservation ending today or later in the stored copy (the last good read); none last.
+7. **The units count** is the first column's heading: "58 units", "7 of 58 units" when narrowed.
+8. **Income's quiet words** drop the month (it is every row's month due); the Cleaning cell keeps its day.
+9. **Below 1440 px:** the pages' side padding is 24 px, and the property table's cells 14 px each side, to give back room the column takes.
+
+### 53.3 Verification (2026-10-17)
+
+Build `wYNxZcrJgyQZit3vcLSeS` on 127.0.0.1:4500 reading production, read only, under the write guard and with every calendar fetch cut off, as `__TEST__ Main 2663fa` (seeded, then removed through the app). Opening export `2026-10-17T17-54-33Z`.
+
+- Chips: 7 of 7 counts equal the rows each shows and the counts computed from the raw API answers by the app's functions (46, 39, 1, 0, 7, 6, 0).
+- Next step: 58 of 58 rows identical to that computation, links included.
+- Tag: plain at 23.9 h, amber at 24.1 and 47.9 h, red at 48.1 h and when never read; "Reading calendars…" while another run holds the lease; "Already being read" on a 409.
+- Refresh from the tag: two presses sent one request; the run's lease, copy and day writes were absorbed, no calendar was fetched, the Schedule said "Calendars read. No job changed."
+- The column on all 11 admin pages at 1280 and 1440.
+
+The 1280 fix (216 px column, side padding, the home table's cells, the Actions heading as a label) was checked on `next dev` of the same tree.
+
+Still tight at 1280 after it: Schedule's buttons clip by 8 px; the tables on Availability (+55 px), Leads (+90 px) and Team (+180 px; +52 px at 1440) scroll sideways inside their boxes. These were not fixed: that is for Kian to decide.
+
+Reads: about 11,870 against a limit of 10,000. `next dev` mounts every page twice, which doubled the last sweep.
+
+### 53.4 After Kian's review (2026-10-17)
+
+Kian accepted this note. His icon ruling is in CLAUDE.md.
+
+**As built**
+- Below 1440 px (and from 900 px) the column is 72 px and shows icons only, each icon's name as a tooltip on hover and keyboard focus.
+- The names stay in the links as text, and the group names are visually hidden, so a screen reader reads both at every width.
+- The rest of the column at that width:
+  - the brand shows "N";
+  - the tag shows its dot, the time (or the day, when not today) and a Refresh icon, with the sentence in its tooltip;
+  - the admin's name shows as initials, the name whole in the tooltip and the menu, which opens upward to the right.
+- Team's table: 14 px either side of each cell.
+- Schedule: the last column is 15% (was 11%), with the others narrowed.
+
+**Cleanup.** The two activity records of round 1 were deleted by exact ID after export `2026-10-17T18-57-42Z`. Each was read back: gone.
+
+**Verification.** On production build `IrsJJ1EzEq625fzZIUIK9`, as `__TEST__ Main 5c5671`. The admin was removed through the app afterwards, and its removal record deleted by ID.
+- Schedule, Team, Availability and Leads at 1280 and 1440:
+  - nothing clipped, nothing scrolling sideways, no page wider than the window;
+  - 17 of 17 Assign/Change buttons inside their cells (100 px in a 171–174 px cell);
+  - Team's table inside its box at both widths.
+- A link's name is drawn on hover and on keyboard focus.
+
+The column's CSS was shaped first on a dev copy with no keys at all, so it made no production reads.
+
+**Reads this round:** about 4,736 (build 3,890, server 325, seed 1, export 512, the by-ID scripts 8). No closing export, on Kian's instruction.

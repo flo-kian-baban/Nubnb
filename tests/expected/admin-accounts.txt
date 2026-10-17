@@ -115,6 +115,7 @@
   POST   /api/admin/admins                                    recorded as "Added an admin"
   POST   /api/admin/availability/refresh                      recorded as "Refreshed availability"
   GET    /api/admin/availability                              read, not recorded
+  GET    /api/admin/availability/status                       read, not recorded
   POST   /api/admin/cleaners/[id]/code                        recorded as "Changed a team member’s code"
   GET    /api/admin/cleaners/[id]/jobs                        read, not recorded
   PUT    /api/admin/cleaners/[id]/rate                        recorded as "Set a cleaner’s default rate"
@@ -192,7 +193,7 @@
   POST   /api/properties                                      recorded as "Added a property"
   POST   /api/scrape-airbnb                                   recorded as "Read an Airbnb listing"
   POST   /api/upload-image                                    recorded as "Uploaded an image"
-  83 handlers through adminRoute; problems: 0
+  84 handlers through adminRoute; problems: 0
   routes still on the PIN-signed session: 0
   a route that unlocks an admin's PIN (the first version's per-admin lock): false
 

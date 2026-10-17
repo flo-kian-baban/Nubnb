@@ -95,19 +95,21 @@
   table-layout: fixed;
 }
 .jobs th:nth-child(1) {
-  width: 29%;
+  width: 27%;
 }
 .jobs th:nth-child(2) {
-  width: 16%;
+  width: 15%;
 }
 .jobs th:nth-child(3) {
-  width: 27%;
+  width: 26%;
 }
 .jobs th:nth-child(4) {
   width: 17%;
 }
+/* Wide enough for Assign or Change whole at 1280 px (Kian's instruction of 2026-10-17): at 11% the button ran out of
+   its cell and the table's box cut it off. */
 .jobs th:nth-child(5) {
-  width: 11%;
+  width: 15%;
 }
 .jobs td {
   padding-top: 12px;

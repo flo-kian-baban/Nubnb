@@ -1,0 +1,70 @@
+═══ 1. The Next step, one per row (today 2026-10-17, month due September 2026) ═══
+  TESTPROP0001: assign · "Assign a cleaner for Oct 18" · /admin/schedule?property=TESTPROP0001 · when 2026-10-18 · owed 2026-08,2026-09 (2 blocked, 0 ready) · under attention,blocked,review,cleaner,calendar,direct · Checkout Oct 18: nobody is on it · 1 other job too
+   ok   assign
+  TESTPROP0002: assign · "Assign a cleaner for Oct 5" · /admin/schedule?property=TESTPROP0002&from=2026-10-05 · when 2026-10-05 · owed - (0 blocked, 0 ready) · under attention,cleaner · Checkout Oct 5: nobody is on it
+   ok   assign
+  TESTPROP0003: report-for · "Add Report For name" · /admin/property?id=TESTPROP0003&month=2026-08&tab=details · when 2026-08 · owed 2026-08,2026-09 (2 blocked, 0 ready) · under attention,blocked,review · 2 statements owed (August 2026, September 2026): Finish refuses a statement with no Report For name
+   ok   report-for
+  TESTPROP0004: review · "Review 1 Airbnb line" · /admin/income?month=2026-09 · when 2026-09 · owed 2026-09 (0 blocked, 1 ready) · under attention,ready,review,direct · September 2026: 1 line from Airbnb's file waits for review
+   ok   review
+  TESTPROP0005: direct · "Record direct payment" · /admin/property?id=TESTPROP0005&month=2026-10 · when 2026-10 · owed 2026-09 (0 blocked, 1 ready) · under attention,ready,direct · Monthly stay, October 2026: overdue
+   ok   direct
+  TESTPROP0006: finish · "Finish August" · /admin/property?id=TESTPROP0006&month=2026-08&tab=finish · when 2026-08 · owed 2026-08,2026-09 (0 blocked, 2 ready) · under attention,ready,calendar · 2 statements owed: August 2026, September 2026
+   ok   finish
+  TESTPROP0007: finish · "Finish September" · /admin/property?id=TESTPROP0007&month=2026-09&tab=finish · when 2026-09 · owed 2026-09 (0 blocked, 1 ready) · under attention,ready · 1 statement owed: September 2026
+   ok   finish
+  TESTPROP0008: calendar · "Calendar not read" · /admin/property/edit?id=TESTPROP0008&section=calendar · when - · owed - (0 blocked, 0 ready) · under attention,calendar · No calendar link: no turnover is known
+   ok   calendar
+  TESTPROP0009: calendar · "Calendar not read" · /admin/property/edit?id=TESTPROP0009&section=calendar · when - · owed - (0 blocked, 0 ready) · under attention,calendar · The last refresh could not read its calendar: check its link
+   ok   calendar
+  TESTPROP0010: none · "Up to date" · - · when - · owed - (0 blocked, 0 ready) · under - · Nothing to do
+   ok   none
+  TESTPROP0011: none · "Up to date" · - · when - · owed - (0 blocked, 0 ready) · under - · Nothing to do
+   ok   none
+  TESTPROP0012: none · "Up to date" · - · when - · owed - (0 blocked, 0 ready) · under - · Nothing to do
+   ok   none
+   ok   a turnover outranks everything, the earliest named, the others counted
+   ok   a checkout older than a week opens the Schedule from its day
+   ok   Add Report For name opens the oldest month owed at its Details
+   ok   with no Report For name, every statement owed is blocked: the month past due and the month due
+   ok   one line reads "1 Airbnb line", and opens the Income page at the month
+   ok   Finish names the oldest month owed and opens its Finish tab
+   ok   past due and due both count as ready
+   ok   Calendar not read says which: no link, or not read
+   ok   a property excluded from reporting owes nothing, even with no Report For name
+   ok   assigned, booking-changed, out of the window: no cleaner needed
+   ok   a month in another year carries its year
+
+═══ 2. The chips: the rows under each ═══
+  Needs attention           9  01 02 03 04 05 06 07 08 09
+  Statements blocked        2  01 03
+  Statements ready          4  04 05 06 07
+  Airbnb lines to review    3  01 03 04
+  Needs a cleaner           2  01 02
+  Calendar not read         4  01 06 08 09
+  Direct overdue            3  01 04 05
+   ok   Needs attention is every row whose Next step is not Up to date
+   ok   a row is under every chip it qualifies for, whatever its one step
+
+═══ 3. Needs attention, then Next checkout ═══
+  Needs attention: 02 01 03 04 05 06 07 08 09 12 10 11
+   ok   by step; then the earliest day or month (Oct 5 before Oct 18, August before September); then the worst cell (12 has a red cell); then the name
+  Next checkout: Test A2@2026-10-18 Test C@2026-10-18 Test B@2026-10-20 Test A@-
+   ok   the soonest first, ties by name, none last
+
+═══ 4. Statements due and Turnovers ═══
+  Statements due 9: 4 blocked · 5 ready · 5 finished
+   ok   the tile counts what the rows count
+   ok   due is blocked and ready; finished is the month due's
+  Turnovers 2026-10-17 to 2026-10-18: 3, 2 need a cleaner
+   ok   open jobs today and tomorrow only; the day after, yesterday and a changed booking left out
+
+═══ 5. What the list reads of the calendar copy ═══
+  TESTPROP0001: ok · next checkout 2026-10-19
+  TESTPROP0002: failed · next checkout 2026-10-17
+  TESTPROP0003: no-feed · next checkout -
+   ok   the soonest reservation ending today or later; a block is not a checkout
+   ok   a calendar not read keeps its last good read; a checkout today counts
+   ok   no copy: nothing known
+
+all checks passed

@@ -2,23 +2,30 @@
 
 /**
  * The property list's Income and Cleaning cells (Kian's rulings of 2026-10-15, part A of
- * PROPERTY-LIST-COLUMNS-PLAN.md), drawn as the Statement cell is: one badge and its month or day, the whole cell a
- * link to where the work is, the detail in the tooltip; the quiet words alone when there is nothing to do, so the
- * rows with colour are the ones that need something. What each says, app/lib/income/standing.ts and
+ * PROPERTY-LIST-COLUMNS-PLAN.md), drawn as the Statement cell is: the whole cell a link to where the work is, the
+ * detail in the tooltip. Quiet unless they need something (Kian's rulings of 2026-10-17, admin home): a badge and
+ * its month or day only in red or amber; anything else — received, assigned, done, nothing due — in quiet words, so
+ * the rows with colour are the ones that need something. What each says, app/lib/income/standing.ts and
  * app/lib/schedule/standing.ts decide; nothing here does.
+ *
+ * And the row's Next step (app/lib/home/next-step.ts): the one most pressing action, a link to where it is done, or
+ * "Up to date" in quiet words.
  */
 
 import Link from "next/link";
+import { ArrowRight } from "lucide-react";
 import { addDays, dayText } from "@/app/lib/availability/days";
 import { monthName } from "@/app/lib/reports/model";
 import type { IncomeStanding, IncomeTone } from "@/app/lib/income/standing";
 import type { CleaningStanding, CleaningTone } from "@/app/lib/schedule/standing";
+import type { NextStep } from "@/app/lib/home/next-step";
 import { propertyMonthHref } from "./StatementStatus";
 import shared from "../page.module.css";
 import cells from "./StatementStatus.module.css";
 
-const INCOME_CLASS: Record<IncomeTone, string> = { problem: shared.statePastDue, done: shared.stateFinished, warning: shared.stateDue, none: shared.stateOpen };
-const CLEANING_CLASS: Record<CleaningTone, string> = { problem: shared.statePastDue, warning: shared.stateDue, assigned: shared.stateDraft, done: shared.stateFinished, none: shared.stateOpen };
+/** Only red and amber are drawn as badges; every other tone is quiet (null). */
+const INCOME_CLASS: Record<IncomeTone, string | null> = { problem: shared.statePastDue, warning: shared.stateDue, done: null, none: null };
+const CLEANING_CLASS: Record<CleaningTone, string | null> = { problem: shared.statePastDue, warning: shared.stateDue, assigned: null, done: null, none: null };
 
 const editSection = (propertyId: string, section: string) => `/admin/property/edit?id=${encodeURIComponent(propertyId)}&section=${section}`;
 
@@ -34,16 +41,20 @@ function incomeHref(propertyId: string, s: IncomeStanding): string {
  * own first day (a week back); with no calendar link, the edit page's Calendar section.
  */
 function cleaningHref(propertyId: string, s: CleaningStanding, today: string): string {
-  if (s.key === "no-calendar") return editSection(propertyId, "calendar");
+  if (s.key === "not-read") return editSection(propertyId, "calendar");
   const from = s.day !== null && s.day < addDays(today, -7) ? `&from=${s.day}` : "";
   return `/admin/schedule?property=${encodeURIComponent(propertyId)}${from}`;
 }
 
-function Cell({ href, title, label, badgeClass, when }: { href: string; title: string; label: string; badgeClass: string | null; when: string | null }) {
+/** `quietWhen`: whether quiet words keep their day or month (a job's day does; the Income column's month is every row's). */
+function Cell({ href, title, label, badgeClass, when, quietWhen }: { href: string; title: string; label: string; badgeClass: string | null; when: string | null; quietWhen: boolean }) {
   return (
     <Link href={href} prefetch={false} className={cells.cell} title={title}>
       {badgeClass === null ? (
-        <span className={cells.quiet}>{label}</span>
+        <span className={cells.quiet}>
+          {label}
+          {quietWhen && when && ` · ${when}`}
+        </span>
       ) : (
         <>
           <span className={`${shared.stateBadge} ${badgeClass}`}>{label}</span>
@@ -60,8 +71,9 @@ export function IncomeCell({ propertyId, standing }: { propertyId: string; stand
       href={incomeHref(propertyId, standing)}
       title={standing.title}
       label={standing.label}
-      badgeClass={standing.tone === "none" ? null : INCOME_CLASS[standing.tone]}
+      badgeClass={INCOME_CLASS[standing.tone]}
       when={standing.month === null ? null : monthName(standing.month)}
+      quietWhen={false}
     />
   );
 }
@@ -72,9 +84,27 @@ export function CleaningCell({ propertyId, standing, today }: { propertyId: stri
       href={cleaningHref(propertyId, standing, today)}
       title={standing.title}
       label={standing.label}
-      badgeClass={standing.tone === "none" ? null : CLEANING_CLASS[standing.tone]}
+      badgeClass={CLEANING_CLASS[standing.tone]}
       when={standing.day === null ? null : dayText(standing.day)}
+      quietWhen
     />
+  );
+}
+
+/** A row's Next step: a link to where it is done, or "Up to date" in quiet words. */
+export function NextStepCell({ step }: { step: NextStep }) {
+  if (step.href === null) {
+    return (
+      <span className={cells.quiet} title={step.title}>
+        {step.label}
+      </span>
+    );
+  }
+  return (
+    <Link href={step.href} prefetch={false} className={cells.step} title={step.title}>
+      <span>{step.label}</span>
+      <ArrowRight size={13} aria-hidden />
+    </Link>
   );
 }
 

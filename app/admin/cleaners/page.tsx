@@ -724,7 +724,7 @@ function Cleaners() {
               </div>
             ) : (
               <div className={`${shared.tableContainer} ${styles.tableScroll}`}>
-                <table className={shared.table}>
+                <table className={`${shared.table} ${styles.teamTable}`}>
                   <thead>
                     <tr>
                       <th>Name</th>

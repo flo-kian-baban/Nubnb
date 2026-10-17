@@ -59,6 +59,58 @@
   box-shadow: var(--popover-shadow, 0 16px 48px rgba(0, 0, 0, 0.55));
 }
 
+/* At the foot of the left column: the full width, the name on the left, the menu opening upward. */
+.up .trigger {
+  width: 100%;
+}
+.up .name {
+  flex: 1;
+  max-width: none;
+  min-width: 0;
+  text-align: left;
+}
+.up .menu {
+  top: auto;
+  bottom: calc(100% + 8px);
+  left: 0;
+  right: 0;
+}
+
+/* The name's initials, for the icons-only navigation alone (below 1440 px, Kian's ruling of 2026-10-17): the name
+   stays in the button as its text for a screen reader, and whole in its tooltip and the menu. */
+.initials {
+  display: none;
+}
+@media (min-width: 900px) and (max-width: 1439px) {
+  .up .trigger {
+    justify-content: center;
+    gap: 4px;
+    padding: 0;
+  }
+  .up .name {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+  .up .initials {
+    display: inline;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+  .up .trigger > svg {
+    display: none;
+  }
+  .up .menu {
+    right: auto;
+    left: 0;
+  }
+}
+
 .who {
   display: flex;
   flex-direction: column;

@@ -28,10 +28,17 @@ const isDirect = (d: unknown) =>
 const isJob = (j: unknown) =>
   isRecord(j) && typeof j.propertyId === 'string' && typeof j.checkout === 'string' && (j.status === 'open' || j.status === 'booking-changed') && typeof j.changedAfterMark === 'boolean' && isTextOrNull(j.change) && Array.isArray(j.cleaners) && j.cleaners.every(isCleaner);
 
+const FEED_STATES = ['ok', 'failed', 'no-feed'];
+const isCalendar = (c: unknown) => isRecord(c) && FEED_STATES.includes(c.status as string) && isTextOrNull(c.nextCheckout);
+
 function isAnswer(data: unknown): data is PropertyStatusRead {
-  if (!isRecord(data) || typeof data.today !== 'string' || !isRecord(data.income) || !isRecord(data.cleaning) || !isCount(data.unreadable)) return false;
-  const { income, cleaning } = data;
-  return typeof income.month === 'string' && typeof income.uploaded === 'boolean' && isRecord(income.properties) && Object.values(income.properties).every(isFacts) && isRecord(income.direct) && Object.values(income.direct).every(isDirect) && typeof cleaning.from === 'string' && typeof cleaning.to === 'string' && Array.isArray(cleaning.jobs) && cleaning.jobs.every(isJob);
+  if (!isRecord(data) || typeof data.today !== 'string' || !isRecord(data.income) || !isRecord(data.cleaning) || !isRecord(data.calendar) || !isCount(data.unreadable)) return false;
+  const { income, cleaning, calendar } = data;
+  return (
+    typeof income.month === 'string' && typeof income.uploaded === 'boolean' && isRecord(income.properties) && Object.values(income.properties).every(isFacts) && isRecord(income.direct) && Object.values(income.direct).every(isDirect) &&
+    typeof cleaning.from === 'string' && typeof cleaning.to === 'string' && Array.isArray(cleaning.jobs) && cleaning.jobs.every(isJob) &&
+    isTextOrNull(calendar.refreshedAt) && isRecord(calendar.properties) && Object.values(calendar.properties).every(isCalendar)
+  );
 }
 
 export async function fetchPropertyStatus(): Promise<PropertyStatusResult> {

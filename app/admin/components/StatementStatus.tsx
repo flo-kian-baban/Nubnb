@@ -32,11 +32,13 @@ export function StandingBadge({ standing, label }: { standing: Standing; label?:
 }
 
 /**
- * The property list's cell: the property's status as one badge and the
- * month in question, by name alone (Kian, 2026-10-02: "month is enough"),
- * the whole cell a link to the property's page at that month. The tooltip
- * keeps the year. Nothing due yet is the quiet words alone (the month in the
- * tooltip), so the rows that need work are the ones with colour.
+ * The property list's cell: the property's status and the month in
+ * question, by name alone (Kian, 2026-10-02: "month is enough"), the whole
+ * cell a link to the property's page at that month. The tooltip keeps the
+ * year. Quiet unless it needs something (Kian's rulings of 2026-10-17, admin
+ * home): a badge only for due and past due; finished is quiet words with its
+ * month, nothing due yet the quiet words alone (the month in the tooltip),
+ * so the rows that need work are the ones with colour.
  */
 export function ReportingStatusCell({ propertyId, status }: { propertyId: string; status: ReportingStatus }) {
   const more = status.pastDue.length - 1;
@@ -51,6 +53,10 @@ export function ReportingStatusCell({ propertyId, status }: { propertyId: string
     <Link href={propertyMonthHref(propertyId, status.month)} prefetch={false} className={styles.cell} title={title}>
       {status.tone === "none" ? (
         <span className={styles.quiet}>{STANDING_LABELS[status.standing]}</span>
+      ) : status.tone === "done" ? (
+        <span className={styles.quiet}>
+          {STANDING_LABELS[status.standing]} · {monthName(status.month)}
+        </span>
       ) : (
         <>
           <span className={styles.badgeSlot}>

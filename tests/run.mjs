@@ -26,6 +26,7 @@ export const CHECKS = [
   { name: 'calendar-refresh', script: 'availability/refresh-state.mjs', args: [] },
   { name: 'pay-balance', script: 'pay/balance.mjs', args: [] },
   { name: 'property-columns', script: 'home/columns.mjs', args: [] },
+  { name: 'home-next-step', script: 'home/next-step.mjs', args: [] },
   { name: 'direct-payments', script: 'direct/payments.mjs', args: [] },
   { name: 'internal-names', script: 'names/internal-names.mjs', args: [] },
   { name: 'cleaner-home', script: 'cleaner/home.mjs', args: [] },
