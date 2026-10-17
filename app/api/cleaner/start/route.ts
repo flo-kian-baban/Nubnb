@@ -2,8 +2,11 @@
  * GET /api/cleaner/start — What the cleaner app needs when it opens (cleaner-only).
  *
  * Response: 200 `{ success: true, data: { cleaner: { id, name, role },
- *             properties: [{ id, name, city }], recentPropertyIds, itemNames,
- *             jobs, today } }`
+ *             properties: [{ id, name, city, photo }], recentPropertyIds,
+ *             itemNames, jobs, today } }`
+ *           `photo` (Kian's ruling of 2026-10-17): the property's cover as its
+ *           stored small copies, `{ thumb, card }` (200 and 400 pixels), or
+ *           null; never the full image.
  *           `jobs` (the cleaning schedule, 2026-10-14): the jobs this cleaner
  *           is on, as their app shows them; `today` the Toronto day.
  *           `role` (dispatch 24) is `cleaner` or `handyman`, as the account
@@ -19,9 +22,10 @@
  *
  * Reads: the session check, then one per property, one per entry of this
  * cleaner's, and at most 300 of everyone's newest entries; for a cleaner, the
- * jobs of the 45 days their list reaches, the cleanings they marked, and those
- * properties' finished statements. Every response, refusals included, is
- * no-store.
+ * jobs of the 45 days their list reaches, the cleanings they marked, those
+ * properties' finished statements, and the payments to them, for the day of
+ * the latest only: the app shows no pay (Kian's ruling of 2026-10-16), and no
+ * pay is sent. Every response, refusals included, is no-store.
  *
  * The day's first cleaner app refreshes the calendars (Kian's ruling of
  * 2026-10-14, night): a signed-in call starts the refresh after the

@@ -20,13 +20,23 @@
   the 17th: the next guest cancelled: {"nextCheckIn":null} · next-check-in-changed
   the calendar link changed and the stay is gone: {"status":"booking-changed","change":{"kind":"calendar-changed","at":"2026-10-15T14:00:00.000Z","movedTo":null}} · booking-changed/calendar-changed
   the calendar link changed, a stay still ends that day: {"reservation":{"uid":"z2","start":"2026-10-14"},"calendarKey":"2a0560e505","nextCheckIn":null} · reservation-replaced (the calendar link changed), next-check-in-changed
-  the calendar link removed: {"status":"booking-changed","change":{"kind":"calendar-removed","at":"2026-10-15T14:00:00.000Z","movedTo":null}} · booking-changed/calendar-removed
-  the property deleted: {"status":"booking-changed","change":{"kind":"property-deleted","at":"2026-10-15T14:00:00.000Z","movedTo":null}} · booking-changed/property-deleted
+  the copy says the calendar link was removed (from the copy alone): no change
+  the calendar link removed: the property itself has none: {"status":"booking-changed","change":{"kind":"calendar-removed","at":"2026-10-15T14:00:00.000Z","movedTo":null}} · booking-changed/calendar-removed
+  the property not in the copy (from the copy alone): no change
+  the property not in the copy, and still there with its calendar: no change
+  the property deleted: its own document is gone: {"status":"booking-changed","change":{"kind":"property-deleted","at":"2026-10-15T14:00:00.000Z","movedTo":null}} · booking-changed/property-deleted
   the calendar failed this run: no change
   checkout day itself: the stay still there: no change
   checkout day itself: extended that morning: {"status":"booking-changed","change":{"kind":"moved","at":"2026-10-15T14:00:00.000Z","movedTo":{"start":"2026-10-13","end":"2026-10-18"}}} · booking-changed/moved
   the day after the 15th's checkout, the stay gone from the feed: no change (settled)
   a changed job whose day ends a stay again: {"status":"open","change":null,"reservation":{"uid":"r2","start":"2026-10-15"},"calendarKey":"f05a15fb57","nextCheckIn":"2026-10-16"} · reopened
+
+═══ 3b. A partial or cut-off copy changes no job of a property it did not read ═══
+  a partial copy holding one property (P2) alone, the properties not looked up: 6 jobs of properties it did not read, 0 changed
+  a partial copy holding one property (P2) alone, the properties still there with a calendar: 6 jobs of properties it did not read, 0 changed
+  a refresh cut off partway: P1 not fetched (failed), P3 still holding the last run's events, P4 marked no-feed in the copy, the properties not looked up: 6 jobs of properties it did not read, 0 changed
+  a refresh cut off partway: P1 not fetched (failed), P3 still holding the last run's events, P4 marked no-feed in the copy, the properties still there with a calendar: 6 jobs of properties it did not read, 0 changed
+  the property it did read (P2), its stay moved to end the 16th: booking-changed (moved → 2026-10-12–2026-10-16)
 
 ═══ 4. A job's rules: who can mark it, when, and what it reads as ═══
   Ana (marked) on 2026-10-16: already-marked

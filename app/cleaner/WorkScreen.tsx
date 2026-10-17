@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * A handyman's one screen after the property (dispatch 24): what was done,
- * and the price. No photo, no items, no reading. Send goes to
- * POST /api/cleaner/work; the entry always waits for an admin's approval.
+ * A handyman's one screen for a piece of work (dispatch 24): what was done, the price, and the property it is for, in
+ * bold above Send, with Change (as on a cleaner's receipt, Kian's ruling 5 of 2026-10-16). No photo, no items, no
+ * reading. Send goes to POST /api/cleaner/work; the entry always waits for an admin's approval.
  */
 
 import { useEffect, useRef, type ReactNode } from "react";
@@ -11,17 +11,22 @@ import { readPrice, type WorkDraft, type WorkProblems } from "@/app/lib/work-dra
 import { LIMITS, formatCents } from "@/app/lib/cleaners/model";
 import styles from "./cleaner.module.css";
 import { CleanerBar } from "./CleanerBar";
+import { PropertyChoice } from "./PropertyChoice";
 
 interface WorkScreenProps {
-  propertyName: string;
+  /** The property the work is for, by its name; null until one is chosen. */
+  property: { name: string | null } | null;
   draft: WorkDraft;
   problems: WorkProblems;
+  /** After a Send with no property chosen. */
+  propertyProblem: boolean;
   /** True while a send is in flight. */
   sending: boolean;
   /** Why the last Send did not go through, in a few words. */
   sendMessage: string | null;
   onBack: () => void;
   onChange: (change: Partial<Pick<WorkDraft, "description" | "price">>) => void;
+  onChangeProperty: () => void;
   onSend: () => void;
   onStartOver: () => void;
 }
@@ -35,7 +40,7 @@ function Problem({ id, text }: { id: string; text?: string }) {
   );
 }
 
-export function WorkScreen({ propertyName, draft, problems, sending, sendMessage, onBack, onChange, onSend, onStartOver }: WorkScreenProps) {
+export function WorkScreen({ property, draft, problems, propertyProblem, sending, sendMessage, onBack, onChange, onChangeProperty, onSend, onStartOver }: WorkScreenProps) {
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
   const price = readPrice(draft.price);
 
@@ -49,7 +54,7 @@ export function WorkScreen({ propertyName, draft, problems, sending, sendMessage
 
   return (
     <>
-      <CleanerBar onBack={onBack} backDisabled={sending} title={propertyName} tag="Work" />
+      <CleanerBar onBack={onBack} backDisabled={sending} />
       <main className={styles.screen}>
         <h1 className={styles.title}>What did you do?</h1>
 
@@ -119,6 +124,7 @@ export function WorkScreen({ propertyName, draft, problems, sending, sendMessage
             <span>Price</span>
             <span>{price ? formatCents(price.cents) : "—"}</span>
           </p>
+          <PropertyChoice property={property} problem={propertyProblem} disabled={sending} onChange={onChangeProperty} />
           <button type="button" className={styles.primary} onClick={onSend} disabled={sending} aria-live="polite">
             {sendLabel}
           </button>

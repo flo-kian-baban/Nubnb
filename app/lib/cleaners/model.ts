@@ -892,6 +892,12 @@ export interface CleanerProperty {
    */
   name: string | null;
   city: string | null;
+  /**
+   * Its cover photo as the stored small copies (Kian's ruling of 2026-10-17): the 200-pixel copy for a unit's row and
+   * the 400-pixel one for a job's card, both WebP from Storage, never the full image; null when the property has no
+   * stored photo, and the app draws a plain tile.
+   */
+  photo: { thumb: string; card: string } | null;
 }
 
 /** What GET /api/cleaner/start answers: everything the cleaner app shows before the first entry is typed. */
@@ -911,12 +917,7 @@ export interface CleanerStart {
   jobs: CleanerJobView[];
   /** Toronto's today, as the server sees it: when Mark cleaned opens is the server's to say. */
   today: string;
-  /**
-   * Their own pay (Kian's ruling 6 of 2026-10-15): Earned, Paid and Balance as app/lib/pay/balance.ts works them out,
-   * and nobody else's; how many of their items wait (no amount yet, or waiting for review), and how many entries
-   * cannot add up and are left out.
-   */
-  pay: { earnedCents: number; paidCents: number; balanceCents: number; waiting: number; cannotAddUp: number };
+  // No pay: the cleaner app shows none (Kian's ruling of 2026-10-16).
 }
 
 // ─── Reading fields ────────────────────────────────────────────

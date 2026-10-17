@@ -2,8 +2,10 @@ import type { Metadata, Viewport } from "next";
 import { CleanerApp } from "./CleanerApp";
 
 /**
- * /cleaner — where a cleaner logs what they bought for a property: their
- * four-digit code, the property, a photo of the receipt, the items, send.
+ * /cleaner — a cleaner's app: their four-digit code, then their jobs for
+ * today and tomorrow, and a receipt for what they bought: the camera, then
+ * the property, the items and the tax on one screen, send. A handyman logs
+ * work here the same way.
  *
  * A static page with no data in it. Everything comes from /api/cleaner/*
  * behind the cleaner session cookie, which the browser sends to those routes

@@ -3,7 +3,8 @@
  * recorded and deleted by any admin, the payment an item's delete is refused for, and one person's own pay.
  *
  * `team_payments` is reached only through the Admin SDK: the admin routes under /api/admin/payments, behind the admin
- * session, and the cleaner app's start call, which reads only that person's own. firestore.rules denies every browser.
+ * session, and the cleaner app's start call, which reads only the day of that person's latest payment. firestore.rules
+ * denies every browser.
  *
  * ── Writes ──
  * A payment is recorded whole with `create()`, inside a transaction that first reads the team member it is for: a
@@ -27,7 +28,7 @@ import { isDocumentId } from './server-leads';
 import { CLEANERS_COLLECTION, COST_ENTRIES_COLLECTION, CURRENCY, fieldText, readCostEntryFields, readLinesNow, type Actor, type Refusal } from '@/app/lib/cleaners/model';
 import { CLEANINGS_COLLECTION, readCleaning } from '@/app/lib/cleanings/model';
 import { torontoDay } from '@/app/lib/availability/days';
-import { memberPay, type MemberPay, type PayCleaning, type PayEntry, type PaySources } from '@/app/lib/pay/balance';
+import type { PayCleaning, PayEntry, PaySources } from '@/app/lib/pay/balance';
 import { PAYMENT_SCHEMA_VERSION, TEAM_PAYMENTS_COLLECTION, paymentDayProblem, readPayment, type Payment, type PaymentMethod, type PaymentView } from '@/app/lib/pay/model';
 
 function grpcCode(err: unknown): string {
@@ -82,13 +83,12 @@ function payEntryOf(id: string, fields: Record<string, unknown>): PayEntry {
 
 /**
  * One team member's cleanings, cost entries and payments, as pay reads them — inside a transaction when one is given
- * (deleting the member). Their entries can come from the caller, already read (the cleaner app's start call reads
- * them whole for its own use). `unreadable` counts the cleanings and payments of theirs not in the written shape: a
- * balance with any is never shown as whole.
+ * (deleting the member). `unreadable` counts the cleanings and payments of theirs not in the written shape: a balance
+ * with any is never shown as whole.
  *
- * Reads: one per cleaning and payment of theirs, and one per entry unless given. @throws if a read fails.
+ * Reads: one per cleaning, payment and entry of theirs. @throws if a read fails.
  */
-export async function memberPaySources(memberId: string, tx?: Transaction, entries?: { id: string; data: () => Record<string, unknown> }[]): Promise<{ sources: PaySources; unreadable: number }> {
+export async function memberPaySources(memberId: string, tx?: Transaction): Promise<{ sources: PaySources; unreadable: number }> {
   const db = getAdminDb();
   const cleaningsQuery = db.collection(CLEANINGS_COLLECTION).where('cleanerId', '==', memberId);
   const paymentsQuery = db.collection(TEAM_PAYMENTS_COLLECTION).where('memberId', '==', memberId);
@@ -96,7 +96,7 @@ export async function memberPaySources(memberId: string, tx?: Transaction, entri
   const [cleaningsSnap, paymentsSnap, entriesSnap] = await Promise.all([
     tx ? tx.get(cleaningsQuery) : cleaningsQuery.get(),
     tx ? tx.get(paymentsQuery) : paymentsQuery.get(),
-    entries ? null : tx ? tx.get(entriesQuery) : entriesQuery.get(),
+    tx ? tx.get(entriesQuery) : entriesQuery.get(),
   ]);
   let unreadable = 0;
   const cleanings: PayCleaning[] = [];
@@ -109,17 +109,26 @@ export async function memberPaySources(memberId: string, tx?: Transaction, entri
     }
   }
   const payments = readPayments(paymentsSnap.docs);
-  const entryDocs = entries ?? entriesSnap?.docs ?? [];
   return {
-    sources: { cleanings, entries: entryDocs.map((doc) => payEntryOf(doc.id, doc.data())).filter((entry) => entry.cleaner.id === memberId), payments: payments.payments.filter((p) => p.memberId === memberId) },
+    sources: { cleanings, entries: entriesSnap.docs.map((doc) => payEntryOf(doc.id, doc.data())).filter((entry) => entry.cleaner.id === memberId), payments: payments.payments.filter((p) => p.memberId === memberId) },
     unreadable: unreadable + payments.unreadable,
   };
 }
 
-/** One person's pay, worked out by the one function (the cleaner app: their own figures only). @throws if a read fails. */
-export async function memberPayNow(memberId: string, entries?: { id: string; data: () => Record<string, unknown> }[]): Promise<{ pay: MemberPay; unreadable: number }> {
-  const { sources, unreadable } = await memberPaySources(memberId, undefined, entries);
-  return { pay: memberPay(memberId, sources), unreadable };
+/**
+ * The latest day of a payment to `memberId` that is not deleted, or null when there is none: the cleaner app offers no
+ * Undo on a cleaning dated on or before it (2026-10-15). The app shows no pay (Kian's ruling of 2026-10-16), so this
+ * day is all it reads of their payments. A payment not in the written shape is logged and left out, as a balance
+ * leaves it out; the Undo itself refuses on one (paymentOnOrAfter). One read per payment of theirs.
+ *
+ * @throws if the read fails.
+ */
+export async function latestPaymentDay(memberId: string): Promise<string | null> {
+  if (!isDocumentId(memberId)) return null;
+  const snap = await getAdminDb().collection(TEAM_PAYMENTS_COLLECTION).where('memberId', '==', memberId).get();
+  return readPayments(snap.docs)
+    .payments.filter((p) => p.memberId === memberId && p.status === 'recorded')
+    .reduce<string | null>((latest, p) => (latest === null || p.day > latest ? p.day : latest), null);
 }
 
 // ─── Items dated on or before a payment ────────────────────────

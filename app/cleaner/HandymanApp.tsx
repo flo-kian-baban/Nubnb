@@ -4,13 +4,21 @@
  * The handyman's flow (dispatch 24), at the same /cleaner page: the start
  * route says the account's role, and CleanerApp hands over here.
  *
- *   property → work → sent
+ *   home → (property) → work → sent
+ *
+ * The home screen (Kian's rulings of 2026-10-16 and 2026-10-17) lists every
+ * unit, "All units", recent ones first, where a tap starts work for that
+ * unit; then one button, "Add work", and History on its bar; no pay. A
+ * handyman has no jobs, so nothing is prefilled: "Add work" opens the
+ * property list, and the chosen property then sits in bold above Send, with
+ * Change, as on a cleaner's receipt. Work begun and not sent is opened again
+ * instead of a new piece.
  *
  * The same shape as the cleaner's flow, without the photo, the items and
  * the reading: the draft lives on the phone (work-draft.ts) until the
- * server confirms it; each step forward is a history entry, so the phone's
- * Back goes to the step before; a send carries the draft's one-time key,
- * so sending again after a lost answer is safe. "My work" lists their own
+ * server confirms it; each screen opened is a history entry, so the phone's
+ * Back goes to the screen before; a send carries the draft's one-time key,
+ * so sending again after a lost answer is safe. History lists their own
  * entries and what became of each, through the same list route.
  */
 
@@ -30,11 +38,11 @@ import {
   type WorkStep,
 } from "@/app/lib/work-draft";
 import type { CleanerProperty, CleanerStart } from "@/app/lib/cleaners/model";
+import { HomeScreen } from "./HomeScreen";
 import { PropertyScreen } from "./PropertyScreen";
-import { PaySection } from "./PaySection";
 import { WorkScreen } from "./WorkScreen";
 import { DoneScreen, type SentReceipt } from "./DoneScreen";
-import { ReceiptsScreen } from "./ReceiptsScreen";
+import { HistoryScreen } from "./HistoryScreen";
 import styles from "./cleaner.module.css";
 
 interface HandymanAppProps {
@@ -43,40 +51,48 @@ interface HandymanAppProps {
   onSignedOut: () => void;
 }
 
+/** A screen over the step: the property list, History. */
+type View = "picker" | "history";
+
 const OFFLINE = "No signal. Your work is saved on this phone. Send it when you have signal.";
 const NOT_CONFIRMED = "Not confirmed. Tap Send again — it won’t be counted twice.";
 const PROPERTY_GONE = "That property is no longer on the list. Choose it again.";
 const REFUSED = "This couldn’t be saved. Check the description and the price and send again.";
+const UNSENT = "This work is not sent yet. Send it first, then add the next.";
 
-function reachable(step: WorkStep, draft: WorkDraft): WorkStep {
-  return draft.propertyId === null ? "property" : step;
+const NO_JOBS: never[] = [];
+const NO_MESSAGES: Record<string, string> = {};
+
+/** Work with something typed in it: what the home screen offers to finish. A property alone is not begun. */
+function begun(draft: WorkDraft): boolean {
+  return draft.description.trim() !== "" || draft.price.trim() !== "";
 }
 
 /** The first field with a problem, into view and focused. */
 function showFirstProblem() {
   const card = document.querySelector<HTMLElement>('[data-problem="true"]');
   card?.scrollIntoView({ behavior: "smooth", block: "center" });
-  card?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus({ preventScroll: true });
+  // A field marked invalid; at the property, its Choose button.
+  (card?.querySelector<HTMLElement>('[aria-invalid="true"]') ?? card?.querySelector<HTMLElement>("button"))?.focus({ preventScroll: true });
 }
 
 export function HandymanApp({ start, onSignedOut }: HandymanAppProps) {
   const id = start.cleaner.id;
-  const [draft, setDraftState] = useState<WorkDraft>(() => {
-    const stored = loadWorkDraft(id) ?? newWorkDraft();
-    return { ...stored, step: reachable(stored.step, stored) };
-  });
+  const [draft, setDraftState] = useState<WorkDraft>(() => loadWorkDraft(id) ?? newWorkDraft());
   const [kept, setKept] = useState(true);
   const [sent, setSent] = useState<SentReceipt | null>(null);
   const [sending, setSending] = useState(false);
   const [sendMessage, setSendMessage] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [showProblems, setShowProblems] = useState(false);
-  /** True while "My work" is open over the current step. */
-  const [viewing, setViewing] = useState(false);
+  /** The property list or History, open over the step; null when none is. */
+  const [view, setView] = useState<View | null>(null);
   const [recent, setRecent] = useState(start.recentPropertyIds);
 
   const draftRef = useRef(draft);
   const stepsPushedRef = useRef(0);
+  /** The step the property list opened over: from home, a choice turns its entry into the work's; from the work, Back. */
+  const pickerOverRef = useRef<WorkStep>("home");
 
   const commit = useCallback(
     (next: WorkDraft) => {
@@ -95,15 +111,16 @@ export function HandymanApp({ start, onSignedOut }: HandymanAppProps) {
     window.history.replaceState({ workStep: draftRef.current.step }, "");
   }, []);
 
-  // The phone's Back: the step before, as far as the draft allows.
+  // The phone's Back: the screen before.
   useEffect(() => {
     const onPopState = (event: PopStateEvent) => {
       stepsPushedRef.current = Math.max(0, stepsPushedRef.current - 1);
-      setViewing(event.state?.workView === "list");
+      const requestedView: unknown = event.state?.workView;
+      setView(requestedView === "picker" || requestedView === "history" ? requestedView : null);
       const requested: unknown = event.state?.workStep;
       setSent(null);
       setNotice(null);
-      commit({ ...draftRef.current, step: reachable(requested === "work" ? "work" : "property", draftRef.current) });
+      commit({ ...draftRef.current, step: requested === "work" ? "work" : "home" });
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
@@ -111,43 +128,46 @@ export function HandymanApp({ start, onSignedOut }: HandymanAppProps) {
 
   const goTo = (step: WorkStep) => {
     setNotice(null);
-    commit({ ...draftRef.current, step: reachable(step, draftRef.current) });
+    commit({ ...draftRef.current, step });
     window.history.pushState({ workStep: step }, "");
     stepsPushedRef.current += 1;
     window.scrollTo(0, 0);
   };
 
+  /** The work's own Back: home. On a page reopened mid-work there is no entry behind, so home is shown in place. */
   const stepBack = () => {
     if (stepsPushedRef.current > 0) {
       window.history.back();
       return;
     }
     setNotice(null);
-    commit({ ...draftRef.current, step: "property" });
-    window.history.replaceState({ workStep: "property" }, "");
+    commit({ ...draftRef.current, step: "home" });
+    window.history.replaceState({ workStep: "home" }, "");
     window.scrollTo(0, 0);
   };
 
-  const openList = () => {
-    setNotice(null);
-    setViewing(true);
-    window.history.pushState({ workStep: draftRef.current.step, workView: "list" }, "");
+  /** Open the property list or History over the step, as a new history entry, so Back closes it. */
+  const openView = (next: View) => {
+    const step = draftRef.current.step;
+    if (next === "picker") pickerOverRef.current = step;
+    setView(next);
+    window.history.pushState({ workStep: step, workView: next }, "");
     stepsPushedRef.current += 1;
     window.scrollTo(0, 0);
   };
 
-  const closeList = () => {
+  const closeView = () => {
     if (stepsPushedRef.current > 0) {
       window.history.back();
       return;
     }
-    setViewing(false);
+    setView(null);
     window.history.replaceState({ workStep: draftRef.current.step }, "");
     window.scrollTo(0, 0);
   };
 
-  const listSignedOut = useCallback(() => {
-    setViewing(false);
+  const historySignedOut = useCallback(() => {
+    setView(null);
     onSignedOut();
   }, [onSignedOut]);
 
@@ -160,9 +180,37 @@ export function HandymanApp({ start, onSignedOut }: HandymanAppProps) {
     commit(next);
   };
 
+  /** "Add work": the property list first, as nothing is prefilled; work begun and not sent is opened instead. */
+  const addWork = () => {
+    if (begun(draftRef.current)) goTo("work");
+    else openView("picker");
+  };
+
+  /** A unit tapped in "All units": work for it. Work begun and not sent is opened instead, taking the unit if it has none. */
+  const startWorkFor = (property: CleanerProperty) => {
+    const current = draftRef.current;
+    if (begun(current)) {
+      goTo("work");
+      if (current.propertyId === null) change({ propertyId: property.id, propertyName: property.name });
+      else if (current.propertyId !== property.id) setNotice(UNSENT);
+      return;
+    }
+    change({ propertyId: property.id, propertyName: property.name });
+    goTo("work");
+  };
+
   const chooseProperty = (property: CleanerProperty) => {
     if (draftRef.current.propertyId !== property.id) change({ propertyId: property.id, propertyName: property.name });
-    goTo("work");
+    setNotice(null);
+    if (pickerOverRef.current === "home") {
+      // From home: the list's entry becomes the work's, so Back from the work is home.
+      setView(null);
+      commit({ ...draftRef.current, step: "work" });
+      window.history.replaceState({ workStep: "work" }, "");
+      window.scrollTo(0, 0);
+      return;
+    }
+    closeView();
   };
 
   const startOver = () => {
@@ -171,7 +219,7 @@ export function HandymanApp({ start, onSignedOut }: HandymanAppProps) {
     setSendMessage(null);
     setNotice(null);
     commit(newWorkDraft());
-    window.history.replaceState({ workStep: "property" }, "");
+    window.history.replaceState({ workStep: "home" }, "");
     window.scrollTo(0, 0);
   };
 
@@ -202,7 +250,7 @@ export function HandymanApp({ start, onSignedOut }: HandymanAppProps) {
         setSent({ propertyName, lineCount: 1, totalCents: readPrice(current.price)?.cents ?? 0, kind: "work" });
         commit(newWorkDraft());
         setRecent((was) => [payload.propertyId, ...was.filter((pid) => pid !== payload.propertyId)]);
-        window.history.replaceState({ workStep: "property" }, "");
+        window.history.replaceState({ workStep: "home" }, "");
         window.scrollTo(0, 0);
         return;
       case "signed-out":
@@ -212,7 +260,8 @@ export function HandymanApp({ start, onSignedOut }: HandymanAppProps) {
       case "refused":
         commit({ ...draftRef.current, unconfirmedSend: false });
         if (result.code === "ENTRY_PROPERTY_NOT_FOUND") {
-          goTo("property");
+          change({ propertyId: null, propertyName: null });
+          openView("picker");
           setNotice(PROPERTY_GONE);
         } else {
           setSendMessage(REFUSED);
@@ -224,40 +273,63 @@ export function HandymanApp({ start, onSignedOut }: HandymanAppProps) {
     }
   };
 
-  const property = start.properties.find((p) => p.id === draft.propertyId);
-  const propertyName = property?.name ?? draft.propertyName ?? "Property";
+  const propertyName = draft.propertyId === null ? null : (start.properties.find((p) => p.id === draft.propertyId)?.name ?? draft.propertyName);
 
   let screen;
-  if (viewing) {
-    screen = <ReceiptsScreen properties={start.properties} onBack={closeList} onSignedOut={listSignedOut} title="My work" tag="Work" />;
-  } else if (sent) {
-    screen = <DoneScreen sent={sent} onAnother={() => setSent(null)} onMyReceipts={openList} anotherLabel="Log more work" listLabel="See my work" tag="Work" />;
-  } else if (draft.step === "property") {
+  if (view === "picker") {
+    screen = <PropertyScreen properties={start.properties} recentPropertyIds={recent} selectedId={draft.propertyId} onChoose={chooseProperty} onBack={closeView} />;
+  } else if (view === "history") {
     screen = (
-      <PropertyScreen
-        cleanerName={start.cleaner.name}
+      <HistoryScreen
         properties={start.properties}
-        recentPropertyIds={recent}
-        selectedId={draft.propertyId}
-        onChoose={chooseProperty}
-        onMyReceipts={openList}
-        listLabel="My work"
-        tag="Work"
-        top={<PaySection pay={start.pay} />}
+        jobs={NO_JOBS}
+        today={start.today}
+        busyId={null}
+        messages={NO_MESSAGES}
+        onUndo={() => {}}
+        onBack={closeView}
+        onSignedOut={historySignedOut}
       />
     );
-  } else {
+  } else if (sent) {
+    screen = (
+      <DoneScreen
+        sent={sent}
+        onDone={() => setSent(null)}
+        onAnother={() => {
+          setSent(null);
+          addWork();
+        }}
+        anotherLabel="Add more work"
+      />
+    );
+  } else if (draft.step === "work") {
     screen = (
       <WorkScreen
-        propertyName={propertyName}
+        property={draft.propertyId === null ? null : { name: propertyName }}
         draft={draft}
         problems={showProblems ? workProblems(draft) : {}}
+        propertyProblem={showProblems && draft.propertyId === null}
         sending={sending}
         sendMessage={sendMessage}
         onBack={stepBack}
         onChange={change}
-        onSend={() => send(propertyName)}
+        onChangeProperty={() => openView("picker")}
+        onSend={() => send(propertyName ?? "Property")}
         onStartOver={startOver}
+      />
+    );
+  } else {
+    screen = (
+      <HomeScreen
+        cleanerName={start.cleaner.name}
+        kind="work"
+        unsent={begun(draft) ? { propertyName } : null}
+        properties={start.properties}
+        recentPropertyIds={recent}
+        onUnit={startWorkFor}
+        onAdd={addWork}
+        onHistory={() => openView("history")}
       />
     );
   }
@@ -269,7 +341,7 @@ export function HandymanApp({ start, onSignedOut }: HandymanAppProps) {
           {notice}
         </p>
       )}
-      {!kept && !sent && !viewing && draft.step !== "property" && (
+      {!kept && !sent && view === null && draft.step === "work" && (
         <p className={styles.note}>This phone can’t keep a copy. Keep this page open until it is sent.</p>
       )}
       {screen}

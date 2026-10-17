@@ -15,7 +15,8 @@ import { LIMITS, SUBMISSION_KEY_PATTERN } from '@/app/lib/cleaners/model';
 import type { WorkPayload } from '@/app/lib/cleaner-client';
 import { newSubmissionKey, readTax } from '@/app/lib/cleaner-draft';
 
-export type WorkStep = 'property' | 'work';
+/** Where the handyman is (Kian's rulings of 2026-10-16): the home screen, or the work being logged. */
+export type WorkStep = 'home' | 'work';
 
 export interface WorkDraft {
   v: 1;
@@ -33,7 +34,7 @@ export interface WorkDraft {
 const KEY_PREFIX = 'nubnb.cleaner.work.v1.';
 
 export function newWorkDraft(): WorkDraft {
-  return { v: 1, submissionKey: newSubmissionKey(), propertyId: null, propertyName: null, description: '', price: '', step: 'property', unconfirmedSend: false };
+  return { v: 1, submissionKey: newSubmissionKey(), propertyId: null, propertyName: null, description: '', price: '', step: 'home', unconfirmedSend: false };
 }
 
 export function isEmptyWorkDraft(draft: WorkDraft): boolean {
@@ -53,7 +54,8 @@ function readWorkDraft(value: unknown): WorkDraft | null {
     propertyName: typeof propertyName === 'string' ? propertyName : null,
     description: typeof description === 'string' ? description : '',
     price: typeof price === 'string' ? price : '',
-    step: step === 'work' ? 'work' : 'property',
+    // A draft kept before 2026-10-16 may name the old first step, 'property': that is home now.
+    step: step === 'work' ? 'work' : 'home',
     unconfirmedSend: unconfirmedSend === true,
   };
 }

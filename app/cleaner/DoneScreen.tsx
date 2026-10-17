@@ -1,8 +1,9 @@
 "use client";
 
 /**
- * Sent: a clear yes, what was sent, the way to the next receipt, and to the
- * receipts sent so far.
+ * Sent: a clear yes, what was sent, Done back to the home screen, and the way
+ * to the next receipt (or piece of work) straight away. History is on the
+ * home screen's bar.
  */
 
 import { useEffect, useRef } from "react";
@@ -21,18 +22,14 @@ export interface SentReceipt {
 
 export function DoneScreen({
   sent,
+  onDone,
   onAnother,
-  onMyReceipts,
-  anotherLabel = "Log another receipt",
-  listLabel = "See my receipts",
-  tag,
+  anotherLabel = "Add another receipt",
 }: {
   sent: SentReceipt;
+  onDone: () => void;
   onAnother: () => void;
-  onMyReceipts: () => void;
   anotherLabel?: string;
-  listLabel?: string;
-  tag?: string;
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
 
@@ -43,7 +40,7 @@ export function DoneScreen({
 
   return (
     <>
-      <CleanerBar tag={tag} />
+      <CleanerBar />
       <main className={`${styles.screen} ${styles.doneScreen}`}>
         <div className={styles.doneIcon} aria-hidden>
           <Check />
@@ -56,12 +53,12 @@ export function DoneScreen({
           {sent.kind === "work" ? "Work" : sent.lineCount === 1 ? "1 item" : `${sent.lineCount} items`} · {formatCents(sent.totalCents)}
         </p>
         {sent.kind === "work" && <p className={styles.doneNote}>It waits for the office to approve it.</p>}
-        <button type="button" className={styles.textButton} onClick={onMyReceipts}>
-          {listLabel}
+        <button type="button" className={styles.textButton} onClick={onAnother}>
+          {anotherLabel}
         </button>
-        <div className={styles.bottomBar}>
-          <button type="button" className={styles.primary} onClick={onAnother}>
-            {anotherLabel}
+        <div className={`${styles.bottomBar} ${styles.pinnedBar}`}>
+          <button type="button" className={styles.primary} onClick={onDone}>
+            Done
           </button>
         </div>
       </main>

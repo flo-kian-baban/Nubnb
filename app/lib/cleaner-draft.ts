@@ -25,7 +25,7 @@
  *
  * ── The reading (dispatches 20 and 21) ──
  * Once the photo is taken the server reads it (POST /api/cleaner/read-receipt)
- * and the items screen stays locked until the answer comes. The answer is a
+ * and the receipt's items and tax stay locked until the answer comes. The answer is a
  * signed record the draft keeps, verbatim, until Send. Its item lines become
  * the form's lines, marked `ai`: which model line, and the values as filled,
  * so a line the cleaner changed can be told from one they left as read. Its
@@ -48,9 +48,13 @@ import {
 } from '@/app/lib/cleaners/model';
 import type { EntryPayload, ReadingPart } from '@/app/lib/cleaner-client';
 
-export type Step = 'property' | 'photo' | 'items';
+/**
+ * Where the cleaner is (Kian's rulings of 2026-10-16): the home screen, or the receipt being worked on, which needs a
+ * photo. The camera, the property list and History are views over these, never kept.
+ */
+export type Step = 'home' | 'receipt';
 
-export const STEPS: readonly Step[] = ['property', 'photo', 'items'];
+export const STEPS: readonly Step[] = ['home', 'receipt'];
 
 export interface DraftLine {
   /** For React only; never sent. */
@@ -140,7 +144,7 @@ export function newDraft(): Draft {
     propertyName: null,
     lines: [newLine()],
     photoKey: null,
-    step: 'property',
+    step: 'home',
     unconfirmedSend: false,
     reading: null,
     tax: '',
@@ -210,7 +214,8 @@ function readDraft(value: unknown): Draft | null {
     propertyName: typeof propertyName === 'string' ? propertyName : null,
     lines: read.length > 0 ? read : [newLine()],
     photoKey: typeof photoKey === 'string' ? photoKey : null,
-    step: STEPS.includes(step as Step) ? (step as Step) : 'property',
+    // A draft kept by the app before 2026-10-16 names its old steps: its items screen is now the receipt.
+    step: step === 'receipt' || step === 'items' ? 'receipt' : 'home',
     unconfirmedSend: unconfirmedSend === true,
     reading: readDraftReading(reading),
     tax: isText(tax) ? tax : '',

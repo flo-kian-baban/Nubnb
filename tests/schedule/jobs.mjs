@@ -73,14 +73,17 @@ const cases = [
   ['the 17th: the next guest cancelled', j17, later([reserved('r2', TODAY, '2026-10-16'), reserved('r3', '2026-10-16', '2026-10-17')])],
   ['the calendar link changed and the stay is gone', j16, later([reserved('z1', '2026-10-01', '2026-11-01')], { icalUrl: LINK('another-calendar') })],
   ['the calendar link changed, a stay still ends that day', j16, later([reserved('z2', '2026-10-14', '2026-10-16')], { icalUrl: LINK('another-calendar') })],
-  ['the calendar link removed', j16, copy({ [P1]: { ...run1.properties[P1], icalUrl: '', status: 'no-feed', fetchedAt: null, events: [] } })],
-  ['the property deleted', j16, copy({ [P2]: run1.properties[P2] })],
+  ['the copy says the calendar link was removed (from the copy alone)', j16, copy({ [P1]: { ...run1.properties[P1], icalUrl: '', status: 'no-feed', fetchedAt: null, events: [] } })],
+  ['the calendar link removed: the property itself has none', j16, copy({ [P1]: { ...run1.properties[P1], icalUrl: '', status: 'no-feed', fetchedAt: null, events: [] } }), 'no-calendar'],
+  ['the property not in the copy (from the copy alone)', j16, copy({ [P2]: run1.properties[P2] })],
+  ['the property not in the copy, and still there with its calendar', j16, copy({ [P2]: run1.properties[P2] }), 'has-calendar'],
+  ['the property deleted: its own document is gone', j16, copy({ [P2]: run1.properties[P2] }), 'deleted'],
   ['the calendar failed this run', j16, later([], { status: 'failed', fetchedAt: '2026-10-14T14:00:00.000Z' })],
   ['checkout day itself: the stay still there', j15, later(run1.properties[P1].events)],
   ['checkout day itself: extended that morning', j15, later([reserved('r1', '2026-10-13', '2026-10-18'), reserved('r2', '2026-10-18', '2026-10-19')])],
 ];
-for (const [label, job, c] of cases) {
-  const patch = sync.planJob(job, c, keysOf(c).get(job.propertyId) ?? null, RUN);
+for (const [label, job, c, known] of cases) {
+  const patch = sync.planJob(job, c, keysOf(c).get(job.propertyId) ?? null, RUN, known);
   console.log(`  ${label}: ${patch === null ? 'no change' : `${JSON.stringify(patch.fields)} · ${patch.events.map((e) => `${e.action}${e.change ? `/${e.change}` : ''}${e.reason ? ` (${e.reason})` : ''}`).join(', ')}`}`);
 }
 // Settled after the checkout day.
@@ -90,6 +93,39 @@ console.log(`  the day after the 15th's checkout, the stay gone from the feed: $
 const changedJob = { ...j16, status: 'booking-changed', change: { kind: 'gone', at: RUN, movedTo: null } };
 const reopen = sync.planJob(changedJob, run1, keysOf(run1).get(P1), RUN);
 console.log(`  a changed job whose day ends a stay again: ${JSON.stringify(reopen.fields)} · ${reopen.events.map((e) => e.action).join(', ')}`);
+
+// ═══ 3b. A partial or cut-off copy changes no job of a property it did not read (Kian's ruling of 2026-10-17) ═══
+console.log('\n═══ 3b. A partial or cut-off copy changes no job of a property it did not read ═══');
+{
+  // Stored jobs on four properties: open, booking changed, with and without a next guest, from today on.
+  const job = (pid, checkout, extra = {}) => ({ ...j16, id: `${pid}_${checkout}`, propertyId: pid, checkout, ...extra });
+  const others = [
+    job(P1, TODAY), job(P1, '2026-10-16'), job(P1, '2026-10-17', { status: 'booking-changed', change: { kind: 'gone', at: RUN, movedTo: null } }),
+    job(P3, TODAY), job(P3, '2026-10-16', { nextCheckIn: '2026-10-16' }),
+    job(P4, '2026-10-17'),
+  ];
+  const earlier = '2026-10-15T09:00:00.000Z';
+  const p2Read = feed('Test Suite', [reserved('s1', '2026-10-12', '2026-10-16')]);
+  const runs = [
+    ['a partial copy holding one property (P2) alone', copy({ [P2]: p2Read })],
+    ['a refresh cut off partway: P1 not fetched (failed), P3 still holding the last run\'s events, P4 marked no-feed in the copy', copy({
+      [P2]: p2Read,
+      [P1]: { ...feed('Test Loft', []), status: 'failed', fetchedAt: earlier, error: 'Not fetched' },
+      [P3]: feed('Test Annex', [], { fetchedAt: earlier }),
+      [P4]: { ...feed('Test Studio', []), icalUrl: '', status: 'no-feed', fetchedAt: null },
+    })],
+  ];
+  for (const [label, c] of runs) {
+    for (const known of ['unknown', 'has-calendar']) {
+      const changed = others.filter((j) => sync.planJob(j, c, keysOf(c).get(j.propertyId) ?? null, RUN, known) !== null);
+      console.log(`  ${label}, the properties ${known === 'unknown' ? 'not looked up' : 'still there with a calendar'}: ${others.length} jobs of properties it did not read, ${changed.length} changed${changed.length ? ` (${changed.map((j) => j.id).join(', ')})` : ''}`);
+    }
+  }
+  // The one property it did read is judged as usual: P2's stay now ends on the 16th, so its job of the 15th changed.
+  const p2Job = job(P2, TODAY, { reservation: { uid: 's1', start: '2026-10-12' }, calendarKey: calendarKeyOf(LINK('Test Suite')) });
+  const p2Patch = sync.planJob(p2Job, runs[0][1], keysOf(runs[0][1]).get(P2), RUN);
+  console.log(`  the property it did read (P2), its stay moved to end the 16th: ${p2Patch ? `${p2Patch.fields.status} (${p2Patch.fields.change.kind}${p2Patch.fields.change.movedTo ? ` → ${p2Patch.fields.change.movedTo.start}–${p2Patch.fields.change.movedTo.end}` : ''})` : 'no change'}`);
+}
 
 // ═══ 4. A job's rules ═══
 console.log('\n═══ 4. A job\'s rules: who can mark it, when, and what it reads as ═══');

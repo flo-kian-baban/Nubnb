@@ -8,12 +8,15 @@
 
    Drawn in Nubnb's own language (2026-09-30, Kian: "keep the light mode
    and simplicity, but match Nubnb's design language"): white, as he then
-   asked (the site's pearl ground was tried and refused), Manrope for everything
-   you read and Playfair for the titles and the one big button (as the
-   site's own call to action), the dark blue for depth and the brand blue
-   for accents and badges, 16 px cards with a soft shadow, pill badges in
-   small tracked capitals. The sizes came down one step the same evening
-   ("a little bit too big"); every target is still 48px or more.
+   asked (the site's pearl ground was tried and refused), Manrope for
+   everything — titles and the big buttons included, with no Playfair
+   (Kian's ruling of 2026-10-16). Since Kian's ruling of 2026-10-17 it takes
+   the public site's look while staying light: each unit and job with its
+   cover photo, rounded as the public cards; the public site's dark navy
+   (--brand-navy) for buttons and its brand blue (--brand-blue) for badges,
+   as the site's own card badge; the wordmark as the public header sets it.
+   16 px cards with a soft shadow. The sizes came down one step on
+   2026-09-30 ("a little bit too big"); every target is still 48px or more.
    ══════════════════════════════════════════════ */
 
 .app {
@@ -29,9 +32,9 @@
   --line-strong: #d0d0d0; /* --border-medium */
   --field-border: #767676; /* fields keep a border a hallway can see (4.5:1) */
   --soft: #f3f3f1; /* a pressed row */
-  --primary: #153d6d; /* --brand-dark-blue: buttons, Back, the wordmark */
-  --primary-pressed: #0d2a4c;
-  --primary-soft: #eaf0f8;
+  --primary: #1a1a1d; /* --brand-navy, the public site's dark navy: buttons, Back, the wordmark (2026-10-17) */
+  --primary-pressed: #0a0a0c;
+  --primary-soft: #efeff1;
   --accent: #6599cd; /* --brand-blue: badges, the chosen row, focus */
   --accent-soft: #e8f0f9;
   --danger: #b3261e;
@@ -42,8 +45,6 @@
   --focus: #6599cd;
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04);
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.08);
-  /* Playfair from next/font's variable on <body>, as Manrope below. */
-  --serif: var(--font-playfair, Georgia), Georgia, "Times New Roman", serif;
 
   min-height: 100vh;
   min-height: 100dvh;
@@ -55,6 +56,13 @@
   font-family: var(--font-manrope, system-ui), system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   font-size: 18px;
   line-height: 1.4;
+}
+
+/* The page under the app scrolls as the window, so a pinned bar stays at the bottom of the screen within reach of a
+   thumb. globals.css gives body `overflow-x: hidden`, which makes it a scroll box that never scrolls and turns every
+   `position: sticky` off; `clip` cuts the same sideways overflow without making a scroll box. This page only. */
+:global(body):has(.app) {
+  overflow-x: clip;
 }
 
 .app *,
@@ -117,16 +125,14 @@
   -webkit-user-select: none;
   user-select: none;
 }
-/* The one big button: Playfair, as the site's own "Reserve" button. */
+/* The one big button: the brand's dark blue, in Manrope like everything else. */
 .primary {
   min-height: 60px;
   background: var(--primary);
   color: #ffffff;
   border: 2px solid var(--primary);
   box-shadow: var(--shadow-sm);
-  font-family: var(--serif);
-  font-size: 21px;
-  letter-spacing: 0.01em;
+  font-size: 19px;
 }
 .primary:active:not(:disabled) {
   background: var(--primary-pressed);
@@ -195,9 +201,8 @@
 
 .title {
   margin: 0;
-  font-family: var(--serif);
-  font-size: 28px;
-  font-weight: 600;
+  font-size: 26px;
+  font-weight: 800;
   letter-spacing: -0.02em;
   line-height: 1.15;
 }
@@ -327,6 +332,7 @@
   background: transparent;
   color: transparent;
   caret-color: transparent;
+  font: inherit;
   font-size: 16px; /* 16px or more, or an iPhone zooms in on focus */
   cursor: text;
 }
@@ -426,14 +432,14 @@
   list-style: none;
 }
 
-.propertyRow {
+/* A unit (UnitList.tsx): its cover photo, then its name and city. */
+.unitRow {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 14px;
   width: 100%;
-  min-height: 68px;
-  padding: 12px 16px;
+  min-height: 82px;
+  padding: 8px 14px 8px 8px;
   border: 1px solid var(--line);
   border-radius: 16px;
   background: var(--surface);
@@ -441,13 +447,32 @@
   color: var(--ink);
   text-align: left;
 }
-.propertyRow:active {
+.unitRow:active {
   background: var(--soft);
   box-shadow: none;
 }
-.propertyRowSelected {
+.unitRowSelected {
   border-color: var(--accent);
   background: var(--accent-soft);
+}
+.unitRow .propertyText {
+  flex: 1 1 auto;
+}
+/* The stored 200-pixel copy, 4:3 as the public cards, rounded. */
+.unitPhoto {
+  display: block;
+  flex: none;
+  width: 88px;
+  height: 66px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--soft);
+}
+.photoImg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .propertyText {
@@ -807,12 +832,16 @@
 .priceField.fieldInvalid {
   border-color: var(--danger);
 }
+/* The box shows the focus (above); the field inside it draws none of its own, or it shows two rings. */
+.priceField input,
+.priceField input:focus-visible {
+  outline: none;
+}
 .priceField input {
   flex: 1;
   min-width: 0;
   height: 100%;
   border: 0;
-  outline: none;
   background: transparent;
   color: var(--ink);
   font: inherit;
@@ -833,16 +862,21 @@
   opacity: 0.4;
 }
 
-/* Stays at the bottom of the screen while the items scroll above it. */
+/* The end of a screen: what it adds up to and its one button, at the bottom of a short screen and after everything on a
+   long one. On a screen where things are typed it stays in the page, so an open keyboard never squeezes the field. */
 .bottomBar {
-  position: sticky;
-  bottom: 0;
-  z-index: 4;
   display: flex;
   flex-direction: column;
   gap: 10px;
   margin-top: auto;
   padding: 12px 0 calc(8px + env(safe-area-inset-bottom));
+}
+/* Pinned: on a screen with nothing to type (home, Sent), the one button stays at the bottom of the screen while the
+   rest scrolls above it, within reach of a thumb. */
+.pinnedBar {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
   background: linear-gradient(to top, var(--ground) 85%, rgba(255, 255, 255, 0));
 }
 
@@ -924,9 +958,8 @@
 }
 .doneTitle {
   margin: 8px 0 0;
-  font-family: var(--serif);
-  font-size: 40px;
-  font-weight: 600;
+  font-size: 36px;
+  font-weight: 800;
   letter-spacing: -0.02em;
 }
 .doneTitle:focus {
@@ -998,27 +1031,24 @@
   margin: 0 auto;
   padding: 0 16px;
 }
+/* The wordmark as the public header sets it (about/page.module.css, .navLogo): the 28-pixel logo mark, 10 px, then
+   NUBNB at 14 px, bold, tracked 0.1em — in the dark navy, the app being light. */
 .barBrand {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   margin: 0;
+}
+.barLogo {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
 }
 .barWordmark {
   color: var(--primary);
-  font-size: 15px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-}
-.barTag {
-  padding: 3px 8px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--muted);
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: 0.1em;
 }
 .barActions {
   display: flex;
@@ -1073,9 +1103,6 @@
   overflow-wrap: anywhere;
 }
 @media (max-width: 399px) {
-  .barTag {
-    display: none;
-  }
   .barButton {
     padding: 0 12px;
     font-size: 14px;
@@ -1341,17 +1368,71 @@
 .jobCard {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 14px 16px 16px;
+  overflow: hidden;
   border: 1px solid var(--line);
-  border-left: 4px solid var(--primary);
   border-radius: 16px;
   background: var(--surface);
   box-shadow: var(--shadow-sm);
 }
 .jobCardChanged {
-  border-left-color: var(--danger);
+  border-color: var(--danger);
   background: var(--danger-soft);
+}
+/* The unit's photo across the top: the stored 400-pixel copy, cut to a band, its top corners the card's 16 px. */
+.jobPhotoWrap {
+  position: relative;
+}
+.jobPhoto {
+  display: block;
+  width: 100%;
+  height: 148px;
+  overflow: hidden;
+  background: var(--soft);
+}
+.jobBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px 16px;
+}
+/* The public card's badge (PropertyCard.module.css, .badge): brand blue, white tracked capitals, a pill. */
+.badges {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+}
+.badge {
+  padding: 6px 12px;
+  border-radius: 20px;
+  background: var(--accent);
+  box-shadow: var(--shadow-sm);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+/* No stored photo, or one that would not load: a plain tile with a house, never the full image. */
+.photoNone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--soft);
+  color: var(--tertiary);
+}
+.photoNone svg {
+  width: 28px;
+  height: 28px;
+}
+.jobPhoto.photoNone svg {
+  width: 40px;
+  height: 40px;
 }
 .jobDay {
   margin: 0;
@@ -1385,64 +1466,6 @@
   font-size: 15px;
   font-weight: 600;
 }
-.jobDoneLabel {
-  margin: 14px 0 4px;
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-.jobDoneList {
-  display: flex;
-  flex-direction: column;
-  margin: 0 0 8px;
-  padding: 0;
-  list-style: none;
-}
-.jobDoneRow {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  min-height: 48px;
-  border-bottom: 1px solid var(--line);
-  font-size: 16px;
-}
-.jobDoneIcon {
-  width: 20px;
-  height: 20px;
-  color: var(--ok);
-  flex: none;
-}
-.jobDoneText {
-  /* Cut short rather than pushing Undo onto a line of its own. */
-  flex: 1 1 0;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.jobDoneRow .textButton {
-  flex: none;
-}
-.jobDoneRow .jobMessage {
-  flex-basis: 100%;
-  padding-bottom: 8px;
-}
-/* A mark whose cleaning the office deleted or removed (2026-10-14, night): its own line under the job. */
-.jobRemovedIcon {
-  color: var(--muted);
-}
-.jobRemovedNote {
-  flex-basis: 100%;
-  margin-top: -8px;
-  padding: 0 0 10px 28px;
-  color: var(--muted);
-  font-size: 15px;
-  font-weight: 600;
-}
-
 /* The second line under the code boxes: what the next wrong code does, or when the lock ends (2026-10-14). */
 .codeHint {
   display: block;
@@ -1452,44 +1475,199 @@
   font-weight: 600;
 }
 
-/* ── Their own pay (Team pay, 2026-10-15): three figures, theirs only ── */
-.pay {
-  margin: 4px 0 18px;
-}
-.payFigures {
-  display: flex;
-  flex-direction: column;
+/* ── The home screen (Kian's rulings of 2026-10-16): the jobs, then one button ── */
+.jobsEmpty {
   margin: 0;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: var(--surface);
-}
-.payFigure {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 16px;
-  font-size: 16px;
-}
-.payFigure + .payFigure {
-  border-top: 1px solid var(--line);
-}
-.payFigure dt {
   color: var(--muted);
+  font-size: 17px;
   font-weight: 600;
 }
-.payFigure dd {
+/* "Cleaned · Undo" (ruling 6), and "Removed by the office". */
+.jobState {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
   margin: 0;
-  color: var(--ink);
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
+  color: var(--ok);
+  font-size: 18px;
+  font-weight: 800;
 }
-.payOverpaid dd {
-  color: var(--warn-ink);
+.jobState svg {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  stroke-width: 3;
 }
-.payNote {
-  margin: 8px 2px 0;
+.jobStateRemoved {
   color: var(--muted);
+  font-weight: 700;
+}
+/* A text button inside a line of text: Undo. Tall enough for a thumb, without breaking the line. */
+.inlineButton {
+  min-height: 44px;
+  padding: 0 6px;
+  color: var(--primary);
+  font-size: 18px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.inlineButton:disabled {
+  opacity: 0.5;
+}
+/* A receipt or work begun and not sent, named over the home button. */
+.unsentNote {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--warn-soft);
+  color: var(--warn-ink);
+  font-size: 16px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+/* ── The receipt: its photo with Take again, and the property above Send (ruling 5) ── */
+.photoRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.photoRow .thumbButton {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.photoRow .textButton {
+  flex: none;
+}
+.sendTo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 6px 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.sendToProblem {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 1px var(--danger);
+}
+.sendToText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+}
+.sendToLabel {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.sendToName {
+  color: var(--ink);
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.sendToNone {
+  color: var(--muted);
+  font-size: 18px;
+  font-weight: 700;
+}
+.sendToProblem .sendToNone {
+  color: var(--danger);
+}
+.sendToChange {
+  flex: none;
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1.5px solid var(--primary);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--primary);
+  font-size: 16px;
+  font-weight: 700;
+}
+.sendToChange:active:not(:disabled) {
+  background: var(--primary-soft);
+}
+.sendToChange:disabled {
+  opacity: 0.5;
+}
+
+/* ── The camera, where a receipt starts (ruling 4): Photos beside the shutter, what went wrong over the view ── */
+.cameraBottom {
+  align-items: center;
+  justify-content: space-between;
+  padding-left: 20px;
+  padding-right: 20px;
+}
+.cameraPhotos,
+.cameraBalance {
+  width: 84px;
+}
+.cameraPhotos {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 0;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
   font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.cameraPhotos svg {
+  width: 26px;
+  height: 26px;
+}
+.cameraProblem {
+  margin: 0;
+  padding: 8px 14px;
+  border-radius: 14px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 17px;
+  font-weight: 700;
+}
+.cameraClose:disabled {
+  opacity: 0.5;
+}
+/* "Getting the photo ready…", over the live view. */
+.cameraStatusOver {
+  z-index: 2;
+  background: rgba(0, 0, 0, 0.6);
+}
+
+/* ── History (ruling 7): by day ── */
+.historyDay {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── All units on the home screen (Kian's ruling of 2026-10-17) ── */
+.units {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+.listLabel {
+  margin: 6px 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }

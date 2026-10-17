@@ -591,7 +591,8 @@ These replace the rulings they change: six-digit admin PINs.
   without a calendar link get no jobs.**
 - **Admins assign one or more active cleaners to a job.**
 - **In the cleaner app, a cleaner's assigned jobs come first, soonest first,
-  above everything else.**
+  above everything else.** Its home screen shows today's and tomorrow's jobs,
+  by Kian's ruling of 2026-10-16 (Cleaner app, below).
 - **"Mark cleaned" on a job, by a cleaner assigned to it, from the checkout
   day on, creates a cleaning record (dispatch 37B's) at once, with no admin
   confirmation. The cleaner never types the amount; it is 37B's rule (last
@@ -678,7 +679,8 @@ Cleaning schedule phase 2: pay, on the Team page.
    opening them lists every item and payment by date, with a date
    filter.**
 6. **In the cleaner app, each person sees their own Earned, Paid and
-   Balance, and nobody else's.**
+   Balance, and nobody else's.** Replaced by Kian's ruling of 2026-10-16:
+   the cleaner app shows no pay (Cleaner app, below).
 7. **Nothing here changes statements or what owners receive.**
 
 Kian's rulings of 2026-10-15, added after the design report:
@@ -735,3 +737,53 @@ On the admin home's property list, and PROPERTY-LIST-COLUMNS-PLAN.md:
   keeps the name it printed.**
 - Dispatch 21's rulings stand: a property without a cleaner-facing name falls
   back to its public title, and the public site never sees the name.
+
+## Cleaner app — Kian's rulings of 2026-10-16
+
+1. **The cleaner app shows no pay: no earned, paid or balance figures.**
+   This replaces Team pay ruling 6. The admin's Team pay is unchanged.
+2. **The cleaner app uses Manrope only; Playfair Display is removed from
+   it.** The public site is unchanged.
+3. **Home screen: today's and tomorrow's jobs with Mark cleaned, then one
+   "Add a receipt" button (handymen: "Add work"). No property list on the
+   home screen.** "No property list on the home screen" is replaced by
+   Kian's ruling of 2026-10-17: the home lists every unit (below).
+4. **Adding a receipt starts with the camera. The reading runs while the
+   cleaner continues. One screen then shows the property, the items and the
+   tax, editable, with Send.**
+5. **The property is prefilled: the job marked cleaned that day, else the
+   soonest job assigned today, else nothing (search, recent properties
+   first). It is shown in bold above Send, with Change.**
+6. **A cleaned job reads "Cleaned · Undo" with "Add a receipt for this
+   unit".**
+7. **"History" replaces "My receipts": jobs done and receipts sent, with
+   status and any rejection reason, and no pay.**
+
+## Cleaner app — Kian's rulings of 2026-10-17
+
+1. **The cleaner app's home lists every unit under the cleaner's jobs:
+   "All units", searchable, the cleaner's recent units first. Tapping a unit
+   starts a receipt for it. Mark cleaned stays only on jobs the cleaner is
+   assigned to. Handymen: tapping a unit starts work for it.**
+2. **The cleaner app takes the public site's look while staying light:**
+   - **each unit and job card shows the property's cover photo, rounded as
+     on the public site's cards, using the stored small copies (never full
+     images);**
+   - **the public site's brand blue for badges and its dark navy for
+     buttons;**
+   - **the NUBNB wordmark as the public header sets it;**
+   - **Manrope only, white background.**
+
+   **Job cards get badges: Today, Tomorrow, Same-day turnover, Cleaned.**
+
+Kian's review of 2026-10-17:
+- **The developer's choices in CLEANER-COSTS-DESIGN.md §50.2 are
+  accepted.**
+
+## Job sync — Kian's ruling of 2026-10-17
+
+- **The sync judges a property's jobs only when that property's calendar
+  was read in this run. A property missing from the run (not read, failed,
+  timed out, or absent from a partial copy) keeps its jobs exactly as they
+  are. "Calendar removed" and "property deleted" are recorded only when that
+  is known from the property itself.**

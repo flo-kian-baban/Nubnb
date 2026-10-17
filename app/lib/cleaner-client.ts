@@ -119,7 +119,13 @@ function isCleanerStart(data: unknown): data is CleanerStart {
     typeof data.cleaner.role === 'string' &&
     Array.isArray(data.properties) &&
     data.properties.every(
-      (p) => isRecord(p) && typeof p.id === 'string' && isTextOrNull(p.name) && isTextOrNull(p.city),
+      (p) =>
+        isRecord(p) &&
+        typeof p.id === 'string' &&
+        isTextOrNull(p.name) &&
+        isTextOrNull(p.city) &&
+        // Its cover as the stored small copies, or none (2026-10-17).
+        (p.photo === null || (isRecord(p.photo) && typeof p.photo.thumb === 'string' && typeof p.photo.card === 'string')),
     ) &&
     Array.isArray(data.recentPropertyIds) &&
     data.recentPropertyIds.every((id) => typeof id === 'string') &&
@@ -127,9 +133,6 @@ function isCleanerStart(data: unknown): data is CleanerStart {
     data.itemNames.every((name) => typeof name === 'string') &&
     Array.isArray(data.jobs) &&
     data.jobs.every(isCleanerJob) &&
-    // Their own pay (Team pay, 2026-10-15): three figures and two counts, theirs only.
-    isRecord(data.pay) &&
-    ['earnedCents', 'paidCents', 'balanceCents', 'waiting', 'cannotAddUp'].every((key) => typeof (data.pay as Record<string, unknown>)[key] === 'number') &&
     typeof data.today === 'string'
   );
 }

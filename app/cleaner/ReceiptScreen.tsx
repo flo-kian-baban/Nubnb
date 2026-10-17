@@ -1,6 +1,10 @@
 "use client";
 
 /**
+ * The receipt (Kian's ruling 4 of 2026-10-16): after the camera, one screen with the property, the items and the
+ * tax, all editable, and Send. The photo is read while the cleaner is here (below); the property it starts on is the
+ * day's job (ruling 5), in bold above Send, with Change (PropertyChoice).
+ *
  * What was bought: one card per receipt line — the item, how many, and the
  * amount on the receipt, which is the line's total as printed: for all of
  * that item together, never for one (D1; the quantity is never multiplied
@@ -12,11 +16,12 @@
  * only and never stored.
  *
  * The receipt photo stays at the top, and opens full size, so the items can
- * be read off it.
+ * be read off it; "Take again" opens the camera for a new one.
  *
  * ── Read from the photo (dispatches 20 and 21) ──
- * While the photo is being read the form is locked: nothing can be typed,
- * and a panel says the receipt is being read. When the answer comes the
+ * While the photo is being read the items and the tax are locked: nothing
+ * can be typed there, and a panel says the receipt is being read. The
+ * property can be checked and changed meanwhile. When the answer comes the
  * lines are there, each marked "From the photo" until the cleaner changes
  * it, then "Edited"; the tax the receipt prints fills the tax field, never a
  * line. A reading that failed unlocks the form for typing, with a quiet
@@ -46,6 +51,7 @@ import { LIMITS, formatCents } from "@/app/lib/cleaners/model";
 import { fold, matchRank } from "@/app/lib/cleaners/text";
 import styles from "./cleaner.module.css";
 import { CleanerBar } from "./CleanerBar";
+import { PropertyChoice } from "./PropertyChoice";
 
 /** How many suggestions show under an item at once. */
 const SUGGESTIONS_SHOWN = 5;
@@ -57,8 +63,9 @@ export type ReadingStatus =
   | { kind: "read"; applied: number; leftOut: { count: number; cents: number } }
   | { kind: "failed" };
 
-interface ItemsScreenProps {
-  propertyName: string;
+interface ReceiptScreenProps {
+  /** The property the receipt is for, by its name for cleaners; null until one is chosen. */
+  property: { name: string | null } | null;
   photoUrl: string | null;
   lines: DraftLine[];
   itemNames: string[];
@@ -66,7 +73,7 @@ interface ItemsScreenProps {
   /** The tax as typed, and what the reading filled in (null when it filled none), to tell an edit. */
   tax: string;
   taxFromReading: string | null;
-  /** After a Send with something missing: show what, under each field. */
+  /** After a Send with something missing: show what, under each field, and at the property when none is chosen. */
   showProblems: boolean;
   /** Upload progress from 0 to 1 while sending; null otherwise. */
   sending: number | null;
@@ -80,6 +87,10 @@ interface ItemsScreenProps {
   onRemoveLine: (key: string) => void;
   onSend: () => void;
   onStartOver: () => void;
+  /** Change, or Choose: the property list. */
+  onChangeProperty: () => void;
+  /** Take again: the camera, for a new photo. */
+  onRetake: () => void;
 }
 
 /** The item names that match what is typed, best first, leaving out the one already there. */
@@ -346,8 +357,8 @@ function PhotoViewer({ url, onClose }: { url: string; onClose: () => void }) {
   );
 }
 
-export function ItemsScreen(props: ItemsScreenProps) {
-  const { propertyName, photoUrl, lines, itemNames, reading, tax, taxFromReading, showProblems, sending, sendMessage, totalCents } = props;
+export function ReceiptScreen(props: ReceiptScreenProps) {
+  const { property, photoUrl, lines, itemNames, reading, tax, taxFromReading, showProblems, sending, sendMessage, totalCents } = props;
   const [viewing, setViewing] = useState(false);
   /** Nothing can be typed while the receipt is being read (dispatch 21), nor while a send is in flight. */
   const locked = reading.kind === "reading" || sending !== null;
@@ -361,16 +372,21 @@ export function ItemsScreen(props: ItemsScreenProps) {
 
   return (
     <>
-      <CleanerBar onBack={props.onBack} backDisabled={sending !== null} title={propertyName} />
+      <CleanerBar onBack={props.onBack} backDisabled={sending !== null} />
       <main className={styles.screen}>
         <h1 className={styles.title}>What did you buy?</h1>
 
         {photoUrl && (
-          <button type="button" className={styles.thumbButton} onClick={() => setViewing(true)}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={photoUrl} alt="" />
-            <span>See the receipt</span>
-          </button>
+          <div className={styles.photoRow}>
+            <button type="button" className={styles.thumbButton} onClick={() => setViewing(true)}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={photoUrl} alt="" />
+              <span>See the receipt</span>
+            </button>
+            <button type="button" className={styles.textButton} onClick={props.onRetake} disabled={sending !== null}>
+              Take again
+            </button>
+          </div>
         )}
         {reading.kind === "reading" && (
           <div className={styles.readingLock} role="status" aria-live="polite">
@@ -457,6 +473,7 @@ export function ItemsScreen(props: ItemsScreenProps) {
             <span>Total</span>
             <span>{formatCents(totalCents)}</span>
           </p>
+          <PropertyChoice property={property} problem={showProblems && property === null} disabled={sending !== null} onChange={props.onChangeProperty} />
           <button
             type="button"
             className={styles.primary}

@@ -1,31 +1,46 @@
 "use client";
 
 /**
- * The cleaner app: one page, one step at a time.
+ * The cleaner app: one page, one screen at a time (Kian's rulings of
+ * 2026-10-16, in CLAUDE.md under *Cleaner app*).
  *
- *   code → property → photo → items → sent
+ *   code → home → camera → receipt → sent
+ *
+ * Home: the cleaner's jobs for today and tomorrow, with Mark cleaned, each
+ * card with its unit's photo and badges; under them every unit, "All units",
+ * where a tap starts a receipt for that unit (Kian's rulings of 2026-10-17);
+ * then one "Add a receipt" button (HomeScreen, JobsSection, UnitList).
+ * Adding a receipt starts with the camera (CameraScreen). The photo is read
+ * while the cleaner goes on to the one receipt screen: the property, the
+ * items and the tax, editable, with Send (ReceiptScreen). The property starts
+ * on the job marked cleaned that day, else the soonest job today, else none
+ * (receiptProperty, app/lib/cleaner-home.ts); it is shown in bold above Send,
+ * with Change, which opens the property list, recent ones first
+ * (PropertyScreen). A cleaned job reads "Cleaned · Undo", with "Add a receipt
+ * for this unit", which starts the receipt on that job's property. History
+ * (HistoryScreen), on the home screen's bar, lists the jobs done and the
+ * receipts sent. No pay anywhere: none is sent to the app.
  *
  * There is no sign-out (Kian, 2026-09-30): a session ends by itself after
  * 12 hours, and a new code ends it at once.
- *
- * "My receipts" (dispatch 19) opens from the property and sent screens: the
- * cleaner's own receipts and what became of each. It is a view over the
- * steps, not a step: the draft is untouched, and Back returns to where the
- * cleaner was.
  *
  * ── State ──
  * Before a cleaner is in, the app is loading, on the code screen, or unable
  * to reach the server. Once in, the receipt being worked on is the draft
  * (cleaner-draft.ts), written to the phone on every change and cleared only
- * when the server confirms it. The step is part of the draft, so a reopened
- * page lands where the cleaner left off, after the code if their session
- * ended.
+ * when the server confirms it. Where the cleaner is — home, or the receipt —
+ * is part of the draft, so a reopened page lands where the cleaner left off,
+ * after the code if their session ended. A receipt begun and not sent stays
+ * on the phone when the cleaner goes home; the home button then finishes it
+ * rather than starting another. The camera, the property list and History
+ * are views over the screen beneath; they are never kept.
  *
  * ── Back ──
- * Each step forward adds a history entry, so the phone's Back button goes to
- * the step before rather than out of the app. A step shows only when the
- * receipt has what it needs: no photo without a property, no items without
- * a photo.
+ * Each screen opened adds a history entry, so the phone's Back goes to the
+ * screen before rather than out of the app: the camera, the property list
+ * and History close; the receipt goes home. The photo taken from home turns
+ * the camera's entry into the receipt's, so Back from the receipt is home.
+ * The receipt shows only when it has a photo.
  *
  * ── Sending ──
  * A send carries the draft's one-time key. Whatever happens to the answer —
@@ -35,22 +50,22 @@
  *
  * ── Reading the receipt (dispatches 20 and 21) ──
  * As soon as the photo is kept, it goes to the server to be read, and the
- * cleaner moves on to the items screen, which stays locked until the answer
- * comes. Then the lines it read are the form's lines, marked "From the
- * photo", and the receipt's tax is in the tax field. No answer, or a failed
- * one, unlocks the form for typing with a quiet note; the photo is kept
- * either way. The signed answer stays in the draft and goes with the entry
- * as evidence. The purchase date is never filled from it (Kian's ruling of
- * 2026-09-30).
+ * cleaner moves on to the receipt screen, whose items and tax stay locked
+ * until the answer comes; the property can be checked and changed meanwhile.
+ * Then the lines it read are the form's lines, marked "From the photo", and
+ * the receipt's tax is in the tax field. No answer, or a failed one, unlocks
+ * the form for typing with a quiet note; the photo is kept either way. The
+ * signed answer stays in the draft and goes with the entry as evidence. The
+ * purchase date is never filled from it (Kian's ruling of 2026-09-30).
  *
  * A cleaner never reaches /admin from here, and never sees another cleaner's
- * work: the API gives this page their own name and recent properties, the
- * property list, and item names as words only.
+ * work: the API gives this page their own name, jobs and recent properties,
+ * the property list, and item names as words only.
  *
  * ── Handymen (dispatch 24) ──
  * The start route says the account's role. A handyman gets the work flow
- * (HandymanApp): property → work → sent, and "My work". The code screen and
- * the loading and failure states are shared.
+ * (HandymanApp): home → work → sent, and History. The code screen and the
+ * loading and failure states are shared.
  */
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -88,16 +103,17 @@ import {
   type Step,
   type StoredPhoto,
 } from "@/app/lib/cleaner-draft";
-import type { PreparedPhoto } from "@/app/lib/receipt-photo";
+import { homeJobs, receiptProperty, type ReceiptProperty } from "@/app/lib/cleaner-home";
+import { PhotoError, preparePhoto, type PhotoProblem, type PreparedPhoto } from "@/app/lib/receipt-photo";
 import { leftOutOfReading, type CleanerProperty, type CleanerStart } from "@/app/lib/cleaners/model";
 import { fold } from "@/app/lib/cleaners/text";
 import { CodeScreen } from "./CodeScreen";
+import { HomeScreen } from "./HomeScreen";
 import { PropertyScreen } from "./PropertyScreen";
-import { PaySection } from "./PaySection";
-import { PhotoScreen } from "./PhotoScreen";
-import { ItemsScreen, type ReadingStatus } from "./ItemsScreen";
+import { CameraScreen } from "./CameraScreen";
+import { ReceiptScreen, type ReadingStatus } from "./ReceiptScreen";
 import { DoneScreen, type SentReceipt } from "./DoneScreen";
-import { ReceiptsScreen } from "./ReceiptsScreen";
+import { HistoryScreen } from "./HistoryScreen";
 import { CleanerBar } from "./CleanerBar";
 import { HandymanApp } from "./HandymanApp";
 import { JobsSection } from "./JobsSection";
@@ -110,6 +126,14 @@ type Phase =
   | { kind: "failed" }
   | { kind: "in"; start: CleanerStart };
 
+/** A screen over the step: the camera, the property list, History. */
+type View = "camera" | "picker" | "history";
+
+const VIEWS: readonly View[] = ["camera", "picker", "history"];
+
+/** The photo just taken or chosen, while it is prepared, and why it could not be used. */
+type PhotoState = { kind: "idle" } | { kind: "preparing" } | { kind: "error"; problem: PhotoProblem };
+
 /** The draft's photo, with an object URL to show it by. */
 interface PhotoInHand extends StoredPhoto {
   url: string;
@@ -120,6 +144,12 @@ const NOT_CONFIRMED = "Not confirmed. Tap Send again — it won’t be counted t
 const PROPERTY_GONE = "That property is no longer on the list. Choose it again.";
 const PHOTO_REFUSED = "That photo couldn’t be used. Take it again.";
 const REFUSED = "This receipt couldn’t be saved. Check each item and send again.";
+const UNSENT = "This receipt is not sent yet. Send it first, then add the next.";
+
+const PHOTO_PROBLEMS: Record<PhotoProblem, string> = {
+  unreadable: "This photo can’t be used. Take a new one.",
+  "too-large": "This photo is too big. Take a new one with the camera.",
+};
 
 /** Refusals that mean the photo itself must be taken again. */
 const PHOTO_CODES = new Set([
@@ -135,14 +165,16 @@ function isStep(value: unknown): value is Step {
   return STEPS.includes(value as Step);
 }
 
-/** The furthest of `step` and the steps before it that this draft can show. */
-function reachable(step: Step, draft: Draft): Step {
-  if (draft.propertyId === null) return "property";
-  if (step === "items" && draft.photoKey !== null) return "items";
-  return step === "property" ? "property" : "photo";
+function isView(value: unknown): value is View {
+  return VIEWS.includes(value as View);
 }
 
-/** What the items screen says about the reading of the current photo. */
+/** The receipt shows only once it has a photo; home otherwise. */
+function reachable(step: Step, draft: Draft): Step {
+  return step === "receipt" && draft.photoKey !== null ? "receipt" : "home";
+}
+
+/** What the receipt screen says about the reading of the current photo. */
 function readingStatus(draft: Draft, readingPhotoKey: string | null): ReadingStatus {
   if (draft.photoKey === null) return { kind: "none" };
   if (readingPhotoKey === draft.photoKey) return { kind: "reading" };
@@ -168,7 +200,8 @@ function subscribeToConnection(onChange: () => void): () => void {
 function showFirstProblem() {
   const card = document.querySelector<HTMLElement>('[data-problem="true"]');
   card?.scrollIntoView({ behavior: "smooth", block: "center" });
-  card?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus({ preventScroll: true });
+  // A field marked invalid; at the property, its Choose button.
+  (card?.querySelector<HTMLElement>('[aria-invalid="true"]') ?? card?.querySelector<HTMLElement>("button"))?.focus({ preventScroll: true });
 }
 
 export function CleanerApp() {
@@ -182,8 +215,9 @@ export function CleanerApp() {
   const [sendMessage, setSendMessage] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [showProblems, setShowProblems] = useState(false);
-  /** True while "My receipts" is open over the current step. */
-  const [viewing, setViewing] = useState(false);
+  /** The camera, the property list or History, open over the step; null when none is. */
+  const [view, setView] = useState<View | null>(null);
+  const [photoState, setPhotoState] = useState<PhotoState>({ kind: "idle" });
   /** The photo whose reading is in flight, for the screen; null when none is. */
   const [readingPhotoKey, setReadingPhotoKey] = useState<string | null>(null);
   /** The cleaner's jobs as they stand after a mark or an undo (the cleaning schedule); the start's until then. */
@@ -201,6 +235,10 @@ export function CleanerApp() {
   const stepsPushedRef = useRef(0);
   /** The photo whose reading is in flight, for the handlers. An answer for any other photo is dropped. */
   const readingRef = useRef<string | null>(null);
+  /** The step the camera opened over: from home a photo turns its entry into the receipt's; from the receipt, Back. */
+  const cameraOverRef = useRef<Step>("home");
+  /** The property the receipt being started is for, taken when its photo is: `explicit` for "this unit", over any kept. */
+  const startingRef = useRef<{ property: ReceiptProperty | null; explicit: boolean } | null>(null);
 
   /** The draft as it now is: shown, and written to the phone. */
   const commit = useCallback((next: Draft) => {
@@ -277,7 +315,9 @@ export function CleanerApp() {
       setSendMessage(null);
       setNotice(null);
       setShowProblems(false);
-      setViewing(false);
+      setView(null);
+      setPhotoState({ kind: "idle" });
+      startingRef.current = null;
       window.history.replaceState({ cleanerStep: step }, "");
       setJobs(start.jobs);
       setJobMessages({});
@@ -301,17 +341,19 @@ export function CleanerApp() {
     };
   }, [enter]);
 
-  // The phone's Back: the step before, as far as the draft allows.
+  // The phone's Back: the screen before, as far as the draft allows.
   useEffect(() => {
     const onPopState = (event: PopStateEvent) => {
       stepsPushedRef.current = Math.max(0, stepsPushedRef.current - 1);
-      setViewing(event.state?.cleanerView === "receipts");
+      const requestedView: unknown = event.state?.cleanerView;
+      setView(isView(requestedView) ? requestedView : null);
+      setPhotoState({ kind: "idle" });
       const current = draftRef.current;
       if (!current || !cleanerIdRef.current) return;
       const requested: unknown = event.state?.cleanerStep;
       setSent(null);
       setNotice(null);
-      commit({ ...current, step: reachable(isStep(requested) ? requested : "property", current) });
+      commit({ ...current, step: reachable(isStep(requested) ? requested : "home", current) });
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
@@ -374,29 +416,31 @@ export function CleanerApp() {
     return { kind: "ok" };
   };
 
-  /** "My receipts", as a new history entry over the current step, so Back closes it. */
-  const openReceipts = () => {
-    setNotice(null);
-    setViewing(true);
-    window.history.pushState({ cleanerStep: draftRef.current?.step ?? "property", cleanerView: "receipts" }, "");
+  /** Open the camera, the property list or History over the step, as a new history entry, so Back closes it. */
+  const openView = (next: View) => {
+    const step = draftRef.current?.step ?? "home";
+    if (next === "camera") cameraOverRef.current = step;
+    setView(next);
+    window.history.pushState({ cleanerStep: step, cleanerView: next }, "");
     stepsPushedRef.current += 1;
     window.scrollTo(0, 0);
   };
 
-  /** The list's own Back: the phone's Back when this page added the entry, else closed in place. */
-  const closeReceipts = () => {
+  /** Close the view: the phone's Back when this page added its entry, else closed in place. */
+  const closeView = () => {
     if (stepsPushedRef.current > 0) {
       window.history.back();
       return;
     }
-    setViewing(false);
-    window.history.replaceState({ cleanerStep: draftRef.current?.step ?? "property" }, "");
+    setView(null);
+    setPhotoState({ kind: "idle" });
+    window.history.replaceState({ cleanerStep: draftRef.current?.step ?? "home" }, "");
     window.scrollTo(0, 0);
   };
 
-  /** The session ended while the list was open: the code, then back to the receipt as it was. */
-  const receiptsSignedOut = useCallback(() => {
-    setViewing(false);
+  /** The session ended while History was open: the code, then back to where the cleaner was. */
+  const historySignedOut = useCallback(() => {
+    setView(null);
     setPhase({ kind: "code" });
   }, []);
 
@@ -412,9 +456,10 @@ export function CleanerApp() {
   };
 
   /**
-   * The screen's own Back. Over an entry this page added, it is the phone's
-   * Back; on a page reopened mid-receipt there is none behind, so the step
-   * before is shown in place instead of leaving the app.
+   * The receipt's own Back: home. Over an entry this page added, it is the
+   * phone's Back; on a page reopened mid-receipt there is none behind, so
+   * home is shown in place instead of leaving the app. The receipt stays on
+   * the phone.
    */
   const stepBack = () => {
     if (stepsPushedRef.current > 0) {
@@ -423,10 +468,9 @@ export function CleanerApp() {
     }
     const current = draftRef.current;
     if (!current) return;
-    const previous: Step = current.step === "items" ? "photo" : "property";
     setNotice(null);
-    commit({ ...current, step: previous });
-    window.history.replaceState({ cleanerStep: previous }, "");
+    commit({ ...current, step: "home" });
+    window.history.replaceState({ cleanerStep: "home" }, "");
     window.scrollTo(0, 0);
   };
 
@@ -440,11 +484,24 @@ export function CleanerApp() {
     commit(next);
   };
 
-  const chooseProperty = (property: CleanerProperty) => {
-    if (draftRef.current?.propertyId !== property.id) {
-      changeReceipt((d) => ({ ...d, propertyId: property.id, propertyName: property.name }));
+  /**
+   * Add a receipt: the camera, at once (ruling 4), with the property it will be for — the day's job (ruling 5), or
+   * the unit the cleaner pressed it on. A receipt begun and not sent is opened instead, so nothing on it is lost.
+   */
+  const startReceipt = (property: ReceiptProperty | null, explicit: boolean) => {
+    const current = draftRef.current;
+    if (!current) return;
+    if (current.photoKey !== null) {
+      goTo("receipt");
+      // Pressed on a unit: an unsent receipt with no property yet takes it; one for another unit is said to wait.
+      if (explicit && property && current.propertyId === null) changeReceipt((d) => ({ ...d, propertyId: property.id, propertyName: property.name }));
+      else if (explicit && property?.id !== current.propertyId) setNotice(UNSENT);
+      return;
     }
-    goTo("photo");
+    startingRef.current = { property, explicit };
+    setNotice(null);
+    setPhotoState({ kind: "idle" });
+    openView("camera");
   };
 
   const acceptPhoto = async (prepared: PreparedPhoto) => {
@@ -458,13 +515,52 @@ export function CleanerApp() {
       height: prepared.height,
     };
     replacePhoto(stored);
-    // A new photo: the last reading and the untouched lines it filled go; typed and changed lines stay.
-    changeReceipt((d) => ({ ...forgetReading(d), photoKey: stored.photoKey }));
+    const starting = startingRef.current;
+    startingRef.current = null;
+    // A new photo: the last reading and the untouched lines it filled go; typed and changed lines stay. A receipt
+    // being started takes its property now: the unit pressed on, or the day's job when it has none yet.
+    changeReceipt((d) => {
+      const next: Draft = { ...forgetReading(d), photoKey: stored.photoKey, step: "receipt" };
+      const property = starting?.property;
+      return property && (starting.explicit || next.propertyId === null) ? { ...next, propertyId: property.id, propertyName: property.name } : next;
+    });
     readingRef.current = null;
     setReadingPhotoKey(null);
     void startReading(stored.photoKey, stored.blob, stored.name);
     const saved = await savePhoto(id, stored);
     setKept((was) => (saved ? was : false));
+  };
+
+  /** A photo from the camera or the phone: prepared, kept, read, and the receipt shown while it is read. */
+  const takePhoto = async (file: File) => {
+    setPhotoState({ kind: "preparing" });
+    let prepared: PreparedPhoto;
+    try {
+      prepared = await preparePhoto(file);
+    } catch (err) {
+      setPhotoState({ kind: "error", problem: err instanceof PhotoError ? err.problem : "unreadable" });
+      return;
+    }
+    await acceptPhoto(prepared);
+    setPhotoState({ kind: "idle" });
+    setNotice(null);
+    setView(null);
+    window.scrollTo(0, 0);
+    if (cameraOverRef.current === "receipt") {
+      // Retaken: back over the camera's entry to the receipt's.
+      window.history.back();
+    } else {
+      // From home: the camera's entry becomes the receipt's, so Back from the receipt is home.
+      window.history.replaceState({ cleanerStep: "receipt" }, "");
+    }
+  };
+
+  const chooseProperty = (property: CleanerProperty) => {
+    if (draftRef.current?.propertyId !== property.id) {
+      changeReceipt((d) => ({ ...d, propertyId: property.id, propertyName: property.name }));
+    }
+    setNotice(null);
+    closeView();
   };
 
   const changeLine = (key: string, change: Partial<Omit<DraftLine, "key">>) => {
@@ -503,7 +599,7 @@ export function CleanerApp() {
     setSendMessage(null);
     setNotice(null);
     commit(newDraft());
-    window.history.replaceState({ cleanerStep: "property" }, "");
+    window.history.replaceState({ cleanerStep: "home" }, "");
     window.scrollTo(0, 0);
   };
 
@@ -519,7 +615,7 @@ export function CleanerApp() {
       return;
     }
     if (!photo) {
-      goTo("photo");
+      openView("camera");
       return;
     }
     if (!navigator.onLine) {
@@ -567,7 +663,7 @@ export function CleanerApp() {
             },
           };
         });
-        window.history.replaceState({ cleanerStep: "property" }, "");
+        window.history.replaceState({ cleanerStep: "home" }, "");
         window.scrollTo(0, 0);
         return;
       }
@@ -581,12 +677,13 @@ export function CleanerApp() {
         // Nothing was recorded, so the key is still unused.
         commit({ ...(draftRef.current ?? attempt), unconfirmedSend: false });
         if (result.code === "ENTRY_PROPERTY_NOT_FOUND") {
-          goTo("property");
+          changeReceipt((d) => ({ ...d, propertyId: null, propertyName: null }));
+          openView("picker");
           setNotice(PROPERTY_GONE);
         } else if (result.code !== null && PHOTO_CODES.has(result.code)) {
           replacePhoto(null);
           changeReceipt((d) => ({ ...d, photoKey: null }));
-          goTo("photo");
+          openView("camera");
           setNotice(PHOTO_REFUSED);
         } else {
           setSendMessage(REFUSED);
@@ -665,45 +762,62 @@ export function CleanerApp() {
       </div>
     );
   }
-  const property = start.properties.find((p) => p.id === current.propertyId);
-  const propertyName = property?.name ?? current.propertyName ?? "Property";
+  const allJobs = jobs ?? start.jobs;
+  const step = reachable(current.step, current);
+  const propertyName = current.propertyId === null ? null : (start.properties.find((p) => p.id === current.propertyId)?.name ?? current.propertyName);
+  const property = current.propertyId === null ? null : { name: propertyName };
+  const photos = new Map(start.properties.map((p) => [p.id, p.photo]));
 
   let screen;
-  if (viewing) {
-    screen = <ReceiptsScreen properties={start.properties} onBack={closeReceipts} onSignedOut={receiptsSignedOut} />;
-  } else if (sent) {
-    screen = <DoneScreen sent={sent} onAnother={() => setSent(null)} onMyReceipts={openReceipts} />;
-  } else if (current.step === "property") {
+  if (view === "camera") {
+    screen = (
+      <CameraScreen
+        onCapture={takePhoto}
+        onFile={takePhoto}
+        onClose={closeView}
+        preparing={photoState.kind === "preparing"}
+        problem={photoState.kind === "error" ? PHOTO_PROBLEMS[photoState.problem] : null}
+        notice={notice}
+      />
+    );
+  } else if (view === "picker") {
     screen = (
       <PropertyScreen
-        cleanerName={start.cleaner.name}
         properties={start.properties}
         recentPropertyIds={start.recentPropertyIds}
         selectedId={current.propertyId}
         onChoose={chooseProperty}
-        onMyReceipts={openReceipts}
-        top={
-          <>
-            <JobsSection jobs={jobs ?? start.jobs} today={start.today} busyId={jobBusy} messages={jobMessages} onMark={(job) => actOnJob(job, "mark")} onUndo={(job) => actOnJob(job, "undo")} />
-            <PaySection pay={start.pay} />
-          </>
-        }
+        onBack={closeView}
       />
     );
-  } else if (current.step === "photo") {
+  } else if (view === "history") {
     screen = (
-      <PhotoScreen
-        propertyName={propertyName}
-        photoUrl={photo?.url ?? null}
-        onBack={stepBack}
-        onPhoto={acceptPhoto}
-        onNext={() => goTo("items")}
+      <HistoryScreen
+        properties={start.properties}
+        jobs={allJobs}
+        today={start.today}
+        busyId={jobBusy}
+        messages={jobMessages}
+        onUndo={(job) => actOnJob(job, "undo")}
+        onBack={closeView}
+        onSignedOut={historySignedOut}
       />
     );
-  } else {
+  } else if (sent) {
     screen = (
-      <ItemsScreen
-        propertyName={propertyName}
+      <DoneScreen
+        sent={sent}
+        onDone={() => setSent(null)}
+        onAnother={() => {
+          setSent(null);
+          startReceipt(receiptProperty(allJobs, start.today), false);
+        }}
+      />
+    );
+  } else if (step === "receipt") {
+    screen = (
+      <ReceiptScreen
+        property={property}
         photoUrl={photo?.url ?? null}
         lines={current.lines}
         itemNames={start.itemNames}
@@ -719,8 +833,35 @@ export function CleanerApp() {
         onChangeTax={changeTax}
         onAddLine={addLine}
         onRemoveLine={removeLine}
-        onSend={() => send(propertyName)}
+        onSend={() => send(propertyName ?? "Property")}
         onStartOver={startOver}
+        onChangeProperty={() => openView("picker")}
+        onRetake={() => openView("camera")}
+      />
+    );
+  } else {
+    screen = (
+      <HomeScreen
+        cleanerName={start.cleaner.name}
+        kind="receipt"
+        unsent={isEmptyDraft(current) ? null : { propertyName }}
+        properties={start.properties}
+        recentPropertyIds={start.recentPropertyIds}
+        onUnit={(unit) => startReceipt({ id: unit.id, name: unit.name }, true)}
+        onAdd={() => startReceipt(receiptProperty(allJobs, start.today), false)}
+        onHistory={() => openView("history")}
+        jobs={
+          <JobsSection
+            jobs={homeJobs(allJobs, start.today)}
+            today={start.today}
+            busyId={jobBusy}
+            messages={jobMessages}
+            onMark={(job) => actOnJob(job, "mark")}
+            onUndo={(job) => actOnJob(job, "undo")}
+            onAddReceipt={(job) => startReceipt({ id: job.propertyId, name: job.propertyName }, true)}
+            photoOf={(id) => photos.get(id) ?? null}
+          />
+        }
       />
     );
   }
@@ -733,12 +874,12 @@ export function CleanerApp() {
           <span>No signal. Nothing you type is lost.</span>
         </p>
       )}
-      {notice && (
+      {notice && view !== "camera" && (
         <p className={styles.notice} role="alert">
           {notice}
         </p>
       )}
-      {!kept && !sent && !viewing && current.step !== "property" && (
+      {!kept && !sent && view === null && step === "receipt" && (
         <p className={styles.note}>This phone can’t keep a copy. Keep this page open until it is sent.</p>
       )}
       {screen}

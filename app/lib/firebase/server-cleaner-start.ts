@@ -4,7 +4,10 @@
  * most recently, and the item names already in use.
  *
  * ── What a cleaner sees ──
- * Property names and cities, which the public site shows anyway; their own
+ * Property names and cities, which the public site shows anyway, and each
+ * property's cover photo as its stored small copies (Kian's ruling of
+ * 2026-10-17): the 200- and 400-pixel WebP copies beside the mirrored
+ * original, never the original's own address; their own
  * recent properties, from their own entries; and item names from everyone's
  * newest entries — the words only, never who typed them, for which property,
  * when, or for how much. No other cleaner's entry reaches a cleaner.
@@ -17,17 +20,17 @@
  * item.
  *
  * ── Reads ──
- * One per property (name and address only), one per entry of this cleaner's
- * (read whole: the recent properties and their pay both come from it), and at
+ * One per property (name, address, times and cover only), one per entry of this cleaner's
+ * (its property and date only: the recent properties come from it), and at
  * most ITEM_SOURCE_ENTRIES of everyone's newest entries (lines only) — so the
  * cost of opening the app stops growing once there are that many entries.
  * Every query uses Firestore's automatic single-field indexes.
  *
- * ── Their pay (Kian's rulings of 2026-10-15, Team pay) ──
- * Their own Earned, Paid and Balance, and nobody else's (ruling 6), worked out
- * by the one function the Team page uses (app/lib/pay/balance.ts) from their
- * own cleanings, entries and payments: one read per cleaning and payment of
- * theirs besides the entries already read. A handyman has no cleanings.
+ * ── No pay (Kian's ruling of 2026-10-16) ──
+ * The cleaner app shows no pay, so none is read or sent: no Earned, Paid or
+ * Balance. A cleaner's payments are read for one thing, the day of the latest
+ * (latestPaymentDay): no Undo is offered on a cleaning dated on or before it.
+ * One read per payment of theirs. A handyman's are not read.
  *
  * ── Jobs (the cleaning schedule, Kian's rulings of 2026-10-14) ──
  * A cleaner's jobs come first in their app: those they are on, within the 45
@@ -46,8 +49,9 @@ import { listCleanerFacingNames } from './server-property-names';
 import { torontoDay } from '@/app/lib/availability/days';
 import { isDocumentId } from './server-leads';
 import { COST_ENTRIES_COLLECTION, type CleanerProperty, type CleanerStart } from '@/app/lib/cleaners/model';
-import { memberPayNow } from './server-pay';
+import { latestPaymentDay } from './server-pay';
 import { fold } from '@/app/lib/cleaners/text';
+import { variantUrl } from '@/app/lib/image-variants';
 
 /** How many of the newest entries item names are drawn from. */
 const ITEM_SOURCE_ENTRIES = 300;
@@ -59,12 +63,25 @@ function text(value: unknown): string | null {
   return typeof value === 'string' && value.trim() !== '' ? value : null;
 }
 
-/** The cleaner-facing name when an admin has set one (dispatch 21), else the real name. */
+/**
+ * A property's cover as its stored small copies (Kian's ruling of 2026-10-17): the mirrored original when there is one,
+ * else the cover as typed, and only when it is one of Nubnb's own Storage objects, which have copies at 200 and 400
+ * pixels (image-variants.ts). Anything else — an address elsewhere, or none — is no photo: the full image is never sent.
+ */
+function photoOf(fields: Record<string, unknown>): CleanerProperty['photo'] {
+  const stored = text(fields.coverImageStored) ?? text(fields.coverImage);
+  if (stored === null) return null;
+  const thumb = variantUrl(stored, 200);
+  const card = variantUrl(stored, 400);
+  return thumb && card ? { thumb, card } : null;
+}
+
+/** The cleaner-facing name when an admin has set one (dispatch 21), else the real name; its city and cover photo. */
 function toProperty(id: string, fields: Record<string, unknown>, cleanerFacing: Map<string, string>): CleanerProperty {
   const address = fields.addressDetails;
   const city =
     address && typeof address === 'object' ? text((address as Record<string, unknown>).city) : null;
-  return { id, name: cleanerFacing.get(id) ?? text(fields.name), city };
+  return { id, name: cleanerFacing.get(id) ?? text(fields.name), city, photo: photoOf(fields) };
 }
 
 /** Distinct property IDs from this cleaner's entries, the one logged against last first. */
@@ -127,25 +144,23 @@ function itemNames(entries: Record<string, unknown>[]): string[] {
 /**
  * Everything the cleaner app shows before the first entry is typed.
  *
- * @throws if any of the three reads fails.
+ * @throws if any of the reads fails.
  */
 export async function readCleanerStart(cleanerId: string, role: string): Promise<Omit<CleanerStart, 'cleaner'>> {
   const db = getAdminDb();
   const entries = db.collection(COST_ENTRIES_COLLECTION);
   const today = torontoDay();
 
-  const [properties, cleanerFacing, own, newest] = await Promise.all([
-    db.collection('properties').select('name', 'addressDetails', 'details').get(),
+  const [properties, cleanerFacing, own, newest, paidThrough] = await Promise.all([
+    db.collection('properties').select('name', 'addressDetails', 'details', 'coverImage', 'coverImageStored').get(),
     listCleanerFacingNames(),
-    // Whole: their pay reads the lines, the history and who paid.
-    entries.where('cleanerId', '==', cleanerId).get(),
+    entries.where('cleanerId', '==', cleanerId).select('propertyId', 'createdAt').get(),
     // `createdAt` is on every entry, so ordering by it drops none of them.
     entries.orderBy('createdAt', 'desc').limit(ITEM_SOURCE_ENTRIES).select('lines', 'kind').get(),
+    // The latest day a payment to them was made: no Undo is offered on a cleaning dated on or before it (2026-10-15).
+    role === 'cleaner' ? latestPaymentDay(cleanerId) : null,
   ]);
 
-  const { pay, unreadable } = await memberPayNow(cleanerId, own.docs);
-  // The latest day a payment to them was made: no Undo is offered on a cleaning dated on or before it (2026-10-15).
-  const paidThrough = pay.rows.filter((row) => row.kind === 'payment' && row.state === 'recorded' && row.day !== null).reduce<string | null>((latest, row) => (latest === null || (row.day as string) > latest ? row.day : latest), null);
   const jobs = role === 'cleaner' ? await cleanerJobs(cleanerId, jobPropertiesOf(properties.docs, cleanerFacing), today, paidThrough) : [];
 
   return {
@@ -156,6 +171,5 @@ export async function readCleanerStart(cleanerId: string, role: string): Promise
     itemNames: itemNames(newest.docs.map((doc) => doc.data())),
     jobs,
     today,
-    pay: { earnedCents: pay.earnedCents, paidCents: pay.paidCents, balanceCents: pay.balanceCents, waiting: pay.waiting, cannotAddUp: pay.cannotAddUp + unreadable },
   };
 }

@@ -1,0 +1,86 @@
+═══ 1. minutesOf and torontoDayOf ═══
+    "11:00 AM" → 660
+   ok   "11:00 AM" is 660
+    "10:00 AM" → 600
+   ok   "10:00 AM" is 600
+    "12:00 PM" → 720
+   ok   "12:00 PM" is 720
+    "12:30 AM" → 30
+   ok   "12:30 AM" is 30
+    "4 PM" → 960
+   ok   "4 PM" is 960
+    "4:00 p.m." → 960
+   ok   "4:00 p.m." is 960
+    "16:30" → 990
+   ok   "16:30" is 990
+    "11" → null
+   ok   "11" is null
+    "13:00 PM" → null
+   ok   "13:00 PM" is null
+    "" → null
+   ok   "" is null
+    null → null
+   ok   null is null
+    "2026-10-17T03:59:59.000Z" → "2026-10-16"
+   ok   "2026-10-17T03:59:59.000Z" is Toronto's 2026-10-16
+    "2026-10-17T04:00:00.000Z" → "2026-10-17"
+   ok   "2026-10-17T04:00:00.000Z" is Toronto's 2026-10-17
+    "2026-10-16T12:00:00.000Z" → "2026-10-16"
+   ok   "2026-10-16T12:00:00.000Z" is Toronto's 2026-10-16
+    "not a date" → null
+   ok   "not a date" is Toronto's null
+    null → null
+   ok   null is Toronto's null
+
+═══ 2. homeJobs: today's and tomorrow's, and before them any past job still to mark or marked today ═══
+    shown: TESTJOB01, TESTJOB12, TESTJOB06, TESTJOB05, TESTJOB07, TESTJOB08, TESTJOB09
+   ok   the past jobs still to mark or marked today first, then today by checkout time, then tomorrow
+   ok   nothing after tomorrow
+   ok   no job marked on an earlier day
+   ok   no jobs: none shown
+
+═══ 3. receiptProperty: the job marked cleaned that day, else the soonest job today, else none ═══
+    two marked today: the latest mark → TESTPROP22 "Test 22 St"
+   ok   two marked today: the latest mark
+    marked late in the evening, Toronto (03:30Z the next day UTC), counts as today → TESTPROP24 "Test 24 St"
+   ok   marked late in the evening, Toronto (03:30Z the next day UTC), counts as today
+    a past job marked today counts → TESTPROP26 "Test 26 St"
+   ok   a past job marked today counts
+    marked yesterday does not count: the soonest today → TESTPROP30 "Test 30 St"
+   ok   marked yesterday does not count: the soonest today
+    a mark the office removed does not count → TESTPROP32 "Test 32 St"
+   ok   a mark the office removed does not count
+    a changed booking today is not the soonest → TESTPROP34 "Test 34 St"
+   ok   a changed booking today is not the soonest
+    a job with no checkout time comes after one with a time → TESTPROP36 "Test 36 St"
+   ok   a job with no checkout time comes after one with a time
+    only tomorrow's job: none → none
+   ok   only tomorrow's job: none
+    only a past job still to mark: none → none
+   ok   only a past job still to mark: none
+    no jobs: none → none
+   ok   no jobs: none
+
+═══ 4. historyItems: jobs done and entries sent, newest first ═══
+    TESTENTRY3@2026-10-16, TESTENTRY1@2026-10-16, TESTJOB42@2026-10-16, TESTJOB44@2026-10-15, TESTENTRY2@2026-10-15, TESTJOB41@2026-10-14, TESTENTRY4@null
+   ok   by day, newest first; within a day the latest first; an undated entry last
+   ok   a job not marked is not in History
+   ok   every entry is listed
+
+═══ 5. jobBadges: Today, Tomorrow, Same-day turnover, Cleaned ═══
+    today, next guest the same day, not marked → Today, Same-day turnover
+   ok   today, next guest the same day, not marked
+    today, next guest tomorrow, cleaned → Today, Cleaned
+   ok   today, next guest tomorrow, cleaned
+    tomorrow, no next guest → Tomorrow
+   ok   tomorrow, no next guest
+    tomorrow, next guest the same day → Tomorrow, Same-day turnover
+   ok   tomorrow, next guest the same day
+    a past day, cleaned, next guest the same day → Same-day turnover, Cleaned
+   ok   a past day, cleaned, next guest the same day
+    today, its mark removed by the office → Today
+   ok   today, its mark removed by the office
+    a past day, still to mark → (none)
+   ok   a past day, still to mark
+
+every check passed

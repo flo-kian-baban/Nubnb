@@ -8,7 +8,8 @@
  *          again after a lost answer, it makes nothing twice.
  *   undo — their own mark, until a finished statement prints the cleaning, within the 45 days their list reaches,
  *          and never once a payment to them is dated on or after it (Kian's ruling of 2026-10-15: such a cleaning is
- *          not deleted; 409 CLEANING_BEFORE_PAYMENT): the cleaning is deleted; the job keeps the trail.
+ *          not deleted; 409 CLEANING_BEFORE_PAYMENT, in words with no amount: the app shows no pay, Kian's ruling of
+ *          2026-10-16): the cleaning is deleted; the job keeps the trail.
  * A mark whose cleaning the office deleted or removed is "removed by the office": neither is allowed (409
  * JOB_MARK_REMOVED, CLEANING_REMOVED) until an admin reopens the job for them (Kian's ruling of 2026-10-14, night).
  *
@@ -23,7 +24,6 @@ import { verifyCleanerSession } from '@/app/lib/cleaners/session';
 import { dayText } from '@/app/lib/availability/days';
 import { MARK_REFUSALS, UNDO_REFUSALS, markCleaned, oneCleanerJob, undoMark } from '@/app/lib/firebase/server-cleaning-jobs';
 import { monthLabel } from '@/app/lib/reports/model';
-import { paymentWords } from '@/app/lib/pay/model';
 
 interface RouteContext {
   params: Promise<{ id: string }>;
@@ -66,7 +66,8 @@ export async function POST(request: Request, context: RouteContext) {
     return noStore(apiFailure({ status: 409, code: 'CLEANING_PRINTED', message: `This cleaning is on the finished ${outcome.months.map(monthLabel).join(' and ')} statement.`, hint: 'Nothing was changed. Ask the office.' }));
   }
   if (outcome.kind === 'paid') {
-    return noStore(apiFailure({ status: 409, code: 'CLEANING_BEFORE_PAYMENT', message: `This cleaning is dated on or before your ${paymentWords(outcome.payment).replace(/^the /, '')}.`, hint: 'Nothing was changed. Ask the office.' }));
+    // Words only: the cleaner app shows no pay figure (Kian's ruling of 2026-10-16), so the payment is not named by its amount.
+    return noStore(apiFailure({ status: 409, code: 'CLEANING_BEFORE_PAYMENT', message: 'This cleaning is already settled with you.', hint: 'Nothing was changed. Ask the office.' }));
   }
   if (outcome.kind !== 'undone') return noStore(apiFailure(UNDO_REFUSALS[outcome.kind]));
   return answer(outcome.job, cleanerId, false);

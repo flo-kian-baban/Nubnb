@@ -12,19 +12,23 @@
  * (Not available)" and never make a job (ruling 1).
  *
  * ── Watched, through the checkout day ──
- * An open job becomes "booking changed" when no reservation ends on its day
- * any more (ruling 8): `moved` when its UID is still on the calendar with
- * other days, `calendar-changed` when the property's link changed,
- * `calendar-removed` when it has none, `property-deleted`, else `gone`.
- * Another reservation still ending that day keeps the job open, the swap in
- * its history (Kian's ruling of the evening, recommendation 1). A changed job
- * reopens if a reservation ends on its day again. After the checkout day
- * nothing changes: Airbnb drops a stay from the feed within a day of its
- * checkout, which is not a change.
+ * A job is judged only when this run read its property's calendar (Kian's
+ * ruling of 2026-10-17). Then an open job becomes "booking changed" when no
+ * reservation ends on its day any more (ruling 8): `moved` when its UID is
+ * still on the calendar with other days, `calendar-changed` when the
+ * property's link changed, else `gone`. Another reservation still ending
+ * that day keeps the job open, the swap in its history (Kian's ruling of the
+ * evening, recommendation 1). A changed job reopens if a reservation ends on
+ * its day again. After the checkout day nothing changes: Airbnb drops a stay
+ * from the feed within a day of its checkout, which is not a change.
  *
- * ── Skipped ──
- * A calendar this run could not read: the copy keeps its last events, marked
- * failed, and old events never make or change a job.
+ * ── Not read this run: kept exactly as they are ──
+ * A property whose calendar this run did not read — not fetched, failed,
+ * timed out, or not in this copy at all — keeps its jobs exactly as they
+ * are: its old events, or their absence, never make or change a job. Only
+ * what is known from the property itself, its own document read by the
+ * sync (`KnownProperty`), marks an open job: `property-deleted` when the
+ * document is gone, `calendar-removed` when it has no calendar link.
  */
 
 import { addDays } from '../availability/days';
@@ -40,6 +44,12 @@ import {
   type JobEvent,
   type StoredJob,
 } from './model';
+
+/**
+ * What the sync knows from a property's own document, for a job whose calendar this run did not read: gone, there with
+ * no calendar link, there with one, or not known (not looked up).
+ */
+export type KnownProperty = 'deleted' | 'no-calendar' | 'has-calendar' | 'unknown';
 
 /** Whether this run read the property's calendar (a failed read keeps the copy's old events, marked failed). */
 export function readThisRun(snapshot: AvailabilitySnapshot, propertyId: string): boolean {
@@ -123,15 +133,20 @@ function bookingChanged(job: StoredJob, kind: ChangeKind, movedTo: { start: stri
 /**
  * What this run changes on one stored job, or null for nothing. `key` is the
  * calendar key of the property's link as this run read it (null: the
- * property is not in the copy at all).
+ * property is not in the copy at all). `known` is what the property's own
+ * document says, looked up for a property this run did not read.
  */
-export function planJob(job: StoredJob, snapshot: AvailabilitySnapshot, key: string | null, nowIso: string): JobPatch | null {
+export function planJob(job: StoredJob, snapshot: AvailabilitySnapshot, key: string | null, nowIso: string, known: KnownProperty = 'unknown'): JobPatch | null {
   // Settled from the day after checkout.
   if (job.checkout < snapshot.today) return null;
+  if (!readThisRun(snapshot, job.propertyId)) {
+    // Not read this run (Kian's ruling of 2026-10-17): kept exactly as it is, unless the property itself says otherwise.
+    if (job.status !== 'open') return null;
+    if (known === 'deleted') return bookingChanged(job, 'property-deleted', null, nowIso);
+    if (known === 'no-calendar') return bookingChanged(job, 'calendar-removed', null, nowIso);
+    return null;
+  }
   const feed = snapshot.properties[job.propertyId];
-  if (!feed) return job.status === 'open' ? bookingChanged(job, 'property-deleted', null, nowIso) : null;
-  if (feed.status === 'no-feed' || !feed.icalUrl) return job.status === 'open' ? bookingChanged(job, 'calendar-removed', null, nowIso) : null;
-  if (!readThisRun(snapshot, job.propertyId)) return null;
 
   const reserved = reservationsOf(feed.events);
   const ending = reserved.find((stay) => stay.end === job.checkout) ?? null;
