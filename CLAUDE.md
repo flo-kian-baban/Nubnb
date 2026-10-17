@@ -88,6 +88,9 @@ no checkout. Do not build toward one unless asked.
   cleaner door can be brute-forced. A guessed code can submit cost entries
   under another cleaner's name, where receipts and admin approval remain
   required, and it can mark that cleaner's jobs cleaned.
+- **Cleaner and handyman codes may be easy codes (1234, 0000) when typed; a
+  guesser tries those first.** The cleaner door's lock slows guessing, and a
+  guessed code can mark that cleaner's jobs cleaned.
 - **Cleaner codes are stored readably**, by Kian's ruling (2026-09-28): any
   admin can see and change any cleaner's code. A code is its `cleaner_codes`
   document ID and sits on the cleaner's document, so a copy of the database
@@ -747,7 +750,9 @@ On the admin home's property list, and PROPERTY-LIST-COLUMNS-PLAN.md:
 1. **The cleaner app shows no pay: no earned, paid or balance figures.**
    This replaces Team pay ruling 6. The admin's Team pay is unchanged.
 2. **The cleaner app uses Manrope only; Playfair Display is removed from
-   it.** The public site is unchanged.
+   it.** The public site is unchanged. **The Playfair preload stays**, by
+   Kian's decision of 2026-10-17: the shared root layout still preloads it on
+   every page, the cleaner app's included.
 3. **Home screen: today's and tomorrow's jobs with Mark cleaned, then one
    "Add a receipt" button (handymen: "Add work"). No property list on the
    home screen.** "No property list on the home screen" is replaced by
@@ -803,3 +808,9 @@ These replace what they change: the reserved list for cleaner codes (dispatch
 3. **Kept: admin PINs refuse the easy list; no admin PIN equals any cleaner
    code ever issued; no two accounts share a code or PIN.**
 4. **Every refusal that remains says why in one plain line.**
+
+Kian's review of 2026-10-17:
+- **The developer's three decisions of 2026-10-17 on codes and PINs are
+  accepted:** a code chosen at random still skips easy codes; an admin
+  choosing their own PIN is told whether another admin or a cleaner code
+  holds it; easy cleaner codes are an accepted risk (Accepted risks, above).

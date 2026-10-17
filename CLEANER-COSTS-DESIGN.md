@@ -3391,7 +3391,7 @@ Kian's seven rulings are in `CLAUDE.md` under *Cleaner app*. They replace Team p
 6. **Sent** has Done (home) and "Add another receipt" ("Add more work").
 7. **The pinned bar:** `globals.css` gives `body` `overflow-x: hidden`, which turns every `position: sticky` off (found in the admin on 2026-10-15); the receipt screen's "sticky" Send bar never stuck in production. The cleaner page alone now gets `overflow-x: clip` (`body:has(.app)`), and the bar is pinned only on home and Sent, where nothing is typed. On the receipt and work screens it stays in the page, as it has behaved: pinned, it took over a quarter of the screen and would sit over the open keyboard on Android.
 8. **The price fields' double focus ring** (the box's ring and the input's own) is one ring now.
-9. **Playfair is still downloaded on /cleaner.** Nothing in the cleaner app uses it, every text element is Manrope, and its font face stays unloaded; but `/cleaner` shares the root layout with the public site, and the root layout declares Playfair and preloads its Latin file (38,460 bytes) on every page. Removing that from /cleaner alone needs /cleaner under a root layout of its own: every public page moved into a route group, and the site's not-found page with them. That touches the public site, which ruling 2 keeps unchanged, so it is Kian's to decide.
+9. **Playfair is still downloaded on /cleaner.** Nothing in the cleaner app uses it, every text element is Manrope, and its font face stays unloaded; but `/cleaner` shares the root layout with the public site, and the root layout declares Playfair and preloads its Latin file (38,460 bytes) on every page. Removing that from /cleaner alone needs /cleaner under a root layout of its own: every public page moved into a route group, and the site's not-found page with them. That touches the public site, which ruling 2 keeps unchanged, so it is Kian's to decide. **Decided by Kian on 2026-10-17: the preload stays** (`CLAUDE.md`, *Cleaner app*, ruling 2).
 
 ### 49.3 How it was checked (2026-10-16, 17:24 – 17:46 Toronto)
 
@@ -3486,6 +3486,8 @@ Kian's rulings are in `CLAUDE.md` under *Codes and PINs*: cleaner and handyman c
 - **An admin choosing their own PIN is now told which holds it**: another admin, or a cleaner code. This replaces §45.3's "told only that it is taken", for the ruling that every refusal says why. An ordinary admin who is told "Another admin has that PIN" knows those digits sign in as someone. Before, "taken" could also mean a retired cleaner code. Every change still counts on their connection's lock (five in a row, twenty a day), as before.
 - **An entry left behind is written over, not deleted first**: one `set` in the same transaction, so a PIN and a code for those digits still cannot both land.
 - **The sign-in gate's own words are unchanged**: they refuse a sign-in, not a code or a PIN being set.
+
+Kian's review of 2026-10-17: he accepted the three decisions put to him in the report: the first two above, and easy cleaner codes as an accepted risk, in his words, in `CLAUDE.md` under *Accepted risks*. The last two above were not put to him.
 
 ### 52.3 How it was checked (2026-10-17, 02:59 – 03:06 Toronto)
 
