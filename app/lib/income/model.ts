@@ -558,3 +558,44 @@ export function readTitleLink(id: string, fields: Record<string, unknown>): Titl
     ...(typeof active === 'boolean' ? { active } : {}),
   };
 }
+
+// ─── A property not paid through Nubnb's files (Kian's ruling K2 of 2026-10-17) ───
+
+/**
+ * `property_income_sources/{propertyId}`: an admin's mark that a property is "not paid through Nubnb's files" (Kian's
+ * ruling K2 of 2026-10-17: each property with Airbnb bookings is either linked to a title from an uploaded file or
+ * marked so). A marked property leaves the Income page's gaps, and Finish does not warn about its stays. Server-only
+ * (firestore.rules' catch-all), never on the property document. Unmarking keeps the document, `notThroughFiles`
+ * false, and its history says who did each.
+ */
+export const INCOME_SOURCES_COLLECTION = 'property_income_sources';
+export const INCOME_SOURCE_SCHEMA_VERSION = 1;
+
+export interface IncomeSource {
+  schemaVersion: number;
+  propertyId: string;
+  notThroughFiles: boolean;
+  setAt: string;
+  actor: Actor;
+  /** Every mark and unmark, oldest first. */
+  history: { at: string; actor: Actor; notThroughFiles: boolean }[];
+}
+
+export interface IncomeSourceView extends IncomeSource {
+  id: string;
+}
+
+export function readIncomeSource(id: string, fields: Record<string, unknown>): IncomeSourceView | null {
+  const { schemaVersion, propertyId, notThroughFiles, setAt, actor, history } = fields;
+  if (!isCents(schemaVersion) || !isText(propertyId) || propertyId !== id || typeof notThroughFiles !== 'boolean' || !isText(setAt) || !isActor(actor)) return null;
+  if (!Array.isArray(history) || !history.every((h) => isRecord(h) && isText(h.at) && isActor(h.actor) && typeof h.notThroughFiles === 'boolean')) return null;
+  return {
+    id,
+    schemaVersion,
+    propertyId,
+    notThroughFiles,
+    setAt,
+    actor,
+    history: (history as Record<string, unknown>[]).map((h) => ({ at: h.at as string, actor: h.actor as Actor, notThroughFiles: h.notThroughFiles as boolean })),
+  };
+}

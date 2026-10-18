@@ -58,7 +58,7 @@ check(views.get(P(1)).step.label === 'Assign a cleaner for Oct 18' && views.get(
 check(views.get(P(2)).step.href.endsWith('&from=2026-10-05'), 'a checkout older than a week opens the Schedule from its day');
 check(views.get(P(3)).step.href === `/admin/property?id=${P(3)}&month=2026-08&tab=details`, 'Add Report For name opens the oldest month owed at its Details');
 check(views.get(P(3)).blocked === 2 && views.get(P(3)).ready === 0, 'with no Report For name, every statement owed is blocked: the month past due and the month due');
-check(views.get(P(4)).step.label === 'Review 1 Airbnb line' && views.get(P(4)).step.href === '/admin/income?month=2026-09', 'one line reads "1 Airbnb line", and opens the Income page at the month');
+check(views.get(P(4)).step.label === 'Review 1 Airbnb line' && views.get(P(4)).step.href === `/admin/income?month=2026-09&property=${P(4)}`, 'one line reads "1 Airbnb line", and opens the Income page at the month, at the property (Kian\'s rulings of 2026-10-17)');
 check(views.get(P(6)).step.label === 'Finish August' && views.get(P(6)).step.href.endsWith('&month=2026-08&tab=finish'), 'Finish names the oldest month owed and opens its Finish tab');
 check(views.get(P(6)).ready === 2, 'past due and due both count as ready');
 check(views.get(P(8)).step.title.startsWith('No calendar link') && views.get(P(9)).step.title.startsWith('The last refresh'), 'Calendar not read says which: no link, or not read');

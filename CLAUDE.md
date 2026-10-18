@@ -872,3 +872,17 @@ Kian's review of 2026-10-17:
   October's statements as late cleanings; Finish's "No cleaning line"
   warning for September is expected.** Kian to strike if cleanings are not
   charged.
+
+## Income page — Kian's rulings of 2026-10-17 (the audit)
+
+- **K1. A month's routine Airbnb lines may be accepted in one confirmation
+  that names the number of lines, properties and the total. Held back for
+  a decision one by one: negative amounts; stays that began more than a
+  month before the file's month; unknown row types; possible duplicates;
+  properties that owe no statement; properties whose month would go below
+  zero. Accept all per property stays.** This amends dispatch 27's "one
+  at a time or a property's together".
+- **K2. Each property with Airbnb bookings is either linked to a title
+  from an uploaded file or marked "not paid through Nubnb's files" by an
+  admin. The page lists unmarked untitled properties apart, and Finish
+  warns on them.**

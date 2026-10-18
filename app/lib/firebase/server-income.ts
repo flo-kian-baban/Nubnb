@@ -59,6 +59,9 @@ import {
   EARNINGS_UPLOADS_COLLECTION,
   EARNINGS_UPLOADS_PREFIX,
   INCOME_LIMITS,
+  INCOME_SOURCES_COLLECTION,
+  INCOME_SOURCE_SCHEMA_VERSION,
+  readIncomeSource,
   draftIdOf,
   isActiveTitle,
   isCopied,
@@ -88,6 +91,7 @@ import {
   STATEMENT_LIMITS,
   currentReports,
   displayRef,
+  inStatementScope,
   isExcludedFromReporting,
   monthLabel,
   monthOfDay,
@@ -101,9 +105,10 @@ import {
   type PropertyManagementView,
   type StatementDraftView,
 } from '@/app/lib/reports/model';
-import { platformLinesOn, printedPlatformLines, statementMonthFor, type PlatformLineInput } from '@/app/lib/reports/statement';
+import { monthStanding, platformLinesOn, printedPlatformLines, statementMonthFor, type PlatformLineInput } from '@/app/lib/reports/statement';
 import { frozenStatement } from '@/app/lib/money/month';
-import { renameSuggestions, type RenameSuggestion } from '@/app/lib/income/month';
+import { duplicateNotes, lineHolds, renameSuggestions, type MonthStandingView, type RenameSuggestion } from '@/app/lib/income/month';
+import { createdMonthOf } from './created-month';
 
 const LINE_ID = /^[0-9a-f]{64}$/;
 
@@ -342,8 +347,20 @@ export interface IncomeMonth {
   properties: { id: string; name: string; internalName?: string }[];
   /** Every property-month with a draft, a finished statement, or accepted lines placed in the month. */
   statements: MonthStatement[];
-  /** Check-ins in the month on the stored calendars, and which daily copies they were read from. */
-  calendar: { days: string[]; checkIns: { propertyId: string; days: string[] }[] };
+  /**
+   * Check-ins in the month on the stored calendars, which daily copies they were read from, and how many reserved
+   * stays running into the month each property's copies hold (Kian's ruling K2 of 2026-10-17).
+   */
+  calendar: { days: string[]; checkIns: { propertyId: string; days: string[] }[]; stays: { propertyId: string; count: number }[] };
+  /** The properties an admin marked "not paid through Nubnb's files" (Kian's ruling K2 of 2026-10-17). */
+  notThroughFiles: string[];
+  /** The month's titles, "platform|title", already in an earlier month's file: not new (the missing-and-new pair). */
+  seenBefore: string[];
+  /**
+   * The month's statement standing (`monthStanding`, the one function) of each property with a statement or lines to
+   * review in the month, as it would stand with its lines accepted, and whether it has a Report For name.
+   */
+  standings: Record<string, MonthStandingView>;
   /** Properties that owe no statement for the month, and why (I5). */
   noStatement: { propertyId: string; why: string }[];
   /** Titles that may be a linked title renamed (M14): offered, never applied. */
@@ -411,6 +428,9 @@ function monthStatementOf(input: { propertyId: string; month: string; reports: M
 export async function readIncomeMonth(month: string): Promise<IncomeMonth> {
   const db = getAdminDb();
   const { from, to } = monthRange(month);
+  // The properties marked "not paid through Nubnb's files" (K2): a handful of small documents, read beside the rest.
+  const sourcesRead = db.collection(INCOME_SOURCES_COLLECTION).get();
+  sourcesRead.catch(() => undefined); // awaited below; a failure there is the read's failure
   const [uploadsSnap, linesSnap, acceptedSnap, linksSnap, propertiesSnap, draftsSnap, reportsSnap, managementSnap, daysSnap, directLines, facing] = await Promise.all([
     db.collection(EARNINGS_UPLOADS_COLLECTION).get(),
     db.collection(EARNINGS_LINES_COLLECTION).where('month', '==', month).get(),
@@ -426,6 +446,8 @@ export async function readIncomeMonth(month: string): Promise<IncomeMonth> {
     // The names the page shows (Kian's rulings of 2026-10-15, evening).
     listCleanerFacingNames(),
   ]);
+  const sourcesSnap = await sourcesRead;
+  const notThroughFiles = sourcesSnap.docs.map((doc) => readIncomeSource(doc.id, doc.data())).filter((source) => source !== null && source.notThroughFiles).map((source) => source!.propertyId).sort();
   let unreadable = 0;
 
   const allUploads: EarningsUploadView[] = [];
@@ -455,6 +477,8 @@ export async function readIncomeMonth(month: string): Promise<IncomeMonth> {
   }
   // `name` stays the public title, which Airbnb titles are matched against; `internalName` is what the page shows: the
   // cleaner-facing name, usually the address, else the public title (Kian's rulings of 2026-10-15, evening).
+  // The month each property's document was created (Kian's ruling of 2026-10-03), from the read's own metadata.
+  const createdMonths = new Map(propertiesSnap.docs.map((doc) => [doc.id, createdMonthOf(doc.createTime)]));
   const properties = propertiesSnap.docs
     .map((doc) => {
       const name: unknown = doc.get('name');
@@ -516,6 +540,18 @@ export async function readIncomeMonth(month: string): Promise<IncomeMonth> {
 
   const noStatement = properties.map((p) => ({ propertyId: p.id, why: noStatementWhy(records.get(p.id) ?? null, month) })).filter((row): row is { propertyId: string; why: string } => row.why !== null);
 
+  // ── Standings (the one function): each property with a statement or lines to review, as it would stand accepted ──
+  const today = torontoDayOf(new Date());
+  const reviewed = new Set(lines.filter((line) => line.status === 'proposed').map((line) => links.find((link) => link.platform === line.platform && link.title === normaliseTitle(line.listingTitle))?.propertyId ?? null).filter((id): id is string => id !== null));
+  const standings: Record<string, MonthStandingView> = {};
+  for (const propertyId of new Set([...statements.map((s) => s.propertyId), ...reviewed])) {
+    const record = records.get(propertyId) ?? null;
+    // Lines in the month, or about to be: a month with money in it (Kian's ruling of 2026-10-04).
+    const owed = inStatementScope(record, month, createdMonths.get(propertyId) ?? null, [month]);
+    const finished = currentReports(reportsByProperty.get(propertyId) ?? []).some((report) => report.month === month);
+    standings[propertyId] = { standing: monthStanding({ month, today, owed, finished, excluded: isExcludedFromReporting(record) }), reportFor: (record?.reportFor?.name ?? '').trim() !== '' };
+  }
+
   // ── Locked (M10): the month's accepted lines a current finished statement prints, unless a correction of it is written ──
   const locked: Record<string, { month: string; reference: string }> = {};
   const correctionDrafts = await linesLockedBy(lines, reportsByProperty);
@@ -523,14 +559,17 @@ export async function readIncomeMonth(month: string): Promise<IncomeMonth> {
 
   return {
     month,
-    today: torontoDayOf(new Date()),
+    today,
     uploads: allUploads.filter((u) => u.month === month).sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt)),
     lines: lines.sort((a, b) => a.payoutDate.localeCompare(b.payoutDate) || a.fileRow - b.fileRow),
     links: links.sort((a, b) => a.title.localeCompare(b.title)),
     lastSeen,
     properties,
     statements,
-    calendar: { days: days.sort(), checkIns: [...checkIns.entries()].map(([propertyId, set]) => ({ propertyId, days: [...set].sort() })) },
+    calendar: { days: days.sort(), checkIns: [...checkIns.entries()].map(([propertyId, set]) => ({ propertyId, days: [...set].sort() })), stays: [...stays].map(([propertyId, list]) => ({ propertyId, count: list.length })) },
+    notThroughFiles,
+    standings,
+    seenBefore: [...new Set(lines.map((line) => `${line.platform}|${line.listingTitle}`))].filter((key) => allUploads.some((u) => u.month < month && u.titles.some((t) => `${u.platform}|${normaliseTitle(t.title)}` === key))).sort(),
     noStatement,
     renames,
     locked,
@@ -575,6 +614,8 @@ export interface PropertyIncome {
   titles: TitleLinkView[];
   /** For the month asked: the daily calendar copies kept, and the reserved stays they hold for the property (I8, I15). */
   calendar: { month: string; days: string[]; stays: { start: string; end: string }[] } | null;
+  /** Marked "not paid through Nubnb's files" by an admin (Kian's ruling K2 of 2026-10-17). */
+  notThroughFiles: boolean;
 }
 
 /**
@@ -587,11 +628,13 @@ export async function readPropertyIncome(propertyId: string, month: string | nul
   // Every link and every upload, both small (one link per title, one upload per file): the property's titles,
   // and the titles in each month's files that no link names (dispatch 34, I1).
   const range = month ? monthRange(month) : null;
-  const [linksSnap, uploadsSnap, daysSnap] = await Promise.all([
+  const [linksSnap, uploadsSnap, daysSnap, sourceSnap] = await Promise.all([
     db.collection(EARNINGS_TITLE_LINKS_COLLECTION).get(),
     db.collection(EARNINGS_UPLOADS_COLLECTION).get(),
     range ? db.collection(DAYS_COLLECTION).where(FieldPath.documentId(), '>=', range.from).where(FieldPath.documentId(), '<=', addDays(range.to, 7)).get() : Promise.resolve(null),
+    db.collection(INCOME_SOURCES_COLLECTION).doc(propertyId).get(),
   ]);
+  const source = sourceSnap.exists ? readIncomeSource(sourceSnap.id, sourceSnap.data() ?? {}) : null;
   const links = linksSnap.docs.map((doc) => readTitleLink(doc.id, doc.data())).filter((link): link is TitleLinkView => link !== null);
   const titles = links.filter((link) => link.propertyId === propertyId);
   // Their rows and totals from the stored lines, each row once (dispatch 37A, T3), as the Income page counts them.
@@ -639,6 +682,7 @@ export async function readPropertyIncome(propertyId: string, month: string | nul
     unlinked,
     titles: titles.sort((a, b) => Number(isActiveTitle(b)) - Number(isActiveTitle(a)) || b.linkedAt.localeCompare(a.linkedAt)),
     calendar,
+    notThroughFiles: source?.notThroughFiles === true,
   };
 }
 
@@ -958,6 +1002,150 @@ export async function acceptLines(actor: Actor, input: { propertyId: string; mon
     });
   } catch (err) {
     console.error(`[income] accepting ${input.items.length} line(s) for ${propertyId} ${month} failed: grpc code ${grpcCode(err)}`);
+    return { kind: 'failed' };
+  }
+}
+
+// ─── A month's routine lines in one confirmation (Kian's ruling K1 of 2026-10-17) ───
+
+export type AcceptMonthResult =
+  | { kind: 'accepted'; lines: EarningsLineView[]; statementMonths: Record<string, string> }
+  | { kind: 'changed-since'; ids: string[] }
+  | { kind: 'link-changed'; titles: string[] }
+  | { kind: 'held'; ids: string[]; reasons: string[] }
+  | { kind: 'totals-changed' }
+  | { kind: 'no-such-property' }
+  | { kind: 'too-large'; ids: string[] }
+  | { kind: 'failed' };
+
+export const ACCEPT_MONTH_REFUSALS: Record<Exclude<AcceptMonthResult['kind'], 'accepted' | 'held'>, Refusal> = {
+  ...ACCEPT_REFUSALS,
+  'totals-changed': { status: 409, code: 'TOTALS_CHANGED', message: 'The lines, properties or total are not those the confirmation named.', hint: 'Nothing was accepted. Reload the page.' },
+};
+
+/** "Nothing was accepted": a held line sent in the one confirmation (it is decided on its own). */
+export function heldRefusal(reasons: string[]): Refusal {
+  return { status: 409, code: 'LINES_HELD', message: 'A line held back for a decision of its own was in the one confirmation.', hint: `Nothing was accepted. ${reasons.slice(0, 3).join(' ')} Reload the page: held lines are decided one by one.` };
+}
+
+/**
+ * Accept a month's routine lines for several properties in one transaction (Kian's ruling K1 of 2026-10-17): the
+ * confirmation named the lines, the properties and the total, and nothing else is accepted. Every line must be
+ * proposed, in the month, under a title still linked to its property, as the admin saw it; and none may be one K1
+ * holds back that this transaction can judge: a negative amount, a stay that began more than a month before the
+ * month, a row type Nubnb does not recognise, a possible duplicate (the accepted lines sharing its booking, and the
+ * month's draft, as the page judges), or a property that owes no statement. A property whose month would go below zero
+ * is judged by the page from the month's money, which it holds out of the request. Each line is accepted as proposed,
+ * exactly as one property's Accept does, and goes on its month's statement while open, else the next open one (M11).
+ */
+export async function acceptMonthLines(actor: Actor, input: { month: string; groups: { propertyId: string; ids: string[] }[]; expected: { lines: number; properties: number; amountCents: number } }): Promise<AcceptMonthResult> {
+  const { month } = input;
+  const wanted = input.groups.flatMap((group) => group.ids.map((id) => ({ id, propertyId: group.propertyId })));
+  const propertyIds = input.groups.map((group) => group.propertyId);
+  if (wanted.length === 0 || new Set(wanted.map((w) => w.id)).size !== wanted.length || new Set(propertyIds).size !== propertyIds.length) return { kind: 'changed-since', ids: [] };
+  const db = getAdminDb();
+  try {
+    return await db.runTransaction(async (tx): Promise<AcceptMonthResult> => {
+      const lineSnaps = await tx.getAll(...wanted.map((w) => db.collection(EARNINGS_LINES_COLLECTION).doc(w.id)));
+      const lines = lineSnaps.map((snap) => (snap.exists ? readEarningsLine(snap.id, snap.data() ?? {}) : null));
+      const changed = wanted.filter((_, i) => lines[i] === null || lines[i]!.status !== 'proposed' || lines[i]!.month !== month).map((w) => w.id);
+      if (changed.length > 0) return { kind: 'changed-since', ids: changed };
+      const ok = lines as EarningsLineView[];
+      // What the confirmation named, and nothing else.
+      const total = ok.reduce((sum, line) => sum + line.amountCents, 0);
+      if (ok.length !== input.expected.lines || propertyIds.length !== input.expected.properties || total !== input.expected.amountCents) return { kind: 'totals-changed' };
+      const tooLarge = ok.filter((line) => Math.abs(line.amountCents) > STATEMENT_LIMITS.AMOUNT_MAX_CENTS).map((line) => line.id);
+      if (tooLarge.length > 0) return { kind: 'too-large', ids: tooLarge };
+
+      // Each line's title, on its own platform, still linked to its property.
+      const titleKeys = [...new Set(ok.map((line) => linkIdOf(line.platform, line.listingTitle)))];
+      const linkSnaps = await tx.getAll(...titleKeys.map((id) => db.collection(EARNINGS_TITLE_LINKS_COLLECTION).doc(id)));
+      const linkedTo = new Map(linkSnaps.map((snap) => [snap.id, snap.exists ? (readTitleLink(snap.id, snap.data() ?? {})?.propertyId ?? null) : null]));
+      const unlinked = ok.filter((line, i) => linkedTo.get(linkIdOf(line.platform, line.listingTitle)) !== wanted[i].propertyId);
+      if (unlinked.length > 0) return { kind: 'link-changed', titles: [...new Set(unlinked.map((line) => line.listingTitle))] };
+
+      const propertySnaps = await tx.getAll(...propertyIds.map((id) => db.collection('properties').doc(id)), { fieldMask: ['name'] });
+      if (propertySnaps.some((snap) => !snap.exists)) return { kind: 'no-such-property' };
+
+      // What K1 holds back, judged as the page judges it.
+      const [recordSnaps, draftSnaps, sharingSnaps] = await Promise.all([
+        tx.getAll(...propertyIds.map((id) => db.collection(PROPERTY_MANAGEMENT_COLLECTION).doc(id))),
+        tx.getAll(...propertyIds.map((id) => db.collection(MONTHLY_REPORT_DRAFTS_COLLECTION).doc(draftIdOf(id, month)))),
+        (() => {
+          const codes = [...new Set(ok.map((line) => line.confirmationCode))];
+          return Promise.all(Array.from({ length: Math.ceil(codes.length / 30) }, (_, i) => tx.get(db.collection(EARNINGS_LINES_COLLECTION).where('confirmationCode', 'in', codes.slice(i * 30, i * 30 + 30)))));
+        })(),
+      ]);
+      const records = new Map(recordSnaps.map((snap, i) => [propertyIds[i], snap.exists ? readPropertyManagement(snap.id, snap.data() ?? {}) : null]));
+      const drafts = new Map(draftSnaps.map((snap, i) => [propertyIds[i], snap.exists ? readStatementDraft(snap.id, snap.data() ?? {}) : null]));
+      const sharing = sharingSnaps.flatMap((snap) => snap.docs.map((doc) => readEarningsLine(doc.id, doc.data())).filter((line): line is EarningsLineView => line !== null));
+      const held: { id: string; why: string[] }[] = [];
+      ok.forEach((line, i) => {
+        const propertyId = wanted[i].propertyId;
+        const owesNone = noStatementWhy(records.get(propertyId) ?? null, month);
+        const why = [...lineHolds(line).map((reason) => reason.text), ...duplicateNotes(line, sharing, drafts.get(propertyId)?.lines), ...(owesNone ? [owesNone] : [])];
+        if (why.length > 0) held.push({ id: line.id, why });
+      });
+      if (held.length > 0) return { kind: 'held', ids: held.map((h) => h.id), reasons: [...new Set(held.flatMap((h) => h.why))] };
+
+      // M11: each property's statement for the month while open, else its next open one.
+      const reportSnaps = await Promise.all(propertyIds.map((id) => tx.get(db.collection(MONTHLY_REPORTS_COLLECTION).where('propertyId', '==', id))));
+      const statementMonths: Record<string, string> = {};
+      reportSnaps.forEach((snap, i) => {
+        const current = currentReports(snap.docs.map((doc) => readMonthlyReport(doc.id, doc.data())).filter((report): report is MonthlyReportView => report !== null));
+        statementMonths[propertyIds[i]] = statementMonthFor(month, new Set(current.map((report) => report.month)));
+      });
+
+      // Each accepted as proposed: what one property's Accept records, line by line.
+      const now = new Date().toISOString();
+      const updated = ok.map((line, i) => {
+        const propertyId = wanted[i].propertyId;
+        const decided = { status: 'accepted' as const, at: now, actor, propertyId, description: proposedLabel(line), amountCents: line.amountCents, edited: false };
+        const history = [...line.history, { at: now, actor, action: 'accepted' as const, propertyId }];
+        tx.update(db.collection(EARNINGS_LINES_COLLECTION).doc(line.id), { status: 'accepted', decided, history });
+        return { ...line, status: 'accepted' as const, decided, history };
+      });
+      return { kind: 'accepted', lines: updated, statementMonths };
+    });
+  } catch (err) {
+    console.error(`[income] accepting ${wanted.length} line(s) of ${month} in one pass failed: grpc code ${grpcCode(err)}`);
+    return { kind: 'failed' };
+  }
+}
+
+// ─── A property not paid through Nubnb's files (Kian's ruling K2 of 2026-10-17) ───
+
+export type IncomeSourceResult = { kind: 'set'; notThroughFiles: boolean } | { kind: 'changed-since' } | { kind: 'no-such-property' } | { kind: 'failed' };
+
+export const INCOME_SOURCE_REFUSALS: Record<Exclude<IncomeSourceResult['kind'], 'set'>, Refusal> = {
+  'changed-since': { status: 409, code: 'SOURCE_CHANGED', message: 'Someone changed this property\'s mark since the page loaded.', hint: 'Nothing was changed. Reload the page.' },
+  'no-such-property': { status: 404, code: 'PROPERTY_NOT_FOUND', message: 'That property does not exist.' },
+  failed: { status: 502, code: 'SOURCE_WRITE_FAILED', message: 'Could not save the mark.', hint: 'It may or may not have been saved. Reload the page to see.' },
+};
+
+/**
+ * Mark a property "not paid through Nubnb's files", or unmark it (Kian's ruling K2 of 2026-10-17), as the page saw it
+ * (`expected`): one document per property, never the property's own, its history keeping every change.
+ */
+export async function setIncomeSource(actor: Actor, propertyId: string, input: { notThroughFiles: boolean; expected: boolean }): Promise<IncomeSourceResult> {
+  if (!isDocumentId(propertyId)) return { kind: 'no-such-property' };
+  const db = getAdminDb();
+  const ref = db.collection(INCOME_SOURCES_COLLECTION).doc(propertyId);
+  try {
+    return await db.runTransaction(async (tx): Promise<IncomeSourceResult> => {
+      const [property, snap] = await Promise.all([tx.getAll(db.collection('properties').doc(propertyId), { fieldMask: ['name'] }).then(([doc]) => doc), tx.get(ref)]);
+      if (!property.exists) return { kind: 'no-such-property' };
+      const current = snap.exists ? readIncomeSource(snap.id, snap.data() ?? {}) : null;
+      if (snap.exists && current === null) return { kind: 'failed' };
+      const now = current?.notThroughFiles ?? false;
+      if (now !== input.expected) return { kind: 'changed-since' };
+      if (now === input.notThroughFiles) return { kind: 'set', notThroughFiles: now };
+      const at = new Date().toISOString();
+      tx.set(ref, { schemaVersion: INCOME_SOURCE_SCHEMA_VERSION, propertyId, notThroughFiles: input.notThroughFiles, setAt: at, actor, history: [...(current?.history ?? []), { at, actor, notThroughFiles: input.notThroughFiles }] });
+      return { kind: 'set', notThroughFiles: input.notThroughFiles };
+    });
+  } catch (err) {
+    console.error(`[income] marking ${propertyId} failed: grpc code ${grpcCode(err)}`);
     return { kind: 'failed' };
   }
 }

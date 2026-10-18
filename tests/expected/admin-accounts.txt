@@ -148,6 +148,7 @@
   GET    /api/admin/direct                                    read, not recorded
   PATCH  /api/admin/income/lines/[id]                         recorded as "Edited an income line"
   POST   /api/admin/income/lines/accept                       recorded as "Accepted income lines"
+  POST   /api/admin/income/lines/accept-month                 recorded as "Accepted a month’s income lines in one confirmation"
   POST   /api/admin/income/lines/reject                       recorded as "Rejected income lines"
   PUT    /api/admin/income/links                              recorded as "Linked an Airbnb title"
   GET    /api/admin/income                                    read, not recorded
@@ -170,6 +171,7 @@
   GET    /api/admin/properties/[id]/cleaner-name              read, not recorded
   PUT    /api/admin/properties/[id]/cleaner-name              recorded as "Set a property’s name for cleaners"
   GET    /api/admin/properties/[id]/income                    read, not recorded
+  PUT    /api/admin/properties/[id]/income-source             recorded as "Marked whether a property is paid through Nubnb’s files"
   GET    /api/admin/properties/[id]/management                read, not recorded
   PUT    /api/admin/properties/[id]/management                recorded as "Changed a property’s reporting"
   PUT    /api/admin/properties/[id]/report-for                recorded as "Set a property’s Report For"
@@ -193,7 +195,7 @@
   POST   /api/properties                                      recorded as "Added a property"
   POST   /api/scrape-airbnb                                   recorded as "Read an Airbnb listing"
   POST   /api/upload-image                                    recorded as "Uploaded an image"
-  84 handlers through adminRoute; problems: 0
+  86 handlers through adminRoute; problems: 0
   routes still on the PIN-signed session: 0
   a route that unlocks an admin's PIN (the first version's per-admin lock): false
 

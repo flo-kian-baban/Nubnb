@@ -14,7 +14,7 @@
 import { describeErrorBody, readErrorBody } from '@/app/lib/api/http-failure';
 import type { Line } from '@/app/lib/reports/model';
 import type { EarningsLineView, EarningsUploadView, IncomeChannel, TitleLinkView } from '@/app/lib/income/model';
-import type { RenameSuggestion } from '@/app/lib/income/month';
+import type { MonthStandingView, RenameSuggestion } from '@/app/lib/income/month';
 
 export type IncomeResult<T> =
   | { ok: true; data: T }
@@ -42,7 +42,14 @@ export interface IncomeMonth {
   /** `name` is the public title (titles are matched against it); `internalName` is what the page shows (Kian's rulings of 2026-10-15, evening). */
   properties: { id: string; name: string; internalName?: string }[];
   statements: MonthStatement[];
-  calendar: { days: string[]; checkIns: { propertyId: string; days: string[] }[] };
+  /** Check-ins on the stored calendars, the copies read, and how many reserved stays each property's copies hold in the month (K2). */
+  calendar: { days: string[]; checkIns: { propertyId: string; days: string[] }[]; stays: { propertyId: string; count: number }[] };
+  /** The properties marked "not paid through Nubnb's files" (Kian's ruling K2 of 2026-10-17). */
+  notThroughFiles: string[];
+  /** The month's titles, "platform|title", already in an earlier month's file: not new. */
+  seenBefore: string[];
+  /** Each property's statement standing for the month as it would stand with its lines accepted (the one function), and whether it has a Report For name. */
+  standings: Record<string, MonthStandingView>;
   /** Properties that owe no statement for the month, and why (dispatch 37C, I5). */
   noStatement: { propertyId: string; why: string }[];
   /** Titles that may be a linked title renamed (M14): offered, never applied. */
@@ -111,6 +118,10 @@ export function fetchIncomeMonth(month: string): Promise<IncomeResult<IncomeMont
     isRecord(data.calendar) &&
     Array.isArray(data.calendar.days) &&
     Array.isArray(data.calendar.checkIns) &&
+    Array.isArray(data.calendar.stays) &&
+    Array.isArray(data.notThroughFiles) &&
+    Array.isArray(data.seenBefore) &&
+    isRecord(data.standings) &&
     Array.isArray(data.noStatement) &&
     Array.isArray(data.renames) &&
     isRecord(data.locked),
@@ -161,6 +172,19 @@ export function acceptIncomeLines(input: { propertyId: string; month: string; li
   return call('/api/admin/income/lines/accept', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }, 'Accepting failed', (data) => isRecord(data) && Array.isArray(data.lines) && data.lines.every(isLine) && typeof data.statementMonth === 'string', ['ACCEPT_FAILED']);
 }
 
+/**
+ * Accept a month's routine lines in one confirmation (Kian's ruling K1 of 2026-10-17): by property, with what the
+ * confirmation named. The answer names, for each property, the month whose statement they go on (M11).
+ */
+export function acceptMonthLines(input: { month: string; groups: { propertyId: string; ids: string[] }[]; expected: { lines: number; properties: number; amountCents: number } }): Promise<IncomeResult<{ lines: EarningsLineView[]; statementMonths: Record<string, string> }>> {
+  return call('/api/admin/income/lines/accept-month', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }, 'Accepting failed', (data) => isRecord(data) && Array.isArray(data.lines) && data.lines.every(isLine) && isRecord(data.statementMonths), ['ACCEPT_FAILED']);
+}
+
+/** Mark a property "not paid through Nubnb's files", or unmark it (Kian's ruling K2 of 2026-10-17); `expected` is the mark as the page showed it. */
+export function setIncomeSource(propertyId: string, input: { notThroughFiles: boolean; expected: boolean }): Promise<IncomeResult<{ notThroughFiles: boolean }>> {
+  return call(`/api/admin/properties/${encodeURIComponent(propertyId)}/income-source`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }, 'Saving the mark failed', (data) => isRecord(data) && typeof data.notThroughFiles === 'boolean', ['SOURCE_WRITE_FAILED']);
+}
+
 /** Reject a proposed line, or propose a line again: a rejected one, or an accepted one sent back for review while no finished statement locks it. */
 export function decideIncomeLine(id: string, action: 'reject' | 'propose-again'): Promise<IncomeResult<{ line: EarningsLineView }>> {
   return call(`/api/admin/income/lines/${encodeURIComponent(id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }) }, action === 'reject' ? 'Rejecting failed' : 'Proposing again failed', (data) => isRecord(data) && isLine(data.line), ['DECISION_FAILED']);
@@ -200,6 +224,8 @@ export interface PropertyIncome {
   titles: TitleLinkView[];
   /** With a month: its daily calendar copies and the property's reserved stays in them (I8, I15). */
   calendar: { month: string; days: string[]; stays: { start: string; end: string }[] } | null;
+  /** Marked "not paid through Nubnb's files" (Kian's ruling K2 of 2026-10-17). */
+  notThroughFiles: boolean;
 }
 
 /** One property's lines from the files, for its page, the titles in each month's files that no link names, its titles, and, with a month, its calendar's stays. */
@@ -214,7 +240,8 @@ export function fetchPropertyIncome(propertyId: string, month?: string): Promise
     data.unlinked.every(isUnlinkedTitle) &&
     Array.isArray(data.titles) &&
     data.titles.every(isLink) &&
-    (data.calendar === null || (isRecord(data.calendar) && Array.isArray(data.calendar.days) && Array.isArray(data.calendar.stays))),
+    (data.calendar === null || (isRecord(data.calendar) && Array.isArray(data.calendar.days) && Array.isArray(data.calendar.stays))) &&
+    typeof data.notThroughFiles === 'boolean',
   );
 }
 

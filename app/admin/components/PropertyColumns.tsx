@@ -32,7 +32,7 @@ const editSection = (propertyId: string, section: string) => `/admin/property/ed
 /** Where an Income cell leads: the Income page at the month, the property's page at the month, or its Airbnb title. */
 function incomeHref(propertyId: string, s: IncomeStanding): string {
   if (s.target === "title" || s.month === null) return editSection(propertyId, "airbnbTitle");
-  if (s.target === "income") return `/admin/income?month=${s.month}`;
+  if (s.target === "income") return `/admin/income?month=${s.month}&property=${encodeURIComponent(propertyId)}`;
   return propertyMonthHref(propertyId, s.month);
 }
 

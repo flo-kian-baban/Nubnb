@@ -1,0 +1,96 @@
+═══ 1. A line's own reasons to be held (K1): a negative amount, a stay begun more than a month before, an unknown type ═══
+  a reservation in September                                   —
+  a claw-back                                                  negative
+  a stay begun 1 August (a month before September, not more)   —
+  a stay begun 31 July (more than a month before)              old-stay
+  an unknown row type                                          unknown-type
+  a negative old stay of an unknown type                       negative,old-stay,unknown-type
+   ok   a September reservation is routine
+   ok   the boundary: begun on the first of the month before is routine; the day before it is held
+   ok   every reason is named, in order
+  words: A negative amount: money taken back. | Its stay began Jun 1, 2026, more than a month before September 2026. | Airbnb's row type “Mystery Fee” is not one Nubnb recognises.
+
+═══ 2. The month (September): what is held and why, what one confirmation accepts ═══
+  held:
+    2 Test St    Resolution Adjustment - Sep 5–8, 2026             -$50.00  negative
+    3 Test St    Revenue - Sep 2–3, 2026                           $100.00  below-zero
+    3 Test St    Adjustment - Sep 2–3, 2026                       -$300.00  negative, below-zero
+    4 Test St    Host Fee Refund - Sep 12–14, 2026                  $40.00  unknown-type
+    5 Test St    Revenue - Sep 3–5, 2026                           $333.00  no-statement
+    6 Test St    Revenue - Jun 1–Oct 30, 2026 (paid Sep 5)         $900.00  old-stay
+    7 Test St    Revenue - Sep 22–24, 2026                         $150.00  duplicate
+  one confirmation: 6 lines for 5 properties · $1,590.00
+    TESTPROP0001: 2 line(s)
+    TESTPROP0002: 1 line(s)
+    TESTPROP0004: 1 line(s)
+    TESTPROP0006: 1 line(s)
+    TESTPROP0008: 1 line(s)
+  groups:
+    1 Test St    titles ["__TEST__ Alpha Loft"] · routine 2/2 · revenue as it would stand $500.00 · holds — · Due
+    2 Test St    titles ["__TEST__ Bravo Suite"] · routine 1/2 · revenue as it would stand $400.00 · holds — · Due · blocked
+    3 Test St    titles ["__TEST__ Charlie House"] · routine 0/2 · revenue as it would stand -$200.00 · holds below-zero · Due · blocked
+    4 Test St    titles ["__TEST__ Delta Studio"] · routine 1/2 · revenue as it would stand $290.00 · holds — · Due
+    5 Test St    titles ["__TEST__ Echo Flat"] · routine 0/1 · revenue as it would stand $333.00 · holds no-statement · Excluded from reporting
+    6 Test St    titles ["__TEST__ Foxtrot Room"] · routine 1/2 · revenue as it would stand $1,110.00 · holds — · Past due
+    7 Test St    titles ["__TEST__ Golf Cabin"] · routine 0/1 · revenue as it would stand $300.00 · holds — · Due
+    8 Test St    titles ["__TEST__ Hotel Finished"] · routine 1/1 · revenue as it would stand — (finished) · holds — · Finished
+   ok   routine lines are not held
+   ok   a negative line is held alone; its property's other lines stay routine
+   ok   a property whose month would go below zero is held whole
+   ok   an unknown row type is held alone
+   ok   a property that owes no statement is held whole
+   ok   a stay begun in June is held; its property's September stay is routine
+   ok   a typed line of the same amount and dates on the statement holds the line as a possible duplicate
+   ok   the one confirmation: the 6 routine lines of 5 properties
+   ok   its total is the routine lines' total
+   ok   a finished month shows no revenue as it would stand: a line accepted now goes on the next
+   ok   revenue as it would stand counts a claw-back as less revenue (M1)
+
+═══ 3. Gaps (K2; check-ins only once the month has a file, and only up to today) ═══
+  untitled: [{"propertyId":"TESTPROP0009","name":"9 Test St","stays":2}]
+  check-ins: [{"propertyId":"TESTPROP0010","name":"10 Test St","days":["2026-09-12"]}]
+  marked: [{"propertyId":"TESTPROP0011","name":"11 Test St"}]
+   ok   a property with stays and no title of any kind is untitled; one with a previous title is not; a marked one is not
+   ok   check-ins: the untitled property is listed apart, the marked one not at all, one with lines not at all
+   ok   before the month has a file, no check-in is a gap; the untitled property is still listed
+  October on the 18th: [{"propertyId":"TESTPROP0010","name":"10 Test St","days":["2026-10-02","2026-10-18"]}]
+   ok   a check-in after today is no gap yet
+
+═══ 4. The hand-off: properties with the month's money, ready, blocked, finished ═══
+  {"properties":3,"ready":1,"blocked":1,"finished":1,"notDue":0}
+    1 Test St      $500.00 · Due
+    2 Test St      $450.00 · Due · blocked
+    8 Test St      $150.00 · Finished
+   ok   one ready (Report For name), one blocked (none), one finished
+   ok   the standing's words are STANDING_LABELS', blocked only when owed now with no Report For name
+   ok   the server's standing is monthStanding's: September, owed and unfinished, on 18 October, is due
+
+═══ 5. One missing, one new: offered as a pair, never applied ═══
+  {"platform":"airbnb","title":"__TEST__ Hotel New","propertyId":"TESTPROP0008","fromTitle":"__TEST__ Hotel Old"}
+   ok   exactly one missing and one new: offered
+   ok   two new titles: nothing offered
+   ok   a title made active in the month is not missing from it: nothing offered
+   ok   a title already in an earlier month's file is not new: nothing offered
+
+═══ 6. Finish (K2): no title and no mark warns; a mark silences the stays' warning ═══
+  no title, no mark: airbnb-untitled: No Airbnb title, and not marked “not paid through Nubnb's files” on the Income page: 2 stays on its calendar in September are in no file (Sep 5–8, 2026, Sep 20–22, 2026).
+  marked:            nothing
+  titled:            calendar-stays
+  not known (as before K2): calendar-stays
+   ok   no title and no mark: K2's warning, once, instead of I15
+   ok   a marked property: neither
+   ok   a titled property, or one not known: I15, as before
+
+═══ 7. What the two new routes accept, with the bodies the page builds ═══
+   ok   accept-month: the body acceptMonthLines builds from the view
+   ok   accept-month: a property twice is refused
+   ok   accept-month: a line twice is refused
+   ok   accept-month: an unknown field is refused
+   ok   income-source: { notThroughFiles, expected }, booleans only
+
+═══ 8. The mark (property_income_sources/{propertyId}), read strictly ═══
+   ok   a mark in the written shape reads
+   ok   a mark under another property's ID is not read
+   ok   a mark not in shape is not read
+
+all checks passed

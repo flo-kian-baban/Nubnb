@@ -128,7 +128,7 @@ export function rowView(f: RowFacts): RowView {
   } else if (blocked > 0) {
     step = { key: 'report-for', label: 'Add Report For name', href: propertyMonth(f.propertyId, owed[0], 'details'), title: `${plural(owed.length, 'statement', 'statements')} owed (${owedText}): Finish refuses a statement with no Report For name`, when: owed[0] };
   } else if (f.review > 0) {
-    step = { key: 'review', label: `Review ${plural(f.review, 'Airbnb line', 'Airbnb lines')}`, href: `/admin/income?month=${f.incomeMonth}`, title: `${monthLabel(f.incomeMonth)}: ${plural(f.review, "line from Airbnb's file waits", "lines from Airbnb's file wait")} for review`, when: f.incomeMonth };
+    step = { key: 'review', label: `Review ${plural(f.review, 'Airbnb line', 'Airbnb lines')}`, href: `/admin/income?month=${f.incomeMonth}&property=${enc(f.propertyId)}`, title: `${monthLabel(f.incomeMonth)}: ${plural(f.review, "line from Airbnb's file waits", "lines from Airbnb's file wait")} for review`, when: f.incomeMonth };
   } else if (overdue) {
     step = { key: 'direct', label: 'Record direct payment', href: propertyMonth(f.propertyId, overdue.month, null), title: `${overdue.wording}, ${monthLabel(overdue.month)}: overdue${overdue.overdueMonths > 1 ? ` · ${overdue.overdueMonths} months overdue` : ''}`, when: overdue.month };
   } else if (ready > 0) {

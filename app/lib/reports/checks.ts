@@ -22,6 +22,9 @@
  *                 a count only)
  *            —    a typed cleaning line beside logged cleanings: cleaning may be charged twice (dispatch 37B)
  *            I15  stays on the property's calendar in the month that no line from a file covers (dispatch 37C)
+ *            K2   a property with Airbnb stays, no Airbnb title and no mark "not paid through Nubnb's files" (Kian's
+ *                 ruling of 2026-10-17): said instead of I15, about the same stays; a marked property is warned of
+ *                 neither
  *            C2   costs approved automatically that nobody has looked at
  *            —    a direct payment the month expects, not fully received (part B, Kian's rulings of 2026-10-15)
  *            —    entries sent in the month still pending (said before, in the old confirmation)
@@ -70,6 +73,10 @@ export interface IncomeFacts {
   checkouts: number;
   /** Stays on the property's calendar copies that began in the month and that no line from a file covers (I15). Absent: not read. */
   uncovered?: { start: string; end: string }[];
+  /** Whether the property has an Airbnb title, active or previous (K2). Absent: not known. */
+  titled?: boolean;
+  /** Marked "not paid through Nubnb's files" by an admin (Kian's ruling K2 of 2026-10-17). */
+  notThroughFiles?: boolean;
 }
 
 export interface CheckInputs {
@@ -198,9 +205,13 @@ export function finishChecks(input: CheckInputs): FinishChecks {
     }
     if (income.checkouts > 0 && !hasCleaningLine(s)) warnings.push({ key: 'cleaning', text: `No cleaning line · ${plural(income.checkouts, 'Airbnb checkout', 'Airbnb checkouts')} in ${monthName(s.month)}.`, tab: 'income' });
     // Stays on the calendar the month's file does not hold (I15): money not yet in, or a stay that is not Nubnb's to report.
-    if (income.uncovered && income.uncovered.length > 0) {
+    // A property with no title and no mark (Kian's ruling K2 of 2026-10-17) is told so instead; a marked one is paid
+    // outside Nubnb's files, so its stays are expected in none.
+    if (income.uncovered && income.uncovered.length > 0 && income.notThroughFiles !== true) {
+      const n = income.uncovered.length;
       const shown = income.uncovered.slice(0, 4).map((stay) => rangeText(stay.start, stay.end)).join(', ');
-      warnings.push({ key: 'calendar-stays', text: `${plural(income.uncovered.length, 'stay', 'stays')} on its calendar in ${monthName(s.month)} ${income.uncovered.length === 1 ? 'is' : 'are'} in no Airbnb line: ${shown}${income.uncovered.length > 4 ? ', …' : ''}.`, tab: 'income' });
+      if (income.titled === false) warnings.push({ key: 'airbnb-untitled', text: `No Airbnb title, and not marked “not paid through Nubnb's files” on the Income page: ${plural(n, 'stay', 'stays')} on its calendar in ${monthName(s.month)} ${n === 1 ? 'is' : 'are'} in no file (${shown}${n > 4 ? ', …' : ''}).`, tab: 'income' });
+      else warnings.push({ key: 'calendar-stays', text: `${plural(n, 'stay', 'stays')} on its calendar in ${monthName(s.month)} ${n === 1 ? 'is' : 'are'} in no Airbnb line: ${shown}${n > 4 ? ', …' : ''}.`, tab: 'income' });
     }
   }
   // ── Direct payments (part B): a month that expects one not fully received warns; only received money is income ──

@@ -5,7 +5,7 @@
    ok   assign
   TESTPROP0003: report-for · "Add Report For name" · /admin/property?id=TESTPROP0003&month=2026-08&tab=details · when 2026-08 · owed 2026-08,2026-09 (2 blocked, 0 ready) · under attention,blocked,review · 2 statements owed (August 2026, September 2026): Finish refuses a statement with no Report For name
    ok   report-for
-  TESTPROP0004: review · "Review 1 Airbnb line" · /admin/income?month=2026-09 · when 2026-09 · owed 2026-09 (0 blocked, 1 ready) · under attention,ready,review,direct · September 2026: 1 line from Airbnb's file waits for review
+  TESTPROP0004: review · "Review 1 Airbnb line" · /admin/income?month=2026-09&property=TESTPROP0004 · when 2026-09 · owed 2026-09 (0 blocked, 1 ready) · under attention,ready,review,direct · September 2026: 1 line from Airbnb's file waits for review
    ok   review
   TESTPROP0005: direct · "Record direct payment" · /admin/property?id=TESTPROP0005&month=2026-10 · when 2026-10 · owed 2026-09 (0 blocked, 1 ready) · under attention,ready,direct · Monthly stay, October 2026: overdue
    ok   direct
@@ -27,7 +27,7 @@
    ok   a checkout older than a week opens the Schedule from its day
    ok   Add Report For name opens the oldest month owed at its Details
    ok   with no Report For name, every statement owed is blocked: the month past due and the month due
-   ok   one line reads "1 Airbnb line", and opens the Income page at the month
+   ok   one line reads "1 Airbnb line", and opens the Income page at the month, at the property (Kian's rulings of 2026-10-17)
    ok   Finish names the oldest month owed and opens its Finish tab
    ok   past due and due both count as ready
    ok   Calendar not read says which: no link, or not read

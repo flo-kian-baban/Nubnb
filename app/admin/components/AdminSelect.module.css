@@ -144,6 +144,21 @@
   white-space: nowrap;
 }
 
+/* A second line under the label: a property's public title under its address. */
+.optionText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.optionHint {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
 .empty {
   margin: 0;
   padding: 10px;

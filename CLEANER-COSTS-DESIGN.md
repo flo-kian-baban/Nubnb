@@ -3701,3 +3701,141 @@ These do not touch money or a statement:
 - seed 7;
 - server 2,231 (a home load about 600, a property page about 188, the sheet about 220);
 - cleanup 50.
+
+## 55. The Income page in one pass: Kian's rulings of 2026-10-17 (the Income page audit)
+
+The audit of 2026-10-17 (report in `~/Downloads/nubnb-income-page-audit-2026-10-17`, kept out of the repo) measured
+September settled as 20 whole-property accepts in 24 seconds, each followed by a read of the whole month (about 284
+reads each, more every month), with the lines worth a look accepted like any other, and 14 properties with Airbnb
+stays and no title. Kian's rulings K1 and K2 are in CLAUDE.md. What was built is below.
+
+### 55.1 What was built
+
+1. **One pass (K1).** To review now opens on the lines held back for a decision of their own, each with its
+   reasons, by property; then one bar: "41 lines for 5 properties · $8,307.50 · Accept 41 lines", whose Nubnb
+   dialog names the lines, the properties and the total; then each property's routine lines with its own Accept
+   all.
+   - The rules are pure, in `app/lib/income/month.ts` (`lineHolds`, `duplicateNotes`, `monthView`'s `held` and
+     `onePass`).
+   - `POST /api/admin/income/lines/accept-month` accepts the routine lines of many properties in one transaction,
+     each exactly as one property's Accept records it.
+2. **The month read again only when the decisions settle.** Each decision takes the server's answer at once. The
+   page reads the month 2.5 s after the last decision (`SETTLE_MS`), not after every click. An upload, a title set
+   aside, or a link that sent lines back still reads the month at once, since only the server knows what changed.
+3. **The property picker** searches the public title too, shown as a grey second line under the address
+   (`AdminSelect`'s option `hint`).
+4. **Gaps.**
+   - A check-in with no income is listed only once the month has a file, and only up to today.
+   - K2: properties with Airbnb stays on their calendar copies and no title are listed apart ("Airbnb bookings, no
+     title"), each with "Set its title" (its edit page) and "Mark not paid through Nubnb's files". The mark is
+     `property_income_sources/{propertyId}` (server-only: firestore.rules' catch-all, no rules change), set through
+     `PUT /api/admin/properties/[id]/income-source`. The marked properties are listed under Titles, each with
+     Unmark.
+   - Finish warns on an unmarked property with no title (`airbnb-untitled`).
+5. **Each property's row** shows its Airbnb title(s) under the address, the month's revenue as it would stand (red
+   below zero), and its statement's standing in the words of `STANDING_LABELS`, from `monthStanding`.
+6. **Accepted lines fold** to one row per property, opened on click. The file and row move to a tooltip on the
+   line. Edit and Reject on a proposed line, and a property's Reject all, move to a row menu (`RowMenu`).
+7. **The hand-off.** Once nothing waits: "26 properties have September money · 1 ready · 25 blocked", with links to
+   the Report For sheet and the home's "Statements ready" chip. By property's Statement column uses the standing's
+   words and leads to the property's Details tab while blocked, else its Finish tab. The review links on the home
+   (Next step, the Income cell) and on the property page's Income tab carry `&property=`: the Income page brings
+   that property into view and lights it for a moment.
+8. **One missing, one new.** When exactly one active title is missing from the month's file and exactly one new
+   title is unlinked, the page offers the pair: "May be <address>, renamed from <old title>", one click, never
+   applied by itself.
+
+### 55.2 The developer's choices (for Kian)
+
+These touch which lines reach an owner's statement, or what Finish says:
+- **Two kinds of hold.** A line's own reasons (a negative amount, an old stay, an unknown type, a possible
+  duplicate) hold that line alone. A property's reasons (it owes no statement; its month would go below zero) hold
+  every line of that property. A line held for its own reason has its own Accept only. A property held as a whole
+  keeps an "Accept all n" for its lines with no reason of their own: a decision about that property, one property at
+  a time.
+- **A property's own Accept all accepts its routine lines only.** A held line is never accepted with the rest.
+- **"More than a month before the file's month":** a stay that began before the first day of the month before the
+  line's month. September's file holds a stay begun on 31 July, but not one begun on 1 August.
+- **"Its month would go below zero":** the month's revenue as it would stand, meaning its statement's lines plus
+  every proposed line under its titles (the held ones included), figured as the property page figures them (37A:
+  a claw-back is less revenue). A month already finished shows no such figure: a line accepted now goes on the
+  next statement (M11).
+- **The server checks every hold it can judge** inside the one transaction: a negative amount, an old stay, an
+  unknown type, a possible duplicate (from the accepted lines that share the booking, and the month's draft, with
+  the same function as the page), and a property that owes no statement. It refuses the whole confirmation, 409
+  LINES_HELD, and accepts nothing. Below zero is judged by the page from the month's money, which the server does
+  not read in that transaction. The server also refuses totals that are not what the dialog named (409
+  TOTALS_CHANGED).
+- **K2 at Finish:** for an unmarked property with no title, the new warning takes the place of I15's "n stays on its
+  calendar are in no Airbnb line": one line about the same stays. For a marked property, neither is said: its stays
+  are paid outside Nubnb's files.
+- **"With Airbnb bookings":** reserved stays on the stored calendar copies that run into the month. "Linked to a
+  title": any title of its own, active or previous.
+
+These do not touch money or a statement:
+- **The standing shown** is `monthStanding`'s for the month, treating the month as one with money in it. A property
+  on the page has lines in the month, or will once they are accepted. "Blocked" is owed now (due or past due) with
+  no Report For name, as on the home.
+- **The hand-off line** adds "· n finished" when some are, and reads "· not due yet" for a month not yet due, so its
+  figures always add up.
+- **"New title"** means a title in no earlier month's file. A title that stays unlinked month after month (as
+  Lakeside may) is never counted as new again.
+- **The offers apply in one click:** the pair, and now also the evidence's rename suggestion (M14). Each offer says
+  in its own words that the old title stays the property's previous title, so the confirmation dialog would only
+  repeat it.
+- **A routine line's own Accept is a quiet button.** The bar's "Accept n lines" and a held line's Accept are the
+  white ones.
+- **Reads:**
+  - The month's read gains one small read, the marks. Each property's create month comes with the properties' read,
+    and which titles are new comes from the uploads it already reads.
+  - The property page's files read gains one: the property's mark.
+  - The one-pass accept reads its lines, their titles, the properties, their Report For records and drafts, the
+    accepted lines sharing their bookings, and each property's statements.
+
+### 55.3 Verification (2026-10-18)
+
+- **Tests:** `node tests/run.mjs`, 19 checks, every one identical to its expected output.
+  - `income-one-pass` is new (36 checks): each hold rule and its boundary, the one-pass set and total, revenue as it
+    would stand, untitled properties and check-ins, the hand-off counts, the pair, K2 at Finish, and both routes'
+    schemas with the bodies the page sends.
+  - `admin-accounts` gains the two new routes, both through `adminRoute`.
+  - `home-next-step`'s review link now carries the property.
+  - The other 16 are unchanged.
+- **Shaping, at no production read:** `next dev` with Firestore and Storage answered from memory, loaded from the
+  opening export, with a made-up service account and every calendar fetch cut off. On September's real data and the
+  made-up file, the page showed:
+  - the 9 held lines;
+  - "41 lines for 5 properties";
+  - the hand-off "26 properties have September money · 1 ready · 25 blocked";
+  - the pair, K2, the picker and the focus.
+  At 1280 and 1440 nothing is wider than the window.
+- **On production data:** build `4VopK_NVjNPLEWyKsE4v1`, made at no read, served with `next start` on 127.0.0.1:4500
+  under a write guard. It ran as `__TEST__ Admin e1e1f8` with 9 unlisted `__TEST__ n Income Ave` properties, after the
+  opening export `backups/2026-10-18T16-47-44Z`. The month was moved from September to October at Kian's choice,
+  because he was settling September in production at the same time. The 50 test lines already uploaded to September
+  were deleted by ID at once.
+  - **The upload:** a made-up file, through the page's own file input, of 73 rows: 50 lines, each case K1 holds.
+  - **The picker** found the property by "Riverside", a word of its public title, shown grey under its address.
+  - **One pass:** "Accept 41 lines for 5 properties? | $8,307.50 in October 2026 … | 9 lines held for a decision are
+    left out". The screen took the server's answer in 1.69 s. The month was read 0 times at once and 1 time after
+    the pause.
+  - **The held lines:** 8 decisions for 9 lines (accepts, a property's "Accept all 2", rejects through a line's menu)
+    led to 1 read of the month, after the pause.
+  - **A second file:** its changed row was held as a possible duplicate. The server refused that line sent in the
+    one confirmation (409 LINES_HELD), and refused a total the dialog did not name (409 TOTALS_CHANGED). Nothing was
+    accepted either time.
+  - **The hand-off:** "6 properties have October money · not due yet".
+  - **K2:**
+    - Finish warned on the untitled property's two October stays.
+    - `?property=` brought it into view and lit it.
+    - "Mark not paid through Nubnb's files" took it out of the list, and put it under Titles with Unmark.
+    - Finish then said nothing about its stays.
+  - **The pair:** August's made-up file offered "May be … renamed from “__TEST__ Hotel Old”". It applied in one
+    click, with no question.
+  - **Reads of the month for a 50-line file:** 421. That is 159 accepted lines of every month, 67 properties and 67
+    names, the month's 50 lines, 37 title links, the 19 unlinked lines' codes, 8 calendar copies and the uploads.
+- **Writes:**
+  - The guard's ledger holds 393 entries, all the test's own records. Nothing was refused or absorbed.
+  - Cleanup deleted 166 documents and 4 kept files by exact ID, and read back none.
+- **Reads:** 7,310 counted (export 543, seed 38, server 6,078, cleanup 651). About 118 more were not counted: the
+  first two uploads' own transaction reads, before the counter learned a transaction's `getAll`.

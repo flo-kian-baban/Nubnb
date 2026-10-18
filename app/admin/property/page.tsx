@@ -770,14 +770,14 @@ function MonthWork(props: MonthWorkProps) {
    */
   const files = useMemo(() => {
     const read = props.fromFiles;
-    if (read.kind !== "ready") return { marks: new Map<string, string>(), pending: 0, failed: read.kind === "error", month, stored: new Map(), names: new Map<string, string>(), calendar: null };
+    if (read.kind !== "ready") return { marks: new Map<string, string>(), pending: 0, failed: read.kind === "error", month, propertyId, stored: new Map(), names: new Map<string, string>(), calendar: null };
     const names = new Map(read.data.uploads.map((u) => [u.id, u.name]));
     const marks = new Map<string, string>();
     for (const line of read.data.lines) {
       if (isCopied(line.decided) && line.decided.propertyId === propertyId) marks.set(line.decided.lineId, `${names.get(line.uploadId) ?? "a file"} · row ${line.fileRow}`);
     }
     const calendar = read.data.calendar && read.data.calendar.month === month ? { days: read.data.calendar.days, uncovered: uncoveredStays(read.data.calendar.stays, read.data.lines, month) } : null;
-    return { marks, pending: read.data.lines.filter((line) => line.status === "proposed" && line.month === month).length, failed: false, month, stored: new Map(read.data.lines.map((line) => [line.id, line])), names, calendar };
+    return { marks, pending: read.data.lines.filter((line) => line.status === "proposed" && line.month === month).length, failed: false, month, propertyId, stored: new Map(read.data.lines.map((line) => [line.id, line])), names, calendar };
   }, [props.fromFiles, propertyId, month]);
 
   /** What the files say about the month, for Finish's checks (dispatch 34; 37C): lines waiting, titles linked to no property, checkouts, the calendar's stays no line covers. */
@@ -790,8 +790,11 @@ function MonthWork(props: MonthWorkProps) {
       checkouts: checkoutsInMonth(read.data.lines, month),
       // Read only when the month's calendar copies exist: no copies is no check, never an all-clear (I8).
       ...(files.calendar && files.calendar.days.length > 0 ? { uncovered: files.calendar.uncovered } : {}),
+      // Kian's ruling K2 of 2026-10-17: a title of its own, or the mark "not paid through Nubnb's files".
+      titled: read.data.titles.some((link) => link.propertyId === propertyId),
+      notThroughFiles: read.data.notThroughFiles,
     };
-  }, [props.fromFiles, files.pending, files.calendar, month]);
+  }, [props.fromFiles, files.pending, files.calendar, month, propertyId]);
 
   /** What Finish checks (dispatch 34, Kian's rulings of 2026-10-12): refused only without a Report For name; everything else warns. */
   const checks = useMemo(() => (built?.kind === "ok" && !readOnly ? finishChecks({ statement: built.statement, reports, entries, income: incomeFacts, today, revenueCents: figures?.revenueCents, ...(directUnpaid ? { direct: directUnpaid } : {}) }) : null), [built, readOnly, reports, entries, incomeFacts, today, figures, directUnpaid]);

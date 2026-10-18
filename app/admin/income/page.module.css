@@ -437,3 +437,162 @@
   border: 1px solid rgba(101, 153, 205, 0.25);
   font-size: 12.5px;
 }
+
+/* ── Kian's rulings of 2026-10-17 (the Income page audit) ── */
+/* An amount below zero: a claw-back, or a month that would go below zero. */
+.negative {
+  color: #ef6b68;
+}
+/* A statement owed with no Report For name: blocked, as the home calls it. */
+.badgeBlocked {
+  color: #ef6b68;
+  border-color: rgba(239, 68, 68, 0.32);
+  background: rgba(239, 68, 68, 0.08);
+}
+.badgeLink {
+  display: inline-flex;
+  text-decoration: none;
+}
+.badgeLink:hover .badge,
+.badgeLink:focus-visible .badge {
+  border-color: rgba(255, 255, 255, 0.3);
+}
+/* The property a review link opened the page for, lit for a moment. */
+.flash td,
+li.flash {
+  background: rgba(101, 153, 205, 0.14) !important;
+  transition: background 0.6s ease;
+}
+/* A property's row: its address, with its Airbnb title under it. */
+.groupName {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.groupTitles {
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.42);
+  overflow-wrap: anywhere;
+}
+/* K1: the lines held for a decision of their own, above the one confirmation. */
+.heldBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+.heldTitle {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #f0a63a;
+}
+.holdWhy {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #ef6b68;
+}
+.reasons {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 4px;
+}
+.reason {
+  font-size: 12px;
+  line-height: 1.45;
+  color: #f0a63a;
+}
+/* K1: the month's routine lines in one confirmation. */
+.onePass {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+.onePassText {
+  font-size: 13.5px;
+  color: #c9d2dc;
+  font-variant-numeric: tabular-nums;
+}
+.onePassText strong {
+  color: #e8edf3;
+}
+.onePass .btnApprove {
+  margin-left: auto;
+}
+/* Once nothing waits: the month's statements, and the way to each. */
+.handoff {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(101, 153, 205, 0.08);
+  border: 1px solid rgba(101, 153, 205, 0.25);
+  font-size: 13.5px;
+  color: #c9d2dc;
+  font-variant-numeric: tabular-nums;
+}
+.handoff strong {
+  color: #e8edf3;
+}
+.handoffLinks {
+  display: inline-flex;
+  gap: 16px;
+  margin-left: auto;
+}
+/* Accepted lines folded to one row per property, opened on click. */
+.foldRow td {
+  padding: 0 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.foldButton {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 14px;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.foldButton:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+.foldButton:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: -2px;
+}
+.foldName {
+  font-size: 13.5px;
+  color: rgba(255, 255, 255, 0.88);
+}
+.chevron,
+.chevronOpen {
+  flex: none;
+  color: rgba(255, 255, 255, 0.45);
+  transition: transform 0.15s ease;
+}
+.chevron {
+  transform: rotate(-90deg);
+}
+/* The properties marked not paid through Nubnb's files, under the titles. */
+.markedList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}

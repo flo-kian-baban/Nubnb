@@ -95,3 +95,30 @@ export const LinkInputSchema = z
 
 /** PUT /api/admin/properties/[id]/airbnb-title */
 export const TitleInputSchema = z.strictObject({ title: Title, expected: Expected });
+
+/** POST /api/admin/income/lines/accept-month (Kian's ruling K1 of 2026-10-17): the month's routine lines, by property, and what the confirmation named. */
+export const AcceptMonthInputSchema = z.strictObject({
+  month: z.string().refine(isMonth, 'A month, like 2026-09'),
+  groups: z
+    .array(
+      z.strictObject({
+        propertyId: z.string().regex(DOCUMENT_ID, 'Not a property ID'),
+        ids: z.array(LineId).min(1, 'At least one line').max(INCOME_LIMITS.LINES_PER_UPLOAD_MAX),
+      }),
+    )
+    .min(1, 'At least one property')
+    .refine((groups) => new Set(groups.map((group) => group.propertyId)).size === groups.length, 'A property is listed twice')
+    .refine((groups) => groups.reduce((n, group) => n + group.ids.length, 0) <= INCOME_LIMITS.LINES_PER_UPLOAD_MAX, `At most ${INCOME_LIMITS.LINES_PER_UPLOAD_MAX} lines in one confirmation`)
+    .refine((groups) => {
+      const ids = groups.flatMap((group) => group.ids);
+      return new Set(ids).size === ids.length;
+    }, 'A line is listed twice'),
+  expected: z.strictObject({
+    lines: z.number().int().min(1).max(INCOME_LIMITS.LINES_PER_UPLOAD_MAX),
+    properties: z.number().int().min(1).max(INCOME_LIMITS.LINES_PER_UPLOAD_MAX),
+    amountCents: z.number().int().refine(Number.isSafeInteger, 'An amount in cents'),
+  }),
+});
+
+/** PUT /api/admin/properties/[id]/income-source (Kian's ruling K2 of 2026-10-17): marked or not, as the page saw it. */
+export const IncomeSourceInputSchema = z.strictObject({ notThroughFiles: z.boolean(), expected: z.boolean() });

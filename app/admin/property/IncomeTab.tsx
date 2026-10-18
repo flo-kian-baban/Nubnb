@@ -67,6 +67,8 @@ interface Props {
     pending: number;
     failed: boolean;
     month: string;
+    /** The property: the Income page opens at its lines (Kian's rulings of 2026-10-17). */
+    propertyId: string;
     stored: Map<string, EarningsLineView>;
     names: Map<string, string>;
     calendar: { days: string[]; uncovered: { start: string; end: string }[] } | null;
@@ -318,7 +320,7 @@ export function IncomeTab({ typed, readOnly, figures, sent, onChange, show, file
       {files && files.pending > 0 && (
         <p className={styles.note}>
           {files.pending === 1 ? "1 line" : `${files.pending} lines`} from the Airbnb file to review ·{" "}
-          <Link href={`/admin/income?month=${files.month}`} prefetch={false} className={styles.linkButton}>
+          <Link href={`/admin/income?month=${files.month}&property=${encodeURIComponent(files.propertyId)}`} prefetch={false} className={styles.linkButton}>
             Income page
           </Link>
         </p>

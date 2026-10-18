@@ -11,7 +11,10 @@
  * announced as a combobox with a listbox. With nine options or more a
  * search box sits at the top of the list, so a property is found by typing
  * rather than by scrolling. Options can be grouped, with a heading over
- * each group; a group with nothing to show is left out.
+ * each group; a group with nothing to show is left out. An option may carry a
+ * second line, grey under its label, which the search matches too: a
+ * property's public title under its address (Kian's rulings of 2026-10-15,
+ * evening: search everywhere matches both).
  *
  * The field's look comes from the control tokens on the admin container
  * (--ctl-* and --popover-* in ../page.module.css), which every admin control
@@ -25,6 +28,8 @@ import styles from "./AdminSelect.module.css";
 export interface SelectOption {
   value: string;
   label: string;
+  /** A second line, grey under the label; the search matches it too. */
+  hint?: string;
 }
 
 export interface SelectGroup {
@@ -73,7 +78,7 @@ export function AdminSelect({ label, value, onChange, groups, icon, searchable, 
   const withSearch = searchable ?? all.length >= SEARCH_FROM;
   const shown = useMemo(() => {
     const q = fold(query.trim());
-    return q === "" ? all : all.filter((option) => fold(option.label).includes(q));
+    return q === "" ? all : all.filter((option) => fold(option.label).includes(q) || (option.hint !== undefined && fold(option.hint).includes(q)));
   }, [all, query]);
   // With a placeholder: an empty value shows the placeholder, and a value that matches no option is shown as it is
   // (a stored "ON" where the list says "Ontario" must not look unset). Without one, the first option stands in.
@@ -257,7 +262,14 @@ export function AdminSelect({ label, value, onChange, groups, icon, searchable, 
                         onMouseMove={() => setActive(index)}
                         onClick={() => choose(option)}
                       >
-                        <span className={styles.optionLabel}>{option.label}</span>
+                        {option.hint ? (
+                          <span className={styles.optionText}>
+                            <span className={styles.optionLabel}>{option.label}</span>
+                            <span className={styles.optionHint}>{option.hint}</span>
+                          </span>
+                        ) : (
+                          <span className={styles.optionLabel}>{option.label}</span>
+                        )}
                         {option.value === value && <Check size={14} aria-hidden />}
                       </div>
                     ))}
