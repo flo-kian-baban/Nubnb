@@ -25,7 +25,8 @@
 
 import { formatCents, isOneLineKind, type LineNow } from '@/app/lib/cleaners/model';
 import { ELLIPSIS, MARGIN, MUTED, Page, RIGHT, assemble, fitted, widthOf, winAnsi, wrapped } from '@/app/lib/pdf/core';
-import { byStatementText, chargedOnText, generatedLabel, periodLabel, shortDay, whatWasBought, type CostReport } from './report';
+import { byStatementText, chargedOnText, generatedLabel, periodLabel, shortDay, whatWasBought, type CostReport, type FromEarlier } from './report';
+import { monthLabel } from '@/app/lib/reports/model';
 
 /**
  * A work entry's description on at most two lines (dispatch 24): as many
@@ -93,6 +94,55 @@ function taxText(entry: CostReport['entries'][number]): string {
 }
 
 const entriesLabel = (count: number) => (count === 0 ? 'No entries' : count === 1 ? '1 entry' : `${count} entries`);
+
+/** The section's header row (Kian's ruling K1 of 2026-10-18). Returns the first row's baseline. */
+function earlierHeader(page: Page, y: number): number {
+  page.text('Date', COLUMN.date, y, 'bold', 8.5, MUTED);
+  page.text('What it was · the month it belongs to', COLUMN.bought, y, 'bold', 8.5, MUTED);
+  page.text('Ref', COLUMN.ref, y, 'bold', 8.5, MUTED);
+  page.text('On this statement', AMOUNT_RIGHT, y, 'bold', 8.5, MUTED, 'right');
+  page.rule(MARGIN, RIGHT, y - 7, 0.75, 0.6);
+  return y - 7 - 16;
+}
+
+/**
+ * A whole month's section "On this month's statement from earlier months" (Kian's ruling K1 of 2026-10-18), from `y`
+ * down, on new pages as needed: each cost of an earlier month this month's statement charges, late or as an
+ * adjustment, with the month it belongs to; their total; and what the statement charges for costs in all. Returns the
+ * baseline under it.
+ */
+function earlierSection(section: FromEarlier, at: { page: Page; y: number }, nextPage: () => void, current: () => { page: Page; y: number }): number {
+  let { page, y } = at;
+  const fresh = () => {
+    nextPage();
+    ({ page, y } = current());
+  };
+  if (y - 18 - 23 - 2 * (ROW + 12) - 40 < MARGIN) fresh();
+  page.text("On this month's statement from earlier months", MARGIN, y, 'bold', 11);
+  y = earlierHeader(page, y - 18);
+  const whatWidth = COLUMN.ref - 12 - COLUMN.bought;
+  for (const row of section.rows) {
+    if (y - 12 < LOWEST_ROW + 40) {
+      fresh();
+      y = earlierHeader(page, y);
+    }
+    page.text(row.office === null ? shortDay(row.day) : row.office.month, COLUMN.date, y, 'regular', 10);
+    page.text(fitted(`${row.kind === 'adjustment' ? 'Adjustment: ' : row.entryKind === 'work' ? 'Work: ' : row.entryKind === 'office' ? 'Office: ' : ''}${row.what}`, 'regular', 10, whatWidth), COLUMN.bought, y, 'regular', 10);
+    page.text(fitted(`Belongs to ${monthLabel(row.belongsTo)}${row.office !== null ? ` · ${row.office.logged}` : ''}`, 'regular', 8, whatWidth), COLUMN.bought, y - 12, 'regular', 8, MUTED);
+    page.text(row.ref, COLUMN.ref, y, 'regular', 10, MUTED);
+    page.text(formatCents(row.cents), AMOUNT_RIGHT, y, 'regular', 10, 0, 'right');
+    page.rule(MARGIN, RIGHT, y - 12 - 7, 0.9, 0.4);
+    y -= ROW + 12;
+  }
+  if (y - 34 < MARGIN) fresh();
+  const base = y + ROW - 9 - 18;
+  page.rule(MARGIN, RIGHT, base + 18, 0.25, 0.8);
+  page.text('From earlier months', COLUMN.ref, base, 'bold', 11, 0);
+  page.text(formatCents(section.totalCents), AMOUNT_RIGHT, base, 'bold', 11, 0, 'right');
+  page.text(`${monthLabel(section.month)}'s statement charges for costs in all`, COLUMN.date, base - 16, 'regular', 9.5, 0);
+  page.text(formatCents(section.statementCents), AMOUNT_RIGHT, base - 16, 'regular', 9.5, 0, 'right');
+  return base - 16 - 26;
+}
 
 
 /** The report's bytes. */
@@ -177,6 +227,9 @@ export function pdfFor(report: CostReport): Uint8Array<ArrayBuffer> {
     ...(report.byStatement
       ? ['An entry marked with a statement belongs to this period but is charged on that month\'s statement: its own month\'s statement was already finished when it was logged or changed.']
       : []),
+    ...(report.fromEarlier
+      ? ['From earlier months: costs that belong to an earlier month, on this month\'s statement because that month\'s statement was already finished when they were logged, approved or changed; an adjustment is a change to a cost an earlier statement printed.']
+      : []),
     ...(report.entries.some((entry) => entry.kind === 'cleaning')
       ? ['An entry reading "Cleaning" is one cleaning of the property, on the day it was cleaned, at the amount Nubnb pays for it; the statement prints the month\'s cleanings as one line.']
       : []),
@@ -201,6 +254,14 @@ export function pdfFor(report: CostReport): Uint8Array<ArrayBuffer> {
   page.text('Period total', COLUMN.ref, base, 'bold', 11, 0);
   split.forEach((line, i) => page.text(line, COLUMN.date, base - 16 - i * 13, 'regular', 9.5, 0));
   let noteY = base - 26 - splitHeight;
+  // Kian's ruling K1 (2026-10-18): a whole month's ledger lists, under its total, what the statement charges for earlier months.
+  if (report.fromEarlier) {
+    noteY = earlierSection(report.fromEarlier, { page, y: noteY - 4 }, () => nextPage(false), () => ({ page, y }));
+    if (noteY - (notes.length - 1) * 11.5 < MARGIN) {
+      nextPage(false);
+      noteY = 706;
+    }
+  }
   for (const line of notes) {
     page.text(line, MARGIN, noteY, 'regular', 8.5, 0.4);
     noteY -= 11.5;

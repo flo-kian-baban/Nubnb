@@ -1,0 +1,141 @@
+/* The review queue's automatic approvals, folded (the Costs page, round 1): the admin's colours, one compact list. */
+
+.block {
+  margin-top: 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+}
+
+.fold {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 4px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.85);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 8px;
+}
+.fold:focus-visible,
+.row:focus-visible,
+.markAll:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 2px;
+}
+.chevron,
+.chevronOpen {
+  color: rgba(255, 255, 255, 0.45);
+  transition: transform 0.15s;
+}
+.chevronOpen {
+  transform: rotate(90deg);
+}
+.title {
+  font-weight: 600;
+}
+.figure {
+  color: rgba(255, 255, 255, 0.5);
+  font-variant-numeric: tabular-nums;
+}
+
+.markAll {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 13px;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.markAll:hover:not(:disabled) {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.markAll:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto 96px;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 6px 14px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.85);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.row:hover,
+.rowOpen {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 48px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.4);
+}
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.property {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.total {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: right;
+}
+.day {
+  color: rgba(255, 255, 255, 0.5);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.pane {
+  padding: 4px 14px 14px;
+}

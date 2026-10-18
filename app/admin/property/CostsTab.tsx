@@ -42,7 +42,7 @@ import type { Notice } from "../components/Notice";
 import { useAsk } from "../components/AskDialog";
 import { recordPdfExport } from "@/app/lib/costs-client";
 import { formatCents, type CostEntryView, type ReportExportView } from "@/app/lib/cleaners/model";
-import { buildReport, cleanerLabel, deletedSincePdf, entryPdfState, officeWhen, periodLabel, readPdfRecords, reportFileName, sentDay, shortDay, type EntryPdfState } from "@/app/lib/costs/report";
+import { buildReport, cleanerLabel, deletedSincePdf, entryPdfState, leftOutLines, leftOutWords, officeWhen, periodLabel, readPdfRecords, reportFileName, sentDay, shortDay, type EntryPdfState } from "@/app/lib/costs/report";
 import { watchList } from "@/app/lib/costs/patterns";
 import { pdfFor } from "@/app/lib/costs/pdf";
 import { workbookFor } from "@/app/lib/costs/xlsx";
@@ -142,12 +142,14 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
       show({ tone: "error", title: "This report cannot be made while an approved entry in it cannot be read.", detail: `Open ${built.entryIds.length === 1 ? "entry" : "entries"} ${built.entryIds.join(", ")} to see why. Nothing was downloaded.` });
       return;
     }
-    const { report, pendingLeftOut } = built;
+    const { report, pendingLeftOut, noAmountLeftOut } = built;
+    // Receipts and work pending review, and cleanings with no amount yet (Kian's ruling K2's words), said apart.
+    const leftOut = leftOutLines(pendingLeftOut, noAmountLeftOut, `in ${monthLabel(month)}`);
     if (
-      pendingLeftOut > 0 &&
+      leftOut.length > 0 &&
       !(await ask({
         title: "Download it anyway?",
-        lines: [`${pendingLeftOut === 1 ? "1 entry" : `${pendingLeftOut} entries`} in ${monthLabel(month)} ${pendingLeftOut === 1 ? "is" : "are"} still pending review and ${pendingLeftOut === 1 ? "is" : "are"} not in the report, which holds approved entries only.`],
+        lines: leftOut,
         confirm: "Download anyway",
       }))
     )
@@ -184,7 +186,7 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
     show({
       tone: "success",
       title: `Downloaded the ${kind === "pdf" ? "PDF" : "Excel file"} for ${printedReport.propertyName}.`,
-      detail: `${periodLabel(report.from, report.to)} · ${report.entries.length === 1 ? "1 approved entry" : `${report.entries.length} approved entries`} · ${formatCents(report.totalCents)}${pendingLeftOut > 0 ? ` · ${pendingLeftOut} pending left out` : ""}${kind === "pdf" ? " · recorded, so a later correction shows against it" : ""}`,
+      detail: `${periodLabel(report.from, report.to)} · ${report.entries.length === 1 ? "1 approved entry" : `${report.entries.length} approved entries`} · ${formatCents(report.totalCents)}${leftOutWords(pendingLeftOut, noAmountLeftOut)}${kind === "pdf" ? " · recorded, so a later correction shows against it" : ""}`,
     });
   };
 

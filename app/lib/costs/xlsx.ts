@@ -5,8 +5,8 @@
  * strings, so no package is added.
  *
  *   Entries   one row per approved entry: date sent, ref, entry ID, kind
- *             (receipt or work, dispatch 24), who logged it, what was bought
- *             or the work done (discounts and returns listed with their
+ *             (receipt or work, dispatch 24), what was bought or the work
+ *             done (discounts and returns listed with their
  *             amounts), lines, items, tax, total, corrected; then the period
  *             total. Tax is its own column (dispatch 21); an entry sent
  *             before tax was its own field reads "in items" there.
@@ -23,7 +23,8 @@
  */
 
 import { count, day, money, text, workbookBytes, type Cell } from '@/app/lib/xlsx/core';
-import { chargedOnText, generatedLabel, periodLabel, whatWasBoughtText, type CostReport } from './report';
+import { chargedOnText, generatedLabel, periodLabel, whatWasBoughtText, type CostReport, type FromEarlier } from './report';
+import { monthLabel } from '@/app/lib/reports/model';
 import { ENTRY_KIND_LABELS, isEntryKind, type LineNow } from '@/app/lib/cleaners/model';
 
 /** What a line's note says: whether an admin corrected it or added it. */
@@ -48,6 +49,32 @@ function quantity(value: LineNow['quantity']): Cell {
   return typeof value === 'number' ? count(value) : text(value);
 }
 
+/**
+ * A whole month's section "On this month's statement from earlier months" (Kian's ruling K1 of 2026-10-18), under the
+ * Entries sheet's totals: each cost of an earlier month the statement charges, late or as an adjustment, with the month
+ * it belongs to; their total; and what the statement charges for costs in all.
+ */
+function earlierRows(section: FromEarlier): Cell[][] {
+  return [
+    [],
+    [text("On this month's statement from earlier months", true)],
+    ['Date sent', 'Ref', 'Entry ID', 'Kind', 'What it was', 'Belongs to', null, null, 'On this statement (CAD)'].map((h) => (h === null ? null : text(h, true))),
+    ...section.rows.map((row) => [
+      row.office === null ? day(row.day) : text(`${row.office.month} ${row.office.logged}`),
+      text(row.ref),
+      text(row.id),
+      text(row.kind === 'adjustment' ? 'Adjustment' : isEntryKind(row.entryKind) ? ENTRY_KIND_LABELS[row.entryKind] : row.entryKind === 'cleaning' ? 'Cleaning' : row.entryKind),
+      text(row.what),
+      text(monthLabel(row.belongsTo)),
+      null,
+      null,
+      money(row.cents),
+    ]),
+    [text('From earlier months', true), null, null, null, null, null, null, null, money(section.totalCents, true)],
+    [text(`${monthLabel(section.month)}'s statement charges for costs in all`), null, null, null, null, null, null, null, money(section.statementCents)],
+  ];
+}
+
 /** The workbook's bytes. */
 export function workbookFor(report: CostReport): Uint8Array<ArrayBuffer> {
   const heading = (included: string): Cell[][] => [
@@ -64,7 +91,9 @@ export function workbookFor(report: CostReport): Uint8Array<ArrayBuffer> {
   const entries: Cell[][] = [
     ...heading('Approved entries only'),
     [
-      ...['Date sent', 'Ref', 'Entry ID', 'Kind', 'Logged by', 'What was bought / work done', 'Lines', 'Items (CAD)', 'Tax (CAD)', 'Total (CAD)', 'Corrected'],
+      // No "Logged by": the workbook goes to the owner, and no cleaner or team member is named on anything an owner
+      // receives (Kian's rulings of 2026-10-13 and 2026-10-15, evening).
+      ...['Date sent', 'Ref', 'Entry ID', 'Kind', 'What was bought / work done', 'Lines', 'Items (CAD)', 'Tax (CAD)', 'Total (CAD)', 'Corrected'],
       ...(split ? ['Charged on'] : []),
     ].map((h) => text(h, true)),
     ...(report.entries.length === 0
@@ -74,7 +103,6 @@ export function workbookFor(report: CostReport): Uint8Array<ArrayBuffer> {
           text(entry.ref),
           text(entry.id),
           text(isEntryKind(entry.kind) ? ENTRY_KIND_LABELS[entry.kind] : entry.kind === 'cleaning' ? 'Cleaning' : entry.kind),
-          text(entry.cleaner),
           text(whatWasBoughtText(entry.lines)),
           count(entry.lines.length),
           money(entry.itemsCents),
@@ -90,17 +118,17 @@ export function workbookFor(report: CostReport): Uint8Array<ArrayBuffer> {
       null,
       null,
       null,
-      null,
       money(report.itemsCents, true),
       money(report.taxCents, true),
       money(report.totalCents, true),
     ],
     ...(split
       ? [
-          ...split.map((row) => [text(`Charged on ${chargedOnText([row]).slice('On '.length)}`), null, null, null, null, null, null, null, null, money(row.cents)]),
-          ...((report.unchargedCents ?? 0) !== 0 ? [[text('Charged on no statement'), null, null, null, null, null, null, null, null, money(report.unchargedCents ?? 0)]] : []),
+          ...split.map((row) => [text(`Charged on ${chargedOnText([row]).slice('On '.length)}`), null, null, null, null, null, null, null, money(row.cents)]),
+          ...((report.unchargedCents ?? 0) !== 0 ? [[text('Charged on no statement'), null, null, null, null, null, null, null, money(report.unchargedCents ?? 0)]] : []),
         ]
       : []),
+    ...(report.fromEarlier ? earlierRows(report.fromEarlier) : []),
     ...(report.taxInLines
       ? [[text('Entries marked "in items" were sent before tax was its own field: any tax the cleaner typed is a line among their items, and inside their Items amount.')]]
       : []),
@@ -130,7 +158,7 @@ export function workbookFor(report: CostReport): Uint8Array<ArrayBuffer> {
 
   return workbookBytes(
     [
-      { name: 'Entries', widths: [13, 9, 24, 9, 22, 60, 7, 13, 12, 13, 11, ...(split ? [40] : [])], rows: entries },
+      { name: 'Entries', widths: [13, 9, 24, 9, 60, 7, 13, 12, 13, 11, ...(split ? [40] : [])], rows: entries },
       { name: 'Items', widths: [13, 9, 40, 20, 26, 16], rows: items },
     ],
     report.generatedAt,

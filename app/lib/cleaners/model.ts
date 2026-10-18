@@ -119,8 +119,17 @@ export const CLEANER_CODE_SCHEMA_VERSION = 2;
  * it, as a line among the items. Version 2 (dispatch 21) carries `taxCents`,
  * its own field, and no tax line. Readers tell the two apart by the field,
  * never by the version number or a line's name: `taxShape` below.
+ *
+ * Version 3 (the Costs page, round 1) adds `awaitingLook`: true on a receipt
+ * approved automatically, never written on any other entry, and set false by
+ * the first admin event on it (a review, a correction, Seen, who paid). It is what
+ * the review queue's read asks for, so the queue never reads every entry ever.
+ * Entries written before it have no such field and are never backfilled: the
+ * queue's read takes every version 1 and 2 entry as it is (a set that stops
+ * growing), and `awaitingLook()` below, from the history, stays the rule for
+ * every entry.
  */
-export const COST_ENTRY_SCHEMA_VERSION = 2;
+export const COST_ENTRY_SCHEMA_VERSION = 3;
 export const COST_ENTRY_SUBMISSION_SCHEMA_VERSION = 1;
 export const COST_REPORT_EXPORT_SCHEMA_VERSION = 1;
 
@@ -840,6 +849,23 @@ export interface PropertyNameView {
 }
 
 /** What GET /api/admin/cost-entries answers: everything the costs page works from. */
+/**
+ * What the review queue works from (the Costs page, round 1, GET /api/admin/cost-entries?view=queue): the entries the
+ * queue and Worth a look can show, not every entry ever — every entry waiting for a decision or kept on record
+ * (pending, rejected, removed), every receipt approved automatically that no admin has looked at, every entry sent in
+ * the last 90 days, and every entry written before the queue's marker — with every recorded PDF and every property's
+ * names. Never a cleaning.
+ */
+export interface QueueView {
+  entries: CostEntryView[];
+  exports: ReportExportView[];
+  properties: PropertyNameView[] | null;
+  /** Each property with an entry waiting for a decision: the months its current finished statements cover. */
+  finishedMonths: Record<string, string[]>;
+  /** The first day of the 90-day window read in full. */
+  since: string;
+}
+
 export interface CostsView {
   /**
    * Every cost the statements read, newest first: every cost entry, and every cleaning as an entry of kind

@@ -45,7 +45,7 @@
     2026-10-01 – 2026-10-31: 2026-10-01 – 2026-10-31 · TESTENTRYcleaner0oct placed 2026-10-12 dated 2026-10-12 $20.00 · total $20.00
     2026-09-15 – 2026-10-15: 2026-09-15 – 2026-10-15 · TESTENTRYoffice0sep1 placed 2026-09-30 dated Sep 2026 (logged Oct 12) $85.00 | TESTENTRYcleaner0oct placed 2026-10-12 dated 2026-10-12 $20.00 · total $105.00
     (open) – (open): 2026-09-30 – 2026-10-12 · TESTENTRYoffice0sep1 placed 2026-09-30 dated Sep 2026 (logged Oct 12) $85.00 | TESTENTRYcleaner0oct placed 2026-10-12 dated 2026-10-12 $20.00 · total $105.00
-    ledger-september.pdf 0bb442f17a256cd8a91ca16b83a10b468923fc20c1d12c9a7838f55b991f30dd · ledger-september.xlsx de2369f1786adc0a19c83d6f005e1806ee9ff1d883a1e0553c8cea68f572de4f
+    ledger-september.pdf 0bb442f17a256cd8a91ca16b83a10b468923fc20c1d12c9a7838f55b991f30dd · ledger-september.xlsx aa2c2b561242dbfa714a485215184ff90c00d984c276563a8798ac23e0c7f0f1
 
 ═══ 2. The title mark · an October file with three titles: one linked, one set aside, one neither ═══
   titles: [{"title":"__TEST__ Gone Cottage","rows":2,"amount":"$745.73","link":"not-nubnb","setAside":true},{"title":"__TEST__ Linked Loft","rows":1,"amount":"$500.00","link":"TESTPROPlinkedaaaaa1","setAside":false},{"title":"__TEST__ Unknown Flat","rows":1,"amount":"$200.00","link":null,"setAside":false}]

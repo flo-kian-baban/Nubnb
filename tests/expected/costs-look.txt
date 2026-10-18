@@ -1,0 +1,46 @@
+═══ 1. New entries ═══
+  a receipt under $200.00, approved automatically (approved): awaitingLook true · the rule says waiting for a look · as it should
+  a receipt from $200.00 (pending): awaitingLook absent · the rule says not waiting for one · as it should
+  a handyman's work (pending): awaitingLook absent · the rule says not waiting for one · as it should
+  an office cost (approved): awaitingLook absent · the rule says not waiting for one · as it should
+
+═══ 2. Every way an admin looks at a receipt approved automatically ═══
+  Seen, one at a time (done, changed true): awaitingLook false · the rule says not waiting for one · as it should
+  "Mark these n seen", the first of two (done, 2 marked): awaitingLook false · the rule says not waiting for one · as it should
+  "Mark these n seen", the second of two: awaitingLook false · the rule says not waiting for one · as it should
+  "Paid with Nubnb's card" ticked (done, changed true): awaitingLook false · the rule says not waiting for one · as it should
+  rejected (done, changed true): awaitingLook false · the rule says not waiting for one · as it should
+  removed (done, changed true): awaitingLook false · the rule says not waiting for one · as it should
+  approved again after the removal (done, changed true): awaitingLook false · the rule says not waiting for one · as it should
+  approved after the rejection (done, changed true): awaitingLook false · the rule says not waiting for one · as it should
+  approve on one already approved automatically (done, changed false: nothing written): awaitingLook true · the rule says waiting for a look · as it should
+  a line corrected (done, changed true): awaitingLook false · the rule says not waiting for one · as it should
+  the tax corrected (done, changed true): awaitingLook false · the rule says not waiting for one · as it should
+
+═══ 3. Paths on entries that never carried it ═══
+  the receipt from $200.00 approved (done, changed true): awaitingLook absent · the rule says not waiting for one · as it should
+  the handyman's work approved (done, changed true): awaitingLook absent · the rule says not waiting for one · as it should
+  the office cost removed (done, changed true): awaitingLook absent · the rule says not waiting for one · as it should
+
+every path leaves the marker where the rule puts it
+
+═══ 4. What an export asks before leaving entries out (fix 2) ═══
+  the report leaves out: 1 pending review, 1 cleaning with no amount yet
+  1 pending, 1 with no amount:
+    "1 entry in this period is still pending review and is not in the report, which holds approved entries only."
+    "1 cleaning with no amount yet in this period is not in the report either."
+    notice: " · 1 pending left out · 1 cleaning with no amount yet left out"
+  1 pending, 0 with no amount:
+    "1 entry in this period is still pending review and is not in the report, which holds approved entries only."
+    notice: " · 1 pending left out"
+  0 pending, 1 with no amount:
+    "1 cleaning with no amount yet in this period is not in the report, which holds approved entries only."
+    notice: " · 1 cleaning with no amount yet left out"
+  0 pending, 2 with no amount:
+    "2 cleanings with no amount yet in this period are not in the report, which holds approved entries only."
+    notice: " · 2 cleanings with no amount yet left out"
+  3 pending, 2 with no amount:
+    "3 entries in this period are still pending review and are not in the report, which holds approved entries only."
+    "2 cleanings with no amount yet in this period are not in the report either."
+    notice: " · 3 pending left out · 2 cleanings with no amount yet left out"
+  nothing left out: 0 lines, no question asked

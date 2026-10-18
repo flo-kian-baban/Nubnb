@@ -1,0 +1,20 @@
+
+═══ September 2026 · 4 rows, 4 with nothing ═══
+  1 T1 Street (finished): own 1 · $100.00 · late 0 · $0.00 · adjustments 0 · $0.00 · charged $100.00 · waiting 0 · $0.00 · no amount 0
+  10 Correction Court (correcting): own 2 · $65.00 · late 0 · $0.00 · adjustments 0 · $0.00 · charged $65.00 · waiting 0 · $0.00 · no amount 0
+  6 T6 Street (finished): own 1 · $100.00 · late 0 · $0.00 · adjustments 0 · $0.00 · charged $100.00 · waiting 0 · $0.00 · no amount 0
+  8 Round One Road (finished): own 1 · $30.00 · late 0 · $0.00 · adjustments 0 · $0.00 · charged $30.00 · waiting 0 · $0.00 · no amount 0
+  totals: own 5 · $295.00 · late 0 · $0.00 · adjustments 0 · $0.00 · charged $295.00 · waiting 0 · $0.00 · no amount 0
+
+═══ October 2026 · 5 rows, 3 with nothing ═══
+  1 T1 Street (open): own 0 · $0.00 · late 1 · $50.00 · adjustments 0 · $0.00 · charged $50.00 · waiting 0 · $0.00 · no amount 0
+  10 Correction Court (open): own 0 · $0.00 · late 1 · $25.00 · adjustments 0 · $0.00 · charged $25.00 · waiting 0 · $0.00 · no amount 0
+  5 T5 Street (open): own 1 · $56.50 · late 0 · $0.00 · adjustments 0 · $0.00 · charged $56.50 · waiting 1 · $20.00 · no amount 0
+  6 T6 Street (finished): own 0 · $0.00 · late 1 · $40.00 · adjustments 1 · $50.00 · charged $90.00 · waiting 0 · $0.00 · no amount 0
+  8 Round One Road (open): own 1 · $90.00 · late 0 · $0.00 · adjustments 1 · -$30.00 · charged $60.00 · waiting 1 · $212.40 · no amount 1
+  totals: own 2 · $146.50 · late 3 · $115.00 · adjustments 2 · $20.00 · charged $281.50 · waiting 2 · $232.40 · no amount 1
+
+═══ November 2026 · 0 rows, 8 with nothing ═══
+  totals: own 0 · $0.00 · late 0 · $0.00 · adjustments 0 · $0.00 · charged $0.00 · waiting 0 · $0.00 · no amount 0
+
+every row against its statement preview, 8 properties × 3 months: all equal

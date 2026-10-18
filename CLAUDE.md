@@ -62,6 +62,9 @@ no checkout. Do not build toward one unless asked.
 - **Verification never acts as a real admin.** Test admins are `__TEST__`
   accounts, created and removed as before; a real admin's account is never
   used, read-only or not. Kian's ruling of 2026-10-15.
+- **Verification never writes into a month or a property an admin may be
+  working.** Test income, costs and statements go on an Unlisted `__TEST__`
+  property in a month at least two years ahead. Kian's ruling of 2026-10-18.
 
 ## Accepted state — do not re-raise
 
@@ -886,3 +889,15 @@ Kian's review of 2026-10-17:
   from an uploaded file or marked "not paid through Nubnb's files" by an
   admin. The page lists unmarked untitled properties apart, and Finish
   warns on them.**
+
+## Costs page — Kian's rulings of 2026-10-18 (round 1)
+
+- **K1. A whole-month ledger (page, PDF, Excel) adds a section, "On this
+  month's statement from earlier months", listing late costs and adjustments
+  with the month each belongs to. Partial date ranges stay as they are.**
+- **K2. Finish keeps warning and never refuses. Its pending warning names
+  cleanings with no amount separately: "n cleanings have no amount yet; they
+  will go on <next month>'s statement once typed."**
+- **K5. Remove (don't delete) the cleaning on [the property's address, left
+  out: this file is public] of 15 October 2026, marked by a team member since
+  deleted.**

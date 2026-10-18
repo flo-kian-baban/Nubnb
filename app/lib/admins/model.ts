@@ -459,6 +459,7 @@ const ACTION_WORDS: [method: string, path: RegExp, words: string][] = [
   ['POST', new RegExp(`^/api/admin/cost-entries/${ID}/lines$`), 'Corrected a cost entry’s lines'],
   ['POST', new RegExp(`^/api/admin/cost-entries/${ID}/paid-with$`), 'Marked who paid for a receipt'],
   ['POST', new RegExp(`^/api/admin/cost-entries/${ID}/seen$`), 'Marked a cost entry seen'],
+  ['POST', /^\/api\/admin\/cost-entries\/seen$/, 'Marked cost entries seen, several at once'],
   ['POST', new RegExp(`^/api/admin/cost-entries/${ID}/status$`), 'Approved, rejected or removed a cost entry'],
   ['POST', new RegExp(`^/api/admin/cost-entries/${ID}/tax$`), 'Corrected a cost entry’s tax'],
   ['POST', new RegExp(`^/api/admin/cost-reports$`), 'Exported a costs PDF'],

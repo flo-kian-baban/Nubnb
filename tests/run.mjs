@@ -32,6 +32,10 @@ export const CHECKS = [
   { name: 'cleaner-home', script: 'cleaner/home.mjs', args: [] },
   { name: 'statements-round1', script: 'statements/round1.mjs', args: [] },
   { name: 'income-one-pass', script: 'money/income-one-pass.mjs', args: [] },
+  { name: 'owner-files', script: 'money/owner-files.mjs', args: [] },
+  { name: 'costs-month', script: 'money/costs-month.mjs', args: [] },
+  { name: 'costs-queue', script: 'money/costs-queue.mjs', args: [] },
+  { name: 'costs-look', script: 'money/costs-look.mjs', args: [] },
 ];
 
 const argv = process.argv.slice(2);

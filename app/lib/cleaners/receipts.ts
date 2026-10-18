@@ -191,3 +191,16 @@ export async function receiptLink(path: string): Promise<ReceiptLink> {
     publicToken: typeof token === 'string' && token.trim() !== '',
   };
 }
+
+/**
+ * A thumbnail's link for the review queue's folded list (the Costs page, round 1): the same signed link as
+ * receiptLink, for RECEIPT_LINK_SECONDS, without the metadata read (the page only shows the image, at once). Signed with
+ * the service account's own key, so no request leaves the server to make it.
+ *
+ * @throws if the signing fails.
+ */
+export async function receiptThumbLink(path: string): Promise<{ url: string; expiresAt: string }> {
+  const expires = Date.now() + RECEIPT_LINK_SECONDS * 1_000;
+  const [url] = await getAdminBucket().file(path).getSignedUrl({ version: 'v4', action: 'read', expires, responseDisposition: 'inline' });
+  return { url, expiresAt: new Date(expires).toISOString() };
+}

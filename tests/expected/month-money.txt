@@ -6,7 +6,7 @@
   (b) Ledger PDF/Excel, 1–30 Sep: 2 entries · $150.00 · Charged on: September 2026's statement $100.00 · October 2026's statement $50.00
         TESTENTRYt1receipt01 $100.00 (its own month)
         TESTENTRYt1office001 $50.00 On October 2026's statement
-        PDF 85c391b40e82d714 holds "On October 2026's statement": true · "Charged on: September 2026's statement $100.00": true · Excel a682f21d4c5fa778
+        PDF 85c391b40e82d714 holds "On October 2026's statement": true · "Charged on: September 2026's statement $100.00": true · Excel 2e672e3ff375c038
   (c) September's statement as sent: recorded $100.00; month's money figures: revenue $2,000.00 (Airbnb $0.00) · expenses $0.00 · recorded $100.00 · fee $0.00 · settled carried $0.00 · total $1,900.00 · carried $0.00 · share $1,900.00
   (d) October's statement as it stands: Expense - ref TESTEN · Sep 2026 (logged Oct 12) -$50.00 · also charged on the Costs tab: Expense - ref TESTEN · Sep 2026 (logged Oct 12) $50.00
   (e) Home panel: September costs $100.00 (as it stands: false) · October costs $50.00 (as it stands: true)

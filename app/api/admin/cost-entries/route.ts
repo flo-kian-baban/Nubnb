@@ -27,6 +27,11 @@
  * Read by the costs page, /admin/costs, once when it opens and on Refresh. No
  * public page calls it, so it adds no function call to a renter's page view.
  *
+ * GET ?view=queue (the Costs page, round 1): the review queue's read, `{ entries, exports, properties,
+ * finishedMonths, since }` — the entries the queue and Worth a look can show (pending, rejected, removed, approved
+ * automatically and not looked at, the last 90 days, and every entry written before the queue's marker), not every
+ * entry ever; see listQueue. The page asks for the whole read above when a filter needs more.
+ *
  * POST request:  JSON `{ propertyId, description, amount, tax, month }` — `month` the month the cost belongs to
  *                (dispatch 36, Kian's ruling of 2026-10-12), from 2026-09 to Toronto's current month
  *                  description  1–200 characters
@@ -50,7 +55,7 @@ import { NextRequest } from 'next/server';
 import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiSuccess, apiError, apiFailure, apiValidationError, noStore } from '@/app/lib/api/safe-response';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
-import { OfficeInputSchema, createOfficeEntry, listCosts, lookupPropertyName, type PropertyLookup } from '@/app/lib/firebase/server-cost-entries';
+import { OfficeInputSchema, createOfficeEntry, listCosts, listQueue, lookupPropertyName, type PropertyLookup } from '@/app/lib/firebase/server-cost-entries';
 import { statementMonthOfCost } from '@/app/lib/firebase/server-reports';
 import { torontoDayOf } from '@/app/lib/costs/report';
 
@@ -63,8 +68,9 @@ function grpcCode(err: unknown): string {
   return typeof code === 'number' ? String(code) : 'unknown';
 }
 
-export const GET = adminRoute(async function GET() {
+export const GET = adminRoute(async function GET(request: NextRequest) {
   try {
+    if (request.nextUrl.searchParams.get('view') === 'queue') return noStore(apiSuccess(await listQueue(torontoDayOf(new Date()))));
     return noStore(apiSuccess(await listCosts()));
   } catch (err) {
     // A read that failed is not an empty list: the 500 says "could not load",

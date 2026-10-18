@@ -478,7 +478,38 @@ export interface ChargedOn {
 }
 
 /** What a statement charged or will charge for a cost, as the month's money gives it (app/lib/money/month.ts, `costCharges`). */
-export type ChargesByEntry = ReadonlyMap<string, readonly { month: string; reportId: string | null; cents: number }[]>;
+export type ChargesByEntry = ReadonlyMap<string, readonly { month: string; reportId: string | null; cents: number; kind?: 'cost' | 'adjustment' }[]>;
+
+/**
+ * One line of a whole month's ledger section "On this month's statement from earlier months" (Kian's ruling K1 of
+ * 2026-10-18): a cost that belongs to an earlier month and is charged on this month's statement, late, or an adjustment
+ * for a cost an earlier statement printed (below zero: given back), with the month it belongs to.
+ */
+export interface FromEarlierRow {
+  id: string;
+  ref: string;
+  /** The month the cost belongs to (`entryMonth`). */
+  belongsTo: string;
+  kind: 'cost' | 'adjustment';
+  /** `receipt`, `work`, `office` or `cleaning`. */
+  entryKind: string;
+  /** The Toronto day it was sent, or an office cost's logged day. */
+  day: string;
+  /** An office cost's date as it prints (Kian's ruling of 2026-10-12); null for any other entry. */
+  office: { month: string; logged: string } | null;
+  /** What it was: the items bought, the work, the office's cost, or "Cleaning". */
+  what: string;
+  /** What this month's statement charges for it. */
+  cents: number;
+}
+
+/** The section, and what the month's statement charges for costs in all (this period's entries charged on it, and these). */
+export interface FromEarlier {
+  month: string;
+  rows: FromEarlierRow[];
+  totalCents: number;
+  statementCents: number;
+}
 
 export interface CostReport {
   propertyId: string;
@@ -502,14 +533,22 @@ export interface CostReport {
    */
   byStatement?: ChargedOn[];
   unchargedCents?: number;
+  /**
+   * Present only when the period is one whole month and its statement charges costs that belong to earlier months
+   * (Kian's ruling K1 of 2026-10-18): the PDF, the workbook and the page list them apart. A partial range, or a month
+   * with none, is as it was.
+   */
+  fromEarlier?: FromEarlier;
 }
 
 export type ReportBuild =
   | {
       kind: 'ok';
       report: CostReport;
-      /** Pending entries in the period, which the report leaves out. */
+      /** Receipts and work in the period still pending review, which the report leaves out. */
       pendingLeftOut: number;
+      /** Cleanings in the period with no amount yet (pending as entries), which the report leaves out too. */
+      noAmountLeftOut: number;
     }
   /** Approved entries in the period whose lines or date cannot be read. No report is made. */
   | { kind: 'unreadable'; entryIds: string[] };
@@ -529,11 +568,56 @@ function chargedOn(charges: readonly { month: string; reportId: string | null; c
   return [...byMonth.values()].sort((a, b) => a.month.localeCompare(b.month));
 }
 
+/** The month a period covers when it is exactly one whole month, first day to last; null otherwise. */
+export function wholeMonthOf(from: string, to: string): string | null {
+  if (!/^\d{4}-\d{2}-01$/.test(from)) return null;
+  const month = from.slice(0, 7);
+  return to === lastDayOf(month) ? month : null;
+}
+
+/**
+ * A whole month's section "On this month's statement from earlier months" for one property, as the ledger page, its
+ * PDF and its workbook show it (Kian's ruling K1 of 2026-10-18); null for a partial range, or a month with none.
+ */
+export function fromEarlierFor(all: CostEntryView[], propertyId: string, from: string, to: string, charges: ChargesByEntry): FromEarlier | null {
+  const month = wholeMonthOf(from, to);
+  return month === null ? null : earlierOn(all.filter((entry) => entry.property.id === propertyId), month, charges);
+}
+
+/** What a month's statement charges for costs of earlier months, from the month's money's charges (Kian's ruling K1). */
+function earlierOn(forProperty: CostEntryView[], month: string, charges: ChargesByEntry): FromEarlier | null {
+  const rows: FromEarlierRow[] = [];
+  let statementCents = 0;
+  for (const entry of forProperty) {
+    const own = entryMonth(entry);
+    for (const charge of charges.get(entry.id) ?? []) {
+      if (charge.month !== month) continue;
+      statementCents += charge.cents;
+      if (own === null || own === month) continue;
+      const lines = entry.linesNow.kind === 'ok' ? entry.linesNow.lines : [];
+      rows.push({
+        id: entry.id,
+        ref: entryRef(entry.id),
+        belongsTo: own,
+        kind: charge.kind === 'adjustment' ? 'adjustment' : 'cost',
+        entryKind: entry.kind,
+        day: sentDay(entry.createdAt) ?? '',
+        office: officeDate(entry),
+        what: entry.kind === 'cleaning' ? 'Cleaning' : whatWasBoughtText(lines) || '—',
+        cents: charge.cents,
+      });
+    }
+  }
+  if (rows.length === 0) return null;
+  rows.sort((a, b) => a.belongsTo.localeCompare(b.belongsTo) || a.day.localeCompare(b.day) || a.id.localeCompare(b.id) || (a.kind === b.kind ? 0 : a.kind === 'cost' ? -1 : 1));
+  return { month, rows, totalCents: rows.reduce((sum, row) => sum + row.cents, 0), statementCents };
+}
+
 /**
  * One property's report for one period: its approved entries, oldest first,
  * and their total. An open start is the property's first entry; an open end
- * is today. `knownName` is the property's name for a property that has no
- * entry to take it from. `charges`, the month's money's (dispatch 37A), say
+ * is today. `knownName` is the name the report prints, the property's address
+ * as the caller knows it; without one, the newest entry's label. `charges`, the month's money's (dispatch 37A), say
  * which statements charge each entry: an entry charged on another month's
  * statement than its own is marked, and the total split by statement, so
  * the ledger an owner holds says what the statements say (T1). Without
@@ -584,6 +668,9 @@ export function buildReport(
       ...(its.some((charge) => charge.month !== own) ? { chargedOn: chargedOn(its) } : {}),
     });
   }
+  // A whole month's ledger also lists what its statement charges for earlier months (Kian's ruling K1 of 2026-10-18).
+  const wholeMonth = charges !== undefined ? wholeMonthOf(from, to) : null;
+  const fromEarlier = wholeMonth !== null && charges !== undefined ? earlierOn(forProperty, wholeMonth, charges) : null;
   // The period's total by statement, only when an entry is charged on another month's statement (T1).
   const split = charges !== undefined && entries.some((entry) => entry.chargedOn !== undefined) ? chargedOn(entries.flatMap((entry) => charges.get(entry.id) ?? [])) : null;
 
@@ -602,7 +689,10 @@ export function buildReport(
     kind: 'ok',
     report: {
       propertyId,
-      propertyName: forProperty[0] ? propertyLabel(forProperty[0]) : (knownName ?? 'Unknown property'),
+      // The address the caller names it by (the properties list's cleaner-facing name, else its public title: Kian's
+      // rulings of 2026-10-15, evening), in every case; without one, the address an entry's lookup found, and only then
+      // an entry's own label.
+      propertyName: knownName ?? forProperty.map((entry) => entry.property.internalName?.trim() || null).find((name) => name !== null) ?? (forProperty[0] ? propertyLabel(forProperty[0]) : 'Unknown property'),
       from: from || entries[0]?.placed || firstDay || today,
       to: to || (lastDay !== undefined && lastDay > today ? lastDay : today),
       entries,
@@ -614,9 +704,28 @@ export function buildReport(
       ...(split !== null
         ? { byStatement: split, unchargedCents: entries.reduce((sum, entry) => sum + entry.totalCents, 0) - split.reduce((sum, row) => sum + row.cents, 0) }
         : {}),
+      ...(fromEarlier !== null ? { fromEarlier } : {}),
     },
-    pendingLeftOut: inPeriod.filter((entry) => entry.status === 'pending').length,
+    pendingLeftOut: inPeriod.filter((entry) => entry.status === 'pending' && entry.kind !== 'cleaning').length,
+    noAmountLeftOut: inPeriod.filter((entry) => entry.status === 'pending' && entry.kind === 'cleaning').length,
   };
+}
+
+/**
+ * What an export's question says of what the report leaves out (the Costs page, round 1): receipts and work waiting for
+ * a decision are "pending review"; cleanings with no amount are "cleanings with no amount yet", in Kian's ruling K2's
+ * words. `where` is "in this period" or "in October 2026". Empty when nothing is left out.
+ */
+export function leftOutLines(pending: number, noAmount: number, where: string): string[] {
+  const lines: string[] = [];
+  if (pending > 0) lines.push(`${pending === 1 ? '1 entry' : `${pending} entries`} ${where} ${pending === 1 ? 'is' : 'are'} still pending review and ${pending === 1 ? 'is' : 'are'} not in the report, which holds approved entries only.`);
+  if (noAmount > 0) lines.push(`${noAmount === 1 ? '1 cleaning' : `${noAmount} cleanings`} with no amount yet ${where} ${noAmount === 1 ? 'is' : 'are'} not in the report${pending > 0 ? ' either' : ', which holds approved entries only'}.`);
+  return lines;
+}
+
+/** The same, for the notice after a download: " · 2 pending left out · 1 cleaning with no amount yet left out", or "". */
+export function leftOutWords(pending: number, noAmount: number): string {
+  return `${pending > 0 ? ` · ${pending} pending left out` : ''}${noAmount > 0 ? ` · ${noAmount === 1 ? '1 cleaning' : `${noAmount} cleanings`} with no amount yet left out` : ''}`;
 }
 
 /** "nubnb-costs-loft-plateau-2026-09-01-to-2026-09-30.pdf". */

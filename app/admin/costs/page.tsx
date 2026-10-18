@@ -122,14 +122,14 @@
 import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { AlertTriangle, ChevronRight, Eye, FileSpreadsheet, FileText, ImageIcon, Pencil, Receipt, RefreshCw, Search } from "lucide-react";
+import { AlertTriangle, ChevronRight, FileSpreadsheet, FileText, ImageIcon, Pencil, Receipt, RefreshCw, Search } from "lucide-react";
 import { AdminHeader } from "../components/AdminHeader";
 import { PageHead } from "../components/PageHead";
 import { AdminSelect } from "../components/AdminSelect";
 import { DateRangeField } from "../components/DateRangeField";
 import { PinGate } from "../components/PinGate";
 import { NoticeBanner, useNotice, type Notice } from "../components/Notice";
-import { fetchCosts, markEntrySeen, recordPdfExport } from "@/app/lib/costs-client";
+import { fetchCleanings, fetchCosts, fetchQueue, markEntriesSeen, recordPdfExport } from "@/app/lib/costs-client";
 import { fetchPropertyStatements } from "@/app/lib/reports-client";
 import { monthLabel } from "@/app/lib/reports/model";
 import {
@@ -141,6 +141,7 @@ import {
   isEntryKind,
   isEntryStatus,
   type CostEntryView,
+  type CostsView,
   type PropertyNameView,
   type ReportExportView,
 } from "@/app/lib/cleaners/model";
@@ -153,7 +154,10 @@ import {
   deletedSincePdf,
   entryMonth,
   entryPdfState,
+  fromEarlierFor,
   inQueue,
+  leftOutLines,
+  leftOutWords,
   isDay,
   matchesFilters,
   periodLabel,
@@ -178,6 +182,9 @@ import { EntryPane, type PropertyStatementsState } from "./EntryPane";
 import { costCharges, chargesByMonth, chargedElsewhere, type Charge } from "@/app/lib/money/month";
 import { cleaningEntryView, type CleaningView, type TeamRate } from "@/app/lib/cleanings/model";
 import { CleaningsTab } from "./CleaningsTab";
+import { AutoApprovals } from "./AutoApprovals";
+import { MonthTab } from "./MonthTab";
+import { statementMonthFor } from "@/app/lib/reports/statement";
 import { useAsk } from "../components/AskDialog";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
@@ -186,15 +193,26 @@ type ListState =
   | { kind: "loading" }
   | {
       kind: "ready";
+      /**
+       * queue: the review queue's read, what the queue and Worth a look can show (the Costs page, round 1); all: every
+       * entry ever, read when a filter needs more than the queue (another status, a property's ledger).
+       */
+      scope: "queue" | "all";
       entries: CostEntryView[];
       /** Every recorded PDF. */
       exports: ReportExportView[];
       /** Every property's current name; null when they could not be read. */
       properties: PropertyNameView[] | null;
-      /** Every cleaning, and the team's rates (dispatch 37B). */
-      cleanings: CleaningView[];
-      team: TeamRate[];
+      /** The properties with an entry waiting for a decision: their finished months, so a late entry is marked (queue read). */
+      finishedMonths: Record<string, string[]>;
     }
+  | { kind: "error"; title: string; detail?: string; status: number };
+
+/** The Cleanings tab's own read (the Costs page, round 1): asked for when the tab opens, or taken from the whole read. */
+type CleaningsState =
+  | { kind: "idle" }
+  | { kind: "loading" }
+  | { kind: "ready"; cleanings: CleaningView[]; team: TeamRate[] }
   | { kind: "error"; title: string; detail?: string; status: number };
 
 type View = "entries" | "items";
@@ -235,8 +253,9 @@ function Costs() {
     };
   });
   const [view, setView] = useState<View>(() => (params.get("view") === "items" ? "items" : "entries"));
-  /** The page's two tabs: costs (the queue and the ledgers), and cleanings (dispatch 37B). */
-  const [section, setSection] = useState<"costs" | "cleanings">(() => (params.get("tab") === "cleanings" ? "cleanings" : "costs"));
+  /** The page's tabs: costs (the queue and the ledgers), cleanings (dispatch 37B), and the month (the Costs page, round 1). */
+  const [section, setSection] = useState<"costs" | "cleanings" | "month">(() => (params.get("tab") === "cleanings" ? "cleanings" : params.get("tab") === "month" ? "month" : "costs"));
+  const [cleanings, setCleanings] = useState<CleaningsState>({ kind: "idle" });
   /** A cleaning opened from the costs list or another page: its row in the Cleanings tab. */
   const [focusCleaning, setFocusCleaning] = useState<string | null>(() => params.get("cleaning"));
   const [selectedId, setSelectedId] = useState<string | null>(() => params.get("entry"));
@@ -263,20 +282,54 @@ function Costs() {
     });
   }, []);
 
+  /**
+   * The read the filters need (the Costs page, round 1): the review queue's own, unless a filter shows more than the
+   * queue (another status, a property's ledger), which reads every entry. Once every entry is read the page keeps it
+   * until Refresh: the queue is a part of it.
+   */
+  const needsAll = filters.status !== NEEDS_ATTENTION;
+  const loadedScope = list.kind === "ready" ? list.scope : null;
+  /** A filter needs every entry and only the queue is read: the list waits for the whole read. */
+  const loadingAll = needsAll && loadedScope === "queue";
   useEffect(() => {
+    if (loadedScope === "all" || (loadedScope === "queue" && !needsAll)) return;
     let cancelled = false;
-    fetchCosts().then((result) => {
-      if (cancelled) return;
-      setList(
-        result.ok
-          ? { kind: "ready", ...result.data }
-          : { kind: "error", title: result.title, detail: result.detail, status: result.status },
-      );
+    const done = (failed: { title: string; detail?: string; status: number } | null) => {
+      if (failed) setList({ kind: "error", title: failed.title, detail: failed.detail, status: failed.status });
+    };
+    if (needsAll) {
+      fetchCosts().then((result) => {
+        if (cancelled) return;
+        if (!result.ok) return done(result);
+        const data: CostsView = result.data;
+        setList((prev) => ({ kind: "ready", scope: "all", entries: data.entries, exports: data.exports, properties: data.properties, finishedMonths: prev.kind === "ready" ? prev.finishedMonths : {} }));
+        setCleanings({ kind: "ready", cleanings: data.cleanings, team: data.team });
+        done(null);
+      });
+    } else {
+      fetchQueue().then((result) => {
+        if (cancelled) return;
+        if (!result.ok) return done(result);
+        setList({ kind: "ready", scope: "queue", entries: result.data.entries, exports: result.data.exports, properties: result.data.properties, finishedMonths: result.data.finishedMonths });
+        done(null);
+      });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [attempt, needsAll, loadedScope]);
+
+  // The Cleanings tab's own read, the first time it is shown (or on Refresh while it is): "idle" shows as loading.
+  useEffect(() => {
+    if (section !== "cleanings" || cleanings.kind !== "idle") return;
+    let cancelled = false;
+    fetchCleanings().then((result) => {
+      if (!cancelled) setCleanings(result.ok ? { kind: "ready", ...result.data } : { kind: "error", title: result.title, detail: result.detail, status: result.status });
     });
     return () => {
       cancelled = true;
     };
-  }, [attempt]);
+  }, [section, cleanings.kind]);
 
   // Mirror the filters, the view and the open entry into the address bar.
   useEffect(() => {
@@ -291,7 +344,7 @@ function Costs() {
     set("cleaner", filters.cleanerId);
     set("view", view === "items" && filters.propertyId !== "" ? "items" : null);
     set("entry", selectedId);
-    set("tab", section === "cleanings" ? "cleanings" : null);
+    set("tab", section === "costs" ? null : section);
     set("cleaning", section === "cleanings" ? focusCleaning : null);
     if (url.href !== window.location.href) window.history.replaceState(null, "", url.href);
   }, [filters, view, selectedId, section, focusCleaning]);
@@ -299,6 +352,7 @@ function Costs() {
   const reload = () => {
     clear();
     setList({ kind: "loading" });
+    setCleanings({ kind: "idle" });
     setStatementsByProperty({});
     requestedStatements.current.clear();
     setAttempt((n) => n + 1);
@@ -311,7 +365,7 @@ function Costs() {
    */
   const toggle = (id: string) => {
     // A cleaning is opened in the Cleanings tab, where it is changed, removed or deleted (dispatch 37B).
-    if (list.kind === "ready" && list.cleanings.some((cleaning) => cleaning.id === id)) {
+    if (cleanings.kind === "ready" && cleanings.cleanings.some((cleaning) => cleaning.id === id)) {
       setFocusCleaning(id);
       setSection("cleanings");
       return;
@@ -372,45 +426,55 @@ function Costs() {
     [show],
   );
 
-  /** A cleaning as stored after a log, change or removal (dispatch 37B): in the Cleanings tab's list, and among the costs as its entry. */
+  /** A cleaning as stored after a log, change or removal (dispatch 37B): in the Cleanings tab's list, and among the costs as its entry once every entry is read. */
   const savedCleaning = useCallback((cleaning: CleaningView) => {
+    setCleanings((prev) => (prev.kind === "ready" ? { ...prev, cleanings: prev.cleanings.some((c) => c.id === cleaning.id) ? prev.cleanings.map((c) => (c.id === cleaning.id ? cleaning : c)) : [cleaning, ...prev.cleanings] } : prev));
     setList((prev) => {
-      if (prev.kind !== "ready") return prev;
-      const known = prev.cleanings.some((c) => c.id === cleaning.id);
+      if (prev.kind !== "ready" || prev.scope !== "all") return prev;
       const entry = cleaningEntryView(cleaning);
-      return {
-        ...prev,
-        cleanings: known ? prev.cleanings.map((c) => (c.id === cleaning.id ? cleaning : c)) : [cleaning, ...prev.cleanings],
-        entries: prev.entries.some((e) => e.id === cleaning.id) ? prev.entries.map((e) => (e.id === cleaning.id ? entry : e)) : [entry, ...prev.entries],
-      };
+      return { ...prev, entries: prev.entries.some((e) => e.id === cleaning.id) ? prev.entries.map((e) => (e.id === cleaning.id ? entry : e)) : [entry, ...prev.entries] };
     });
   }, []);
   const deletedCleaning = useCallback((id: string) => {
-    setList((prev) => (prev.kind === "ready" ? { ...prev, cleanings: prev.cleanings.filter((c) => c.id !== id), entries: prev.entries.filter((e) => e.id !== id) } : prev));
+    setCleanings((prev) => (prev.kind === "ready" ? { ...prev, cleanings: prev.cleanings.filter((c) => c.id !== id) } : prev));
+    setList((prev) => (prev.kind === "ready" ? { ...prev, entries: prev.entries.filter((e) => e.id !== id) } : prev));
   }, []);
 
   const entries = useMemo(() => (list.kind === "ready" ? list.entries : []), [list]);
   const known = list.kind === "ready" ? list.properties : null;
   const visible = useMemo(() => entries.filter((entry) => matchesFilters(entry, filters)), [entries, filters]);
-  /** In the queue: the entries approved automatically that no admin has looked at, shown as their own group (dispatch 24). */
+  /** In the queue: the entries approved automatically that no admin has looked at, folded under the table (dispatch 24; the Costs page, round 1). */
   const unseen = useMemo(() => (filters.status === NEEDS_ATTENTION ? visible.filter(awaitingLook) : []), [visible, filters.status]);
   /**
-   * The table's groups. In the queue (2026-10-02): what needs review first —
-   * approved automatically and not looked at, then waiting for a decision —
-   * and the rejected and removed entries, decided and kept on record, last.
-   * Anywhere else, one list, newest first.
+   * The table's groups. In the queue (the Costs page, round 1): what needs a person first — waiting for a decision,
+   * oldest first, so a late one leads — then the rejected and removed entries, decided and kept on record. The
+   * automatic approvals not looked at are folded into their own list under the table. Anywhere else, one list,
+   * newest first.
    */
   const groups = useMemo(() => {
     if (filters.status !== NEEDS_ATTENTION) return [{ key: "all", entries: visible }];
     const decided = (entry: CostEntryView) => entry.status === "rejected" || entry.status === "removed";
+    const oldestFirst = (a: CostEntryView, b: CostEntryView) => (a.createdAt ?? "").localeCompare(b.createdAt ?? "") || a.id.localeCompare(b.id);
     return [
-      { key: "unseen", entries: unseen },
-      { key: "decide", entries: visible.filter((entry) => !awaitingLook(entry) && !decided(entry)) },
+      { key: "decide", entries: visible.filter((entry) => !awaitingLook(entry) && !decided(entry)).sort(oldestFirst) },
       { key: "decided", entries: visible.filter((entry) => !awaitingLook(entry) && decided(entry)) },
     ].filter((group) => group.entries.length > 0);
-  }, [visible, unseen, filters.status]);
-  /** In the queue: how many entries wait for an admin — a look or a decision. */
-  const toReview = groups.filter((group) => group.key === "unseen" || group.key === "decide").reduce((sum, group) => sum + group.entries.length, 0);
+  }, [visible, filters.status]);
+  /** In the queue: how many entries need a decision, and how many automatic approvals wait for a look. */
+  const toDecide = groups.find((group) => group.key === "decide")?.entries.length ?? 0;
+  const toReview = toDecide + unseen.length;
+  /**
+   * An entry waiting for a decision whose month's statement is already finished (the Costs page, round 1): it goes on
+   * the next open statement once approved, and the queue says which.
+   */
+  const lateOf = (entry: CostEntryView): { own: string; goes: string } | null => {
+    if (entry.status !== "pending" || list.kind !== "ready" || entry.property.id === null) return null;
+    const finished = list.finishedMonths[entry.property.id];
+    const own = entryMonth(entry);
+    if (!finished || own === null) return null;
+    const goes = statementMonthFor(own, new Set(finished));
+    return goes === own ? null : { own, goes };
+  };
   /** Every cleaner and handyman an entry names, A to Z, for the filter. */
   const people = useMemo(() => {
     const byId = new Map<string, string>();
@@ -500,10 +564,25 @@ function Costs() {
     if (filters.propertyId !== "" && !requestedStatements.current.has(filters.propertyId)) loadStatements(filters.propertyId);
   }, [filters.propertyId, loadStatements, attempt]);
   const chosenStatements = useMemo<PropertyStatementsState | null>(() => (oneProperty ? (statementsByProperty[filters.propertyId] ?? { kind: "loading" }) : null), [oneProperty, statementsByProperty, filters.propertyId]);
+  /**
+   * The costs the statements read: the entries loaded, and the cleanings once the Cleanings tab has read them (the
+   * whole read holds them already). An entry's charges depend only on itself and the statements, so the queue's read
+   * gives each of its entries the same charges as the whole read.
+   */
+  const moneyEntries = useMemo(() => {
+    if (cleanings.kind !== "ready") return entries;
+    const known = new Set(entries.map((entry) => entry.id));
+    return [...entries, ...cleanings.cleanings.filter((c) => !known.has(c.id)).map(cleaningEntryView)];
+  }, [entries, cleanings]);
   /** Every statement that charges each of the chosen property's entries; null until its statements are read. */
   const charges = useMemo<Map<string, Charge[]> | null>(
-    () => (chosenStatements?.kind === "ready" ? costCharges({ propertyId: filters.propertyId, entries, reports: chosenStatements.data.reports, management: chosenStatements.data.management }) : null),
-    [chosenStatements, filters.propertyId, entries],
+    () => (chosenStatements?.kind === "ready" ? costCharges({ propertyId: filters.propertyId, entries: moneyEntries, reports: chosenStatements.data.reports, management: chosenStatements.data.management }) : null),
+    [chosenStatements, filters.propertyId, moneyEntries],
+  );
+  /** A whole month's ledger: what its statement also charges for earlier months (Kian's ruling K1 of 2026-10-18). */
+  const fromEarlier = useMemo(
+    () => (ledger && charges !== null ? fromEarlierFor(moneyEntries, filters.propertyId, filters.from, filters.to, charges) : null),
+    [ledger, charges, moneyEntries, filters.propertyId, filters.from, filters.to],
   );
   /** A ledger's split by statement, as its PDF prints it: only when an entry shown is charged on another month's statement (T1). */
   const ledgerSplit = useMemo(() => {
@@ -527,29 +606,29 @@ function Costs() {
 
   const setFilter = (change: Partial<CostFilters>) => setFilters((was) => ({ ...was, ...change }));
 
-  /** Mark one entry, or every entry in the group, as seen: one call each, the list changing only to what the server returns. */
-  const markSeen = async (targets: CostEntryView[]) => {
+  /**
+   * Mark the automatic approvals shown as seen (the Costs page, round 1): one request, one transaction reading only
+   * those entries, each as the page read it, or nothing is written; the page adds each event the server wrote.
+   */
+  const markSeenMany = async (targets: CostEntryView[]) => {
     if (marking !== null || targets.length === 0) return;
     clear();
-    setMarking(targets.length === 1 ? targets[0].id : "all");
-    let done = 0;
-    let failed: string | null = null;
-    for (const entry of targets) {
-      const result = await markEntrySeen(entry.id, { seen: entry.history?.length ?? 0 });
-      if (result.ok) {
-        replaceEntry(result.data.entry);
-        done += 1;
-      } else {
-        failed = result.unknown ? `${result.title} It may or may not have been saved: Refresh to see.` : `${result.title}${result.detail ? ` ${result.detail}` : ""}`;
-        break;
-      }
-    }
+    setMarking("all");
+    const result = await markEntriesSeen(targets.map((entry) => ({ id: entry.id, seen: entry.history?.length ?? 0 })));
     setMarking(null);
-    if (failed !== null) {
-      show({ tone: "error", title: `Marked ${done} of ${targets.length} as seen, then stopped.`, detail: failed });
-    } else {
-      show({ tone: "success", title: targets.length === 1 ? "Marked as seen." : `Marked ${done} entries as seen.`, detail: "Each is still approved and counts in its ledger; it has left the queue." });
+    if (!result.ok) {
+      show(
+        result.unknown
+          ? { tone: "warning", title: "They may or may not have been marked as seen. Refresh to see what is stored.", detail: result.title }
+          : { tone: "error", title: `None was marked as seen. ${result.title}`, detail: [result.detail, result.code === "ENTRIES_CHANGED" ? "Refresh, then mark them again." : null].filter(Boolean).join(" ") || undefined },
+      );
+      return;
     }
+    const events = new Map(result.data.seen.map((item) => [item.id, item.event]));
+    setList((prev) => (prev.kind === "ready" ? { ...prev, entries: prev.entries.map((entry) => (events.has(entry.id) ? { ...entry, history: [...(entry.history ?? []), events.get(entry.id) as NonNullable<CostEntryView["history"]>[number]] } : entry)) } : prev));
+    if (selectedId !== null && events.has(selectedId)) setSelectedId(null);
+    const n = result.data.seen.length;
+    show({ tone: "success", title: n === 1 ? "Marked 1 entry as seen." : `Marked ${n} entries as seen.`, detail: `Each is still approved and counts in its ledger; they have left the queue.${result.data.unchanged.length > 0 ? ` ${result.data.unchanged.length} had already been looked at.` : ""}` });
   };
 
   const exportReport = async (kind: "pdf" | "xlsx") => {
@@ -573,12 +652,14 @@ function Costs() {
       });
       return;
     }
-    const { report, pendingLeftOut } = built;
+    const { report, pendingLeftOut, noAmountLeftOut } = built;
+    // Receipts and work pending review, and cleanings with no amount yet (Kian's ruling K2's words), said apart.
+    const leftOut = leftOutLines(pendingLeftOut, noAmountLeftOut, "in this period");
     if (
-      pendingLeftOut > 0 &&
+      leftOut.length > 0 &&
       !(await ask({
         title: "Download it anyway?",
-        lines: [`${pendingLeftOut === 1 ? "1 entry" : `${pendingLeftOut} entries`} in this period ${pendingLeftOut === 1 ? "is" : "are"} still pending review and ${pendingLeftOut === 1 ? "is" : "are"} not in the report, which holds approved entries only.`],
+        lines: leftOut,
         confirm: "Download anyway",
       }))
     ) {
@@ -641,14 +722,14 @@ function Costs() {
     show({
       tone: "success",
       title: `Downloaded the ${kind === "pdf" ? "PDF" : "Excel file"} for ${printed.propertyName}.`,
-      detail: `${periodLabel(report.from, report.to)} · ${report.entries.length === 1 ? "1 approved entry" : `${report.entries.length} approved entries`} · ${formatCents(report.totalCents)}${pendingLeftOut > 0 ? ` · ${pendingLeftOut} pending left out` : ""}${kind === "pdf" ? " · recorded, so a later correction shows against it" : ""}`,
+      detail: `${periodLabel(report.from, report.to)} · ${report.entries.length === 1 ? "1 approved entry" : `${report.entries.length} approved entries`} · ${formatCents(report.totalCents)}${leftOutWords(pendingLeftOut, noAmountLeftOut)}${kind === "pdf" ? " · recorded, so a later correction shows against it" : ""}`,
     });
   };
 
   return (
     <div className={shared.container}>
       {/* ── Header ── the shared one; this page's action is Refresh */}
-      <AdminHeader current="costs" title={section === "cleanings" ? "Cleanings" : ledger ? "Ledger" : "Costs"} />
+      <AdminHeader current="costs" title={section === "cleanings" ? "Cleanings" : section === "month" ? "Month" : ledger ? "Ledger" : "Costs"} />
 
       <main className={shared.main}>
         {/* The page's own buttons, in its head (Kian's ruling of 2026-10-15: none in the navigation). */}
@@ -661,22 +742,46 @@ function Costs() {
 
         <NoticeBanner notice={notice} onDismiss={clear} className={shared.pageNotice} />
 
-        {/* ── The page's two tabs (dispatch 37B: cleanings are a tab inside the Costs page) ── */}
-        {list.kind === "ready" && (
-          <div className={`${styles.tabs} ${styles.sectionTabs}`} role="tablist" aria-label="Costs or cleanings">
+        {/* ── The page's tabs (dispatch 37B: cleanings are a tab inside the Costs page; the Costs page, round 1: the month) ── */}
+        {(list.kind === "ready" || section !== "costs") && (
+          <div className={`${styles.tabs} ${styles.sectionTabs}`} role="tablist" aria-label="Costs, cleanings or the month">
             <button type="button" role="tab" aria-selected={section === "costs"} className={`${styles.tab} ${section === "costs" ? styles.tabActive : ""}`} onClick={() => setSection("costs")}>
               Costs
             </button>
             <button type="button" role="tab" aria-selected={section === "cleanings"} className={`${styles.tab} ${section === "cleanings" ? styles.tabActive : ""}`} onClick={() => setSection("cleanings")}>
               Cleanings
             </button>
+            <button type="button" role="tab" aria-selected={section === "month"} className={`${styles.tab} ${section === "month" ? styles.tabActive : ""}`} onClick={() => setSection("month")}>
+              Month
+            </button>
           </div>
         )}
 
-        {list.kind === "ready" && section === "cleanings" ? (
+        {section === "month" ? (
+          <MonthTab today={today} attempt={attempt} />
+        ) : section === "cleanings" && (cleanings.kind === "loading" || cleanings.kind === "idle") ? (
+          <div className={shared.loading}>
+            <div className={shared.spinner} />
+            <p>Loading the cleanings…</p>
+          </div>
+        ) : section === "cleanings" && cleanings.kind === "error" ? (
+          <div className={`${shared.empty} ${shared.loadError}`} role="alert">
+            <AlertTriangle size={48} strokeWidth={1} />
+            <h2>Could not load the cleanings</h2>
+            <p>It is not empty — it has not loaded.</p>
+            <code className={shared.loadErrorDetail}>
+              {cleanings.title}
+              {cleanings.detail ? ` ${cleanings.detail}` : ""}
+            </code>
+            <button type="button" className={shared.btnPrimary} onClick={reload}>
+              <RefreshCw size={18} />
+              <span>Retry</span>
+            </button>
+          </div>
+        ) : list.kind === "ready" && section === "cleanings" && cleanings.kind === "ready" ? (
           <CleaningsTab
-            cleanings={list.cleanings}
-            team={list.team}
+            cleanings={cleanings.cleanings}
+            team={cleanings.team}
             properties={list.properties}
             filters={{ propertyId: filters.propertyId, cleanerId: filters.cleanerId, from: filters.from, to: filters.to }}
             setFilter={setFilter}
@@ -750,14 +855,14 @@ function Costs() {
                 className={styles.modeLine}
                 title={
                   filters.status === NEEDS_ATTENTION
-                    ? "Everything not yet approved, and every receipt approved automatically (under $200.00) that nobody has looked at. Approve an entry and it moves to its property's ledger; mark an automatic one seen and it leaves the queue; reject or remove an entry and it stays here, marked, at the bottom."
+                    ? "What needs a decision first, oldest first; the rejected and removed after it, kept on record; then the receipts approved automatically (under $200.00) that nobody has looked at, folded. Approve an entry and it moves to its property's ledger; mark an automatic one seen and it leaves the queue."
                     : undefined
                 }
               >
                 {filters.status === NEEDS_ATTENTION ? (
                   <>
                     <strong>Review queue</strong>
-                    {oneProperty && <> · {propertyName ?? "Unknown property"}</>} · {toReview === 0 ? "nothing to review" : `${toReview} to review`}
+                    {oneProperty && <> · {propertyName ?? "Unknown property"}</>} · {toReview === 0 ? "nothing to review" : [toDecide > 0 ? `${toDecide} to decide` : null, unseen.length > 0 ? `${unseen.length} approved automatically to look at` : null].filter(Boolean).join(" · ")}
                     {oneProperty && (
                       <>
                         {" · "}
@@ -925,6 +1030,41 @@ function Costs() {
               </section>
             )}
 
+            {/* ── A whole month's ledger: what its statement also charges for earlier months (Kian's ruling K1 of 2026-10-18) ── */}
+            {ledger && fromEarlier && (
+              <section className={styles.earlier} aria-label="On this month's statement from earlier months">
+                <h3 className={styles.earlierTitle}>On this month&apos;s statement from earlier months</h3>
+                <table className={styles.earlierTable}>
+                  <tbody>
+                    {fromEarlier.rows.map((row) => (
+                      <tr key={`${row.id}-${row.kind}`}>
+                        <td className={styles.whenCell}>{row.office ? `${row.office.month} ${row.office.logged}` : shortDay(row.day)}</td>
+                        <td className={styles.textCell}>
+                          {row.kind === "adjustment" ? "Adjustment: " : row.entryKind === "work" ? "Work: " : row.entryKind === "office" ? "Office: " : ""}
+                          {row.what}
+                          <span className={styles.earlierBelongs}>Belongs to {monthLabel(row.belongsTo)}</span>
+                        </td>
+                        <td className={styles.muted}>{row.ref}</td>
+                        <td className={styles.num}>{formatCents(row.cents)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td colSpan={3}>From earlier months</td>
+                      <td className={styles.num}>{formatCents(fromEarlier.totalCents)}</td>
+                    </tr>
+                    <tr>
+                      <td colSpan={3} className={styles.muted}>
+                        {monthLabel(fromEarlier.month)}&apos;s statement charges for costs in all
+                      </td>
+                      <td className={styles.num}>{formatCents(fromEarlier.statementCents)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </section>
+            )}
+
             {/* ── The property's PDFs that list an entry since deleted outright (dispatch 23H) ── */}
             {ledger &&
               deletedSincePdf(pdfs.records, entries, filters.propertyId).map(({ record, printed }) => (
@@ -971,7 +1111,15 @@ function Costs() {
 
             {/* ── List ── */}
             <section className={styles.listPane} aria-label={showing === "items" ? "Items bought" : "Entries"}>
-                {visible.length === 0 && ledger ? (
+                {loadingAll ? (
+                  /* Another status or a ledger needs every entry (the Costs page, round 1): read once, then kept. */
+                  <div className={shared.loading}>
+                    <div className={shared.spinner} />
+                    <p>Loading every entry…</p>
+                  </div>
+                ) : filters.status === NEEDS_ATTENTION && groups.length === 0 && unseen.length > 0 ? (
+                  <p className={styles.note}>Nothing waits for a decision.</p>
+                ) : visible.length === 0 && ledger ? (
                   <div className={shared.empty}>
                     <Receipt size={48} strokeWidth={1} />
                     <h2>No approved costs in these dates</h2>
@@ -1015,20 +1163,8 @@ function Costs() {
                               <tr className={styles.groupRow}>
                                 <td colSpan={columns}>
                                   <span className={styles.groupTitle}>
-                                    {group.key === "unseen" ? "Approved automatically, not yet looked at" : group.key === "decide" ? "Needs a decision" : "Rejected or removed"} ({group.entries.length})
+                                    {group.key === "decide" ? "Needs a decision" : "Rejected or removed"} ({group.entries.length})
                                   </span>
-                                  {group.key === "unseen" && (
-                                    <button
-                                      type="button"
-                                      className={styles.btnGhost}
-                                      disabled={marking !== null}
-                                      onClick={() => markSeen(unseen)}
-                                      title="Each already counts in its ledger. Seen takes it out of the queue; so does correcting, removing or rejecting it."
-                                    >
-                                      <Eye size={14} aria-hidden />
-                                      <span>{marking === "all" ? "Marking…" : `Mark all ${unseen.length} as seen`}</span>
-                                    </button>
-                                  )}
                                   {group.key === "decided" && <span className={styles.note}>Kept on record; counted nowhere.</span>}
                                 </td>
                               </tr>
@@ -1041,7 +1177,7 @@ function Costs() {
                                   showProperty={!oneProperty}
                                   pdf={pdfStates.get(entry.id) ?? null}
                                   charges={charges?.get(entry.id) ?? null}
-                                  seen={group.key === "unseen" ? { marking: marking !== null, busy: marking === entry.id, onSeen: () => markSeen([entry]) } : null}
+                                  late={group.key === "decide" ? lateOf(entry) : null}
                                   onToggle={toggle}
                                 />
                                 {/* ── The open entry, under its own row (Kian, 2026-10-02) ── */}
@@ -1071,6 +1207,30 @@ function Costs() {
                   </div>
                 )}
             </section>
+
+            {/* ── The automatic approvals not looked at, folded under what needs a decision (the Costs page, round 1) ── */}
+            {filters.status === NEEDS_ATTENTION && showing === "entries" && !loadingAll && (
+              <AutoApprovals
+                entries={unseen}
+                selectedId={selectedId}
+                onToggle={toggle}
+                marking={marking !== null}
+                onMarkAll={() => void markSeenMany(unseen)}
+                pane={(entry) => (
+                  <EntryPane
+                    key={entry.id}
+                    entry={entry}
+                    pdf={pdfStates.get(entry.id) ?? null}
+                    pattern={entry.cleaner.id === null ? null : (patterns.find((pattern) => pattern.cleanerId === entry.cleaner.id) ?? null)}
+                    statements={entry.property.id === null ? null : (statementsByProperty[entry.property.id] ?? { kind: "loading" })}
+                    onChanged={changed}
+                    onDeleted={dropEntry}
+                    onClose={closePane}
+                    showHeading={false}
+                  />
+                )}
+              />
+            )}
 
             {/* ── Totals for what is shown, and the reports: at the bottom, under the entries (Kian, 2026-10-02) ── */}
             {!ledger && (
@@ -1153,7 +1313,7 @@ function EntryRow({
   showProperty,
   pdf,
   charges,
-  seen,
+  late,
   onToggle,
 }: {
   entry: CostEntryView;
@@ -1162,8 +1322,8 @@ function EntryRow({
   pdf: EntryPdfState | null;
   /** The statements that charge it, when its property's statements are read (dispatch 37A). */
   charges: Charge[] | null;
-  /** In the queue's first group: the Seen button, and whether a mark is under way. */
-  seen: { marking: boolean; busy: boolean; onSeen: () => void } | null;
+  /** Waiting for a decision for a month whose statement is finished (the Costs page, round 1): the statement it goes on once approved. */
+  late: { own: string; goes: string } | null;
   onToggle: (id: string) => void;
 }) {
   const property = propertyLabel(entry);
@@ -1220,19 +1380,10 @@ function EntryRow({
       <td className={styles.colFit}>
         <span className={styles.statusCell}>
           <EntryStatusBadge status={entry.status} auto={entry.autoApproved !== null} />
-          {seen && (
-            <button
-              type="button"
-              className={styles.lineAction}
-              disabled={seen.marking}
-              onClick={(e) => {
-                e.stopPropagation();
-                seen.onSeen();
-              }}
-              aria-label="Mark as seen"
-            >
-              {seen.busy ? "Marking…" : "Seen"}
-            </button>
+          {late && (
+            <span className={styles.lateMark} title={`${monthLabel(late.own)}'s statement is finished: once approved, this goes on ${monthLabel(late.goes)}'s.`}>
+              Late · goes on {monthLabel(late.goes)}
+            </span>
           )}
         </span>
       </td>

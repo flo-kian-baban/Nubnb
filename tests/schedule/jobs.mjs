@@ -201,7 +201,7 @@ console.log(`  costs charged: ${built.statement.costs.map((c) => `${c.entryId} $
 const pdf = Buffer.from(statementPdf({ ...built.statement, draft: false })).toString('latin1');
 console.log(`  the PDF holds "Expense - Cleaning": ${pdf.includes('Expense - Cleaning')} · names a cleaner: ${pdf.includes('Ana') || pdf.includes('Ben')}`);
 const checks = finishChecks({ statement: built.statement, reports: [], entries, income: null, today: '2026-11-03' });
-console.log(`  Finish warns: ${checks.warnings.filter((w) => w.key === 'pending').map((w) => w.text).join(' | ')}`);
+console.log(`  Finish warns: ${checks.warnings.filter((w) => w.key === 'pending' || w.key === 'no-amount').map((w) => w.text).join(' | ')}`);
 
 // ═══ 7. The cleaner door's lock key ═══
 console.log('\n═══ 7. The cleaner door keeps its own key for a connection ═══');

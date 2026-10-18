@@ -1,0 +1,29 @@
+═══ 1. The same queue from the narrow read as from the full read ═══
+full read (listCosts): 68 reads (cost_entries 58 · cleaners 4 · properties 2 · property_cleaner_names 2 · cost_report_exports 1 · cleanings 1)
+queue read (listQueue): 29 reads (cost_entries 21 · properties 2 · property_cleaner_names 2 · cleaners 2 · cost_report_exports 1 · monthly_reports 1)
+queue from the full read:   N7newu N6work N9late N1oldu L1oldu L3oldp N3rejd N4remd
+queue from the narrow read: N7newu N6work N9late N1oldu L1oldu L3oldp N3rejd N4remd
+identical, entry for entry and field for field: true
+Worth a look identical: true · names: Test Ana
+read by the narrow read, not in the queue (Worth a look's 90 days, and entries written before the marker): N8news band04 band03 L4newa band02 band01 band00 L2olds
+read by the full read only: 42 entries (N2olds N5offc and the 40 of history)
+finished months of the properties with an entry waiting: {"TESTPROPqueueaaaaaa1":["2026-09"],"TESTPROPqueuebbbbbb1":[]} · window from 2026-08-06
+the same exports and property names: true
+
+═══ 2. "Mark these n seen": one request, reading only those entries ═══
+unseen in the queue: N7newu N1oldu L1oldu
+a stale one (N7 seen as 1): 2 reads (cost_entries 2)
+  → refused changed-since N7newu · N1 untouched: true
+mark 2 (all but N7): 2 reads (cost_entries 2)
+  → done: N1oldu seen by Test admin, L1oldu seen by Test admin · unchanged 0
+  N1 (version 3): awaitingLook false · L1 (version 2): has the field false (never backfilled), its history ends seen
+  marking N1 again: done, unchanged N1oldu, nothing written: true
+
+═══ 3. Any admin event clears the marker ═══
+remove N7 (a review): 4 reads (cost_entries 1 · cleaners 1 · properties 1 · property_cleaner_names 1)
+  → done · N7 awaitingLook false · in the queue now as removed: removed
+
+═══ 4. The queue after: narrow and full still agree ═══
+full read: 68 reads (cost_entries 58 · cleaners 4 · properties 2 · property_cleaner_names 2 · cost_report_exports 1 · cleanings 1)
+queue read: 29 reads (cost_entries 21 · properties 2 · property_cleaner_names 2 · cleaners 2 · cost_report_exports 1 · monthly_reports 1)
+queue: N7newu N6work N9late L3oldp N3rejd N4remd · identical to the full read's: true · Worth a look identical: true

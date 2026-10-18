@@ -130,6 +130,7 @@
   GET    /api/admin/cleaning-jobs                             read, not recorded
   PATCH  /api/admin/cleanings/[id]                            recorded as "Changed or removed a cleaning"
   DELETE /api/admin/cleanings/[id]                            recorded as "Deleted a cleaning"
+  GET    /api/admin/cleanings                                 read, not recorded
   POST   /api/admin/cleanings                                 recorded as "Logged a cleaning"
   POST   /api/admin/cost-entries/[id]/lines                   recorded as "Corrected a cost entry’s lines"
   POST   /api/admin/cost-entries/[id]/paid-with               recorded as "Marked who paid for a receipt"
@@ -138,8 +139,11 @@
   POST   /api/admin/cost-entries/[id]/seen                    recorded as "Marked a cost entry seen"
   POST   /api/admin/cost-entries/[id]/status                  recorded as "Approved, rejected or removed a cost entry"
   POST   /api/admin/cost-entries/[id]/tax                     recorded as "Corrected a cost entry’s tax"
+  GET    /api/admin/cost-entries/month                        read, not recorded
+  GET    /api/admin/cost-entries/receipt-links                read, not recorded
   GET    /api/admin/cost-entries                              read, not recorded
   POST   /api/admin/cost-entries                              recorded as "Logged an office cost"
+  POST   /api/admin/cost-entries/seen                         recorded as "Marked cost entries seen, several at once"
   POST   /api/admin/cost-reports                              recorded as "Exported a costs PDF"
   PATCH  /api/admin/direct/arrangements/[id]                  recorded as "Changed a direct arrangement"
   POST   /api/admin/direct/arrangements                       recorded as "Set up direct payments"
@@ -195,7 +199,7 @@
   POST   /api/properties                                      recorded as "Added a property"
   POST   /api/scrape-airbnb                                   recorded as "Read an Airbnb listing"
   POST   /api/upload-image                                    recorded as "Uploaded an image"
-  86 handlers through adminRoute; problems: 0
+  90 handlers through adminRoute; problems: 0
   routes still on the PIN-signed session: 0
   a route that unlocks an admin's PIN (the first version's per-admin lock): false
 

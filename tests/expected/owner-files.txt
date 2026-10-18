@@ -1,0 +1,26 @@
+the property's newest entry: cleaning of 2026-10-28 · its label as the lists read it: 12 Owner Test St
+
+═══ 1. The ledger PDF and Excel ═══
+ 2026-10-01 to 2026-10-31: prints "12 Owner Test St" · 2 entries · from earlier months: cost Plumber, kitchen tap (2026-09) 15000
+  PDF: names a team member or the public title: none · the address: true
+  Excel: names a team member or the public title: none · the address: true
+ 2026-10-01 to 2026-10-20: prints "12 Owner Test St" · 1 entries · from earlier months: no section
+  PDF: names a team member or the public title: none · the address: true
+  Excel: names a team member or the public title: none · the address: true
+  no name given, newest entry a cleaning: prints "12 Owner Test St"
+
+═══ 2. The month ZIP's owner folder ═══
+ 2026-09: 5 files in the owner's folder
+  12 Owner Test St · TESTPR/2026/2026-09 September/2026-09 12 Owner Test St.xlsx: names a team member or the public title: none · the address: true
+  12 Owner Test St · TESTPR/2026/2026-09 September/2026-09 Payment Summary Sept-TEST (TESTRE).pdf: names a team member or the public title: none · the address: true
+  12 Owner Test St · TESTPR/2026/2026-09 September/README.txt: names a team member or the public title: none · the address: true
+  12 Owner Test St · TESTPR/2026/2026-09 September/SHA256SUMS.txt: names a team member or the public title: none · the address: true
+  12 Owner Test St · TESTPR/2026/2026-09 September/manifest.json: names a team member or the public title: none · the address: true
+ 2026-10: 5 files in the owner's folder
+  12 Owner Test St · TESTPR/2026/2026-10 October/2026-10 12 Owner Test St.xlsx: names a team member or the public title: none · the address: true
+  12 Owner Test St · TESTPR/2026/2026-10 October/2026-10 Payment Summary Oct-TEST (TESTRE).pdf: names a team member or the public title: none · the address: true
+  12 Owner Test St · TESTPR/2026/2026-10 October/README.txt: names a team member or the public title: none · the address: true
+  12 Owner Test St · TESTPR/2026/2026-10 October/SHA256SUMS.txt: names a team member or the public title: none · the address: true
+  12 Owner Test St · TESTPR/2026/2026-10 October/manifest.json: names a team member or the public title: none · the address: true
+
+no owner file names a team member or the public title

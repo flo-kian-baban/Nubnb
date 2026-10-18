@@ -110,7 +110,9 @@ import { isDocumentId } from './server-leads';
 import { cleanerFacingNamesOf, internalNameOf, listCleanerFacingNames } from './server-property-names';
 import type { ReadingAttachment } from '@/app/lib/cleaners/readings';
 import { byLedgerDay, inRange, ledgerDay } from '@/app/lib/costs/report';
-import { MONTHLY_REPORTS_COLLECTION } from '@/app/lib/reports/model';
+import { MONTHLY_REPORTS_COLLECTION, currentReports, readMonthlyReport } from '@/app/lib/reports/model';
+import { windowStart } from '@/app/lib/costs/patterns';
+import { receiptThumbLink } from '@/app/lib/cleaners/receipts';
 import {
   AUTO_APPROVAL_REASON,
   SYSTEM_ACTOR,
@@ -147,6 +149,8 @@ import {
   type CostEntryView,
   type CostsView,
   type HistoryEvent,
+  type HistoryEventView,
+  type QueueView,
   type Line,
   type LookupState,
   type PaidWith,
@@ -726,6 +730,9 @@ export async function createCostEntry(input: NewCostEntry): Promise<CostEntryCre
 
       tx.create(entryRef, {
         schemaVersion: COST_ENTRY_SCHEMA_VERSION,
+        // Version 3: what the review queue's read asks for, on a receipt approved automatically only; the first admin
+        // event sets it false. Any other entry never carries it.
+        ...(autoApprove ? { awaitingLook: true } : {}),
         kind: 'receipt',
         cleanerId,
         cleanerNameAtEntry,
@@ -1099,13 +1106,163 @@ export async function listCosts(): Promise<CostsView> {
     cleanings,
     team,
     exports: exported.docs.map((doc) => readReportExport(doc.id, doc.data())).sort(newestFirst),
-    properties:
-      properties === null
-        ? null
-        : [...properties.entries()]
-            .map(([id, now]) => ({ id, name: now.name, internalName: now.internalName, createdMonth: now.createdMonth ?? null }))
-            .sort((a, b) => (a.internalName ?? '').localeCompare(b.internalName ?? '', 'en-CA') || a.id.localeCompare(b.id)),
+    properties: propertyList(properties),
   };
+}
+
+/** Every property's ID and names, A to Z (one read per property and per cleaner-facing name); null when they could not be read. */
+export async function listPropertyNames(): Promise<CostsView['properties']> {
+  return propertyList(await lookUpAllProperties());
+}
+
+/** Every property's ID and names, A to Z by the name the admin shows; null when they could not be read. */
+function propertyList(properties: Map<string, PropertyNow> | null): CostsView['properties'] {
+  return properties === null
+    ? null
+    : [...properties.entries()]
+        .map(([id, now]) => ({ id, name: now.name, internalName: now.internalName, createdMonth: now.createdMonth ?? null }))
+        .sort((a, b) => (a.internalName ?? '').localeCompare(b.internalName ?? '', 'en-CA') || a.id.localeCompare(b.id));
+}
+
+// ─── The review queue's read (the Costs page, round 1) ─────────
+
+/** The entry version that carries `awaitingLook` (COST_ENTRY_SCHEMA_VERSION 3): older entries are read whole. */
+const LOOK_MARKED_FROM_VERSION = 3;
+
+/**
+ * The review queue's read: what the queue and Worth a look show, whatever its age, and nothing else. Reads: the
+ * entries of the four queries (one read per document, an entry in two of them read twice), every recorded PDF, every
+ * property's name, the cleaners named, and the finished statements of the properties with an entry waiting.
+ *
+ * @throws if the entries or the recorded PDFs cannot be read (never "nothing to review").
+ */
+export async function listQueue(today: string): Promise<QueueView> {
+  const db = getAdminDb();
+  const all = db.collection(COST_ENTRIES_COLLECTION);
+  const since = windowStart(today);
+  // A day before the window's first Toronto day, in UTC: every entry sent on that day is in it; the rule filters by day.
+  const sinceInstant = new Date(Date.parse(`${since}T00:00:00.000Z`) - 86_400_000).toISOString();
+  const [open, unseen, recent, older, exported, properties] = await Promise.all([
+    all.where('status', 'in', ['pending', 'rejected', 'removed']).get(),
+    all.where('awaitingLook', '==', true).get(),
+    all.where('createdAt', '>=', sinceInstant).get(),
+    // Written before the marker: a set that stops growing once version 3 is written.
+    all.where('schemaVersion', '<', LOOK_MARKED_FROM_VERSION).get(),
+    db.collection(COST_REPORT_EXPORTS_COLLECTION).get(),
+    lookUpAllProperties(),
+  ]);
+  const byId = new Map<string, CostEntryFields>();
+  for (const snapshot of [open, unseen, recent, older]) {
+    for (const doc of snapshot.docs) if (!byId.has(doc.id)) byId.set(doc.id, readCostEntryFields(doc.id, doc.data()));
+  }
+  const entries = [...byId.values()];
+  const waiting = distinctIds(entries.filter((entry) => entry.status === 'pending').map((entry) => entry.propertyId));
+  const [cleaners, finishedMonths] = await Promise.all([lookUpCleaners(distinctIds(entries.map((entry) => entry.cleanerId))), finishedMonthsOf(waiting)]);
+  return {
+    entries: entries.map((entry) => toView(entry, cleaners, properties)).sort(newestFirst),
+    exports: exported.docs.map((doc) => readReportExport(doc.id, doc.data())).sort(newestFirst),
+    properties: propertyList(properties),
+    finishedMonths,
+    since,
+  };
+}
+
+/** The months each property's current finished statements cover: thirty properties a query. */
+async function finishedMonthsOf(propertyIds: string[]): Promise<Record<string, string[]>> {
+  const out: Record<string, string[]> = {};
+  if (propertyIds.length === 0) return out;
+  const db = getAdminDb();
+  const chunks: string[][] = [];
+  for (let i = 0; i < propertyIds.length; i += 30) chunks.push(propertyIds.slice(i, i + 30));
+  const snapshots = await Promise.all(chunks.map((chunk) => db.collection(MONTHLY_REPORTS_COLLECTION).where('propertyId', 'in', chunk).get()));
+  const reports = snapshots.flatMap((snapshot) => snapshot.docs.map((doc) => readMonthlyReport(doc.id, doc.data())).filter((report) => report !== null));
+  for (const id of propertyIds) out[id] = currentReports(reports.filter((report) => report.propertyId === id)).map((report) => report.month).sort();
+  return out;
+}
+
+// ─── Thumbnails, for many at once (the Costs page, round 1) ─────
+
+export const THUMB_LINKS_MAX = 100;
+
+/**
+ * Each entry's first receipt as a link for its thumbnail, by entry ID: one read per entry asked, of `receipts` alone;
+ * an entry with no receipt, or one whose path is not under receipts/, has none. The links last RECEIPT_LINK_SECONDS.
+ *
+ * @throws if the read fails.
+ */
+export async function receiptThumbLinks(ids: string[]): Promise<Record<string, { url: string; expiresAt: string }>> {
+  const wanted = distinctIds(ids).slice(0, THUMB_LINKS_MAX);
+  if (wanted.length === 0) return {};
+  const db = getAdminDb();
+  const docs = await db.getAll(...wanted.map((id) => db.collection(COST_ENTRIES_COLLECTION).doc(id)), { fieldMask: ['receipts'] });
+  const out: Record<string, { url: string; expiresAt: string }> = {};
+  await Promise.all(
+    docs.map(async (doc) => {
+      const receipts: unknown = doc.exists ? doc.get('receipts') : null;
+      const first = Array.isArray(receipts) ? (receipts[0] as { path?: unknown } | undefined) : undefined;
+      const path = typeof first?.path === 'string' ? first.path : null;
+      if (path === null || !path.startsWith(`${RECEIPTS_PREFIX}/`) || path.includes('..')) return;
+      out[doc.id] = await receiptThumbLink(path);
+    }),
+  );
+  return out;
+}
+
+// ─── Seen, for many at once (the Costs page, round 1) ──────────
+
+export type SeenManyResult =
+  /** Each entry marked, with the event its history took; `unchanged`: already looked at, nothing written for it. */
+  | { kind: 'done'; seen: { id: string; event: HistoryEventView }[]; unchanged: string[] }
+  /** Nothing was written: these entries changed since the page read them, or are gone, or were not approved automatically. */
+  | { kind: 'refused'; reason: 'changed-since' | 'not-found' | 'not-auto-approved'; ids: string[] }
+  | { kind: 'failed' };
+
+export const SEEN_MANY_MAX = 400;
+
+/**
+ * Mark many entries approved automatically as seen, in one transaction that reads only those entries: each must be as
+ * the admin saw it (`seen`, its history's length) and approved automatically, or nothing is written. One event each,
+ * as markEntrySeen writes it, and the queue's marker cleared with it.
+ */
+export async function markEntriesSeen(actor: Actor, list: { id: string; seen: number }[]): Promise<SeenManyResult> {
+  const wanted = [...new Map(list.filter((item) => isDocumentId(item.id)).map((item) => [item.id, item.seen])).entries()];
+  if (wanted.length === 0) return { kind: 'done', seen: [], unchanged: [] };
+  try {
+    const db = getAdminDb();
+    const refs = wanted.map(([id]) => db.collection(COST_ENTRIES_COLLECTION).doc(id));
+    return await db.runTransaction(async (tx): Promise<SeenManyResult> => {
+      const snaps = await tx.getAll(...refs);
+      const missing = snaps.filter((snap) => !snap.exists).map((snap) => snap.id);
+      if (missing.length > 0) return { kind: 'refused', reason: 'not-found', ids: missing };
+      const changed: string[] = [];
+      const notAuto: string[] = [];
+      for (const [i, snap] of snaps.entries()) {
+        const history: unknown = snap.get('history');
+        if (!Array.isArray(history) || history.length !== wanted[i][1]) changed.push(snap.id);
+        else if (readCostEntryFields(snap.id, snap.data() ?? {}).autoApproved === null) notAuto.push(snap.id);
+      }
+      if (changed.length > 0) return { kind: 'refused', reason: 'changed-since', ids: changed };
+      if (notAuto.length > 0) return { kind: 'refused', reason: 'not-auto-approved', ids: notAuto };
+      const now = new Date().toISOString();
+      const seen: { id: string; event: HistoryEventView }[] = [];
+      const unchanged: string[] = [];
+      for (const [i, snap] of snaps.entries()) {
+        const stored = snap.data() ?? {};
+        if (!awaitingLook(readCostEntryFields(snap.id, stored))) {
+          unchanged.push(snap.id);
+          continue;
+        }
+        const event: HistoryEvent = { at: now, action: 'seen', from: null, to: null, actor, reason: null };
+        tx.update(refs[i], { history: [...(stored.history as unknown[]), event], ...(stored.awaitingLook === true ? { awaitingLook: false } : {}) });
+        // As a reader gives it back, so the page adds exactly what a fresh read would hold.
+        seen.push({ id: snap.id, event: readCostEntryFields(snap.id, { history: [event] }).history?.[0] as HistoryEventView });
+      }
+      return { kind: 'done', seen, unchanged };
+    });
+  } catch (err) {
+    console.error(`[cost-entries] marking ${wanted.length} entries seen failed: grpc code ${grpcCode(err)}`);
+    return { kind: 'failed' };
+  }
 }
 
 /**
@@ -1286,7 +1443,8 @@ async function review(
       if (decision.kind === 'refuse') return decision.result;
       if (decision.kind === 'nothing') return { stored, changed: false };
 
-      const changes = { ...decision.changes, history: [...history, decision.event] };
+      // Any admin event is a look (awaitingLook in model.ts): the queue's marker goes with it, in the same update.
+      const changes = { ...decision.changes, history: [...history, decision.event], ...(stored.awaitingLook === true && decision.event.actor?.role === 'admin' ? { awaitingLook: false } : {}) };
       tx.update(ref, changes);
       return { stored: { ...stored, ...changes }, changed: true };
     });

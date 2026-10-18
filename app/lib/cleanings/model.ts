@@ -308,7 +308,8 @@ function entryView(c: CleaningView, status: string, lines: CostEntryView['lines'
     statusReason: null,
     history,
     cleaner: { id: c.cleanerId, nameAtEntry: c.cleanerNameAtEntry, state: c.cleaner.state, name: c.cleaner.name, status: c.cleaner.status },
-    property: { id: c.propertyId, nameAtEntry: c.propertyNameAtEntry, state: c.property.state, name: c.property.name },
+    // Its address too, when the lookup found one: what an admin list and an owner's file name it by (Kian's rulings of 2026-10-15, evening).
+    property: { id: c.propertyId, nameAtEntry: c.propertyNameAtEntry, state: c.property.state, name: c.property.name, ...(c.property.internalName != null ? { internalName: c.property.internalName } : {}) },
     purchasedOn: c.day,
     note: null,
     currency: 'CAD',

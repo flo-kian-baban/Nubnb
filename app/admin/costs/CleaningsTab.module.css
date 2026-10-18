@@ -64,3 +64,52 @@
   color: #e8edf3;
   font-variant-numeric: tabular-nums;
 }
+
+/* Waiting for an amount (the Costs page, round 1): the filter's chips, and the amount typed in place. */
+.chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 4px 0 10px;
+}
+.chip {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(255, 255, 255, 0.7);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.chip:hover {
+  color: #fff;
+}
+.chip:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 2px;
+}
+.chipOn {
+  color: #0a0a0c;
+  background: #fff;
+  border-color: #fff;
+}
+.chipWarn:not(.chipOn) {
+  color: #e6b450;
+  border-color: rgba(230, 180, 80, 0.4);
+}
+.amountForm {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.amountInline {
+  width: 96px;
+}
+.saved {
+  font-size: 12px;
+  color: #7ec99a;
+  white-space: nowrap;
+}

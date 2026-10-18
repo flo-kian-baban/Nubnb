@@ -3839,3 +3839,106 @@ These do not touch money or a statement:
   - Cleanup deleted 166 documents and 4 kept files by exact ID, and read back none.
 - **Reads:** 7,310 counted (export 543, seed 38, server 6,078, cleanup 651). About 118 more were not counted: the
   first two uploads' own transaction reads, before the counter learned a transaction's `getAll`.
+
+## 56. The Costs page, round 1: owner files, the queue, cleanings, the month, Kian's rulings K1, K2 and K5 of 2026-10-18
+
+The audit of 2026-10-18 (report in `~/Downloads/nubnb-costs-page-audit-2026-10-18`, kept out of the repo) found a
+month's ledger leaving out what that month's statement charges for earlier months, a queue that opened on routine
+receipts, cleanings with no amount hard to find, every open reading every entry ever, and a ledger Excel that named
+team members and, when the newest entry was a cleaning, the public title. Kian's rulings K1, K2 and K5 are in
+CLAUDE.md. What was built is below.
+
+### 56.1 What was built
+
+1. **Owner files (bugs against the rulings of 2026-10-13 and 2026-10-15, evening).** `buildReport` names the report
+   by the address the caller passes (both callers pass the properties list's cleaner-facing name, else the public
+   title), and without one, by an entry's address before any label; a cleaning's entry view carries its address
+   (`cleaningEntryView`). The ledger Excel has no "Logged by" column. A new test, `owner-files`, builds the ledger PDF
+   and Excel and every file of the month ZIP's owner folder for a property whose newest entry is a cleaning, and finds
+   no team member's name and no public title.
+2. **The queue, ordered for decisions.** What needs a decision first, oldest first, a receipt whose month's statement
+   is finished marked "Late · goes on <month>"; the rejected and removed after it, kept on record; then the receipts
+   approved automatically and not looked at, folded (`AutoApprovals.tsx`): one line with their count and total,
+   "Mark these n seen", and Show, which opens a compact list (thumbnail, property, total, day) whose thumbnails' links
+   come in one request (`GET /api/admin/cost-entries/receipt-links`). "Mark these n seen" is one request, one
+   transaction reading only those entries (`POST /api/admin/cost-entries/seen`, `markEntriesSeen`).
+3. **The queue's narrow read** (`GET /api/admin/cost-entries?view=queue`, `listQueue`): entries pending, rejected or
+   removed; entries with `awaitingLook` (version 3, below); entries sent in the last 90 days (what Worth a look
+   reads); and every entry written before version 3, read whole; the finished months of the properties with an entry
+   waiting. The page reads every entry (`listCosts`, unchanged) only when a filter needs more than the queue, and keeps
+   it until Refresh; the Cleanings tab has its own read (`GET /api/admin/cleanings`).
+4. **Cost entries, version 3.** `awaitingLook`: true on a receipt approved automatically, never written on any other
+   entry, and set false in the same update by the first admin event on it (`review()`, `markEntriesSeen`). Entries written
+   before it have no such field and are never backfilled: `awaitingLook()`, from the history, stays the rule.
+5. **Cleanings: Waiting for an amount.** A filter with its count, chosen first while any cleaning waits; each row's
+   amount typed in place (Enter or Save), the cleaner's last amount for the property or their default rate as the
+   field's hint, never filled; a saved row stays, with what was saved and its statement, until the filter changes.
+6. **The Month tab** (`MonthTab.tsx`, `GET /api/admin/cost-entries/month`, `readCostsMonth`, pure `costsMonth` in
+   `app/lib/costs/month-view.ts`): one row per property with anything for the month, from `monthMoney` (the
+   statement as its preview shows it): its own costs, late costs from earlier months, adjustments, charged in all,
+   waiting for a decision, cleanings with no amount; a totals row; each row links to the property page at that month.
+   The test `costs-month` checks every row against the frozen statement or `buildStatement` on the dispatch-37
+   portfolio, a correction being written included.
+7. **K1.** A whole month's ledger (`wholeMonthOf`) lists "On this month's statement from earlier months" (`fromEarlier`
+   on the report, `fromEarlierFor` for the page): each late cost and adjustment with the month it belongs to, their
+   total, and what the statement charges for costs in all; on the page, in the PDF and in the Excel, the property
+   page's month exports included. A partial range, or a month with none, is as it was, byte for byte.
+8. **K2.** `finishChecks` counts the month's cleanings with no amount apart (`no-amount`): "n cleanings have no amount
+   yet; they will go on <next month>'s statement once typed." The pending warning counts the rest.
+
+### 56.2 The developer's choices (for Kian)
+
+1. **"Held" entries:** the Costs page has no such status (pending, approved, rejected, removed). "What needs a person"
+   is read as the pending entries, receipts and handyman work, with the rejected and removed kept on record after
+   them (the ruling of 2026-09-30 keeps them in the queue).
+2. **Worth a look keeps its 90 days**, so the queue's read includes every entry sent in that window, looked at or not.
+   It is bounded by three months' volume, not by time.
+3. **Entries written before version 3 are read whole** by the queue: a set that stops growing at the deploy.
+4. **An entry matched by two of the queue's queries is read twice** (Firestore bills each query): mostly the unseen
+   automatic approvals of the last 90 days, until they are marked seen. Removing the overlap needs a composite index,
+   which would be a production change; it was not made.
+5. **The folded list is closed by default**: its thumbnails are asked for only when it is opened (one read per
+   receipt), and closing it drops the links (they last a minute, as every receipt link does).
+6. **Waiting for an amount ignores the dates**: it lists every cleaning waiting in the property and cleaner chosen.
+7. **The Month tab lists only properties with anything for the month**, and counts the others; it opens on the month
+   before today's.
+8. **The Excel drops "Logged by" entirely** rather than writing a word in its place; the kind column says what each
+   entry is.
+9. **K2's warning in the singular**: "1 cleaning has no amount yet; it will go on <month>'s statement once typed."
+10. **Not changed:** the home's Costs tile, the Team page and the property page still read every entry (`fetchCosts`).
+11. **K5 not done:** removing the cleaning needs an admin's session, and verification acts only as a test admin; it is
+    listed for Kian. CLAUDE.md records K5 without the property's address, since the repository is public.
+
+### 56.3 Verification (2026-10-18)
+
+- **Tests:** `node tests/run.mjs`, 22 checks, identical but for recordings changed on purpose: office-month,
+  ledger and month-money (the Excel's hash: no "Logged by"), cleanings (its Excel line), cleaning-jobs (K2's words),
+  admin-accounts (four new routes); new: owner-files, costs-month, costs-queue (the narrow read against the full
+  read on an in-memory Firestore, `tests/tools/memory-firestore.cjs`). The 40 version-3 statements are byte-identical
+  (d36/v3-hash.mjs).
+- **In memory, the audit's October:** the queue's read 274 reads against the full read's 406, the same queue and Worth
+  a look; "Mark these 60 seen" one request and 60 reads (58 requests and 290 before); the month's read 321; a receipt
+  made by the cleaner's own path is version 3 with `awaitingLook` as the rule decides.
+- **On production:** build `Mn9Eqpn19bgPlnPkIsAPR` of this tree on 127.0.0.1:4500, behind a write guard, as a
+  `__TEST__` admin; test data on one Unlisted `__TEST__` property in September and October 2028; the page's clock at
+  3 November 2028. The queue, the folded list and its thumbnails, "Mark these 8 seen" (one request, 9 reads, 8 updates),
+  two approvals, the ledger's K1 section, its Excel and PDF (address, no team member, no public title), a cleaning's
+  amount typed in place, the Month tab and the property page beside it (13 entries · $1,263.37; charged in all
+  $1,715.27, the preview's total), and K2's words at Finish. The narrow read against the full read on production's
+  own data: the same queue, field for field. No write refused; 38 documents and 3 Storage objects deleted by exact
+  path; the closing export identical to the opening one.
+
+### 56.4 Round 1, two fixes (2026-10-18)
+
+1. **The marker on every look.** The test `costs-look` makes entries with the app's own creators (the cleaner's
+   receipt, the handyman's work, the office's cost) and runs every way an admin looks at a receipt approved
+   automatically: Seen, "Mark these n seen", "Paid with Nubnb's card", reject, remove, approve after either, a line or
+   the tax corrected. Each clears `awaitingLook`, and after each the marker equals the rule (`awaitingLook()`). None
+   needed fixing. Approve on a receipt already approved writes nothing (the entry pane offers Seen instead): no admin
+   event, so the marker stays true, as the rule says. A pending receipt, a handyman's work and an office cost no
+   longer carry the field at all (round 1 wrote it false).
+2. **The export questions** (the Costs page's ledger and the property page's Costs tab) say receipts and work waiting
+   for a decision are "still pending review", and cleanings with no amount are "cleanings with no amount yet", in
+   Kian's ruling K2's words (`leftOutLines`, `leftOutWords`; `buildReport` counts the two apart:
+   `pendingLeftOut`, `noAmountLeftOut`).
+

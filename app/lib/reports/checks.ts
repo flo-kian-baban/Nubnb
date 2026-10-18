@@ -28,6 +28,8 @@
  *            C2   costs approved automatically that nobody has looked at
  *            —    a direct payment the month expects, not fully received (part B, Kian's rulings of 2026-10-15)
  *            —    entries sent in the month still pending (said before, in the old confirmation)
+ *            K2   cleanings of the month with no amount, apart, with the statement they go on once typed (Kian's ruling
+ *                 of 2026-10-18)
  *            S25  Report For cut short on the PDF
  *            S13  a statement dated before the day it is finished
  *
@@ -43,7 +45,8 @@
 import { awaitingLook, formatCents, type CostEntryView } from '@/app/lib/cleaners/model';
 import { currentReports, dateText, feeComputed, isDayText, monthLabel, monthName, monthRange, rangeText, type Fee, type MonthlyReportView } from './model';
 import { isStayType, type IncomeChannel } from '@/app/lib/income/model';
-import { carriedFromMonth, uncarriedDebts, type Statement } from './statement';
+import { carriedFromMonth, statementMonthFor, uncarriedDebts, type Statement } from './statement';
+import { entryMonth } from '@/app/lib/costs/report';
 import { reportForCut } from './statement-pdf';
 
 /** The tab where a check is put right. */
@@ -226,7 +229,16 @@ export function finishChecks(input: CheckInputs): FinishChecks {
   const printed = new Set(s.costs.map((cost) => cost.entryId));
   const unseen = input.entries.filter((entry) => printed.has(entry.id) && awaitingLook(entry)).length;
   if (unseen > 0) warnings.push({ key: 'auto-unseen', text: `${plural(unseen, 'cost', 'costs')} approved automatically ${unseen === 1 ? 'has' : 'have'} not been looked at.`, tab: 'costs' });
-  if (s.pendingLeftOut > 0) warnings.push({ key: 'pending', text: `${plural(s.pendingLeftOut, 'entry', 'entries')} sent in ${month} ${s.pendingLeftOut === 1 ? 'is' : 'are'} still pending and not in it.`, tab: 'costs' });
+  // Cleanings with no amount (pending, as the cleaning schedule made them) are named apart, with the statement they go on
+  // once their amount is typed; the pending warning counts the rest (Kian's ruling K2 of 2026-10-18). Finish still never
+  // refuses on either.
+  const noAmount = input.entries.filter((entry) => entry.kind === 'cleaning' && entry.status === 'pending' && entryMonth(entry) === s.month).length;
+  const stillPending = Math.max(0, s.pendingLeftOut - noAmount);
+  if (stillPending > 0) warnings.push({ key: 'pending', text: `${plural(stillPending, 'entry', 'entries')} sent in ${month} ${stillPending === 1 ? 'is' : 'are'} still pending and not in it.`, tab: 'costs' });
+  if (noAmount > 0) {
+    const next = statementMonthFor(s.month, new Set([...currentReports(input.reports).map((report) => report.month), s.month]));
+    warnings.push({ key: 'no-amount', text: noAmount === 1 ? `1 cleaning has no amount yet; it will go on ${monthLabel(next)}'s statement once typed.` : `${noAmount} cleanings have no amount yet; they will go on ${monthLabel(next)}'s statement once typed.`, tab: 'costs' });
+  }
 
   // ── The PDF (S25) and the date (S13) ──
   if (reportForCut(s.reportFor)) warnings.push({ key: 'report-for-cut', text: 'Report For is cut short on the PDF.', tab: 'details' });

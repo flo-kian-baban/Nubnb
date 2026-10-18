@@ -21,6 +21,13 @@
  * names are for admins: what an owner receives prints "Expense - Cleaning" and never names a cleaner.
  *
  * Every control is Nubnb's own (Kian's ruling of 2026-10-10): the day picker, the selects, the dialogs.
+ *
+ * ── Waiting for an amount (the Costs page, round 1) ──
+ * A filter over the list, with its count, chosen first while any cleaning waits: every cleaning marked on a job with
+ * no amount (in the property and cleaner chosen, whatever the dates), each with its amount typed in place — Enter or
+ * Save — and what that cleaner was last paid for the property, or their default rate, as the field's hint, never
+ * filled in. A typed one stays in the list, saying what was saved and which statement it goes on, until the filter
+ * changes: nothing is read again.
  */
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
@@ -208,6 +215,42 @@ export function CleaningsTab({ cleanings, team, properties, filters, setFilter, 
   const failed = (result: { title: string; detail?: string; unknown: boolean; status: number }, what: string) =>
     show(result.unknown ? { tone: "warning", title: `The cleaning may or may not have been ${what}. Refresh to see what is on record.`, detail: result.title } : { tone: "error", title: result.title, detail: [result.detail, result.status === 401 || result.status === 403 ? SESSION_HINT : null].filter(Boolean).join(" ") || undefined });
 
+  // ── Waiting for an amount (the Costs page, round 1) ──
+  const waitingAll = useMemo(
+    () => cleanings.filter((c) => c.status === "logged" && c.amountCents === null && (filters.propertyId === "" || c.propertyId === filters.propertyId) && (filters.cleanerId === "" || c.cleanerId === filters.cleanerId)),
+    [cleanings, filters.propertyId, filters.cleanerId],
+  );
+  const [onlyWaiting, setOnlyWaiting] = useState(() => cleanings.some((c) => c.status === "logged" && c.amountCents === null));
+  /** Typed in the waiting list: kept there, with what was saved and its statement, until the filter changes. */
+  const [typedHere, setTypedHere] = useState<Map<string, { cents: number; statementMonth: string }>>(new Map());
+  const [typing, setTyping] = useState<Record<string, string>>({});
+  const showWaiting = (yes: boolean) => {
+    setOnlyWaiting(yes);
+    setTypedHere(new Map());
+    setTyping({});
+  };
+  const waitingRows = useMemo(() => {
+    const ids = new Set(waitingAll.map((c) => c.id));
+    return [...waitingAll, ...cleanings.filter((c) => typedHere.has(c.id) && !ids.has(c.id))].sort((a, b) => b.day.localeCompare(a.day) || b.createdAt.localeCompare(a.createdAt));
+  }, [waitingAll, cleanings, typedHere]);
+  const saveAmount = async (c: CleaningView) => {
+    if (busy) return;
+    const cents = readAmountCents(typing[c.id] ?? "");
+    if (cents === null) {
+      show({ tone: "error", title: "Type the amount: dollars and cents above $0.00, like 60.00." });
+      return;
+    }
+    setBusy(c.id);
+    const result = await changeCleaning(c.id, { seen: c.history.length, amount: amountField(cents), reason: null });
+    setBusy(null);
+    if (!result.ok) {
+      failed(result, "saved");
+      return;
+    }
+    onSaved({ ...result.data.cleaning, cleaner: c.cleaner, property: c.property });
+    setTypedHere((was) => new Map(was).set(c.id, { cents, statementMonth: result.data.statementMonth }));
+  };
+
   const saveEditing = async (c: CleaningView) => {
     if (!editing || busy) return;
     const cents = readAmountCents(editing.amount);
@@ -334,10 +377,25 @@ export function CleaningsTab({ cleanings, team, properties, filters, setFilter, 
         <h3 className={p.blockTitle}>Cleanings</h3>
         <span className={p.blockTotal}>{logged.length === 0 ? "None" : `${logged.length === 1 ? "1 cleaning" : `${logged.length} cleanings`} · ${formatCents(total)}${waiting > 0 ? ` · ${waiting} waiting for an amount` : ""}`}</span>
       </div>
+      {/* Waiting for an amount first while any waits (the Costs page, round 1). */}
+      <div className={styles.chips} role="tablist" aria-label="Which cleanings">
+        {[
+          { key: "waiting", label: `Waiting for an amount · ${waitingAll.length}`, on: onlyWaiting, pick: () => showWaiting(true) },
+          { key: "all", label: "All cleanings", on: !onlyWaiting, pick: () => showWaiting(false) },
+        ]
+          .sort((a, b) => (waitingAll.length > 0 ? 0 : a.key === "all" ? -1 : b.key === "all" ? 1 : 0))
+          .map((chip) => (
+            <button key={chip.key} type="button" role="tab" aria-selected={chip.on} className={`${styles.chip} ${chip.on ? styles.chipOn : ""} ${chip.key === "waiting" && waitingAll.length > 0 ? styles.chipWarn : ""}`} onClick={chip.pick}>
+              {chip.label}
+            </button>
+          ))}
+      </div>
       <div className={`${p.fields} ${styles.filters}`}>
-        <div className={`${p.field} ${p.fieldDates}`}>
-          <DateRangeField label="Dates" from={filters.from} to={filters.to} max={today} onChange={(range) => setFilter(range)} presets={RANGE_PRESETS.map((preset) => ({ ...preset, ...presetRange(preset.key, today) }))} note="By the day cleaned." />
-        </div>
+        {!onlyWaiting && (
+          <div className={`${p.field} ${p.fieldDates}`}>
+            <DateRangeField label="Dates" from={filters.from} to={filters.to} max={today} onChange={(range) => setFilter(range)} presets={RANGE_PRESETS.map((preset) => ({ ...preset, ...presetRange(preset.key, today) }))} note="By the day cleaned." />
+          </div>
+        )}
         <div className={`${p.field} ${p.fieldGrow}`}>
           <AdminSelect label="Property" className={styles.selectFull} value={filters.propertyId} onChange={(id) => setFilter({ propertyId: id })} searchable groups={[{ options: [{ value: "", label: "Every property" }, ...propertyOptions] }]} />
         </div>
@@ -346,7 +404,71 @@ export function CleaningsTab({ cleanings, team, properties, filters, setFilter, 
         </div>
       </div>
 
-      {shown.length === 0 ? (
+      {onlyWaiting ? (
+        waitingRows.length === 0 ? (
+          <p className={p.note}>No cleaning waits for an amount{filters.propertyId || filters.cleanerId ? " for this choice" : ""}.</p>
+        ) : (
+          <table className={p.listTable} aria-label="Waiting for an amount">
+            <thead>
+              <tr>
+                <th>Day</th>
+                <th>Property</th>
+                <th>Cleaner</th>
+                <th className={p.num}>Amount ($)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {waitingRows.map((c) => {
+                const typed = typedHere.get(c.id);
+                const hint = suggestedAmount(cleanings, c.cleanerId, c.propertyId, rateOf(c.cleanerId));
+                return (
+                  <tr key={c.id} id={`cleaning-${c.id}`} className={c.id === focusId ? styles.focused : undefined}>
+                    <td className={styles.nowrap}>{shortDay(c.day)}</td>
+                    <td>
+                      <Link href={`/admin/property?id=${encodeURIComponent(c.propertyId)}&month=${c.day.slice(0, 7)}&tab=costs`} prefetch={false} className={p.linkButton}>
+                        {nameOf(c)}
+                      </Link>
+                    </td>
+                    <td>
+                      {cleanerNameOf(c)}
+                      {c.cleaner.state === "missing" && <span className={p.note}> (deleted)</span>}
+                    </td>
+                    <td className={p.num}>
+                      {typed ? (
+                        <span className={styles.saved}>
+                          Saved {formatCents(typed.cents)} · goes on {monthLabel(typed.statementMonth)}&apos;s statement
+                        </span>
+                      ) : (
+                        <form
+                          className={styles.amountForm}
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            void saveAmount(c);
+                          }}
+                        >
+                          <input
+                            className={`${p.textInput} ${p.amountInput} ${styles.amountInline}`}
+                            inputMode="decimal"
+                            aria-label={`Amount for ${nameOf(c)}, ${shortDay(c.day)}`}
+                            placeholder={hint.cents === null ? "60.00" : amountField(hint.cents)}
+                            title={hint.cents === null ? "No earlier amount for this cleaner here, and no default rate" : `${SOURCE_WORDS[hint.from]}: ${formatCents(hint.cents)}`}
+                            value={typing[c.id] ?? ""}
+                            onChange={(e) => setTyping((was) => ({ ...was, [c.id]: e.target.value }))}
+                            disabled={busy !== null}
+                          />
+                          <button type="submit" className={`${p.btnGhost} ${p.btnSmall}`} disabled={busy !== null || (typing[c.id] ?? "").trim() === ""}>
+                            {busy === c.id ? "Saving…" : "Save"}
+                          </button>
+                        </form>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )
+      ) : shown.length === 0 ? (
         <p className={p.note}>No cleaning in these dates{filters.propertyId || filters.cleanerId ? " for this choice" : ""}.</p>
       ) : (
         <table className={p.listTable}>

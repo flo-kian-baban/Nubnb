@@ -116,7 +116,7 @@ const ledgerPdf = pdfFor(ledger);
 const ledgerXlsx = workbookFor(ledger);
 const cleaningsOnly = buildReport(entries(octAll), P, '2026-09-01', '2026-10-31', new Date('2026-10-13T12:00:00Z'), 'Test Lakeview Loft', charges).report;
 console.log(`  ledger PDF lists "Cleaning": ${text(ledgerPdf).includes('Cleaning')} · names the cleaner: ${text(ledgerPdf).includes('Zelda')}`);
-console.log(`  ledger Excel of the cleanings alone names the cleaner: ${utf8(workbookFor(cleaningsOnly)).includes('Zelda')} · with the receipt, its "Logged by" names who sent it, as before 37B: ${utf8(ledgerXlsx).includes('Zelda')}`);
+console.log(`  ledger Excel of the cleanings alone names the cleaner: ${utf8(workbookFor(cleaningsOnly)).includes('Zelda')} · with the receipt, it names who sent it (it has no "Logged by" since the Costs page, round 1): ${utf8(ledgerXlsx).includes('Zelda')}`);
 const onlyPdf = text(pdfFor(cleaningsOnly));
 const pdfStrings = [...onlyPdf.matchAll(/\((.*?)\) Tj/g)].map((m) => m[1].replace(/\\([0-7]{3})/g, (_, octal) => String.fromCharCode(parseInt(octal, 8))).replace(/\\(.)/g, '$1'));
 console.log(`  ledger PDF of the cleanings alone, the changed cleaning's split, line by line: ${pdfStrings.filter((t) => /statement \$|^On /.test(t)).map((t) => JSON.stringify(t)).join(' + ')}`);

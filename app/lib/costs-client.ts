@@ -18,8 +18,9 @@
  */
 
 import { describeErrorBody, readErrorBody } from '@/app/lib/api/http-failure';
-import type { CostEntryView, CostsView, LinesNow, ReportExportView, ReviewStatus } from '@/app/lib/cleaners/model';
-import type { CleaningView } from '@/app/lib/cleanings/model';
+import type { CostEntryView, CostsView, HistoryEventView, LinesNow, QueueView, ReportExportView, ReviewStatus } from '@/app/lib/cleaners/model';
+import type { CleaningView, TeamRate } from '@/app/lib/cleanings/model';
+import type { CostsMonth } from '@/app/lib/costs/month-view';
 
 export type CostResult<T> =
   | { ok: true; data: T }
@@ -222,6 +223,90 @@ export function fetchCosts(): Promise<CostResult<CostsView>> {
       (data.properties === null ||
         (Array.isArray(data.properties) &&
           data.properties.every((p) => isRecord(p) && typeof p.id === 'string' && isTextOrNull(p.name)))),
+  );
+}
+
+/**
+ * The review queue's read (the Costs page, round 1): the entries the queue and Worth a look can show, not every entry
+ * ever. The page asks for fetchCosts' whole read only when a filter needs more.
+ */
+export function fetchQueue(): Promise<CostResult<QueueView>> {
+  return call(
+    '/api/admin/cost-entries?view=queue',
+    {},
+    'Loading the review queue failed',
+    (data) =>
+      isRecord(data) &&
+      Array.isArray(data.entries) &&
+      data.entries.every(isCostEntryView) &&
+      Array.isArray(data.exports) &&
+      data.exports.every(isReportExportView) &&
+      isRecord(data.finishedMonths) &&
+      Object.values(data.finishedMonths).every((months) => Array.isArray(months) && months.every((m) => typeof m === 'string')) &&
+      typeof data.since === 'string' &&
+      (data.properties === null || (Array.isArray(data.properties) && data.properties.every((p) => isRecord(p) && typeof p.id === 'string' && isTextOrNull(p.name)))),
+  );
+}
+
+/** What "Mark these n seen" answers: each entry marked, with the event its history took; those already looked at. */
+export interface EntriesSeen {
+  seen: { id: string; event: HistoryEventView }[];
+  unchanged: string[];
+}
+
+/**
+ * Mark many receipts approved automatically as seen, in one request (the Costs page, round 1): one transaction that
+ * reads only those entries, each as the page read it, or nothing is written.
+ */
+export function markEntriesSeen(entries: { id: string; seen: number }[]): Promise<CostResult<EntriesSeen>> {
+  return call(
+    '/api/admin/cost-entries/seen',
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entries }) },
+    'Marking the entries as seen failed',
+    (data) => isRecord(data) && Array.isArray(data.seen) && data.seen.every((s) => isRecord(s) && typeof s.id === 'string' && isRecord(s.event)) && Array.isArray(data.unchanged),
+    ['ENTRIES_SEEN_FAILED'],
+  );
+}
+
+/** Thumbnails for the queue's folded list: each entry's first receipt as a link lasting a minute; the page loads each image at once. */
+export function fetchReceiptLinks(ids: string[]): Promise<CostResult<{ links: Record<string, { url: string; expiresAt: string }> }>> {
+  return call(
+    `/api/admin/cost-entries/receipt-links?ids=${ids.map(encodeURIComponent).join(',')}`,
+    {},
+    'Loading the receipts failed',
+    (data) => isRecord(data) && isRecord(data.links) && Object.values(data.links).every((link) => isRecord(link) && typeof link.url === 'string'),
+  );
+}
+
+/** The Cleanings tab's own read (the Costs page, round 1): every cleaning, and the team's rates. */
+export function fetchCleanings(): Promise<CostResult<{ cleanings: CleaningView[]; team: TeamRate[] }>> {
+  return call(
+    '/api/admin/cleanings',
+    {},
+    'Loading the cleanings failed',
+    (data) =>
+      isRecord(data) &&
+      Array.isArray(data.cleanings) &&
+      data.cleanings.every(isCleaningView) &&
+      Array.isArray(data.team) &&
+      data.team.every((member) => isRecord(member) && typeof member.id === 'string' && isTextOrNull(member.name) && typeof member.role === 'string' && (member.defaultRateCents === null || typeof member.defaultRateCents === 'number')),
+  );
+}
+
+/** The Month tab's one read (the Costs page, round 1): one row per property with anything for the month. */
+export function fetchCostsMonth(month: string): Promise<CostResult<CostsMonth>> {
+  const isPart = (p: unknown) => isRecord(p) && typeof p.count === 'number' && typeof p.cents === 'number';
+  return call(
+    `/api/admin/cost-entries/month?month=${encodeURIComponent(month)}`,
+    {},
+    'Loading the month failed',
+    (data) =>
+      isRecord(data) &&
+      data.month === month &&
+      typeof data.quiet === 'number' &&
+      Array.isArray(data.rows) &&
+      data.rows.every((row) => isRecord(row) && typeof row.propertyId === 'string' && typeof row.name === 'string' && isPart(row.own) && isPart(row.late) && isPart(row.adjustments) && isPart(row.waiting) && typeof row.chargedCents === 'number' && typeof row.noAmount === 'number') &&
+      isRecord(data.totals),
   );
 }
 

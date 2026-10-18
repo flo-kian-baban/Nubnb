@@ -71,7 +71,7 @@
   printed: Revenue · 1 · $500.00 · $500.00 | Expense - Cleaning · 2 · (rate empty) · -$115.00
   costs charged: TESTCLEANINGjob00001 $60.00, TESTCLEANINGjob00002 $55.00 · left out, pending: 1
   the PDF holds "Expense - Cleaning": true · names a cleaner: false
-  Finish warns: 1 entry sent in October 2026 is still pending and not in it.
+  Finish warns: 1 cleaning has no amount yet; it will go on November 2026's statement once typed.
 
 ═══ 7. The cleaner door keeps its own key for a connection ═══
   64 hex: true · differs from the admin door's hash of the same address under the same key: true · stable: true

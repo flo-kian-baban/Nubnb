@@ -29,7 +29,7 @@
 ═══ 4. Owners' documents ═══
   ledger: 2026-09-05 cleaning Nubnb office $70.00 | 2026-09-10 receipt Zelda Testcleaner $56.50 | 2026-09-19 cleaning Nubnb office $60.00 | 2026-09-28 cleaning Nubnb office $75.00 | 2026-10-03 cleaning Nubnb office $60.00 | 2026-10-09 cleaning Nubnb office $80.00
   ledger PDF lists "Cleaning": true · names the cleaner: false
-  ledger Excel of the cleanings alone names the cleaner: false · with the receipt, its "Logged by" names who sent it, as before 37B: true
+  ledger Excel of the cleanings alone names the cleaner: false · with the receipt, it names who sent it (it has no "Logged by" since the Costs page, round 1): false
   ledger PDF of the cleanings alone, the changed cleaning's split, line by line: "On September 2026's statement $60.00," + "October 2026's statement $10.00" + "On October 2026's statement" + "Charged on: September 2026's statement $120.00 · October 2026's statement $225.00"
   its footnotes: "* A cleaning marked so was changed by Nubnb after it was logged."
   ZIP 2026-09: owner's folder 5 files, any naming the cleaner: none · Nubnb's folder names them in: 2026-09 Cleanings.xlsx, cleanings 2026-09.json, cost_entries 2026-09.json

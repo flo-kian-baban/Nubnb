@@ -1224,3 +1224,51 @@
 .sectionTabs {
   margin: 0 0 18px;
 }
+
+/* An entry waiting for a decision for a month whose statement is finished (the Costs page, round 1). */
+.lateMark {
+  display: inline-flex;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: #e6b450;
+  background: rgba(230, 180, 80, 0.1);
+  border: 1px solid rgba(230, 180, 80, 0.25);
+}
+
+/* A whole month's ledger: what its statement also charges for earlier months (Kian's ruling K1 of 2026-10-18). */
+.earlier {
+  margin: 0 0 16px;
+  padding: 14px 18px;
+  border-radius: 14px;
+  background: rgba(230, 180, 80, 0.04);
+  border: 1px solid rgba(230, 180, 80, 0.18);
+}
+.earlierTitle {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+}
+.earlierTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.85);
+}
+.earlierTable td {
+  padding: 7px 8px 7px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  vertical-align: top;
+}
+.earlierTable tfoot td {
+  border-bottom: none;
+  font-weight: 600;
+}
+.earlierBelongs {
+  display: block;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
+}

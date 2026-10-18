@@ -14,7 +14,11 @@
  * may or may not have been logged.
  *
  * Order: the admin session, then the cross-site and media-type refusals, then the JSON and the schema, then the
- * work. Every response is no-store. The list is GET /api/admin/cost-entries: one read for the costs page.
+ * work. Every response is no-store.
+ *
+ * GET /api/admin/cleanings (the Costs page, round 1): the Cleanings tab's own read, now that the review queue's read
+ * carries no cleaning: 200 `{ cleanings, team }`, every cleaning newest day first with its lookups, and the team's
+ * rates (listCleanings, listTeamRates). 500 CLEANINGS_READ_FAILED: not "no cleanings".
  */
 
 import { NextRequest } from 'next/server';
@@ -22,7 +26,18 @@ import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiError, apiFailure, apiSuccess, apiValidationError, noStore } from '@/app/lib/api/safe-response';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { LogCleaningSchema } from '@/app/lib/cleanings/schemas';
-import { LOG_REFUSALS, logCleaning } from '@/app/lib/firebase/server-cleanings';
+import { LOG_REFUSALS, listCleanings, listTeamRates, logCleaning } from '@/app/lib/firebase/server-cleanings';
+
+export const GET = adminRoute(async function GET() {
+  try {
+    const [cleanings, team] = await Promise.all([listCleanings(), listTeamRates()]);
+    return noStore(apiSuccess({ cleanings, team }));
+  } catch (err) {
+    const code = (err as { code?: unknown } | null)?.code;
+    console.error(`[cleanings] list failed: grpc code ${typeof code === 'number' ? code : 'unknown'}`);
+    return noStore(apiFailure({ status: 500, code: 'CLEANINGS_READ_FAILED', message: 'Failed to load the cleanings' }));
+  }
+});
 
 export const POST = adminRoute(async function POST(request: NextRequest, _context: unknown, { actor }) {
   const crossSite = refuseCrossSite(request);
