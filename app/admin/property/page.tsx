@@ -65,11 +65,24 @@
  *
  * The month, the tab and the open entry are mirrored into the address bar
  * (?id=&month=&tab=&entry=), so a reload keeps them.
+ *
+ * ── Build round 1 of the property page audit (2026-10-17) ──
+ * With no month in its address, the page opens on the month due — the
+ * oldest month owed and unfinished, by `reportingStatus` — else the current
+ * month; it settles that once its reads are in, and shows nothing of a month
+ * before. While the property owes a statement and has no Report For name,
+ * the head says "Blocked: no Report For name", with "Add it" (the Details
+ * tab of the month, the Name field focused) and the Report For sheet. When
+ * the page was opened from the home's list, a bar over the head walks that
+ * list — its chip, search, city and order, as the home kept it in this tab
+ * (app/lib/home/property-queue.ts) — Previous and Next, each opening where
+ * its Next step is done, without going back to the list. The page is
+ * mounted afresh for each property, so nothing of one carries to the next.
  */
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AlertTriangle, ChevronLeft, ChevronRight, Pencil, RefreshCw } from "lucide-react";
 import { AdminHeader } from "../components/AdminHeader";
 import { AdminSelect } from "../components/AdminSelect";
@@ -120,6 +133,8 @@ import { fromReport, fromStored, heldPartsOf, savablePayload, sha256Hex, suggest
 import shared from "../page.module.css";
 import styles from "./page.module.css";
 import { internalLabel } from "@/app/lib/property-names";
+import { owedMonths } from "@/app/lib/home/next-step";
+import { neighbours, readQueue } from "@/app/lib/home/property-queue";
 import ed from "./editor/editor.module.css";
 
 type Read<T> = { kind: "loading" } | { kind: "ready"; data: T } | { kind: "error"; title: string; detail?: string; status: number };
@@ -150,10 +165,16 @@ export default function PropertyPage() {
   return (
     <PinGate>
       <Suspense fallback={null}>
-        <PropertyPageInner />
+        <OneProperty />
       </Suspense>
     </PinGate>
   );
+}
+
+/** The page, mounted afresh for each property (Next property moves between them in place): no month, tab or read carries over. */
+function OneProperty() {
+  const id = useSearchParams().get("id") ?? "";
+  return <PropertyPageInner key={id} />;
 }
 
 /** A month in a few words, for the month list: its standing, then what is stored ("due · draft", "finished · # Sep-321-John"). */
@@ -181,6 +202,21 @@ function PropertyPageInner() {
     const wanted = params.get("month");
     return isMonth(wanted) ? wanted : thisMonth;
   });
+  /**
+   * Whether the month is settled: given in the address, or chosen on the page. Otherwise the page settles it once, on
+   * the month due, when its reads are in (2026-10-17); until then it shows no month.
+   */
+  const [monthSettled, setMonthSettled] = useState(() => isMonth(params.get("month")));
+  /** The admin chooses a month: the arrows, the month list, the head's months, the release status. */
+  const chooseMonth = useCallback((next: SetStateAction<string>) => {
+    setMonthSettled(true);
+    setMonth(next);
+  }, []);
+  const router = useRouter();
+  /** The home's list, as it kept it in this tab, for Previous and Next (app/lib/home/property-queue.ts). */
+  const [queue] = useState(() => (typeof window === "undefined" ? null : readQueue()));
+  /** Bumped by "Add it" in the head: the Details tab's Name field takes the focus. */
+  const [focusName, setFocusName] = useState(0);
   const [tab, setTab] = useState<Tab>(() => {
     const wanted = params.get("tab");
     return isTab(wanted) ? wanted : "income";
@@ -245,15 +281,16 @@ function PropertyPageInner() {
   }, [propertyId, valid, attempt, directAttempt]);
   const rereadDirect = useCallback(() => setDirectAttempt((n) => n + 1), []);
 
-  // ── The address bar ──
+  // ── The address bar: the month only once it is settled, so a reload before then still opens on the month due ──
   useEffect(() => {
+    if (!monthSettled) return;
     const url = new URL(window.location.href);
     const set = (key: string, value: string | null) => (value === null || value === "" ? url.searchParams.delete(key) : url.searchParams.set(key, value));
     set("month", month);
     set("tab", tab === "income" ? null : tab);
     set("entry", entryId);
     if (url.href !== window.location.href) window.history.replaceState(null, "", url.href);
-  }, [month, tab, entryId]);
+  }, [month, tab, entryId, monthSettled]);
 
   const reload = useCallback(() => {
     clear();
@@ -351,6 +388,26 @@ function PropertyPageInner() {
   const monthNow = useMemo(() => (data ? propertyMonthState({ propertyId, month, today, inScope, excluded: isExcludedFromReporting(data.management), reports: data.reports, drafts: draftLikes }) : null), [data, draftLikes, propertyId, month, today, inScope]);
   /** The property's status in the cycle (dispatch 23G): the head's line, by the rule the list, the panel and the tile use. */
   const status = useMemo(() => (data ? reportingStatus({ propertyId, today, management: data.management, createdMonth: data.createdMonth ?? null, moneyMonths, reports: data.reports }) : null), [data, moneyMonths, propertyId, today]);
+  /** Every statement the property owes now, oldest first (the home's rule, `owedMonths`): what the month due and "Blocked" read. */
+  const owed = useMemo(() => (status ? owedMonths(status) : null), [status]);
+  // With no month in the address: the month due, the oldest owed and unfinished, else the current month (2026-10-17).
+  // Settled once, while rendering (React's way to set state from what a render has just learnt, with no effect and no
+  // extra paint), when the lines from the files and the direct payments are in too: they make months owed.
+  if (!monthSettled && owed && fromFiles.kind !== "loading" && direct.kind !== "loading") {
+    setMonth(owed[0] ?? thisMonth);
+    setMonthSettled(true);
+  }
+  /** Blocked (2026-10-17): it owes a statement and has no Report For name, the one thing Finish refuses. */
+  const blocked = owed !== null && owed.length > 0 && (data?.management?.reportFor?.name ?? "").trim() === "";
+  /** "Add it": the Details tab of a month it owes (this one when it is owed), the Name field focused. */
+  const fixReportFor = () => {
+    if (owed && owed.length > 0 && !owed.includes(month)) chooseMonth(owed[0]);
+    setTab("details");
+    setFocusName((n) => n + 1);
+  };
+  /** Where this property stands on the home's list, when the page was opened from it. */
+  const place = neighbours(queue, propertyId);
+
   /** The months the control lists: the property's, and the chosen one when it is earlier than any of them. */
   const monthOptions = useMemo(() => {
     if (!months || !monthNow) return [];
@@ -393,13 +450,36 @@ function PropertyPageInner() {
   const failed = costs.kind === "error" ? costs : statements.kind === "error" ? statements : null;
   const loading = costs.kind === "loading" || statements.kind === "loading";
   /** The status line's figures, once everything it reads is in: the head shows it then. */
-  const ready = !failed && !loading && data && costData && months && monthNow && status && charges ? { status } : null;
+  const ready = !failed && !loading && monthSettled && data && costData && months && monthNow && status && charges ? { status } : null;
 
   return (
     <div className={shared.container}>
       <AdminHeader current="properties" title={propertyName ?? "Property"} />
 
       <main className={shared.main}>
+        {/* ── The home's list, walked in place (2026-10-17): back to it, where this one stands, Previous and Next ── */}
+        {queue && place && (
+          <nav className={styles.queueBar} aria-label="The list from Properties">
+            <Link href={queue.listHref} prefetch={false} className={styles.queueBack} title="Back to the list, as it was">
+              <ChevronLeft size={14} aria-hidden />
+              <span>{queue.label || "Properties"}</span>
+            </Link>
+            <span className={styles.queuePlace}>
+              {place.place} of {place.total}
+            </span>
+            <span className={styles.queueSteps}>
+              <button type="button" className={shared.btnGhost} disabled={!place.previous} title={place.previous ? `Previous: ${place.previous.name}` : "The first on the list"} onClick={() => place.previous && router.push(place.previous.href)}>
+                <ChevronLeft size={15} aria-hidden />
+                <span>Previous</span>
+              </button>
+              <button type="button" className={`${shared.btnGhost} ${styles.queueNext}`} disabled={!place.next} title={place.next ? `Next: ${place.next.name}` : "The last on the list"} onClick={() => place.next && router.push(place.next.href)}>
+                <span>{place.next ? `Next: ${place.next.name}` : "Last on the list"}</span>
+                <ChevronRight size={15} aria-hidden />
+              </button>
+            </span>
+          </nav>
+        )}
+
         {/* ── The head: the property, what is due for it (dispatch 23G), and the page's own buttons (Kian's ruling of
             2026-10-15: none in the navigation), in every state, as they were in the header ── */}
         <div className={styles.head}>
@@ -407,7 +487,23 @@ function PropertyPageInner() {
             <h2 className={styles.title}>{propertyName ?? "Property"}</h2>
             {publicName !== null && publicName !== propertyName && <p className={styles.publicTitle} title="Its public title, on the site and on Airbnb">{publicName}</p>}
           </div>
-          {ready && <ReportingStatusLine status={ready.status} current={month} onMonth={setMonth} />}
+          {ready && (
+            <div className={styles.headStatus}>
+              <ReportingStatusLine status={ready.status} current={month} onMonth={chooseMonth} />
+              {/* Said before Finish (2026-10-17): the statement it owes cannot be finished without a Report For name. */}
+              {blocked && (
+                <p className={styles.blockedLine} role="status">
+                  <span className={styles.blockedText}>Blocked: no Report For name</span>
+                  <button type="button" className={styles.linkButton} onClick={fixReportFor}>
+                    Add it
+                  </button>
+                  <Link href="/admin/report-for?owes=1" prefetch={false} className={styles.linkButton}>
+                    All in one table
+                  </Link>
+                </p>
+              )}
+            </div>
+          )}
           <div className={styles.headActions}>
             <button type="button" className={shared.btnGhost} onClick={reload} disabled={loading}>
               <RefreshCw size={15} aria-hidden />
@@ -440,7 +536,7 @@ function PropertyPageInner() {
               <span>Retry</span>
             </button>
           </div>
-        ) : loading || !data || !costData || !months || !monthNow || !status || !charges ? (
+        ) : loading || !monthSettled || !data || !costData || !months || !monthNow || !status || !charges ? (
           <div className={shared.loading}>
             <div className={shared.spinner} />
             <p>Loading the property…</p>
@@ -453,11 +549,11 @@ function PropertyPageInner() {
             <div className={styles.layout}>
               <div className={styles.monthBar}>
                 <div className={styles.monthRow}>
-                  <button type="button" className={styles.monthStep} aria-label="Previous month" onClick={() => setMonth((m) => addMonths(m, -1))}>
+                  <button type="button" className={styles.monthStep} aria-label="Previous month" onClick={() => chooseMonth((m) => addMonths(m, -1))}>
                     <ChevronLeft size={18} aria-hidden />
                   </button>
-                  <AdminSelect label="Month" className={styles.monthSelect} value={month} onChange={setMonth} groups={[{ options: monthOptions }]} />
-                  <button type="button" className={styles.monthStep} aria-label="Next month" disabled={month >= thisMonth} onClick={() => setMonth((m) => addMonths(m, 1))}>
+                  <AdminSelect label="Month" className={styles.monthSelect} value={month} onChange={chooseMonth} groups={[{ options: monthOptions }]} />
+                  <button type="button" className={styles.monthStep} aria-label="Next month" disabled={month >= thisMonth} onClick={() => chooseMonth((m) => addMonths(m, 1))}>
                     <ChevronRight size={18} aria-hidden />
                   </button>
                 </div>
@@ -495,7 +591,9 @@ function PropertyPageInner() {
                 onExportRecorded={onExportRecorded}
                 onStatementDeleted={onStatementDeleted}
                 releases={releases}
-                onMonth={setMonth}
+                onMonth={chooseMonth}
+                focusName={focusName}
+                onNameFocused={() => setFocusName(0)}
                 fromFiles={fromFiles}
                 kept={keptMonths}
                 charges={charges}
@@ -566,6 +664,9 @@ interface MonthWorkProps {
   printedDirect: PrintedBy;
   /** A direct payment or arrangement changed: they are read again. */
   onDirectChanged: () => void;
+  /** Bumped by the head's "Add it": the Details tab's Name field takes the focus, then says so. */
+  focusName: number;
+  onNameFocused: () => void;
 }
 
 /**
@@ -1047,6 +1148,8 @@ function MonthWork(props: MonthWorkProps) {
               carriedAdjustments={statement && !statement.legacy ? statement.carriedAdjustments : []}
               revenue={figures}
               heldBack={save.kind === "saved" || save.kind === "none" ? (save.heldBack ?? []) : []}
+              focusName={props.focusName}
+              onNameFocused={props.onNameFocused}
             />
           )}
           {tab === "finish" && (

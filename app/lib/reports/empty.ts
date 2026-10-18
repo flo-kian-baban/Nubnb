@@ -4,7 +4,9 @@
  *
  * Kian's rulings of 2026-10-12: empty months can be finished together from
  * the Statements panel. Each property still gets its own statement, PDF and
- * reference, the reference suggested from its last one. It refuses while
+ * reference, the reference suggested from its last one — or, when the
+ * property has a reference stem, as "<Mon>-<stem>" (Kian's ruling K5 of
+ * 2026-10-17). It refuses while
  * any Airbnb title in that month's file is neither linked nor set aside. The
  * list leaves out any property whose calendar showed stays the month's file
  * does not hold, and any property missing a Report For name.
@@ -31,10 +33,10 @@
 import type { CostEntryView } from '@/app/lib/cleaners/model';
 import { finishChecks } from './checks';
 import { currentReports, inStatementScope, isExcludedFromReporting, monthLabel, type MonthlyReportView, type PropertyManagementView, type StatementDraftView } from './model';
-import { moneyMonthsByProperty, monthStanding, nothingToReport, referenceSuggestion, type PlatformLineInput } from './statement';
+import { moneyMonthsByProperty, monthStanding, nothingToReport, suggestedReference, type PlatformLineInput } from './statement';
 import { monthMoney } from '@/app/lib/money/month';
 
-/** A property whose empty month can be finished, with the reference suggested from its last statement (null when it has none to follow). */
+/** A property whose empty month can be finished, with the reference suggested from its stem or its last statement (null when it has neither). */
 export interface EmptyCandidate {
   propertyId: string;
   name: string;
@@ -132,7 +134,7 @@ export function emptyMonth(input: EmptyInputs): EmptyMonth {
       continue;
     }
     const last = current.filter((report) => report.month < month).sort((a, b) => b.month.localeCompare(a.month) || b.finishedAt.localeCompare(a.finishedAt))[0] ?? null;
-    const reference = draft?.reference.trim() || referenceSuggestion(last, month);
+    const reference = draft?.reference.trim() || suggestedReference(last, record?.referenceStem, month);
     // The month's money (dispatch 37A): the statement the empty draft would issue, as Finish builds it.
     const built = monthMoney({
       propertyId: property.id,

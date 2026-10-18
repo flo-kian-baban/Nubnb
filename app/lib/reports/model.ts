@@ -117,6 +117,8 @@ export const STATEMENT_LIMITS = {
   FEE_LABEL_MAX: 120,
   CARRIED_LABEL_MAX: 120,
   REFERENCE_MAX: 60,
+  /** A property's reference stem (Kian's ruling K5): the reference less its month word and hyphen, "Sept-" at most. */
+  REFERENCE_STEM_MAX: 55,
   REPORT_FOR_NAME_MAX: 120,
   REPORT_FOR_ADDRESS_MAX: 300,
   REPORT_FOR_ADDRESS_LINES_MAX: 6,
@@ -200,6 +202,32 @@ export function monthWordStyles(month: string): { reference: string; long: strin
   if (!match) return null;
   const i = Number(match[2]) - 1;
   return { reference: MONTHS_REFERENCE[i], long: MONTHS_LONG[i], short: MONTHS_SHORT[i] };
+}
+
+/**
+ * A new statement's reference from the property's stem (Kian's ruling K5 of 2026-10-17): "<Mon>-<stem>", the month
+ * in the word NuBNB's references use — "Sept-321-John", "July-19-Tannery". null without a stem or a month.
+ */
+export function referenceFromStem(stem: string | null | undefined, month: string): string | null {
+  const word = monthWordStyles(month)?.reference;
+  const clean = (stem ?? '').normalize('NFC').replace(/\s+/g, ' ').trim();
+  return word && clean !== '' ? `${word}-${clean}` : null;
+}
+
+/**
+ * What is wrong with a stem as typed, in one line, or null: the same rule for the sheet, the edit page and the route.
+ * The month is left out (it is added for each statement), so a stem that starts with a month's word and a hyphen is
+ * refused rather than printed as "Oct-Sept-321-John".
+ */
+export function stemProblem(stem: string): string | null {
+  const clean = stem.normalize('NFC').replace(/\s+/g, ' ').trim();
+  if (clean === '') return null;
+  if (clean.length > STATEMENT_LIMITS.REFERENCE_STEM_MAX) return `At most ${STATEMENT_LIMITS.REFERENCE_STEM_MAX} characters.`;
+  if (/\p{Cc}/u.test(clean)) return 'No control characters.';
+  const lower = clean.toLowerCase();
+  const months = [...MONTHS_REFERENCE, ...MONTHS_SHORT, ...MONTHS_LONG].map((word) => `${word.toLowerCase()}-`);
+  if (months.some((word) => lower.startsWith(word))) return 'Leave the month out: it is added for each statement.';
+  return null;
 }
 
 /** "Sep 1, 2026", as the reports print the date. The text itself if it is not a day. */
@@ -579,6 +607,11 @@ export interface PropertyManagement {
    * otherwise, so a record that never set it keeps its shape.
    */
   excludedFromReporting?: boolean;
+  /**
+   * The reference stem (Kian's ruling K5 of 2026-10-17): a new statement's reference is suggested as "<Mon>-<stem>".
+   * Written only when set, and absent otherwise, so a record that never set it keeps its shape.
+   */
+  referenceStem?: string;
   setAt: string;
 }
 
@@ -925,8 +958,9 @@ export function readPropertyManagement(id: string, fields: Record<string, unknow
   if (!isText(propertyId) || owners === null || !isMonth(statementsFrom) || !(statementsUntil === null || statementsUntil === undefined || isMonth(statementsUntil))) return null;
   if (defaultFee === undefined || reportFor === undefined || !isText(setAt)) return null;
   if (!(defaultFeeRateBasisPoints === null || defaultFeeRateBasisPoints === undefined || isCents(defaultFeeRateBasisPoints))) return null;
-  const { excludedFromReporting } = fields;
+  const { excludedFromReporting, referenceStem } = fields;
   if (excludedFromReporting !== undefined && typeof excludedFromReporting !== 'boolean') return null;
+  if (referenceStem !== undefined && !isText(referenceStem)) return null;
   return {
     id,
     schemaVersion: isCents(schemaVersion) ? schemaVersion : 0,
@@ -938,6 +972,7 @@ export function readPropertyManagement(id: string, fields: Record<string, unknow
     defaultFeeRateBasisPoints: (defaultFeeRateBasisPoints as number | null | undefined) ?? null,
     defaultFee,
     ...(excludedFromReporting === undefined ? {} : { excludedFromReporting }),
+    ...(referenceStem === undefined ? {} : { referenceStem: referenceStem as string }),
     setAt,
   };
 }

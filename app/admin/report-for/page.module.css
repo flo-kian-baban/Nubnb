@@ -1,0 +1,113 @@
+/* The Report For sheet (2026-10-17): every property on one row, its fields typed in place. The table, the toolbar and
+   the chip are the home's (../page.module.css); the inputs are the property page's (../property/page.module.css).
+   The columns are fixed so the inputs line up row under row, and the table fits 1,280 and 1,440 beside the
+   navigation; narrower, it scrolls sideways in its own box. */
+
+.sheet {
+  table-layout: fixed;
+  min-width: 1040px;
+}
+.sheet th,
+.sheet td {
+  padding: 12px 12px;
+  vertical-align: top;
+}
+.sheet th:first-child,
+.sheet td:first-child {
+  padding-left: 20px;
+}
+.sheet th:last-child,
+.sheet td:last-child {
+  padding-right: 20px;
+}
+
+.colProperty {
+  width: 22%;
+}
+.colStatement {
+  width: 13%;
+}
+.colName {
+  width: 18%;
+}
+.colAddress {
+  width: 22%;
+}
+.colStem {
+  width: 15%;
+}
+.colRate {
+  width: 10%;
+}
+
+.row:focus-within {
+  background: rgba(101, 153, 205, 0.06);
+}
+
+.propertyLink {
+  display: block;
+  color: #ffffff;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 20px;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.propertyLink:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* A grey line under a cell: the public title, a stem's reference, the row's save. */
+.sub {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 17px;
+  color: rgba(255, 255, 255, 0.5);
+  overflow-wrap: anywhere;
+}
+
+.state {
+  display: block;
+  min-height: 17px;
+  margin-top: 3px;
+  font-size: 11.5px;
+  line-height: 17px;
+  color: rgba(255, 255, 255, 0.45);
+}
+.stateWarn {
+  color: #ff8a80;
+}
+
+.blocked {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #ff8a80;
+}
+.blocked::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ef5350;
+}
+
+/* Two lines tall, as the address prints: no taller unless dragged (two classes, to outrank the property page's textarea.textInput). */
+.sheet .address {
+  min-height: 56px;
+  resize: vertical;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  line-height: 18px;
+}
+
+.summary {
+  margin-left: 4px;
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.55);
+}

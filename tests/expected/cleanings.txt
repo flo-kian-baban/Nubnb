@@ -46,7 +46,7 @@
 
 ═══ 6. Finish ═══
   4 checkouts, nothing logged: fee-none, cleaning
-  4 checkouts, October's cleanings logged: fee-none, date
+  4 checkouts, October's cleanings logged: negative-share, fee-none, date
   a typed cleaning line beside logged cleanings: A typed cleaning line and 2 logged cleanings: cleaning may be charged twice.
 
 ═══ 7. A month whose only money is a logged cleaning ═══

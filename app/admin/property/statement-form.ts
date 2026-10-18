@@ -10,7 +10,7 @@
 
 import { amountField, readAmount } from "../costs/cost-display";
 import { STATEMENT_LIMITS, feeComputed, isDayText, lineAmount, lineFromIncomeRow, rateText, type Carried, type Fee, type Line, type MonthlyReportView, type PropertyManagementView, type StatementDraftView } from "@/app/lib/reports/model";
-import { feeLabelFor, feeRateSuggestion, referenceSuggestion } from "@/app/lib/reports/statement";
+import { feeLabelFor, feeRateSuggestion, suggestedReference } from "@/app/lib/reports/statement";
 import type { CarriedPayload, DraftPayload, FeePayload, LinePayload } from "@/app/lib/reports-client";
 
 /** A line as typed. */
@@ -134,13 +134,15 @@ export function fromReport(report: MonthlyReportView, today: string): Typed {
 
 /**
  * What a month starts from when nothing is stored for it: the reference
- * offered from the previous month's, today's date, no lines, the fee rate
- * offered from the previous statement or the property's default, no carried
- * balance, no notes. Nothing is saved until the admin types.
+ * offered from the property's stem (Kian's ruling K5), else the previous
+ * month's, today's date, no lines, the fee rate offered from the previous
+ * statement or the property's default (K6), no carried balance, no notes.
+ * Nothing is saved until the admin types.
  */
 export function suggestedTyped(previous: MonthlyReportView | null, management: PropertyManagementView | null, month: string, today: string): Typed {
   return {
-    reference: referenceSuggestion(previous, month) ?? "",
+    // The property's stem first (Kian's ruling K5 of 2026-10-17: "<Mon>-<stem>"), else the previous reference's.
+    reference: suggestedReference(previous, management?.referenceStem, month) ?? "",
     reportDate: today,
     lines: [],
     fee: freshFee(feeRateSuggestion(previous, management)),

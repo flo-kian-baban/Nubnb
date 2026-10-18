@@ -13,7 +13,7 @@
 
 import type { Offer, Property } from "@/app/types/property";
 import type { PropertyManagementView } from "@/app/lib/reports/model";
-import { STATEMENTS_FROM_DEFAULT, isMonth, rateText } from "@/app/lib/reports/model";
+import { STATEMENTS_FROM_DEFAULT, isMonth, rateText, stemProblem } from "@/app/lib/reports/model";
 import type { ManagementPayload, MutationIssue } from "@/app/lib/firebase/properties";
 import { amountField } from "../../costs/cost-display";
 import { nightlyPrice } from "@/app/lib/price";
@@ -150,6 +150,8 @@ export interface ManagementDraft {
   until: string;
   /** "20" or "12.5"; '' for none. */
   feeRate: string;
+  /** The reference stem (Kian's ruling K5 of 2026-10-17): "321-John"; '' for none. */
+  referenceStem: string;
   /** The default fee amount of dispatch 23B, as loaded; sent back unchanged, no longer shown. */
   legacyFee: { label: string; amount: string } | null;
   /** Excluded from reporting (dispatch 24): the property owes no statements. */
@@ -157,7 +159,7 @@ export interface ManagementDraft {
 }
 
 export function emptyManagement(): ManagementDraft {
-  return { reportForName: "", reportForAddress: "", owners: [], from: STATEMENTS_FROM_DEFAULT, until: "", feeRate: "", legacyFee: null, excluded: false };
+  return { reportForName: "", reportForAddress: "", owners: [], from: STATEMENTS_FROM_DEFAULT, until: "", feeRate: "", referenceStem: "", legacyFee: null, excluded: false };
 }
 
 export function managementFromRecord(record: PropertyManagementView | null): ManagementDraft {
@@ -169,6 +171,7 @@ export function managementFromRecord(record: PropertyManagementView | null): Man
     from: record.statementsFrom,
     until: record.statementsUntil ?? "",
     feeRate: record.defaultFeeRateBasisPoints === null ? "" : rateText(record.defaultFeeRateBasisPoints).replace("%", ""),
+    referenceStem: record.referenceStem ?? "",
     legacyFee: record.defaultFee ? { label: record.defaultFee.label, amount: amountField(record.defaultFee.amountCents) } : null,
     excluded: record.excludedFromReporting === true,
   };
@@ -405,7 +408,10 @@ export function managementPayload(draft: ManagementDraft): { record: ManagementP
   const reportFor = reportForName === "" ? null : { name: reportForName, address: draft.reportForAddress.trim() };
   const feeRate = draft.feeRate.trim();
   if (feeRate !== "" && !/^(100(\.0{1,2})?|[0-9]{1,2}(\.[0-9]{1,2})?)$/.test(feeRate)) return { problem: "The default fee rate is a percent, like 20 or 12.5.", field: "management.feeRate" };
-  if (reportFor === null && owners.length === 0 && draft.from === STATEMENTS_FROM_DEFAULT && draft.until === "" && feeRate === "" && draft.legacyFee === null && !draft.excluded) return { record: null };
+  const referenceStem = draft.referenceStem.normalize("NFC").replace(/\s+/g, " ").trim();
+  const stemIssue = stemProblem(referenceStem);
+  if (stemIssue) return { problem: `Reference stem: ${stemIssue}`, field: "management.referenceStem" };
+  if (reportFor === null && owners.length === 0 && draft.from === STATEMENTS_FROM_DEFAULT && draft.until === "" && feeRate === "" && referenceStem === "" && draft.legacyFee === null && !draft.excluded) return { record: null };
   return {
     record: {
       reportFor,
@@ -413,6 +419,7 @@ export function managementPayload(draft: ManagementDraft): { record: ManagementP
       statementsFrom: draft.from,
       statementsUntil: draft.until || null,
       defaultFeeRate: feeRate || null,
+      referenceStem: referenceStem || null,
       ...(draft.legacyFee ? { defaultFee: draft.legacyFee } : {}),
       excludedFromReporting: draft.excluded,
     },

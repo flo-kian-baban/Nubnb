@@ -30,6 +30,7 @@ export const CHECKS = [
   { name: 'direct-payments', script: 'direct/payments.mjs', args: [] },
   { name: 'internal-names', script: 'names/internal-names.mjs', args: [] },
   { name: 'cleaner-home', script: 'cleaner/home.mjs', args: [] },
+  { name: 'statements-round1', script: 'statements/round1.mjs', args: [] },
 ];
 
 const argv = process.argv.slice(2);

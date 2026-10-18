@@ -53,6 +53,7 @@ import {
   monthsBetween,
   rangeText,
   rateText,
+  referenceFromStem,
   reportRef,
   statementMonths,
   type Carried,
@@ -862,6 +863,15 @@ export function referenceSuggestion(previous: MonthlyReportView | null, month: s
     if (previous.reference.toLowerCase().startsWith(word.toLowerCase())) return `${next[style]}-${previous.reference.slice(word.length)}`;
   }
   return null;
+}
+
+/**
+ * The reference a new statement starts from: "<Mon>-<stem>" when the property has a reference stem (Kian's ruling K5
+ * of 2026-10-17), else the previous one with its month word swapped; null when neither gives one. Always a suggestion:
+ * the admin can type over it.
+ */
+export function suggestedReference(previous: MonthlyReportView | null, stem: string | null | undefined, month: string): string | null {
+  return referenceFromStem(stem, month) ?? referenceSuggestion(previous, month);
 }
 
 /** The fee rate to start from: the previous statement's, else the property's default. */

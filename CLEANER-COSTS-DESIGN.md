@@ -3566,3 +3566,138 @@ Kian accepted this note. His icon ruling is in CLAUDE.md.
 The column's CSS was shaped first on a dev copy with no keys at all, so it made no production reads.
 
 **Reads this round:** about 4,736 (build 3,890, server 325, seed 1, export 512, the by-ID scripts 8). No closing export, on Kian's instruction.
+
+## 54. The property page, round 1: Kian's rulings of 2026-10-17 (the audit)
+
+The audit of 2026-10-17 (report in `~/Downloads/nubnb-property-page-audit-2026-10-17`, kept out of the repo) found
+September's 40 statements blocked by Report For names typed one property at a time, with no way from one property to
+the next. Kian's rulings K2–K6 are in CLAUDE.md. Build round 1 is below.
+
+### 54.1 What was built
+
+1. **The Report For sheet**, at `/admin/report-for`.
+   - One table of every property: address (with the public title under it), Statement, Report For name, Address,
+     Reference stem, Fee rate (%).
+   - Each field is typed in place. A row saves itself 800 ms after the last change, and at once when the cursor
+     leaves the row.
+   - Saves go through the existing management route with the row's three fields alone (`setManagementFields`).
+   - "Owes a statement" narrows the table to the properties owing a statement now, by the home's rule.
+   - A blocked row (owed, with no Report For name) is marked.
+   - It is reached from:
+     - a link beside the home's chips while "Statements blocked" is pressed;
+     - the property page's "Blocked" line;
+     - the Details tab's Report For block.
+   - It makes one read: the statements tracker the home already uses.
+2. **Next property.** On every change, the home keeps the list it shows (chip, search, city, order) in this tab's
+   session storage (`app/lib/home/property-queue.ts`). Each entry opens where its Next step is done.
+   - When the property page was opened from that list, a bar over its head shows: back to the list, "3 of 39",
+     Previous, and "Next: <address>".
+   - The page is mounted afresh for each property, so no month, tab or read carries over.
+3. **The month due.** With no month in the address, the page opens on the oldest month owed and unfinished
+   (`owedMonths` over `reportingStatus`), else the current month.
+   - It decides once, when its reads are in. The files' lines and the direct payments make months owed, so it
+     waits for them.
+   - It shows no month before deciding, and writes the month to the address only after.
+4. **"Blocked: no Report For name"** in the head, under the months due, while the property owes a statement and has
+   no Report For name.
+   - "Add it" opens the Details tab of an owed month (this one, when it is owed) with the Name field focused.
+   - "All in one table" opens the sheet.
+   - The line goes as soon as the name is saved.
+5. **K3–K6:**
+   - **K3:** Finish's checks warn `negative-share`, "Your Revenue Share is below zero: −$x." It is the first warning.
+     It is a warning only: Report For stays the one refusal.
+   - **K4:** "Use what Airbnb paid" sits under the base. On a click it types what Airbnb paid for the month (M1:
+     the fee base is what Airbnb actually paid) as the base, keeping the revenue beside it for Finish's base check
+     (S6). The base still starts empty.
+   - **K5:** `referenceStem` on the management record, written only when set. The suggestion is
+     `suggestedReference` (statement.ts), used by the property page and the empty-months list.
+   - **K6:** `defaultFeeRateBasisPoints` already existed. It is now set from the sheet as well as from the edit page.
+6. **The edit page's Statements panel** gains "Reference stem", beside "Default fee rate (%)" (each now 3 of 12
+   columns), with the reference it would start as.
+
+### 54.2 The developer's choices (for Kian)
+
+These touch a statement's reference, which prints on what an owner receives:
+- **<Mon> is the word NuBNB's references already use:** Jan, Feb, Mar, Apr, May, June, July, Aug, Sept, Oct, Nov,
+  Dec. So September with stem "321-John" gives "Sept-321-John", as the month swap of dispatch 34 does.
+- **A property's stem comes before the previous reference.** With a stem, every new statement starts as
+  <Mon>-<stem>. Without one, it follows the previous reference as before. It is always a suggestion, typed over
+  freely.
+- **A stem that starts with a month's word and a hyphen ("Sept-321") is refused**, in one line, so a reference never
+  prints as "Oct-Sept-321".
+
+These do not touch money or a statement:
+- **The management route takes a partial body.**
+  - Any key it leaves out keeps what is stored, as the optional keys already did.
+  - A record it creates starts at September 2026 with no owners, as `setReportFor`'s does.
+  - The read and the write are one transaction.
+  - The edit page still sends the whole record.
+- **The sheet is not in the navigation.** Kian's ruling fixes the column's items; the sheet sits under Properties.
+- **Next property walks a snapshot.** A property finished since stays on the list, and its page shows its true
+  state.
+- **Opening without a month reads the month's files twice** when the month due is not the current month (about 67
+  reads more): once to decide, once for that month's calendar copy.
+- **"Use what Airbnb paid" is disabled when Airbnb paid nothing or took back more than it paid.** A base cannot be
+  below zero. The button's tooltip says why.
+- **K2 needs an order, not code.** Under dispatch 37B's rules, a September cleaning logged before that property's
+  September statement is finished prints on September's statement. It prints on October's as a late cleaning only
+  when September was finished first.
+
+### 54.3 Verification (2026-10-17, evening)
+
+**Setup**
+- **The build:** `o8zsPf0aVpK-nV5lbVs9D`, a production build of this tree with HEAD `4e31ae6`. It ran on
+  127.0.0.1:4500, reading production, under the write guard and the calendar cut-off.
+  - The build's own Firestore was answered empty inside the build process (`empty-firestore.cjs`), so building cost
+    0 reads; a build otherwise reads about 3,900.
+  - The server read production as usual.
+- **The test admin:** `__TEST__ Admin cff321`, an ordinary admin.
+- **The test properties:** three, `__TEST__ 1/2/3 Round St`. Each was written with its unlisted mark in one batch,
+  with an Airbnb title linked to it and one accepted September line: +$500.00, −$200.00 and +$300.00. So each owed
+  September and was blocked.
+- **Opening export:** `2026-10-18T00-36-57Z`.
+
+**Results**
+- **Next property:** the home with Statements blocked and "__TEST__" showed the three. From the first row's Next
+  step, Next went to 2 of 3 and 3 of 3 in place, with no reload.
+  - The bar read "Statements blocked · “__TEST__” · Needs attention", with back to `/admin?show=blocked&q=__TEST__`.
+  - Previous was disabled on the first, and Next ("Last on the list") on the last.
+  - Each page opened on September, on the Details tab, with "Blocked: no Report For name".
+  - "Add it" focused the Name field.
+- **The sheet:** opened from the chip's link at `?owes=1`, with 43 owing out of 61 units. Searching "__TEST__"
+  left the three.
+  - One: name, a two-line address, stem R1-One and rate 20. It saved when the cursor left the row.
+  - Two: name and stem R1-Two. It saved 800 ms after the last change.
+  - Read back through the route, both records were as typed: owners [], statements from 2026-09, no end.
+  - Three: "Sept-321" was refused in the row ("Leave the month out: it is added for each statement.") and nothing
+    was sent. Three was never written.
+  - At 1280 and 1440 the table does not scroll sideways.
+- **The month due:**
+  - A real property owing nothing (not named here: the repo is public and its name is a street address), opened
+    from its address with no month, opened on October 2026.
+  - One opened on September 2026.
+  - Neither page showed another month while opening.
+- **K5 and K6:** One's Finish suggested "Sept-R1-One". Its fee started at 20%, with the base empty.
+- **K4:** "Use what Airbnb paid" typed 500.00 as the base, giving a $100.00 fee labelled "NuBNB 20% Net of
+  $500.00".
+  - The draft saved, and read back: reference Sept-R1-One, rate 2000 bp, base 50,000¢, amount 10,000¢.
+  - On Two (Airbnb paid −$200.00) the button was disabled: "Airbnb took back more than it paid (-$200.00): a base
+    cannot be below zero".
+- **K3:**
+  - Two's Before finishing listed first: "Your Revenue Share is below zero: -$200.00."
+  - The Finish dialog listed it among 3 warnings, with Finish and issue disabled until the tick. "Go back" was
+    pressed; nothing was finished.
+- **A fix found here, and verified after a rebuild:** the sheet's placeholders became words (Name, Address, Stem,
+  Rate). A sample "20" in an empty rate read as a value. No reference is shown under a refused stem; it had read
+  "Sept-Sept-321".
+- **Writes:**
+  - The guard refused or absorbed nothing in the whole run.
+  - Every write was a test record: 25 documents, namely the admin, its name, 4 activity lines, the 3 properties,
+    their marks, names, links and lines, 2 management records and 2 drafts.
+  - All 25 were deleted by exact ID and read back gone.
+
+**Reads:** 2,825 against a limit of 6,000:
+- export 537;
+- seed 7;
+- server 2,231 (a home load about 600, a property page about 188, the sheet about 220);
+- cleanup 50.

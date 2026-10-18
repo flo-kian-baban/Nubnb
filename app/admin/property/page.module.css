@@ -38,6 +38,89 @@
   overflow-wrap: anywhere;
 }
 
+/* The head's status (2026-10-17): the months due, and under them, while the property owes a statement and has no
+   Report For name, "Blocked: no Report For name" with its two ways to fix it. Right-aligned with the status line. */
+.headStatus {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  min-width: 0;
+}
+.blockedLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 18px;
+}
+.blockedText {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #ff8a80;
+  font-weight: 600;
+}
+.blockedText::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ef5350;
+  flex: none;
+}
+
+/* The home's list walked in place (2026-10-17): back to the list on the left, where this one stands, Previous and
+   Next on the right. A quiet row over the head; Next names the property it opens, cut short when long. */
+.queueBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin: 0 0 14px;
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.55);
+}
+.queueBack {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  color: rgba(255, 255, 255, 0.72);
+  font-weight: 600;
+  text-decoration: none;
+}
+.queueBack:hover {
+  color: #ffffff;
+}
+.queueBack:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.queuePlace {
+  font-variant-numeric: tabular-nums;
+}
+.queueSteps {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  min-width: 0;
+}
+.queueNext {
+  max-width: 360px;
+}
+.queueNext > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* The page's own buttons, last in the head (Kian's ruling of 2026-10-15: none in the navigation). */
 .headActions {
   display: flex;

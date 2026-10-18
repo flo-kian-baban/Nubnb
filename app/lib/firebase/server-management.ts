@@ -14,6 +14,14 @@
  * 2026-10-02: a record only narrows that), prints no "Report For" block, and
  * has no default rate. A record that `setReportFor` creates starts at that
  * same month, so saving Report For narrows nothing.
+ *
+ * The reference stem (Kian's ruling K5 of 2026-10-17): a new statement's
+ * reference is suggested as "<Mon>-<stem>". The Report For sheet sets Report
+ * For, the stem and the default fee rate alone, through the same route: any
+ * field a body leaves out keeps what is stored (a record it creates starts
+ * at STATEMENTS_FROM_DEFAULT with no owners, as `setReportFor`'s does), and
+ * the record is read and written in one transaction, so two saves never undo
+ * each other's fields.
  */
 
 import { z } from 'zod';
@@ -27,6 +35,7 @@ import {
   STATEMENT_LIMITS,
   isMonth,
   readPropertyManagement,
+  stemProblem,
   type PropertyManagement,
   type PropertyManagementView,
   type ReportFor,
@@ -83,7 +92,24 @@ export const ReportForInputSchema = z
   })
   .transform((value): ReportFor => ({ name: value.name, address: value.address }));
 
-/** The record as the property form saves it. Strict: any other key is refused. */
+/** A reference stem as typed (Kian's ruling K5): "321-John", spaces folded; the month is left out. */
+export const ReferenceStemSchema = z
+  .string()
+  .transform((s) => s.normalize('NFC').replace(/\s+/g, ' ').trim())
+  .pipe(
+    z
+      .string()
+      .min(1, 'Type the stem, like 321-John, or send null for none')
+      .superRefine((s, ctx) => {
+        const problem = stemProblem(s);
+        if (problem) ctx.addIssue({ code: 'custom', message: problem });
+      }),
+  );
+
+/**
+ * The record as the property form saves it, whole, or as the Report For sheet saves it, in part: a key left out keeps
+ * what is stored. Strict: any other key is refused.
+ */
 export const ManagementInputSchema = z
   .strictObject({
     reportFor: ReportForInputSchema.nullable().optional(),
@@ -100,17 +126,20 @@ export const ManagementInputSchema = z
             .transform((value) => (value ? value : null)),
         }),
       )
-      .max(STATEMENT_LIMITS.OWNERS_MAX, `At most ${STATEMENT_LIMITS.OWNERS_MAX} owners`),
-    statementsFrom: z.string().refine(isMonth, 'A month, like 2026-10'),
-    statementsUntil: z.string().refine(isMonth, 'A month, like 2027-03').nullable(),
+      .max(STATEMENT_LIMITS.OWNERS_MAX, `At most ${STATEMENT_LIMITS.OWNERS_MAX} owners`)
+      .optional(),
+    statementsFrom: z.string().refine(isMonth, 'A month, like 2026-10').optional(),
+    statementsUntil: z.string().refine(isMonth, 'A month, like 2027-03').nullable().optional(),
     /** "20" or "12.5"; null for none. */
     defaultFeeRate: z.string().regex(RATE, 'A rate in percent, like 20 or 12.5').transform(toBasisPoints).nullable().optional(),
     defaultFee: FeeInputSchema.nullable().optional(),
     /** Excluded from reporting (dispatch 24): the property owes no statements. Absent keeps what is stored. */
     excludedFromReporting: z.boolean().optional(),
+    /** The reference stem (Kian's ruling K5); null for none. Absent keeps what is stored. */
+    referenceStem: ReferenceStemSchema.nullable().optional(),
   })
   .superRefine((body, ctx) => {
-    if (body.statementsUntil !== null && body.statementsUntil < body.statementsFrom) {
+    if (typeof body.statementsUntil === 'string' && typeof body.statementsFrom === 'string' && body.statementsUntil < body.statementsFrom) {
       ctx.addIssue({ code: 'custom', path: ['statementsUntil'], message: 'The last month is before the first' });
     }
   });
@@ -136,23 +165,30 @@ export async function listManagement(): Promise<PropertyManagementView[]> {
   return records;
 }
 
-export type SetManagementResult = { kind: 'set'; record: PropertyManagementView } | { kind: 'cleared' } | { kind: 'no-such-property' };
+export type SetManagementResult = { kind: 'set'; record: PropertyManagementView } | { kind: 'cleared' } | { kind: 'no-such-property' } | { kind: 'invalid'; path: string; message: string };
 
-/** The record as stored, from the form's input; absent optional fields keep what is stored. */
-function stored(propertyId: string, input: ManagementInput, was: PropertyManagementView | null): PropertyManagement {
+/**
+ * The record as stored, from the input: every field the input leaves out keeps what is stored, and a record made here
+ * starts where `setReportFor`'s does (STATEMENTS_FROM_DEFAULT, no owners, no end). Pure, for the tests.
+ */
+export function storedManagement(propertyId: string, input: ManagementInput, was: PropertyManagementView | null, now: string): PropertyManagement {
   const excluded = input.excludedFromReporting ?? was?.excludedFromReporting === true;
+  const stem = input.referenceStem === undefined ? (was?.referenceStem ?? null) : input.referenceStem;
+  const owners = input.owners ?? was?.owners ?? [];
   return {
     schemaVersion: PROPERTY_MANAGEMENT_SCHEMA_VERSION,
     propertyId,
     reportFor: input.reportFor === undefined ? (was?.reportFor ?? null) : input.reportFor,
-    owners: input.owners.map((owner) => ({ name: owner.name, email: owner.email })),
-    statementsFrom: input.statementsFrom,
-    statementsUntil: input.statementsUntil,
+    owners: owners.map((owner) => ({ name: owner.name, email: owner.email })),
+    statementsFrom: input.statementsFrom ?? was?.statementsFrom ?? STATEMENTS_FROM_DEFAULT,
+    statementsUntil: input.statementsUntil === undefined ? (was?.statementsUntil ?? null) : input.statementsUntil,
     defaultFeeRateBasisPoints: input.defaultFeeRate === undefined ? (was?.defaultFeeRateBasisPoints ?? null) : input.defaultFeeRate,
     defaultFee: input.defaultFee === undefined ? (was?.defaultFee ?? null) : input.defaultFee,
     // Written only when true: a record that is not excluded keeps the shape it always had.
     ...(excluded ? { excludedFromReporting: true } : {}),
-    setAt: new Date().toISOString(),
+    // Written only when set (Kian's ruling K5), for the same reason.
+    ...(stem !== null ? { referenceStem: stem } : {}),
+    setAt: now,
   };
 }
 
@@ -172,10 +208,19 @@ export async function setManagement(propertyId: string, input: ManagementInput |
     await ref.delete();
     return { kind: 'cleared' };
   }
-  const was = await ref.get();
-  const record = stored(propertyId, input, was.exists ? readPropertyManagement(was.id, was.data() ?? {}) : null);
-  await ref.set(record);
-  return { kind: 'set', record: readPropertyManagement(propertyId, record as unknown as Record<string, unknown>)! };
+  // Read and written together: a save that sends only some fields (the Report For sheet's) keeps the rest as stored,
+  // even when another save lands between.
+  const outcome = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    const was = snap.exists ? readPropertyManagement(snap.id, snap.data() ?? {}) : null;
+    if (snap.exists && was === null) throw new Error(`property_management/${propertyId} is not in the written shape`);
+    const record = storedManagement(propertyId, input, was, new Date().toISOString());
+    if (record.statementsUntil !== null && record.statementsUntil < record.statementsFrom) return { invalid: true as const };
+    tx.set(ref, record);
+    return { invalid: false as const, record };
+  });
+  if (outcome.invalid) return { kind: 'invalid', path: 'statementsUntil', message: 'The last month is before the first' };
+  return { kind: 'set', record: readPropertyManagement(propertyId, outcome.record as unknown as Record<string, unknown>)! };
 }
 
 export type SetReportForResult = { kind: 'set'; record: PropertyManagementView } | { kind: 'no-such-property' };

@@ -32,8 +32,16 @@
  * short (S25); the carried balance reads as the PDF prints it, the amount
  * deducted (S17); a fee or balance not saved because it does not read yet
  * says so (S10).
+ *
+ * Kian's rulings of 2026-10-17 (the property page audit): "Use what Airbnb
+ * paid", beside the base, fills it on click with what Airbnb paid for the
+ * month (K4); the base never fills itself. A new statement's fee starts from
+ * the property's default rate when it has one (K6), set here on the edit
+ * page or in the Report For sheet, a link away from Report For.
  */
 
+import { useEffect, useRef } from "react";
+import Link from "next/link";
 import { formatCents } from "@/app/lib/cleaners/model";
 import { STATEMENT_LIMITS, monthLabel, type MonthlyReportView, type PropertyManagementView, type StatementCarriedAdjustment } from "@/app/lib/reports/model";
 import { carriedFromMonth, feeRateSuggestion, uncarriedDebts } from "@/app/lib/reports/statement";
@@ -66,10 +74,20 @@ interface Props {
   revenue: Pick<IncomeFigures, "revenueCents" | "airbnbCents" | "directCents"> | null;
   /** Parts not saved because they do not read yet (dispatch 34, S10). */
   heldBack: HeldPart[];
+  /** Bumped by the head's "Blocked: no Report For name" link: the Name field takes the focus, once. */
+  focusName?: number;
+  /** The focus was taken: the page sets the count back, so coming back to the tab later does not take it again. */
+  onNameFocused?: () => void;
 }
 
-export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForState, onReportFor, finishedReport, previous, management, carriedCents, reports, month, carriedAdjustments, revenue, heldBack }: Props) {
+export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForState, onReportFor, finishedReport, previous, management, carriedCents, reports, month, carriedAdjustments, revenue, heldBack, focusName = 0, onNameFocused }: Props) {
   const revenueCents = revenue?.revenueCents ?? null;
+  const nameRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (focusName <= 0 || !nameRef.current) return;
+    nameRef.current.focus();
+    onNameFocused?.();
+  }, [focusName, onNameFocused]);
   const fee = typed.fee ? feeNow(typed.fee) : null;
   const setFee = (patch: Partial<FeeDraft>) => typed.fee && onChange({ ...typed, fee: { ...typed.fee, ...patch } });
   /** The earlier months that closed owing NuBNB and that no statement carries (Kian's ruling: offered until one does). */
@@ -91,12 +109,18 @@ export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForStat
           {!readOnly && reportForState === "failed" && <span className={styles.noteWarn}>Not saved</span>}
           {!readOnly && reportForState === "saving" && <span className={styles.note}>Saving…</span>}
           {!readOnly && reportForCut(shownName.trim() === "" ? null : { name: shownName.trim(), address: shownAddress }) && <span className={styles.noteWarn}>Cut short on the PDF</span>}
+          {/* Every property's Report For, reference stem and default fee rate in one table (Kian, 2026-10-17). */}
+          <span className={styles.blockActions}>
+            <Link href="/admin/report-for?owes=1" prefetch={false} className={styles.linkButton}>
+              Report For sheet
+            </Link>
+          </span>
         </div>
         {/* Name and address side by side, so the tab's four blocks fit a 1,280 × 800 window (Kian, 2026-10-01). */}
         <div className={styles.fields}>
           <div className={`${styles.field} ${styles.fieldHalf}`}>
             <label className={styles.fieldLabel} htmlFor="report-for-name">Name</label>
-            <input id="report-for-name" className={styles.textInput} value={legacyView ? "" : shownName} maxLength={STATEMENT_LIMITS.REPORT_FOR_NAME_MAX} disabled={readOnly} placeholder="Name" onChange={(e) => onReportFor({ ...reportFor, name: e.target.value })} />
+            <input id="report-for-name" ref={nameRef} className={styles.textInput} value={legacyView ? "" : shownName} maxLength={STATEMENT_LIMITS.REPORT_FOR_NAME_MAX} disabled={readOnly} placeholder="Name" onChange={(e) => onReportFor({ ...reportFor, name: e.target.value })} />
           </div>
           <div className={`${styles.field} ${styles.fieldHalf}`}>
             <label className={styles.fieldLabel} htmlFor="report-for-address">Address</label>
@@ -158,6 +182,18 @@ export function DetailsTab({ typed, readOnly, onChange, reportFor, reportForStat
                   {/* Direct income counts in the revenue beside the base, and in Finish's base check (Kian's ruling of 2026-10-15). */}
                   {revenue.directCents !== 0 && ` · direct ${formatCents(revenue.directCents)}`}
                 </span>
+              )}
+              {/* K4 (Kian's ruling of 2026-10-17): fills the base on the admin's click with what Airbnb paid (M1); never by itself. */}
+              {!readOnly && revenue !== null && (
+                <button
+                  type="button"
+                  className={styles.linkButton}
+                  disabled={revenue.airbnbCents <= 0}
+                  title={revenue.airbnbCents > 0 ? `Type ${formatCents(revenue.airbnbCents)} as the base` : revenue.airbnbCents === 0 ? "Airbnb paid nothing this month" : `Airbnb took back more than it paid (${formatCents(revenue.airbnbCents)}): a base cannot be below zero`}
+                  onClick={() => setFee({ base: amountField(revenue.airbnbCents), baseRevenue: revenueCents })}
+                >
+                  Use what Airbnb paid
+                </button>
               )}
             </div>
             <div className={`${styles.field} ${styles.fieldAmount}`}>

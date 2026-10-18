@@ -18,6 +18,7 @@ import { fetchPropertyStatus, type PropertyStatusResult } from "@/app/lib/proper
 import { incomeStanding, type IncomeStanding, type IncomeTone } from "@/app/lib/income/standing";
 import { cleaningStanding, type CleaningStanding, type CleaningTone, type HomeJob } from "@/app/lib/schedule/standing";
 import { byAttention, byNextCheckout, CHIPS, rowView, statementFigures, turnoverFigures, type ChipKey, type RowView } from "@/app/lib/home/next-step";
+import { entryHref, queueLabel, writeQueue } from "@/app/lib/home/property-queue";
 import { useCalendarsRefreshed } from "@/app/lib/calendar-refresh-client";
 import { Dialog } from "./property/editor/controls";
 import styles from "./page.module.css";
@@ -87,7 +88,9 @@ const worstOf = (tones: (ReportingTone | IncomeTone | CleaningTone | undefined)[
 /**
  * A property's page (dispatch 23F): everything about it, bound to a month —
  * its costs, its income, the statement's details, and finishing — with the
- * statement preview beside. It opens on the current month.
+ * statement preview beside. With no month in its address it opens on the
+ * month due, the oldest owed and unfinished, else the current month (build
+ * round 1 of the property page audit, 2026-10-17).
  */
 const propertyHref = (id: string) => `/admin/property?id=${encodeURIComponent(id)}`;
 
@@ -319,6 +322,22 @@ function AdminHome() {
     return result;
   }, [searched, chip, viewsReady, rows, sortBy, statuses, nameOf]);
 
+  // "Next property" on the property page (2026-10-17): the list as shown — its chip, search, city and order — kept in
+  // this tab for the property page to walk, each property opening where its Next step is done (app/lib/home/property-queue.ts).
+  useEffect(() => {
+    if (isLoading || loadError) return;
+    writeQueue({
+      label: queueLabel({
+        chip: chip ? (CHIPS.find((c) => c.key === chip)?.label ?? null) : null,
+        search: searchQuery,
+        city: cityFilter === "all" ? null : cityFilter,
+        sort: SORT_OPTIONS.find((option) => option.value === sortBy)?.label ?? "",
+      }),
+      listHref: `${window.location.pathname}${window.location.search}`,
+      entries: filteredProperties.map((p) => ({ id: p.id, name: nameOf(p), href: entryHref(p.id, rows?.get(p.id)?.view?.step.href) })),
+    });
+  }, [filteredProperties, rows, chip, searchQuery, cityFilter, sortBy, nameOf, isLoading, loadError]);
+
   const narrowed = searchQuery.trim() !== "" || cityFilter !== "all" || chip !== null;
   const clearFilters = () => {
     setSearchQuery("");
@@ -465,6 +484,12 @@ function AdminHome() {
                   </button>
                 );
               })}
+              {/* The Report For sheet (2026-10-17): a blocked statement is one with no Report For name; every name in one table. */}
+              {chip === "blocked" && (
+                <Link href="/admin/report-for?owes=1" prefetch={false} className={styles.chipLink}>
+                  Fill in Report For in one table
+                </Link>
+              )}
             </div>
           </section>
         )}

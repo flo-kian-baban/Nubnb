@@ -11,7 +11,8 @@
 
 import { Plus, X } from "lucide-react";
 import { AdminSelect } from "../../components/AdminSelect";
-import { STATEMENT_LIMITS, monthLabel } from "@/app/lib/reports/model";
+import { STATEMENT_LIMITS, monthLabel, monthOfDay, referenceFromStem } from "@/app/lib/reports/model";
+import { torontoDayOf } from "@/app/lib/costs/report";
 import { Field, Switch, TextArea, TextInput } from "./controls";
 import { monthChoices, type ManagementDraft } from "./model";
 import { Panel, Tile, fieldIssue, isInvalid, type SectionContext } from "./shared";
@@ -85,9 +86,11 @@ export function StatementsSection({ ctx }: { ctx: SectionContext }) {
   const months = monthChoices(new Date(), [m.from, m.until]);
   const monthOptions = months.map((month) => ({ value: month, label: monthLabel(month) }));
   const byYear = [...new Set(months.map((month) => month.slice(0, 4)))].map((year) => ({ label: year, options: monthOptions.filter((o) => o.value.startsWith(year)) }));
+  /** The reference a statement for this month would start from, from the stem as typed. */
+  const stemSample = referenceFromStem(m.referenceStem, monthOfDay(torontoDayOf(new Date())));
 
   return (
-    <Panel title="Statements" state={ctx.state} internal note={managementState === "unavailable" ? `The statements record could not be read. ${UNREADABLE}` : "Who the Payment Summary is for, the months statements run, and the fee rate a statement starts from. Nothing here sends email."}>
+    <Panel title="Statements" state={ctx.state} internal note={managementState === "unavailable" ? `The statements record could not be read. ${UNREADABLE}` : "Who the Payment Summary is for, the months statements run, and the fee rate and reference a statement starts from. Nothing here sends email."}>
       <Tile title="Report For" span={6}>
         <div className={styles.fields}>
           <Field label="Name" issue={fieldIssue(ctx, "management.reportForName")}>
@@ -135,7 +138,7 @@ export function StatementsSection({ ctx }: { ctx: SectionContext }) {
         </div>
       </Tile>
 
-      <Tile title="Default fee rate (%)" span={6}>
+      <Tile title="Default fee rate (%)" span={3}>
         <TextInput field="management.feeRate" inputMode="decimal" value={m.feeRate} onChange={(value) => set({ feeRate: value })} placeholder="20" disabled={locked} invalid={isInvalid(ctx, "management.feeRate")} aria-label="Default fee rate in percent" />
         {fieldIssue(ctx, "management.feeRate") && (
           <span className={styles.issue} role="alert" data-issue>
@@ -143,6 +146,17 @@ export function StatementsSection({ ctx }: { ctx: SectionContext }) {
           </span>
         )}
         <span className={styles.hint}>What a new statement starts from, like 20 or 12.5.</span>
+      </Tile>
+
+      {/* Kian's ruling K5 of 2026-10-17: a new statement's reference is suggested as "<Mon>-<stem>". */}
+      <Tile title="Reference stem" span={3}>
+        <TextInput field="management.referenceStem" value={m.referenceStem} onChange={(value) => set({ referenceStem: value })} maxLength={STATEMENT_LIMITS.REFERENCE_STEM_MAX} placeholder="321-John" disabled={locked} invalid={isInvalid(ctx, "management.referenceStem")} aria-label="Reference stem" />
+        {fieldIssue(ctx, "management.referenceStem") && (
+          <span className={styles.issue} role="alert" data-issue>
+            {fieldIssue(ctx, "management.referenceStem")}
+          </span>
+        )}
+        <span className={styles.hint}>{stemSample ? `A new statement starts as ${stemSample}.` : "The reference less its month: 321-John gives Sept-321-John."}</span>
       </Tile>
     </Panel>
   );

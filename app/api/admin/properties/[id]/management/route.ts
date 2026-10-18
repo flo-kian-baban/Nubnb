@@ -1,10 +1,13 @@
 /**
  * GET /api/admin/properties/[id]/management — A property's "Report For", owners, statement months and default fee rate (admin-only, dispatch 23B).
- * PUT /api/admin/properties/[id]/management — Set the record whole, or clear it with `null`.
+ * PUT /api/admin/properties/[id]/management — Set the record, whole or in part, or clear it with `null`.
  *
- * Request (PUT):  `{ reportFor: { name, address } | null, owners: [{ name, email? }], statementsFrom, statementsUntil, defaultFeeRate: "20" | null, defaultFee? } | null`
+ * Request (PUT):  `{ reportFor?: { name, address } | null, owners?: [{ name, email? }], statementsFrom?, statementsUntil?, defaultFeeRate?: "20" | null, referenceStem?: "321-John" | null, defaultFee?, excludedFromReporting? } | null`
+ *                 The property form sends the record whole; the Report For sheet sends `reportFor`, `referenceStem` and
+ *                 `defaultFeeRate` alone (Kian's rulings K5 and K6 of 2026-10-17). A key left out keeps what is stored.
  * Response:       200 `{ success: true, data: { record: PropertyManagementView | null } }`
  *                 404 PROPERTY_NOT_FOUND when no property has that ID
+ *                 422 VALIDATION_ERROR, also when the stored months and the sent ones end before they start
  *
  * The record lives in `property_management/{propertyId}`, server-only, and
  * never on the world-readable property document. Nothing sends email: the
@@ -65,6 +68,7 @@ export const PUT = adminRoute(async function PUT(request: NextRequest, context: 
   try {
     const outcome = await setManagement(id, input);
     if (outcome.kind === 'no-such-property') return noStore(apiFailure(NOT_FOUND));
+    if (outcome.kind === 'invalid') return noStore(apiValidationError([{ path: outcome.path, message: outcome.message }]));
     console.log(`[management] ${outcome.kind} for property ${id}`);
     return noStore(apiSuccess({ record: outcome.kind === 'set' ? outcome.record : null }));
   } catch (err) {

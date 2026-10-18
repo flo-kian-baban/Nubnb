@@ -859,3 +859,16 @@ Kian's review of 2026-10-17:
 - **The left navigation shows icons only below 1440 px wide, each with its
   name on hover and focus; full labels at 1440 and up.**
 - **The design note in CLEANER-COSTS-DESIGN.md §53 is accepted.**
+
+## Property page — Kian's rulings of 2026-10-17 (the audit)
+
+- **K3. Finish warns when the revenue share is below zero.**
+- **K4. A "Use what Airbnb paid" button beside the fee base fills it on
+  click; the base never fills itself.**
+- **K5. Each property may have a reference stem; a new statement's
+  reference is suggested as <Mon>-<stem>.**
+- **K6. Each property may have a default fee rate.**
+- **K2. September cleanings are logged during October and print on
+  October's statements as late cleanings; Finish's "No cleaning line"
+  warning for September is expected.** Kian to strike if cleanings are not
+  charged.

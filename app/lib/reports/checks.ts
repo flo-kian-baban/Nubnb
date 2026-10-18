@@ -10,7 +10,8 @@
  *
  * The checks, by the audit's IDs:
  *   refused  S20  no Report For name
- *   warned   S4   no NuBNB fee            S15  a $0.00 fee (which does not print, Kian's ruling of 2026-10-12)
+ *   warned   K3   the revenue share below zero (Kian's ruling of 2026-10-17, the property page audit)
+ *            S4   no NuBNB fee            S15  a $0.00 fee (which does not print, Kian's ruling of 2026-10-12)
  *            S7   a fee label that does not work out to its amount
  *            S6   lines changed since the fee's base was typed
  *            S3   an earlier month closed owing NuBNB and no statement carries it (dispatch 35: every such month, not only the last)
@@ -159,6 +160,9 @@ export function finishChecks(input: CheckInputs): FinishChecks {
 
   // ── Refused (S20) ──
   if (!s.reportFor || s.reportFor.name.trim() === '') refusals.push({ key: 'report-for', text: 'No Report For name: a statement is never finished without one.', tab: 'details' });
+
+  // ── The revenue share below zero (K3, Kian's ruling of 2026-10-17): said first, as it is the figure the owner reads ──
+  if (s.payableCents < 0) warnings.push({ key: 'negative-share', text: `Your Revenue Share is below zero: ${formatCents(s.payableCents)}.`, tab: 'income' });
 
   // ── The fee (S4, S15, S7, S6) ──
   if (!s.fee) warnings.push({ key: 'fee-none', text: 'No NuBNB fee.', tab: 'details' });

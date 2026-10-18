@@ -1140,3 +1140,22 @@
   line-height: 1.5;
   text-align: center;
 }
+
+/* The link beside the chips while "Statements blocked" is pressed: to the Report For sheet (2026-10-17). */
+.chipLink {
+  margin-left: 4px;
+  color: #8dbbe8;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.chipLink:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.chipLink:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 2px;
+  border-radius: 4px;
+}

@@ -267,6 +267,35 @@ export async function setManagement(id: string, record: ManagementPayload | null
   return { ok: true, data: { record: stored && typeof stored === 'object' ? (stored as PropertyManagementView) : null } };
 }
 
+/**
+ * Set Report For, the reference stem and the default fee rate alone (the Report For sheet, 2026-10-17), through the
+ * same route: every other field of the record keeps what is stored, and a record made here starts with the defaults.
+ */
+export async function setManagementFields(id: string, fields: ManagementFieldsPayload): Promise<MutationResult<{ record: PropertyManagementView }>> {
+  let res: Response;
+  try {
+    res = await fetch(`/api/admin/properties/${encodeURIComponent(id)}/management`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fields),
+    });
+  } catch (error) {
+    return networkFailure(error, 'Could not reach the server to save');
+  }
+  if (!res.ok) return toFailure(res, 'Could not save');
+  const body = await res.json().catch(() => ({}));
+  const stored = body && typeof body === 'object' ? (body as { data?: { record?: unknown } }).data?.record : undefined;
+  if (!stored || typeof stored !== 'object' || !Array.isArray((stored as { owners?: unknown }).owners)) return { ok: false, status: res.status, error: 'Saved, but the answer was not in the expected form: reload to see what is stored.', issues: [] };
+  return { ok: true, data: { record: stored as PropertyManagementView } };
+}
+
+/** What the Report For sheet sends: its three columns, the rate as typed ("20"). */
+export interface ManagementFieldsPayload {
+  reportFor: { name: string; address: string } | null;
+  referenceStem: string | null;
+  defaultFeeRate: string | null;
+}
+
 /** The record as the form saves it: the rate as typed, "20"; the legacy default fee sent back as loaded, "150.00". */
 export interface ManagementPayload {
   reportFor: { name: string; address: string } | null;
@@ -274,6 +303,8 @@ export interface ManagementPayload {
   statementsFrom: string;
   statementsUntil: string | null;
   defaultFeeRate: string | null;
+  /** The reference stem (Kian's ruling K5 of 2026-10-17); null for none. */
+  referenceStem: string | null;
   defaultFee?: { label: string; amount: string } | null;
   /** Excluded from reporting (dispatch 24). Always sent, so unticking it clears what is stored. */
   excludedFromReporting: boolean;
