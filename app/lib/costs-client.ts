@@ -19,7 +19,8 @@
 
 import { describeErrorBody, readErrorBody } from '@/app/lib/api/http-failure';
 import type { CostEntryView, CostsView, HistoryEventView, LinesNow, QueueView, ReportExportView, ReviewStatus } from '@/app/lib/cleaners/model';
-import type { CleaningView, TeamRate } from '@/app/lib/cleanings/model';
+import type { CleaningView, TeamChoice } from '@/app/lib/cleanings/model';
+import { isPriceCents, type CleaningPrices, type PresetKind } from '@/app/lib/cleanings/prices';
 import type { CostsMonth } from '@/app/lib/costs/month-view';
 
 export type CostResult<T> =
@@ -215,11 +216,11 @@ export function fetchCosts(): Promise<CostResult<CostsView>> {
       data.entries.every(isCostEntryView) &&
       Array.isArray(data.exports) &&
       data.exports.every(isReportExportView) &&
-      // Dispatch 37B: the cleanings and the team's rates.
+      // Dispatch 37B: the cleanings and the team.
       Array.isArray(data.cleanings) &&
       data.cleanings.every(isCleaningView) &&
       Array.isArray(data.team) &&
-      data.team.every((member) => isRecord(member) && typeof member.id === 'string' && isTextOrNull(member.name) && typeof member.role === 'string' && (member.defaultRateCents === null || typeof member.defaultRateCents === 'number')) &&
+      data.team.every(isTeamChoice) &&
       (data.properties === null ||
         (Array.isArray(data.properties) &&
           data.properties.every((p) => isRecord(p) && typeof p.id === 'string' && isTextOrNull(p.name)))),
@@ -278,8 +279,23 @@ export function fetchReceiptLinks(ids: string[]): Promise<CostResult<{ links: Re
   );
 }
 
-/** The Cleanings tab's own read (the Costs page, round 1): every cleaning, and the team's rates. */
-export function fetchCleanings(): Promise<CostResult<{ cleanings: CleaningView[]; team: TeamRate[] }>> {
+/** A team member in the shape the cleaning form's cleaner choice reads. */
+const isTeamChoice = (member: unknown): member is TeamChoice => isRecord(member) && typeof member.id === 'string' && isTextOrNull(member.name) && typeof member.role === 'string' && isTextOrNull(member.status);
+const isPriceOrNull = (value: unknown) => value === null || isPriceCents(value);
+const isPrices = (value: unknown): value is CleaningPrices => isRecord(value) && isPriceOrNull(value.shortTermCents) && isPriceOrNull(value.longTermCents);
+
+/** The Cleanings tab's read: every cleaning, the team, every property's presets, and the stay behind each waiting cleaning's job. */
+export interface CleaningsRead {
+  cleanings: CleaningView[];
+  team: TeamChoice[];
+  /** Each property's two presets, by property ID (Kian's ruling of 2026-10-19); a property with none is absent. */
+  prices: Record<string, CleaningPrices>;
+  /** For the cleanings waiting for an amount: their job's stay in nights and how many cleaners were on it, by job ID. */
+  jobs: Record<string, { nights: number; cleaners: number }>;
+}
+
+/** The Cleanings tab's own read (the Costs page, round 1): every cleaning, the team, the presets and the waiting jobs. */
+export function fetchCleanings(): Promise<CostResult<CleaningsRead>> {
   return call(
     '/api/admin/cleanings',
     {},
@@ -289,7 +305,21 @@ export function fetchCleanings(): Promise<CostResult<{ cleanings: CleaningView[]
       Array.isArray(data.cleanings) &&
       data.cleanings.every(isCleaningView) &&
       Array.isArray(data.team) &&
-      data.team.every((member) => isRecord(member) && typeof member.id === 'string' && isTextOrNull(member.name) && typeof member.role === 'string' && (member.defaultRateCents === null || typeof member.defaultRateCents === 'number')),
+      data.team.every(isTeamChoice) &&
+      isRecord(data.prices) &&
+      Object.values(data.prices).every(isPrices) &&
+      isRecord(data.jobs) &&
+      Object.values(data.jobs).every((job) => isRecord(job) && typeof job.nights === 'number' && typeof job.cleaners === 'number'),
+  );
+}
+
+/** What a cleaning logged by hand for this property and day starts from (Kian's ruling of 2026-10-19): the preset by the stay of its job that day, else the short-term preset. */
+export function fetchCleaningSuggestion(propertyId: string, day: string): Promise<CostResult<{ from: PresetKind; cents: number | null; nights: number; job: boolean }>> {
+  return call(
+    `/api/admin/cleanings/suggest?propertyId=${encodeURIComponent(propertyId)}&day=${encodeURIComponent(day)}`,
+    {},
+    'Reading what the amount starts from failed',
+    (data) => isRecord(data) && (data.from === 'short' || data.from === 'long') && (data.cents === null || typeof data.cents === 'number') && typeof data.nights === 'number' && typeof data.job === 'boolean',
   );
 }
 

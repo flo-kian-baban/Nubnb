@@ -138,11 +138,8 @@ for (const month of ['2026-09', '2026-10']) {
 }
 
 // ═══ 5. The amount a cleaning starts from ═══
-console.log('\n═══ 5. The form\'s amount (Kian\'s ruling: last paid for the property, else the default rate) ═══');
+console.log('\n═══ 5. The form\'s cleaner (the amount now starts from the property\'s preset: Kian\'s ruling of 2026-10-19, tests/money/cleaning-prices.mjs) ═══');
 const all = octAll.map((c) => view(c));
-console.log(`  Zelda at this property: ${JSON.stringify(cl.suggestedAmount(all, C, P, 6500))}`);
-console.log(`  Zelda at another property, default $65.00: ${JSON.stringify(cl.suggestedAmount(all, C, 'TESTPROPother0000001', 6500))}`);
-console.log(`  someone with no default: ${JSON.stringify(cl.suggestedAmount(all, 'TESTCLEANERnobody001', P, null))}`);
 console.log(`  the property's last cleaner: ${cl.lastCleanerOf(all, P)}`);
 console.log(`  typed amounts: ${['60', '60.5', '60.50', '$75', '0', '-5', '10000', 'abc'].map((t) => `${t}→${cl.readAmountCents(t)}`).join(' ')}`);
 

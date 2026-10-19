@@ -64,8 +64,7 @@
   the waiting one as the statements read it: status pending, lines [], linesNow {"kind":"unreadable","reason":"No amount yet: an admin types it in the Cleanings tab."}
   its amount typed: status approved, total $50.00, sent $50.00, corrected false
   changed again after: total $52.00, first amount $50.00, corrected true
-  37B's amount for Ben's next mark: from last, $55.00 (the waiting one, with no amount, is not "last paid")
-  with neither a last amount nor a default rate: {"from":"none","cents":null}
+  Ben's next mark starts from the property's preset, not from what he was last paid (Kian's ruling of 2026-10-19; tests/money/cleaning-prices.mjs)
 
 ═══ 6. Two cleaners on one job, and one waiting for its amount: the owner's statement ═══
   printed: Revenue · 1 · $500.00 · $500.00 | Expense - Cleaning · 2 · (rate empty) · -$115.00

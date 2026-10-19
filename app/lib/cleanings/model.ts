@@ -4,12 +4,14 @@
  * server imports.
  *
  * Kian's rulings of 2026-10-13 (in CLAUDE.md under *Cleanings*):
- *   - Each cleaner has one default rate. A cleaning's amount starts from the
- *     amount that cleaner was last paid for that property, or their default
- *     if none, and the admin can change it freely. No per-property rate
- *     table, no dated rates.
+ *   - Each cleaner has one default rate; a cleaning's amount starts from the
+ *     amount that cleaner was last paid for that property, or their default.
+ *     Replaced by Kian's ruling of 2026-10-19 (prices.ts): the amount starts
+ *     from the property's preset, short-term or long-term by the stay, and
+ *     the admin can change it freely. The default rate is no longer read.
  *   - Admins log every cleaning by hand. No list of bookings or checkouts to
- *     tick; no link between cleanings and bookings.
+ *     tick; no link between cleanings and bookings (replaced: jobs link them,
+ *     Kian's ruling of 2026-10-14, evening).
  *   - On the owner's statement a month's cleanings print as one line,
  *     "Expense - Cleaning", with the total. The ledger lists each cleaning.
  *   - The cleaner is never named on anything an owner receives.
@@ -26,12 +28,23 @@
  * ── Schema version 2: the cleaning schedule (Kian's rulings of 2026-10-14) ──
  * A cleaning is also made by a cleaner's Mark cleaned on a job, at once, with
  * no admin confirmation; its day is the job's checkout day, and `jobId` names
- * the job (jobs link cleanings to bookings, replacing 37B's "no link"). Its
- * amount is 37B's rule — what the cleaner was last paid for the property,
- * else their default rate — and with neither it is null: the cleaning waits
- * for an admin to type it, and reads as pending until then (not charged;
- * Finish's pending warning counts it). Only a job's cleaning may have a null
- * amount. Version 1 has no `jobId` and always an amount; readers take both.
+ * the job (jobs link cleanings to bookings, replacing 37B's "no link"). With
+ * no amount to start from it is null: the cleaning waits for an admin to type
+ * it, and reads as pending until then (not charged; Finish's pending warning
+ * counts it). Only a job's cleaning may have a null amount. Version 1 has no
+ * `jobId` and always an amount; readers take both.
+ *
+ * ── Schema version 3: cleaning prices per property (Kian's ruling of 2026-10-19) ──
+ * The amount starts from the property's preset (prices.ts): a Mark cleaned on
+ * a job with one cleaner takes the long-term preset for a stay of 28 nights
+ * or more, else the short-term one, and none when the property has no such
+ * preset; a job with two or more cleaners gives every cleaning no amount, and
+ * the admin types the split; a cleaning logged by hand prefills the same way.
+ * `amountFrom` records where the amount came from — a preset, or typed — and
+ * turns to "typed" when an admin changes the amount; `suggested` keeps what
+ * the form started from (now a preset, or "split"). Versions 1 and 2 have no
+ * `amountFrom`; their `suggested.from` is 37B's ("last", "default", "none").
+ * Changing a preset never changes an existing cleaning.
  *
  * ── How a cleaning reaches a statement ──
  * As a cost: `cleaningEntryView` reads a cleaning as an entry of kind
@@ -43,15 +56,15 @@
  *
  * ── Money ──
  * Integer cents. The amount is what Nubnb pays the cleaner for the cleaning
- * and charges the owner. Code fills it in from the cleaner's last amount for
- * the property, or their default rate (Kian's ruling); it never works one
- * out.
+ * and charges the owner. Code fills it in from the property's preset (Kian's
+ * ruling of 2026-10-19); it never works one out.
  */
 
 import type { Actor, CostEntryView, HistoryEventView, LookupState } from '@/app/lib/cleaners/model';
+import type { AmountSource } from './prices';
 
 export const CLEANINGS_COLLECTION = 'cleanings';
-export const CLEANING_SCHEMA_VERSION = 2;
+export const CLEANING_SCHEMA_VERSION = 3;
 
 export const CLEANING_LIMITS = {
   /** An amount: $0.01 to $9,999.99. */
@@ -64,8 +77,14 @@ export const CLEANING_LIMITS = {
 
 export type CleaningStatus = 'logged' | 'removed';
 
-/** Where the amount the form started from came from: the cleaner's last amount for the property, their default rate, or nothing. */
-export type SuggestedFrom = 'last' | 'default' | 'none';
+/**
+ * What the amount started from: the property's short-term or long-term preset (Kian's ruling of 2026-10-19), a split
+ * between several cleaners on one job (no amount), or nothing; `last` and `default` are 37B's, on cleanings written
+ * before the presets (the cleaner's last amount for the property, their default rate).
+ */
+export type SuggestedFrom = 'short' | 'long' | 'split' | 'none' | 'last' | 'default';
+const SUGGESTED_FROM: readonly SuggestedFrom[] = ['short', 'long', 'split', 'none', 'last', 'default'];
+const AMOUNT_SOURCES: readonly AmountSource[] = ['short', 'long', 'typed'];
 
 /** One event of a cleaning's history, append-only. */
 export interface CleaningEvent {
@@ -104,6 +123,11 @@ export interface Cleaning {
   status: CleaningStatus;
   /** What the form started from, worked out by the server when the cleaning was logged: evidence, never read back into money. */
   suggested: { from: SuggestedFrom; cents: number | null };
+  /**
+   * Where the amount came from (schema version 3, Kian's ruling of 2026-10-19): the preset it was taken from, or
+   * "typed" once an admin typed or changed it; null while it has no amount. Absent on versions 1 and 2, read as null.
+   */
+  amountFrom: AmountSource | null;
   createdAt: string;
   actor: Actor;
   history: CleaningEvent[];
@@ -123,15 +147,13 @@ export interface CleaningView extends Cleaning {
   };
 }
 
-/** A team member as the cleaning form needs them: who can be picked, and their default rate. */
-export interface TeamRate {
+/** A team member as the cleaning form needs them: who can be picked. (Their default rate is no longer read: Kian's ruling of 2026-10-19.) */
+export interface TeamChoice {
   id: string;
   name: string | null;
   /** `cleaner` or `handyman`: only a cleaner is picked for a cleaning. */
   role: string;
   status: string | null;
-  /** The one default rate (Kian's ruling); null when none is set. */
-  defaultRateCents: number | null;
 }
 
 // ─── Reading strictly ──────────────────────────────────────────
@@ -193,7 +215,11 @@ export function readCleaning(id: string, fields: Record<string, unknown>): (Clea
   // Only a job's cleaning waits for its amount.
   if (!isText(day) || !DAY.test(day) || !(isAmount(amountCents) || (amountCents === null && jobId !== null)) || !isTextOrNull(note)) return null;
   if (status !== 'logged' && status !== 'removed') return null;
-  if (!isRecord(suggested) || (suggested.from !== 'last' && suggested.from !== 'default' && suggested.from !== 'none') || !(suggested.cents === null || isAmount(suggested.cents))) return null;
+  if (!isRecord(suggested) || !SUGGESTED_FROM.includes(suggested.from as SuggestedFrom) || !(suggested.cents === null || isAmount(suggested.cents))) return null;
+  // Version 3's `amountFrom`: absent before it; null while the cleaning has no amount; a preset or typed with one.
+  const amountFrom = fields.amountFrom === undefined ? null : fields.amountFrom;
+  if (!(amountFrom === null || AMOUNT_SOURCES.includes(amountFrom as AmountSource))) return null;
+  if (amountCents === null && amountFrom !== null) return null;
   if (!isText(createdAt) || !isActor(actor) || !Array.isArray(history)) return null;
   const events = history.map(readEvent);
   if (events.some((event) => event === null)) return null;
@@ -208,7 +234,8 @@ export function readCleaning(id: string, fields: Record<string, unknown>): (Clea
     amountCents,
     note,
     status,
-    suggested: { from: suggested.from, cents: suggested.cents as number | null },
+    suggested: { from: suggested.from as SuggestedFrom, cents: suggested.cents as number | null },
+    amountFrom: amountFrom as AmountSource | null,
     createdAt,
     actor,
     history: events as CleaningEvent[],
@@ -217,21 +244,8 @@ export function readCleaning(id: string, fields: Record<string, unknown>): (Clea
 }
 
 // ─── The amount a cleaning starts from ─────────────────────────
-
-/**
- * The amount the form starts from (Kian's ruling of 2026-10-13): what the cleaner was last paid for the property —
- * their latest cleaning of it, by the day cleaned, not removed — else their default rate, else nothing to start
- * from. The admin can change it freely. Nothing is worked out: an amount is taken as it was paid or set.
- */
-export function suggestedAmount(cleanings: readonly Pick<Cleaning, 'propertyId' | 'cleanerId' | 'day' | 'amountCents' | 'status' | 'createdAt'>[], cleanerId: string, propertyId: string, defaultRateCents: number | null): { from: SuggestedFrom; cents: number | null } {
-  // A cleaning still waiting for its amount was paid nothing yet: it is not "last paid".
-  const last = cleanings
-    .filter((c): c is typeof c & { amountCents: number } => c.cleanerId === cleanerId && c.propertyId === propertyId && c.status === 'logged' && c.amountCents !== null)
-    .sort((a, b) => b.day.localeCompare(a.day) || b.createdAt.localeCompare(a.createdAt))[0];
-  if (last) return { from: 'last', cents: last.amountCents };
-  if (defaultRateCents !== null) return { from: 'default', cents: defaultRateCents };
-  return { from: 'none', cents: null };
-}
+// Kian's ruling of 2026-10-19: the property's preset, by the stay (prices.ts: markAmount, handLogSuggestion). 37B's
+// rule — the cleaner's last amount for the property, else their default rate — is no longer applied anywhere.
 
 /** Whoever cleaned the property last, for the form to start from when no cleaner is chosen yet. */
 export function lastCleanerOf(cleanings: readonly Pick<Cleaning, 'propertyId' | 'cleanerId' | 'day' | 'status' | 'createdAt'>[], propertyId: string): string | null {
@@ -266,7 +280,7 @@ export function cleaningInstant(day: string): string {
 export function cleaningEntryView(c: CleaningView): CostEntryView {
   // A job's cleaning with no amount yet (schema version 2) reads as a pending cost: nothing to charge, counted by
   // Finish's pending warning (Kian's answer of 2026-10-14, evening), and no lines to add up.
-  if (c.amountCents === null) return entryView(c, c.status === 'logged' ? 'pending' : 'removed', [], { kind: 'unreadable', reason: NO_AMOUNT_YET });
+  if (c.amountCents === null) return entryView(c, c.status === 'logged' ? 'pending' : 'removed', [], { kind: 'unreadable', reason: c.suggested.from === 'split' ? NO_AMOUNT_SPLIT : NO_AMOUNT_YET });
   const amount = c.amountCents;
   const typed = c.history.find((event) => event.action === 'changed' && event.before?.amountCents !== undefined)?.before?.amountCents;
   // The first amount it had: the one logged, or the one an admin typed into a cleaning that waited for it.
@@ -286,6 +300,8 @@ export function cleaningEntryView(c: CleaningView): CostEntryView {
 
 /** What a cleaning's own amount column says while it waits for one (schema version 2). */
 export const NO_AMOUNT_YET = 'No amount yet: an admin types it in the Cleanings tab.';
+/** The same, for a job several cleaners were on (Kian's ruling of 2026-10-19: the admin types the split). */
+export const NO_AMOUNT_SPLIT = 'No amount yet: several cleaners were on the job, so an admin types each share in the Cleanings tab.';
 
 /** A cleaning as an entry, its fields in the order 37B wrote them. */
 function entryView(c: CleaningView, status: string, lines: CostEntryView['lines'], linesNow: CostEntryView['linesNow']): CostEntryView {

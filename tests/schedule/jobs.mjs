@@ -185,9 +185,7 @@ const typedView = cl.cleaningEntryView(view(typed));
 console.log(`  its amount typed: status ${typedView.status}, total ${$(typedView.linesNow.totalCents)}, sent ${$(typedView.linesNow.sentTotalCents)}, corrected ${typedView.linesNow.corrected}`);
 const retyped = { ...typed, amountCents: 5200, history: [...typed.history, { at: '2026-10-22T15:00:00.000Z', action: 'changed', actor: ADMIN_ACTOR, reason: null, before: { amountCents: 5000 }, after: { amountCents: 5200 } }] };
 console.log(`  changed again after: total ${$(cl.cleaningEntryView(view(retyped)).linesNow.totalCents)}, first amount ${$(cl.cleaningEntryView(view(retyped)).linesNow.sentTotalCents)}, corrected ${cl.cleaningEntryView(view(retyped)).linesNow.corrected}`);
-const suggest = cl.suggestedAmount([view(waiting), view(ben)].map((c) => ({ ...c })), B, P1, null);
-console.log(`  37B's amount for Ben's next mark: from ${suggest.from}, ${suggest.cents === null ? 'none' : $(suggest.cents)} (the waiting one, with no amount, is not "last paid")`);
-console.log(`  with neither a last amount nor a default rate: ${JSON.stringify(cl.suggestedAmount([], A, P2, null))}`);
+console.log(`  Ben's next mark starts from the property's preset, not from what he was last paid (Kian's ruling of 2026-10-19; tests/money/cleaning-prices.mjs)`);
 
 // ═══ 6. Two cleaners on one job: one line on the owner's statement ═══
 console.log('\n═══ 6. Two cleaners on one job, and one waiting for its amount: the owner\'s statement ═══');

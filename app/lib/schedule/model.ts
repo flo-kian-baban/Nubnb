@@ -408,8 +408,8 @@ export interface AssigneeView extends Assignment {
   /** The account's status now; null when it no longer exists or could not be read. */
   status: string | null;
   state: JobLookup;
-  /** The cleaning their mark made, as it stands; null when not marked, or removed by the office. */
-  cleaning: { state: JobLookup; status: string | null; amountCents: number | null } | null;
+  /** The cleaning their mark made, as it stands; null when not marked, or removed by the office. `amountFrom`: where its amount came from (a preset, or typed; null while it has none, or on a cleaning from before the presets). */
+  cleaning: { state: JobLookup; status: string | null; amountCents: number | null; amountFrom: 'short' | 'long' | 'typed' | null } | null;
 }
 
 /** A job as the admin's Schedule reads it. */

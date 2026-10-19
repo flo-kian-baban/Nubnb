@@ -8,9 +8,11 @@
  *
  * ── Mark cleaned (Kian's rulings 4–7) ──
  * By a cleaner assigned to the job, from its checkout day on, never on a job whose booking changed (Kian's answer of
- * the evening): one transaction makes a 37B cleaning at once — the cleaner's last amount for the property, else their
- * default rate, else none, when it waits for an admin — dated the checkout day (recommendation 2), and puts its ID on
- * the cleaner's assignment. No proof is asked for. Pressing it again after an answer was lost makes nothing twice.
+ * the evening): one transaction makes a 37B cleaning at once — at the property's preset (Kian's ruling of 2026-10-19,
+ * app/lib/cleanings/prices.ts): with one cleaner on the job, the long-term preset for a stay of 28 nights or more, else
+ * the short-term one, none when the property has no such preset; with two or more cleaners, none, and the admin types
+ * the split — dated the checkout day (recommendation 2), and puts its ID on the cleaner's assignment. No proof is asked
+ * for. Pressing it again after an answer was lost makes nothing twice. The cleaner's default rate is no longer read.
  *
  * ── Undo (ruling 6; recommendation 3; the evening's answers) ──
  * The cleaner's own mark, until a finished statement prints the cleaning, within the 45 days their list reaches:
@@ -34,11 +36,13 @@ import type { DocumentReference, Transaction } from 'firebase-admin/firestore';
 import { getAdminDb } from './admin';
 import { isDocumentId } from './server-leads';
 import { cleanerFacingNamesOf, getCleanerFacingName, internalNameOf } from './server-property-names';
-import { cleaningDayProblem, readDocs, statementMonthOf, statementsPrinting } from './server-cleanings';
+import { cleaningDayProblem, statementMonthOf, statementsPrinting } from './server-cleanings';
 import { latestPaymentDay, paymentOnOrAfter } from './server-pay';
 import type { PaymentView } from '@/app/lib/pay/model';
 import { CLEANERS_COLLECTION, fieldText, roleOf, type Actor, type Refusal } from '@/app/lib/cleaners/model';
-import { CLEANINGS_COLLECTION, CLEANING_SCHEMA_VERSION, readCleaning, suggestedAmount, type Cleaning } from '@/app/lib/cleanings/model';
+import { CLEANINGS_COLLECTION, CLEANING_SCHEMA_VERSION, readCleaning, type Cleaning } from '@/app/lib/cleanings/model';
+import { markAmount, type AmountSource } from '@/app/lib/cleanings/prices';
+import { pricesInTx } from './server-cleaning-prices';
 import { readCurrent } from '@/app/lib/availability/store';
 import { torontoDay } from '@/app/lib/availability/days';
 import { MONTHLY_REPORTS_COLLECTION, monthOfDay } from '@/app/lib/reports/model';
@@ -110,7 +114,7 @@ export async function readSchedule(from: string, to: string): Promise<ScheduleRe
   const failedIds = copy ? Object.entries(copy.properties).filter(([, entry]) => entry.status === 'failed').map(([propertyId]) => propertyId) : [];
   const [propertyDocs, cleaningDocs, facing] = await Promise.all([
     propertyIds.length ? db.getAll(...propertyIds.map((id) => db.collection('properties').doc(id)), { fieldMask: ['name', 'details'] }) : Promise.resolve([]),
-    cleaningIds.length ? db.getAll(...cleaningIds.map((id) => db.collection(CLEANINGS_COLLECTION).doc(id)), { fieldMask: ['status', 'amountCents'] }) : Promise.resolve([]),
+    cleaningIds.length ? db.getAll(...cleaningIds.map((id) => db.collection(CLEANINGS_COLLECTION).doc(id)), { fieldMask: ['status', 'amountCents', 'amountFrom'] }) : Promise.resolve([]),
     cleanerFacingNamesOf([...propertyIds, ...failedIds]),
   ]);
   // Each property by the name the admin shows: its cleaner-facing name, usually the address, else its public title
@@ -122,7 +126,9 @@ export async function readSchedule(from: string, to: string): Promise<ScheduleRe
   }));
   const cleanings = new Map(cleaningDocs.filter((doc) => doc.exists).map((doc) => {
     const amount: unknown = doc.get('amountCents');
-    return [doc.id, { status: fieldText(doc.get('status')), amountCents: typeof amount === 'number' ? amount : null }];
+    const from: unknown = doc.get('amountFrom');
+    const amountFrom: AmountSource | null = from === 'short' || from === 'long' || from === 'typed' ? from : null;
+    return [doc.id, { status: fieldText(doc.get('status')), amountCents: typeof amount === 'number' ? amount : null, amountFrom }];
   }));
 
   const views: JobView[] = jobs.map((job) => {
@@ -132,7 +138,7 @@ export async function readSchedule(from: string, to: string): Promise<ScheduleRe
     const assignees: AssigneeView[] = job.cleanerIds.map((cid) => {
       const a = assignments[cid];
       const member = byCleaner.get(cid);
-      const cleaning = a.cleaningId === null || a.removedAt !== null ? null : cleanings.has(a.cleaningId) ? { state: 'found' as const, ...cleanings.get(a.cleaningId)! } : { state: 'missing' as const, status: null, amountCents: null };
+      const cleaning = a.cleaningId === null || a.removedAt !== null ? null : cleanings.has(a.cleaningId) ? { state: 'found' as const, ...cleanings.get(a.cleaningId)! } : { state: 'missing' as const, status: null, amountCents: null, amountFrom: null };
       return { ...a, cleanerId: cid, name: member?.name ?? a.nameAtAssignment, status: member?.status ?? null, state: member ? 'found' : 'missing', cleaning };
     });
     return {
@@ -418,7 +424,8 @@ export const MARK_REFUSALS: Record<Exclude<MarkResult['kind'], 'marked' | 'alrea
 
 /**
  * Mark a job cleaned for this cleaner: one transaction makes their 37B cleaning and puts it on their assignment. The
- * amount is the cleaner's last amount for the property, else their default rate, else null — never typed by them.
+ * amount is the property's preset by the stay behind the job when they are its one cleaner, else null (Kian's ruling
+ * of 2026-10-19, `markAmount`) — never typed by them, and never shown to them.
  */
 export async function markCleaned(cleaner: { id: string; name: string | null }, jobId: string, now: Date = new Date()): Promise<MarkResult> {
   const db = getAdminDb();
@@ -440,12 +447,12 @@ export async function markCleaned(cleaner: { id: string; name: string | null }, 
       const problem = cleaningDayProblem(job.checkout, now);
       if (problem) return { kind: 'bad-day', problem };
 
-      const [property, account] = await tx.getAll(db.collection('properties').doc(job.propertyId), db.collection(CLEANERS_COLLECTION).doc(cleaner.id), { fieldMask: ['name', 'role', 'status', 'defaultRateCents'] });
+      const [[property, account], prices] = await Promise.all([tx.getAll(db.collection('properties').doc(job.propertyId), db.collection(CLEANERS_COLLECTION).doc(cleaner.id), { fieldMask: ['name', 'role', 'status'] }), pricesInTx(tx, job.propertyId)]);
       if (!property.exists) return { kind: 'no-such-property' };
       if (!account.exists || roleOf({ role: account.get('role') }) !== 'cleaner' || account.get('status') !== 'active') return { kind: 'not-a-cleaner' };
-      const rate: unknown = account.get('defaultRateCents');
-      const theirs = await tx.get(db.collection(CLEANINGS_COLLECTION).where('propertyId', '==', job.propertyId).where('cleanerId', '==', cleaner.id));
-      const suggested = suggestedAmount(readDocs(theirs.docs), cleaner.id, job.propertyId, typeof rate === 'number' && Number.isSafeInteger(rate) && rate > 0 ? rate : null);
+      // The property's preset by the stay, with one cleaner on the job; no amount with two or more (the admin types the split).
+      const amount = markAmount(prices, job);
+      const suggested = { from: amount.from, cents: amount.cents };
       const statementMonth = await statementMonthOf(job.propertyId, monthOfDay(job.checkout), tx);
 
       const at = now.toISOString();
@@ -462,6 +469,7 @@ export async function markCleaned(cleaner: { id: string; name: string | null }, 
         note: null,
         status: 'logged',
         suggested,
+        amountFrom: amount.amountFrom,
         createdAt: at,
         actor,
         history: [{ at, action: 'logged', actor, reason: null }],

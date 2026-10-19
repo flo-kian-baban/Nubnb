@@ -101,7 +101,7 @@
 import { z } from 'zod';
 import type { DocumentReference, DocumentSnapshot, Transaction } from 'firebase-admin/firestore';
 import { getAdminBucket, getAdminDb } from './admin';
-import { listCleanings, listTeamRates, propertyCleanings } from './server-cleanings';
+import { listCleanings, listTeamChoices, propertyCleanings } from './server-cleanings';
 import { paymentOnOrAfter } from './server-pay';
 import type { PaymentView } from '@/app/lib/pay/model';
 import { cleaningEntryView } from '@/app/lib/cleanings/model';
@@ -1096,7 +1096,7 @@ export async function listCosts(): Promise<CostsView> {
     lookUpAllProperties(),
     // Cleanings (dispatch 37B): costs the statements read, each one an entry of kind `cleaning` below.
     listCleanings(),
-    listTeamRates(),
+    listTeamChoices(),
   ]);
   const entries = snapshot.docs.map((doc) => readCostEntryFields(doc.id, doc.data()));
   const cleaners = await lookUpCleaners(distinctIds(entries.map((entry) => entry.cleanerId)));

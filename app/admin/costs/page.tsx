@@ -180,7 +180,8 @@ import { Absent, FieldText } from "../leads/lead-display";
 import { EntryStatusBadge, KindBadge, SentAt, quantityText, whenText } from "./cost-display";
 import { EntryPane, type PropertyStatementsState } from "./EntryPane";
 import { costCharges, chargesByMonth, chargedElsewhere, type Charge } from "@/app/lib/money/month";
-import { cleaningEntryView, type CleaningView, type TeamRate } from "@/app/lib/cleanings/model";
+import { cleaningEntryView, type CleaningView, type TeamChoice } from "@/app/lib/cleanings/model";
+import type { CleaningPrices } from "@/app/lib/cleanings/prices";
 import { CleaningsTab } from "./CleaningsTab";
 import { AutoApprovals } from "./AutoApprovals";
 import { MonthTab } from "./MonthTab";
@@ -212,7 +213,8 @@ type ListState =
 type CleaningsState =
   | { kind: "idle" }
   | { kind: "loading" }
-  | { kind: "ready"; cleanings: CleaningView[]; team: TeamRate[] }
+  /** The presets and the waiting jobs come with the tab's own read (GET /api/admin/cleanings); the whole read keeps what it had. */
+  | { kind: "ready"; cleanings: CleaningView[]; team: TeamChoice[]; prices: Record<string, CleaningPrices>; jobs: Record<string, { nights: number; cleaners: number }> }
   | { kind: "error"; title: string; detail?: string; status: number };
 
 type View = "entries" | "items";
@@ -303,7 +305,7 @@ function Costs() {
         if (!result.ok) return done(result);
         const data: CostsView = result.data;
         setList((prev) => ({ kind: "ready", scope: "all", entries: data.entries, exports: data.exports, properties: data.properties, finishedMonths: prev.kind === "ready" ? prev.finishedMonths : {} }));
-        setCleanings({ kind: "ready", cleanings: data.cleanings, team: data.team });
+        setCleanings((prev) => ({ kind: "ready", cleanings: data.cleanings, team: data.team, prices: prev.kind === "ready" ? prev.prices : {}, jobs: prev.kind === "ready" ? prev.jobs : {} }));
         done(null);
       });
     } else {
@@ -782,6 +784,8 @@ function Costs() {
           <CleaningsTab
             cleanings={cleanings.cleanings}
             team={cleanings.team}
+            prices={cleanings.prices}
+            jobs={cleanings.jobs}
             properties={list.properties}
             filters={{ propertyId: filters.propertyId, cleanerId: filters.cleanerId, from: filters.from, to: filters.to }}
             setFilter={setFilter}

@@ -60,3 +60,34 @@ export const DeleteCleaningSchema = z.strictObject({
 export const DefaultRateSchema = z.strictObject({
   defaultRate: AmountSchema.nullable(),
 });
+
+// ─── Cleaning prices per property (Kian's ruling of 2026-10-19) ───
+
+/** A preset as typed, "80.00", or null for none. */
+const PriceSchema = AmountSchema.nullable();
+
+/** PUT /api/admin/properties/[id]/cleaning-prices: both presets, each "80.00" or null. */
+export const CleaningPricesSchema = z.strictObject({
+  shortTerm: PriceSchema,
+  longTerm: PriceSchema,
+});
+
+/** POST /api/admin/cleaning-prices (the sheet's import): the matched rows, each a property and its two presets. */
+export const ImportCleaningPricesSchema = z.strictObject({
+  rows: z
+    .array(
+      z.strictObject({
+        propertyId: IdSchema,
+        shortTerm: PriceSchema,
+        longTerm: PriceSchema,
+      }),
+    )
+    .min(1, 'No rows to save')
+    .max(500, 'At most 500 rows at once'),
+});
+
+/** GET /api/admin/cleanings/suggest: the property and the day a cleaning is being logged for. */
+export const SuggestQuerySchema = z.strictObject({
+  propertyId: IdSchema,
+  day: DaySchema,
+});

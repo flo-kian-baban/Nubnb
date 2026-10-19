@@ -447,6 +447,9 @@ const ACTION_WORDS: [method: string, path: RegExp, words: string][] = [
   ['DELETE', new RegExp(`^/api/admin/cleaners/${ID}$`), 'Deleted a team member'],
   ['POST', new RegExp(`^/api/admin/cleaners/${ID}/code$`), 'Changed a team member’s code'],
   ['PUT', new RegExp(`^/api/admin/cleaners/${ID}/rate$`), 'Set a cleaner’s default rate'],
+  // Cleaning prices per property (Kian's ruling of 2026-10-19): set one property's, or many from the sheet's import.
+  ['PUT', new RegExp(`^/api/admin/properties/${ID}/cleaning-prices$`), 'Set a property’s cleaning prices'],
+  ['POST', new RegExp(`^/api/admin/cleaning-prices$`), 'Imported cleaning prices'],
   // The cleaning schedule (2026-10-14): who is on a job, a job reopened for a cleaner, and the cleaner door's lock.
   ['PATCH', new RegExp(`^/api/admin/cleaning-jobs/${ID}$`), 'Changed who is on a cleaning job'],
   ['POST', new RegExp(`^/api/admin/cleaning-jobs/${ID}/reopen$`), 'Reopened a cleaning job for a cleaner'],

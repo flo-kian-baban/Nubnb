@@ -4064,3 +4064,183 @@ ahead) is declined. What was built is below.
    - Picker: Make… shows the question alone. Escape returns to the picker with the tick kept, nothing sent. Confirm
      sends one PUT, and the picker reads "Regular cleaner: <name>".
    - Edit page: the same question; Cancel sends nothing; confirm sends one PUT.
+
+## 58. Cleaning prices per property: Kian's ruling of 2026-10-19 (the NuBNB Cleaner Pay Schedule)
+
+Kian's ruling, in CLAUDE.md under *Cleaning prices*: presets per property, not per cleaner — a short-term price for an
+ordinary turnover and a long-term price after a stay of 28 nights or more — the base for each house, any cleaning's
+amount changeable by the admin. It replaces 37B's "last paid for the property, else the cleaner's default rate" and the
+2026-10-14 mark rule built on it. What was built is below; the pay schedule itself (the PDF and the CSV made from it)
+stays out of the repo.
+
+### 58.1 What was built
+
+1. **The record.** `property_cleaning_prices/{propertyId}` (app/lib/cleanings/prices.ts: the shape, its strict reader,
+   the rule; app/lib/firebase/server-cleaning-prices.ts): `shortTermCents` and `longTermCents`, each integer cents or
+   null, `setAt`, `setBy`, and `history` — one event per change with who, when, before and after. Server-only by
+   firestore.rules' catch-all (no rules change), never on the property document (the property save refuses
+   `cleaningPrices`, `shortTermCents`, `longTermCents` and the other names a price might travel under, as it refuses
+   the name cleaners see), never in the cleaner app's answers, an owner's file or a public page. Deleting a property
+   deletes its record. Routes: GET/PUT `/api/admin/properties/[id]/cleaning-prices` (one property; "Set a property's
+   cleaning prices" in the activity log), GET `/api/admin/cleaning-prices` (every property's, for the sheet) and POST
+   `/api/admin/cleaning-prices` (the import; "Imported cleaning prices"). Setting the same prices again writes nothing.
+2. **Where it is set.**
+   - The Report For sheet has two more columns, "Cleaning: short" and "Cleaning: long (28+ nights)", typed in place
+     and saved as the sheet saves (800 ms after the last change, and when the cursor leaves the row); a row sends its
+     Report For fields to the management route and its prices to the prices route, each only when it differs from
+     what is stored. The toolbar says how many properties have prices.
+   - "Import prices" on the sheet: a CSV with the columns address, short and long (other names for them are taken:
+     "Suite / Property", "Short Term Price", "Long Term Price (28+ Days)"; other columns are ignored). The page
+     matches rows to properties by exact address, case and spaces ignored, against the name the sheet lists each
+     property by (its cleaner-facing name, else its title), and shows Nubnb's own dialog: the matched rows with old →
+     new values (those that change first, the rest marked as already so), and the unmatched rows by name with why (no
+     property with this address; two or more properties share it; another row names the same property; a price not
+     readable). "Save n rows" sends the rows that change in one request, one transaction: all saved or none (a row
+     naming a property that no longer exists refuses the whole import). Nothing is sent before the confirm.
+   - The edit page's Cleaners section has a "Cleaning prices" tile beside the regular cleaner: two fields, saved on
+     their own as the sheet saves, with the row's state word in the tile's corner.
+3. **The amount rule** (`markAmount`, `handLogSuggestion`, prices.ts).
+   - Mark cleaned (server-cleaning-jobs.ts): with exactly one cleaner on the job, the long-term preset when the stay
+     behind it (`reservation.start` to `checkout`) is 28 nights or more, else the short-term preset; none when the
+     property has no such preset. With two or more cleaners on the job, every cleaning arrives with no amount
+     (`suggested.from` "split"), and the admin types each share on the Cleanings tab. The mark no longer reads the
+     cleaner's earlier cleanings or their account's rate: it reads the property, the account, the prices record and
+     the property's statements (five reads in the test, against six before).
+   - Logged by hand (server-cleanings.ts): the form asks GET `/api/admin/cleanings/suggest?propertyId=&day=` when the
+     property or the day changes (two reads: the prices record and the job `cleaning_jobs/{propertyId}_{day}`), and
+     fills the long-term preset when a job that day ends a stay of 28 nights or more, else the short-term one; the
+     short-term preset the page already holds is shown at once and replaced by the answer unless the admin has typed
+     meanwhile. The route works the same suggestion out again inside its transaction and keeps it as `suggested`.
+   - **Where the amount came from:** cleanings are schema version 3 with `amountFrom`: "short", "long" or "typed"
+     (`AMOUNT_SOURCE_WORDS`: short-term preset, long-term preset, typed), null while a cleaning has no amount. A hand-
+     logged amount left as offered is the preset's; one changed is "typed"; any later change of the amount turns it to
+     "typed", and the history event keeps before and after. Versions 1 and 2 (no `amountFrom`) read as before; their
+     words come from 37B's `suggested`. The Cleanings tab shows the source beside each amount.
+   - **The default rate is no longer read anywhere.** The places that read it: the mark (`markCleaned`), the hand log
+     (`logCleaning`'s `pickableCleaner`), the Cleanings tab's prefill and its waiting-row hints, the cleaning form's
+     team read (`listTeamRates`, now `listTeamChoices` without the rate; the whole costs read and the Cleanings tab's
+     read both), and the Team page's Rate column and "Set rate". The field stays on each account and the route
+     `PUT /api/admin/cleaners/[id]/rate` stays (nothing calls it); the Team page shows neither the column nor the menu
+     item. The Costs page's note "No cleaner has a default rate yet" became "No property has cleaning prices yet: set
+     them on the Report For sheet".
+   - Changing a preset never changes an existing cleaning: the record is read only when a cleaning is made.
+4. **Waiting for an amount:** each waiting row's hint is the property's preset for its job's stay ("30 nights:
+   long-term preset $120.00"; with several cleaners, "2 cleaners on this job · … in all"), read with the tab (GET
+   `/api/admin/cleanings` now answers `prices` for every property and `jobs` — nights and cleaner count — for the
+   waiting cleanings' jobs: one read per such job).
+5. **Statements, the ledger and pay** read the cleaning's stored amount as before; nothing there changed. The pending
+   reason for a split job's cleaning reads "several cleaners were on the job, so an admin types each share".
+
+### 58.2 The developer's choices (for Kian)
+
+1. **The Team page loses its Rate column as well as "Set rate":** a column of rates nothing reads would mislead. The
+   rate stays stored and the route stays, unused.
+2. **A job with two or more cleaners is judged when each cleaner marks.** A second cleaner added after the first marked
+   leaves the first's cleaning as it was (no backfill); the second arrives with no amount.
+3. **The hand log's "when it comes from a job"** is read as: the property has a job whose checkout is the day being
+   logged. Then that job's stay decides the preset; otherwise the short-term preset. The form reads it from the server
+   so the stored `suggested` is what the form offered.
+4. **The import saves only the rows that change**, and says how many matched rows already held what the file gives.
+   Clearing both presets keeps the record, so its history says who cleared them.
+5. **A CSV price may be "80", "$80", "80.50" or "1,200.00"; empty (or "none") is no preset; "$60 per room" is not a
+   price** and keeps the row out of the import (listed as "a price is not dollars and cents"). Kian's one such row is
+   typed per cleaning, so its CSV long value is empty.
+6. **Matching uses the sheet's name for the property**: the cleaner-facing name, else the public title. A property with
+   no cleaner-facing name is matched by its title only if the file carries it.
+7. **The suggestion route answers one cleaning form, not the list:** two reads when the property or day changes.
+
+### 58.3 The CSV from the pay schedule
+
+`~/Backups/Nubnb/cleaning-prices-2026-10-19.csv` (never committed), made by `cleaning-prices-1019/csv/convert.mjs`
+from the PDF's Short Term and Long Term columns, Old Price ignored: 62 rows, the one "$60 per room" long-term value
+left empty. The sums of its columns equal the PDF's, column by column. Its match against production's addresses is in
+the dispatch report (counts only).
+
+### 58.4 Verification (2026-10-19)
+
+- **Tests:** `node tests/run.mjs`, 25 checks, identical but for recordings changed on purpose: cleanings (§5 no longer
+  prints 37B's suggestion), cleaning-jobs (§5 likewise), admin-accounts (97 handlers through adminRoute: the three new
+  routes), statements-round1 (the sheet's row now carries `short` and `long`); new: cleaning-prices (the rule with the
+  28-night boundary — 27 nights short, 28 long — the record's reader, the CSV and the matching, the schemas, the
+  property save's refusal, and the server functions on an in-memory Firestore: marks with one cleaner at 2, 27 and 28
+  nights, with two cleaners, with no preset; a cleaning by hand on a job's day and off it; an amount typed after; a
+  preset change leaving every cleaning as it was; the import in one transaction and its refusals).
+- **On production:** build `2dMFyW0g1gDZnfdVVFWhR` of this tree (built at 0 reads; the label change of §58.1.4's
+  waiting rows came after and was verified in memory) on 127.0.0.1:4500, behind a write guard, as a `__TEST__` admin
+  (never a real one), with two Unlisted `__TEST__` properties, two `__TEST__` cleaners each holding a $90 default rate
+  (never read), six jobs in November 2028 and the server's clock set there, so every test cleaning landed two years
+  ahead of any month an admin works. The calendar copy and the refresh's lease were stubbed in the server's memory
+  (one stubbed write, nothing sent); every real calendar was cut off. Shown live: the import's dialog (P matched, none
+  → $80 / none → $120; one row unmatched, by name and line; nothing sent before the confirm, one POST after); the
+  sheet's two columns typed in place (one PUT; a bad price refused in one line, nothing sent); the edit page's tile;
+  Ana's marks on P at 2 nights ($85 short-term preset, as the preset then stood), 28 nights ($125 long-term) and 27
+  nights ($85 short-term); Ana and Ben on one job, both with no amount ("split"); Ana on Q (no preset) with no amount;
+  the cleaner's answer to each mark carrying no amount, price or rate; the Cleanings tab's waiting rows with their
+  hints and Ana's share typed ($40, "typed"); the hand-log form prefilled $85 today (the 27-night job's day) and $125
+  on Yesterday (the 28-night job's day), and a cleaning logged at $125 ("long-term preset"); a preset change on the
+  edit page (80 → 85) and another through the route (85 → 90) leaving every cleaning as it was, and the next mark
+  taking the new preset; the Team page without a Rate column or "Set rate"; the property save refusing a price.
+  Reads: opening export 1,188, server 1,799, cleanup 102, closing export 1,188 — 4,277 of 6,000. No write refused;
+  34 documents deleted by exact ID; the closing export identical to the opening one (686 documents, 0 differences).
+- **The CSV against production** (read-only, the opening export's cleaner-facing names, the page's own matching): 62
+  rows, 58 properties, 8 matched, 54 unmatched, 50 properties with no row. The pay schedule's addresses are worded
+  differently from Nubnb's (a condo's "<unit>-<number> <Street> Terrace" against Nubnb's "<unit> - <number> <Street>
+  Terr"; "B", "B1", "S" and "M" against "Basement", "Small Basement", "Studio", "Main"), so Kian's exact-address rule
+  matches few of them as they stand. A template with Nubnb's 58 addresses and empty prices was made beside the CSV
+  for him to fill; the second round's mapping (offline, counts in the dispatch report) made the import file from it.
+- **Lessons** (dispatch-verification-pitfalls 158–160): a shifted process clock breaks the service-account token;
+  a copy of a built tree keeps the original's external links; the auth headers kept from each client's first token.
+
+### 58.5 The second round (2026-10-19): a second cleaner after a mark, and the admin-typed recommendation
+
+Kian's instruction and ruling are in CLAUDE.md under *Cleaning prices*. What was built:
+
+1. **A second cleaner after a mark** (`secondCleanerQuestion`, prices.ts). The Schedule's picker (Save) and "Same
+   cleaners to <day>" ask first, in Nubnb's own dialog, when a cleaner is added so that the job has two or more and a
+   cleaner already on it has a cleaning that carries an amount (not waiting, not removed by the office): "<name>'s
+   cleaning already carries $X (<short-term preset|long-term preset|typed>)." as the title, then "With two cleaners,
+   the amounts need splitting: edit them on the Cleanings tab." (three, or the number, when more), "Assign anyway".
+   In the picker the question stands in for the picker, as the regular-cleaner question does. Confirming sends the
+   same request as before; the server is unchanged; no amount changes. The Schedule's read now carries each mark's
+   `amountFrom` (one more field in the same reads), so the words say which preset.
+2. **The recommendation** (`recommendedAmount`, `cleaningTier`, `missingAmountStart`, `recommendationWords`,
+   prices.ts; all pure, shared by the page and the tests). A cleaning's tier is its job's stay (28 nights or more:
+   long-term) when the job is known, else what its form started from. The recommendation for a property and tier is
+   the newest (by day, then when logged) cleaning there that is not removed, whose amount is "typed", and that was
+   logged by hand or comes from a job with exactly one cleaner; a job's cleaning whose job is not known is never
+   counted, nor a share of a two-cleaner job. GET `/api/admin/cleanings` now answers `jobs` (nights and cleaners) for
+   the typed job cleanings as well as the waiting ones (one read per such job), so the page can tell the two apart.
+   - **Where it shows:** the Cleanings tab's "Waiting for an amount" rows. A row whose property has a preset for its
+     tier keeps the preset as its hint, as before (the preset replaces the recommendation completely). A share of a
+     job with several cleaners is never prefilled (its hint says the preset for them all). Otherwise the field opens
+     prefilled with the recommendation, with "Last typed for short-term: $X" under it and the day in its title; Enter
+     or Save sends it as a typed amount, as any typed one. The Team pay view is for later, as the ruling says.
+   - **Never applied by itself:** Mark cleaned and hand-logged cleanings on such a property arrive with no amount, as
+     before; the recommendation is read only by the page, from the cleanings it already holds, and no record is made.
+3. **Tests:** cleaning-prices §6: the question's condition (added beside a mark with an amount; not when nobody is
+   added, when the job would have one cleaner, when the mark waits for an amount, or when the office removed it; a
+   typed amount's words; three cleaners), the recommendation per tier with 27 and 28 nights, a two-cleaner share and a
+   removed cleaning excluded, a job not known excluded, a preset overriding the recommendation for its tier alone, a
+   missing amount's opening value, and on the in-memory Firestore a property with typed amounts and no preset whose
+   next mark still has no amount, no prices record made.
+
+The developer's choices: the question names every cleaner whose cleaning carries an amount (one title, the rest as
+lines); a hand-logged cleaning's tier comes from what its form started from (the job that day, else short-term); the
+hand-log form is not prefilled from the recommendation (it is not a missing amount; the ruling lists where it shows).
+
+**Verification of the second round (2026-10-19):** `node tests/run.mjs`, 25 checks identical (cleaning-prices
+re-recorded for its new §6). In memory first, at 0 production reads, then on production: build `_iha3IBqqhs5NypGQBcjw`
+of this tree on 127.0.0.1:4500 behind the write guard, as a `__TEST__` admin, two Unlisted `__TEST__` properties (P
+with no preset, Q with a short-term preset seeded in the record's shape), two `__TEST__` cleaners, six jobs in
+November 2028 with the server's clock there (moved after its token, as in §58.4). Shown live: Ana's marks on P with no
+amount; $70 (2 nights) and $110 (28 nights) typed; the two-cleaner job's shares typed $35 each; Ana's later marks on P
+still with no amount; the Cleanings tab's waiting rows opening with 70.00 and 110.00 under "Last typed for short-term:
+$70.00" and "Last typed for long-term: $110.00" (the $35 shares never counting); Save confirming the $70 as a typed
+amount; a long-term preset set on P making the long-term field open with the preset, the short-term recommendation
+still standing; on the Schedule, Ben added to Q's job after Ana's $80 mark asking first in Kian's words, Cancel
+sending nothing and keeping the tick, "Assign anyway" sending one PATCH, Ana's cleaning unchanged. The opening export
+stalled on a read after 17 of 23 collections and was stopped; the export runner then exited 0, so the seed ran before
+the stop (a runner fault, since fixed: it now exits as the export did). The closing export (686 documents) is identical
+to the last complete export, the first round's closing one: nothing of either round remains. Reads 2,930 of 3,000: the
+stalled export 1,032, the server 614, cleanup 96, the closing export 1,188. 32 documents deleted by exact ID; no write
+refused.

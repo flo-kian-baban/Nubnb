@@ -69,7 +69,7 @@
    ok   stem gives Sept-321-John; no stem and no statement, none
 
 ═══ 7. The Report For sheet ═══
-   a row from its record: {"name":"Test Owner","address":"1 Test St\nToronto","stem":"321-John","rate":"12.5"} · from none: {"name":"","address":"","stem":"","rate":""}
+   a row from its record: {"name":"Test Owner","address":"1 Test St\nToronto","stem":"321-John","rate":"12.5","short":"","long":""} · from none: {"name":"","address":"","stem":"","rate":"","short":"","long":""}
    as loaded                → saves {"reportFor":{"name":"Test Owner","address":"1 Test St\nToronto"},"referenceStem":"321-John","defaultFeeRate":"12.5"}
    an address with no name  → Type a name above the address.
    a stem with its month    → The stem: Leave the month out: it is added for each statement.

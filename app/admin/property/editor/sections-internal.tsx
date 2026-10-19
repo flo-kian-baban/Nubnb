@@ -8,15 +8,19 @@
  * (Calendar). The first three live in their own server-only collections and
  * are saved by their own routes; the calendar link is on the document but
  * stripped from every public read. The regular cleaner (Kian's ruling R5 of
- * 2026-10-19) saves on its own, at once, not with the property's Save.
+ * 2026-10-19) and the cleaning prices (Kian's ruling of 2026-10-19) save on
+ * their own, not with the property's Save: the prices 800 ms after the last
+ * change and when the cursor leaves them, as the Report For sheet saves.
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { AdminSelect } from "../../components/AdminSelect";
 import { useAsk } from "../../components/AskDialog";
 import { fetchRegularCleaner, setRegularCleanerOf, type RegularCleanerAnswer } from "@/app/lib/schedule-client";
 import { regularCleanerQuestion } from "@/app/lib/schedule/regular";
+import { fetchCleaningPrices, setCleaningPricesOf } from "@/app/lib/prices-client";
+import { LONG_STAY_NIGHTS, priceField, priceTextForRoute, readPriceText, type CleaningPrices } from "@/app/lib/cleanings/prices";
 import { STATEMENT_LIMITS, monthLabel, monthOfDay, referenceFromStem } from "@/app/lib/reports/model";
 import { torontoDayOf } from "@/app/lib/costs/report";
 import { Field, Switch, TextArea, TextInput } from "./controls";
@@ -81,7 +85,150 @@ export function CleanersSection({ ctx }: { ctx: SectionContext }) {
         <span className={styles.hint}>Shown instead of the title in the cleaners&rsquo; app, on every admin list, and on statements and cost exports. Empty uses &ldquo;{title}&rdquo;.</span>
       </Tile>
       <RegularCleanerTile ctx={ctx} />
+      <CleaningPricesTile ctx={ctx} />
     </Panel>
+  );
+}
+
+type PricesRead = { kind: "loading" } | { kind: "ready"; prices: CleaningPrices; unreadable: boolean } | { kind: "error"; title: string };
+type PricesState = { kind: "idle" } | { kind: "unsaved" } | { kind: "saving" } | { kind: "saved" } | { kind: "invalid"; problem: string } | { kind: "failed"; reason: string };
+
+/** A typed price as the field compares it: "80.00", '' for none, or the text itself when it is not a price. */
+const priceKey = (text: string) => {
+  const read = readPriceText(text);
+  return read.kind === "none" ? "" : read.kind === "cents" ? priceField(read.cents) : `?${text}`;
+};
+
+/**
+ * Cleaning prices (Kian's ruling of 2026-10-19): the property's short-term preset, for an ordinary turnover, and its
+ * long-term preset, after a stay of 28 nights or more. A Mark cleaned takes the one the stay calls for; the admin can
+ * change any cleaning's amount. Saved on their own through their own route into a server-only record, 800 ms after the
+ * last change and when the cursor leaves the tile, as the Report For sheet saves; a change never touches an existing
+ * cleaning.
+ */
+function CleaningPricesTile({ ctx }: { ctx: SectionContext }) {
+  const id = ctx.propertyId;
+  const [read, setRead] = useState<PricesRead>({ kind: "loading" });
+  const [typed, setTyped] = useState({ short: "", long: "" });
+  const [state, setState] = useState<PricesState>({ kind: "idle" });
+  const typedRef = useRef(typed);
+  typedRef.current = typed;
+  const storedRef = useRef({ short: "", long: "" });
+  const timer = useRef<number | null>(null);
+  const sending = useRef(false);
+  const again = useRef(false);
+
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    fetchCleaningPrices(id).then((result) => {
+      if (cancelled) return;
+      if (!result.ok) {
+        setRead({ kind: "error", title: result.title });
+        return;
+      }
+      const prices: CleaningPrices = { shortTermCents: result.data.record?.shortTermCents ?? null, longTermCents: result.data.record?.longTermCents ?? null };
+      const fields = { short: priceField(prices.shortTermCents), long: priceField(prices.longTermCents) };
+      storedRef.current = fields;
+      setTyped(fields);
+      setRead({ kind: "ready", prices, unreadable: result.data.unreadable });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  const same = (a: { short: string; long: string }, b: { short: string; long: string }) => priceKey(a.short) === priceKey(b.short) && priceKey(a.long) === priceKey(b.long);
+  const problemOf = (fields: { short: string; long: string }) => (readPriceText(fields.short).kind === "bad" ? "The short-term price is dollars and cents, like 80 or 80.00." : readPriceText(fields.long).kind === "bad" ? "The long-term price is dollars and cents, like 120 or 120.00." : null);
+
+  /** Send what is typed until what is stored matches it: one save at a time; a change made while one is out is sent after it. */
+  const save = useCallback(async () => {
+    if (!id || sending.current) {
+      again.current = true;
+      return;
+    }
+    sending.current = true;
+    try {
+      do {
+        again.current = false;
+        const current = typedRef.current;
+        if (same(current, storedRef.current)) {
+          setState((was) => (was.kind === "unsaved" || was.kind === "invalid" || was.kind === "saving" ? { kind: "saved" } : was));
+          continue;
+        }
+        const problem = problemOf(current);
+        if (problem) {
+          setState({ kind: "invalid", problem });
+          continue;
+        }
+        setState({ kind: "saving" });
+        const result = await setCleaningPricesOf(id, { shortTerm: priceTextForRoute(current.short) ?? null, longTerm: priceTextForRoute(current.long) ?? null });
+        if (result.ok) {
+          storedRef.current = { short: priceField(result.data.record.shortTermCents), long: priceField(result.data.record.longTermCents) };
+          setState(same(typedRef.current, storedRef.current) ? { kind: "saved" } : { kind: "unsaved" });
+        } else {
+          setState({ kind: "failed", reason: result.unknown ? `${result.title} It may or may not have been saved: reload to see.` : result.title });
+        }
+      } while (again.current);
+    } finally {
+      sending.current = false;
+    }
+  }, [id]);
+
+  const flush = useCallback(() => {
+    if (timer.current !== null) {
+      window.clearTimeout(timer.current);
+      timer.current = null;
+      void save();
+    }
+  }, [save]);
+  useEffect(() => () => flush(), [flush]);
+
+  const change = (patch: Partial<{ short: string; long: string }>) => {
+    setTyped((was) => ({ ...was, ...patch }));
+    setState({ kind: "unsaved" });
+    if (timer.current !== null) window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => {
+      timer.current = null;
+      void save();
+    }, STATEMENT_LIMITS.SAVE_DELAY_MS);
+  };
+
+  if (!id) {
+    return (
+      <Tile title="Cleaning prices" span={12}>
+        <span className={styles.hint}>Its cleaning prices are set once the property exists: create it first.</span>
+      </Tile>
+    );
+  }
+  const locked = read.kind !== "ready";
+  const words = state.kind === "saving" ? "Saving…" : state.kind === "saved" ? "Saved" : state.kind === "unsaved" ? "Saving shortly" : state.kind === "failed" ? `Not saved: ${state.reason}` : state.kind === "invalid" ? `Not saved: ${state.problem}` : "";
+  return (
+    <Tile title="Cleaning prices" span={12} aside={words || undefined}>
+      <div className={`${styles.fields} ${styles.cols2}`} onBlur={(event) => !event.currentTarget.contains(event.relatedTarget as Node | null) && flush()}>
+        <Field label="Short-term (an ordinary turnover), $">
+          <TextInput field="cleaningPrices.short" inputMode="decimal" value={typed.short} onChange={(value) => change({ short: value })} placeholder={read.kind === "loading" ? "Loading…" : "e.g. 80.00"} disabled={locked} invalid={state.kind === "invalid" && state.problem.startsWith("The short")} aria-label="Short-term cleaning price" />
+        </Field>
+        <Field label={`Long-term (after ${LONG_STAY_NIGHTS}+ nights), $`}>
+          <TextInput field="cleaningPrices.long" inputMode="decimal" value={typed.long} onChange={(value) => change({ long: value })} placeholder={read.kind === "loading" ? "Loading…" : "e.g. 120.00"} disabled={locked} invalid={state.kind === "invalid" && state.problem.startsWith("The long")} aria-label="Long-term cleaning price" />
+        </Field>
+      </div>
+      {read.kind === "error" ? (
+        <span className={styles.issue} role="alert">
+          {read.title} They cannot be changed until the page is reloaded.
+        </span>
+      ) : read.kind === "ready" && read.unreadable ? (
+        <span className={styles.issue} role="alert">
+          The stored prices could not be read. Typing new ones replaces them.
+        </span>
+      ) : state.kind === "failed" || state.kind === "invalid" ? (
+        <span className={styles.issue} role="alert" aria-live="polite">
+          {words}
+        </span>
+      ) : (
+        <span className={styles.hint}>What a cleaning here starts from: a Mark cleaned takes the price the stay calls for; with several cleaners on a job, or no price, it waits for an amount. Any cleaning&rsquo;s amount can be changed. Saved on their own, shortly after typing; cleanings already made keep their amounts.</span>
+      )}
+    </Tile>
   );
 }
 

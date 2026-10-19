@@ -1,0 +1,127 @@
+═══ 1. The amount rule: 28 nights is long-term, 27 is short-term ═══
+  nights Oct 1 → Oct 28: 27 · Oct 1 → Oct 29: 28 · same day: 0 · reversed: 0 · not a day: 0
+   0 nights → short: $80.00
+   1 nights → short: $80.00
+  27 nights → short: $80.00
+  28 nights → long: $120.00
+  29 nights → long: $120.00
+  60 nights → long: $120.00
+   ok   27 nights = short, 28 = long (the boundary)
+   ok   no preset, or no long-term preset for a long stay: no amount
+  mark, one cleaner, 27 nights: {"from":"short","cents":8000,"amountFrom":"short","nights":27}
+  mark, one cleaner, 28 nights: {"from":"long","cents":12000,"amountFrom":"long","nights":28}
+  mark, two cleaners, 28 nights: {"from":"split","cents":null,"amountFrom":null,"nights":28}
+  mark, one cleaner, no preset: {"from":"short","cents":null,"amountFrom":null,"nights":1}
+   ok   a mark takes the short-term preset at 27 nights and the long-term one at 28
+   ok   two cleaners on the job: no amount, "split"
+   ok   no preset: no amount
+  by hand, no job that day: {"from":"short","cents":8000,"nights":0} · with a 30-night job: {"from":"long","cents":12000,"nights":30}
+  where the amount came from: left as offered short · changed typed · no preset, typed typed
+  words: short-term preset · long-term preset · typed
+  a version 2 cleaning's words: the cleaner’s default rate (before presets) · typed · waiting after a split: no amount yet: several cleaners on the job
+  waiting hints: 2 cleaners on this job · 30 nights: long-term preset $120.00 in all | 2 nights: short-term preset $80.00 | 2 nights: short-term preset none | Presets: short $80.00, long $120.00
+
+═══ 2. Typed prices, the record ═══
+  typed: ""→{"kind":"none"} "none"→{"kind":"none"} "80"→{"kind":"cents","cents":8000} "$80"→{"kind":"cents","cents":8000} "80.5"→{"kind":"cents","cents":8050} "80.50"→{"kind":"cents","cents":8050} "1,200.00"→{"kind":"cents","cents":120000} "0"→{"kind":"bad"} "0.00"→{"kind":"bad"} "10000"→{"kind":"bad"} "abc"→{"kind":"bad"} "80.123"→{"kind":"bad"}
+  for the route: ""→null "80"→"80.00" "x"→undefined · field: 80.00 ""
+   ok   a record in shape reads
+  refused as not in shape — another property's ID: true
+  refused as not in shape — a zero preset: true
+  refused as not in shape — a preset in dollars (not integer cents): true
+  refused as not in shape — no history: true
+  refused as not in shape — a history event without before: true
+  refused as not in shape — an actor of no known role: true
+
+═══ 3. The import file: reading and matching by address ═══
+  parsed: ok, 8 rows (a BOM, CRLF, quotes and a blank line taken in stride) · lines: 2,3,4,5,6,7,8,10
+  header problems: The first line must name the columns address, short and long; missing: short, long. · The file is empty. · The file has a header and no rows.
+  other column names taken: ok
+  matched line 2: 12 Test Rd · short $80.00 → $80.00 · long $120.00 → $120.00 · changes false
+  matched line 3: 12 Test Rd B · short none → $60.00 · long none → $100.00 · changes true
+  matched line 4: 12 TEST RD S · short none → $70.00 · long none → none · changes true
+  matched line 10: 12 Test Rd D · short none → none · long none → none · changes false
+  unmatched line 5: "No Such Place" · no property with this address
+  unmatched line 6: "12 Test Rd" · another row names the same property
+  unmatched line 7: "Twin Address" · two or more properties share this address
+  unmatched line 8: "12 Test Rd C" · a price is not readable
+   ok   exact address, case and spaces ignored; the first row of a property wins; an empty long is none; a row equal to what is stored changes nothing
+   ok   the four ways a row is not saved
+
+═══ 4. Schemas, the sheet's fields, the property save ═══
+  prices: ok {"shortTerm":8000,"longTerm":null} · refused: shortTerm Write the amount as dollars and cents, like 60.00 · refused: shortTerm More than $0.00, at most $9,999.99 · refused: longTerm Invalid input: expected string, received undefined
+  import: ok {"rows":[{"propertyId":"TESTPROPpricesaaaa01","shortTerm":8000,"longTerm":12000}]} · empty: refused: rows No rows to save
+  suggest: ok {"propertyId":"TESTPROPpricesaaaa01","day":"2026-10-19"} · refused: day Write the day as yyyy-mm-dd
+  sheet fields: {"name":"Owner","address":"1 Road","stem":"321-John","rate":"20","short":"80.00","long":"120.00"}
+  prices payload: {"shortTerm":"85.00","longTerm":null} · problem on "x": The long-term cleaning price is dollars and cents, like 120 or 120.00, up to 9,999.99.
+  same prices "80" and "80.00": true · management apart from prices: true · whole row: false
+  the property save with a price in its body: refused — shortTermCents
+   ok   the property save refuses a cleaning price (never on the public document)
+
+═══ 5. On an in-memory Firestore ═══
+  set P's prices: set, changed true, history 1 · reads 2 (properties 1, property_cleaning_prices 1)
+  set the same again: changed false, history still 1
+  set R's short-term only: set
+  no such property: no-such-property
+  listed: 2 records · reads 2
+  mark P, 2 nights, one cleaner: marked · amount $80.00 · from short · amountFrom short · version 3 · reads 5 (cleaners 1, cleaning_jobs 1, monthly_reports 1, properties 1, property_cleaning_prices 1)
+  mark P, 28 nights, one cleaner: marked · amount $120.00 · from long · amountFrom long · version 3 · reads 5 (cleaners 1, cleaning_jobs 1, monthly_reports 1, properties 1, property_cleaning_prices 1)
+  mark P, 27 nights, one cleaner: marked · amount $80.00 · from short · amountFrom short · version 3 · reads 5 (cleaners 1, cleaning_jobs 1, monthly_reports 1, properties 1, property_cleaning_prices 1)
+  mark P, 2 nights, two cleaners — Ana: marked · amount none · from split · amountFrom null · version 3 · reads 5 (cleaners 1, cleaning_jobs 1, monthly_reports 1, properties 1, property_cleaning_prices 1)
+  mark P, 2 nights, two cleaners — Ben: marked · amount none · from split · amountFrom null · version 3 · reads 5 (cleaners 1, cleaning_jobs 1, monthly_reports 1, properties 1, property_cleaning_prices 1)
+  mark Q (no prices), one cleaner: marked · amount none · from short · amountFrom null · version 3 · reads 5 (cleaners 1, cleaning_jobs 1, monthly_reports 1, properties 1, property_cleaning_prices 1)
+  mark R (short only), 33 nights: marked · amount none · from long · amountFrom null · version 3 · reads 5 (cleaners 1, cleaning_jobs 1, monthly_reports 1, properties 1, property_cleaning_prices 1)
+   ok   live: the short-term preset at 2 and 27 nights, the long-term one at 28
+   ok   two cleaners on one job: both cleanings arrive with no amount
+   ok   no matching preset: no amount (Q has none; R has no long-term one)
+   ok   a mark reads no earlier cleaning: the amount comes from the property, not from what the cleaner was last paid
+  the split job's history: Test Ana no amount · Test Ben no amount
+  by hand on the 28-night job's day, left at $120: logged · $120.00 · suggested {"from":"long","cents":12000} · amountFrom long · reads 5 (cleaners 1, cleaning_jobs 1, monthly_reports 1, properties 1, property_cleaning_prices 1)
+  by hand no job that day, left at $80: logged · $80.00 · suggested {"from":"short","cents":8000} · amountFrom short · reads 5 (cleaners 1, cleaning_jobs 1, monthly_reports 1, properties 1, property_cleaning_prices 1)
+  by hand no job, typed $95: logged · $95.00 · suggested {"from":"short","cents":8000} · amountFrom typed · reads 5 (cleaners 1, cleaning_jobs 1, monthly_reports 1, properties 1, property_cleaning_prices 1)
+  by hand Q, no preset, typed $50: logged · $50.00 · suggested {"from":"short","cents":null} · amountFrom typed · reads 5 (cleaners 1, cleaning_jobs 1, monthly_reports 1, properties 1, property_cleaning_prices 1)
+   ok   by hand: the preset by the job's stay that day, else short-term; a changed amount is "typed"
+   ok   logging by hand reads no earlier cleaning
+  Ana's share typed: changed · $40.00 · amountFrom typed · history 2 (before {"amountCents":null}, after {"amountCents":4000})
+  the $80 cleaning changed to $85: changed · amountFrom typed · suggested kept {"from":"short","cents":8000}
+  the $120 cleaning's note changed, amount not: changed · amountFrom long
+   ok   an amount typed or changed reads "typed"; a change to another field keeps the preset
+   ok   version 3 reads, and a version 2 cleaning (no amountFrom, 37B's suggestion) still reads
+   ok   refused as not in shape: an unknown source; a source with no amount
+  P's prices changed to $99/$150: set, history 2 · every cleaning's amount and source as before: true
+   ok   changing a preset changes no existing cleaning
+  the next mark on P: $99.00 (short)
+   ok   the next cleaning takes the new preset
+  import 3 rows: imported · 01 changed true (history 3), 02 changed true (history 1), 03 changed false (history 1) · reads 6 (properties 3, property_cleaning_prices 3)
+   ok   the import writes the rows that change and leaves R, already as given, with no new history event
+  import with a property that does not exist: no-such-property (1 ID) · P's history still 3
+   ok   a row naming no property refuses the whole import; nothing written
+  a property named twice: duplicate
+  waiting jobs for the tab's hints: 2026-10-18 2 nights, 1 cleaners · 2026-10-21 2 nights, 2 cleaners · 2026-10-22 2 nights, 1 cleaners · 2026-10-23 33 nights, 1 cleaners
+
+═══ 6. A second cleaner after a mark: the question ═══
+  Ben added after Ana's $80 mark: Test Ana’s cleaning already carries $80.00 (short-term preset). With two cleaners, the amounts need splitting: edit them on the Cleanings tab. [Assign anyway]
+  nobody added (Ana alone): true · Ana taken off, Ben added (one cleaner): true
+  Ana's cleaning waiting for an amount: true
+  Ana's mark removed by the office: true
+  Ana's amount typed by an admin: Test Ana’s cleaning already carries $70.00 (typed).
+  a third cleaner added where two carry amounts: Test Ana’s cleaning already carries $120.00 (long-term preset). | Test Ben’s cleaning already carries $40.00 (typed). | With three cleaners, the amounts need splitting: edit them on the Cleanings tab.
+   ok   asked only when a cleaner is added beside a mark that carries an amount, in Kian's words
+
+═══ 6b. The admin-typed recommendation, per tier ═══
+  short-term: $75.00 from c-27 (2026-10-16) · long-term: $110.00 from c-long (2026-10-12)
+   ok   the newest typed amount per tier: 27 nights counts as short-term, 28 as long-term
+   ok   a two-cleaner share and a removed cleaning are never the recommendation, however recent
+  tiers: c-hand:short c-short:short c-long:long c-share-ana:short c-share-ben:short c-27:short c-removed:short c-preset:long · a job's cleaning whose job is unknown: true
+   ok   no recommendation from a job not known here, nor from another property
+  no preset: short field {"kind":"recommendation","tier":"short","cents":7500,"day":"2026-10-16"} · long field {"kind":"recommendation","tier":"long","cents":11000,"day":"2026-10-12"} · a share {"kind":"split","tier":"short","cleaners":2}
+  short preset $80 set: short field {"kind":"preset","tier":"short","cents":8000} · long field still recommendation
+  words: Last typed for short-term: $75.00 · Last typed for long-term: $110.00 · by hand, no job: recommendation (short)
+   ok   a missing amount opens with the tier's recommendation; a share never
+   ok   a preset for the tier replaces the recommendation completely; the other tier keeps its own
+
+═══ 6c. On the in-memory Firestore: typed amounts never become a preset ═══
+  by hand $77 (typed) · a mark typed to $72 (changed) · the next mark: none (short) · jobs read for the tab: 2 · recommendation now: $72.00
+   ok   Mark cleaned still gives no amount on a property with no preset; the typed $72 is the recommendation, never a preset; the typed cleaning's job is read for the tab
+   ok   no prices record was made for it
+
+all checks passed

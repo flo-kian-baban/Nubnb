@@ -1,11 +1,18 @@
 /* The Report For sheet (2026-10-17): every property on one row, its fields typed in place. The table, the toolbar and
    the chip are the home's (../page.module.css); the inputs are the property page's (../property/page.module.css).
-   The columns are fixed so the inputs line up row under row, and the table fits 1,280 and 1,440 beside the
-   navigation; narrower, it scrolls sideways in its own box. */
+   The columns are fixed so the inputs line up row under row, and the table fits 1,440 beside the navigation (and
+   1,280 with the navigation's icons alone); narrower, it scrolls sideways in its own box. The two cleaning-price
+   columns (Kian's ruling of 2026-10-19) sit last. */
 
 .sheet {
   table-layout: fixed;
-  min-width: 1040px;
+  min-width: 1120px;
+}
+/* The two price headers wrap: "Cleaning: long (28+ nights)" is two lines in its column. */
+.sheet th:nth-child(7),
+.sheet th:nth-child(8) {
+  white-space: normal;
+  line-height: 1.3;
 }
 .sheet th,
 .sheet td {
@@ -22,22 +29,30 @@
 }
 
 .colProperty {
-  width: 22%;
-}
-.colStatement {
-  width: 13%;
-}
-.colName {
   width: 18%;
 }
+.colStatement {
+  width: 10%;
+}
+.colName {
+  width: 14%;
+}
 .colAddress {
-  width: 22%;
+  width: 18%;
 }
 .colStem {
-  width: 15%;
+  width: 12%;
 }
 .colRate {
-  width: 10%;
+  width: 7%;
+}
+.colPrice {
+  width: 10.5%;
+}
+
+/* The import's file input: the button beside it opens the picker (the Income page does the same). */
+.fileInput {
+  display: none;
 }
 
 .row:focus-within {
@@ -110,4 +125,75 @@
   margin-left: 4px;
   font-size: 12.5px;
   color: rgba(255, 255, 255, 0.55);
+}
+
+/* ── The import's dialog (Kian's ruling of 2026-10-19): what would be saved, before anything is sent ── */
+.importBody {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.importTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  line-height: 18px;
+}
+.importTable th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+  padding: 0 8px 6px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.importTable td {
+  padding: 6px 8px 6px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.85);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.importTable td:first-child {
+  color: #ffffff;
+  font-weight: 600;
+}
+.importSame td {
+  color: rgba(255, 255, 255, 0.45);
+  font-weight: 400;
+}
+.importSame td:first-child {
+  color: rgba(255, 255, 255, 0.6);
+  font-weight: 500;
+}
+.before {
+  color: rgba(255, 255, 255, 0.5);
+  text-decoration: line-through;
+  text-decoration-color: rgba(255, 255, 255, 0.35);
+}
+.unchanged {
+  color: rgba(255, 255, 255, 0.55);
+}
+.unmatched ul {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+.unmatched li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.why {
+  color: #ffb74d;
+  white-space: nowrap;
+  font-size: 12px;
 }

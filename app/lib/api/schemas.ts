@@ -8,6 +8,7 @@
 
 import { z } from 'zod';
 import { REGULAR_CLEANER_FIELDS } from '../schedule/regular';
+import { CLEANING_PRICE_FIELDS } from '../cleanings/prices';
 
 // ─── Helper: URL-or-empty (for optional URL fields on updates) ──
 const urlOrEmpty = z.union([z.string().url(), z.literal('')]);
@@ -184,6 +185,13 @@ export const UpdatePropertySchema = z.object({
   .superRefine((body, ctx) => {
     for (const field of REGULAR_CLEANER_FIELDS) {
       if (field in body) ctx.addIssue({ code: 'custom', path: [field], message: 'Not a property field: the regular cleaner is set on the edit page\'s Cleaners section or on the Schedule, through /api/admin/properties/[id]/regular-cleaner' });
+    }
+  })
+  // Cleaning prices live in their own server-only record (Kian's ruling of 2026-10-19: never on the public property
+  // document), so a body carrying one, under any of the names it might be sent as, is refused.
+  .superRefine((body, ctx) => {
+    for (const field of CLEANING_PRICE_FIELDS) {
+      if (field in body) ctx.addIssue({ code: 'custom', path: [field], message: 'Not a property field: cleaning prices are set on the Report For sheet or the edit page\'s Cleaners section, through /api/admin/properties/[id]/cleaning-prices' });
     }
   });
 

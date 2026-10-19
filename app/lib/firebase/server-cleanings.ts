@@ -9,13 +9,16 @@
  * A cleaning is created whole (`create()`), changed or removed in a transaction that refuses unless its history is
  * the length the page saw (409, as a cost entry's review), and deleted only when no finished statement prints it.
  * Every change appends to its history, read and written back inside the transaction. The amount the form started
- * from is worked out here again when a cleaning is logged and kept with it (`suggested`), as evidence only.
+ * from is worked out here again when a cleaning is logged and kept with it (`suggested`), as evidence only, and
+ * `amountFrom` says where the amount came from: the preset, or typed.
  *
- * ── Kian's rulings of 2026-10-13 ──
- * One default rate per cleaner; the amount starts from what the cleaner was last paid for the property, or their
- * default, and the admin changes it freely. Logged by hand. A cleaning logged after its month's statement is
- * finished goes on the next open statement; one changed or removed after printing is adjusted on the next month's.
- * The statements do that (reports/statement.ts): a change here is all it takes.
+ * ── Kian's rulings of 2026-10-13, and of 2026-10-19 (cleaning prices) ──
+ * The amount starts from the property's preset (app/lib/cleanings/prices.ts): the long-term one when the property has a
+ * job that day whose stay is 28 nights or more, else the short-term one; the admin changes it freely. (37B's "last paid
+ * for the property, else the cleaner's default rate" is replaced; the default rate is no longer read.) Logged by hand.
+ * A cleaning logged after its month's statement is finished goes on the next open statement; one changed or removed
+ * after printing is adjusted on the next month's. The statements do that (reports/statement.ts): a change here is all
+ * it takes.
  *
  * ── The cleaning schedule (Kian's rulings of 2026-10-14) ──
  * A job's cleaning (schema version 2, `jobId`) is made by the cleaner's Mark cleaned (server-cleaning-jobs.ts), and
@@ -39,15 +42,16 @@ import {
   CLEANING_LIMITS,
   CLEANING_SCHEMA_VERSION,
   readCleaning,
-  suggestedAmount,
   type Cleaning,
   type CleaningEvent,
   type CleaningFieldsChanged,
   type CleaningView,
-  type TeamRate,
+  type TeamChoice,
 } from '@/app/lib/cleanings/model';
+import { amountSourceOf, handLogSuggestion, stayNights, type CleaningPrices } from '@/app/lib/cleanings/prices';
+import { pricesInTx } from './server-cleaning-prices';
 import { torontoDayOf } from '@/app/lib/costs/report';
-import { CLEANING_JOBS_COLLECTION, jobEvent, readJob, type StoredJob } from '@/app/lib/schedule/model';
+import { CLEANING_JOBS_COLLECTION, jobEvent, jobIdOf, readJob, type StoredJob } from '@/app/lib/schedule/model';
 import { paymentOnOrAfter } from './server-pay';
 import type { PaymentView } from '@/app/lib/pay/model';
 import { MONTHLY_REPORTS_COLLECTION, addMonths, currentReports, monthOfDay, readMonthlyReport } from '@/app/lib/reports/model';
@@ -146,18 +150,42 @@ export async function propertyCleanings(propertyId: string, tx?: Transaction): P
 }
 
 /**
- * Every team member with their role, status and default rate, for the cleaning form. Reads only those fields.
+ * Every team member with their role and status, for the cleaning form's cleaner choice. Reads only those fields (the
+ * default rate is no longer read: Kian's ruling of 2026-10-19).
  *
  * @throws if the read fails.
  */
-export async function listTeamRates(): Promise<TeamRate[]> {
-  const snapshot = await getAdminDb().collection(CLEANERS_COLLECTION).select('name', 'role', 'status', 'defaultRateCents').get();
+export async function listTeamChoices(): Promise<TeamChoice[]> {
+  const snapshot = await getAdminDb().collection(CLEANERS_COLLECTION).select('name', 'role', 'status').get();
   return snapshot.docs
-    .map((doc) => {
-      const rate: unknown = doc.get('defaultRateCents');
-      return { id: doc.id, name: fieldText(doc.get('name')), role: roleOf({ role: doc.get('role') }), status: fieldText(doc.get('status')), defaultRateCents: typeof rate === 'number' && Number.isSafeInteger(rate) && rate > 0 ? rate : null };
-    })
+    .map((doc) => ({ id: doc.id, name: fieldText(doc.get('name')), role: roleOf({ role: doc.get('role') }), status: fieldText(doc.get('status')) }))
     .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', 'en-CA') || a.id.localeCompare(b.id));
+}
+
+/**
+ * The stay behind each job the Cleanings tab needs (Kian's rulings of 2026-10-19): its nights and how many cleaners
+ * were on it, by job ID — for the cleanings waiting for an amount (the hint under each, and the tier the
+ * recommendation is for) and for the cleanings whose amount an admin typed (the recommendation counts a job's
+ * cleaning only when the job had exactly one cleaner). One read per such job; a job that cannot be read is left out.
+ *
+ * @throws if the read fails.
+ */
+export async function waitingJobsOf(cleanings: readonly Pick<Cleaning, 'amountCents' | 'amountFrom' | 'status' | 'jobId'>[]): Promise<Record<string, { nights: number; cleaners: number }>> {
+  const ids = [...new Set(cleanings.filter((c) => c.status === 'logged' && c.jobId !== null && (c.amountCents === null || c.amountFrom === 'typed')).map((c) => c.jobId as string))].filter((id) => /^[A-Za-z0-9]{1,64}_\d{4}-\d{2}-\d{2}$/.test(id));
+  if (ids.length === 0) return {};
+  const db = getAdminDb();
+  const docs = await db.getAll(...ids.map((id) => db.collection(CLEANING_JOBS_COLLECTION).doc(id)), { fieldMask: ['reservation', 'checkout', 'cleanerIds'] });
+  const out: Record<string, { nights: number; cleaners: number }> = {};
+  for (const doc of docs) {
+    if (!doc.exists) continue;
+    const reservation: unknown = doc.get('reservation');
+    const checkout: unknown = doc.get('checkout');
+    const cleanerIds: unknown = doc.get('cleanerIds');
+    const start = reservation && typeof reservation === 'object' ? (reservation as { start?: unknown }).start : undefined;
+    if (typeof start !== 'string' || typeof checkout !== 'string' || !Array.isArray(cleanerIds)) continue;
+    out[doc.id] = { nights: stayNights(start, checkout), cleaners: cleanerIds.length };
+  }
+  return out;
 }
 
 const byDay = (a: Pick<Cleaning, 'day' | 'createdAt'> & { id: string }, b: Pick<Cleaning, 'day' | 'createdAt'> & { id: string }) => b.day.localeCompare(a.day) || b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id);
@@ -198,14 +226,24 @@ export async function statementsPrinting(propertyId: string, cleaningId: string,
 }
 
 /** A cleaner who may be picked for a cleaning: exists, and is a cleaner, not a handyman. A deactivated one may be, for a cleaning done before. */
-async function pickableCleaner(cleanerId: string, tx: Transaction, mustBeActive: boolean): Promise<{ name: string | null; defaultRateCents: number | null } | 'missing' | 'not-a-cleaner' | 'inactive'> {
+async function pickableCleaner(cleanerId: string, tx: Transaction, mustBeActive: boolean): Promise<{ name: string | null } | 'missing' | 'not-a-cleaner' | 'inactive'> {
   const db = getAdminDb();
-  const [doc] = await tx.getAll(db.collection(CLEANERS_COLLECTION).doc(cleanerId), { fieldMask: ['name', 'role', 'status', 'defaultRateCents'] });
+  const [doc] = await tx.getAll(db.collection(CLEANERS_COLLECTION).doc(cleanerId), { fieldMask: ['name', 'role', 'status'] });
   if (!doc.exists) return 'missing';
   if (roleOf({ role: doc.get('role') }) !== 'cleaner') return 'not-a-cleaner';
   if (mustBeActive && doc.get('status') !== 'active') return 'inactive';
-  const rate: unknown = doc.get('defaultRateCents');
-  return { name: fieldText(doc.get('name')), defaultRateCents: typeof rate === 'number' && Number.isSafeInteger(rate) && rate > 0 ? rate : null };
+  return { name: fieldText(doc.get('name')) };
+}
+
+/**
+ * What a cleaning logged by hand for this property and day starts from (Kian's ruling of 2026-10-19): the property's
+ * preset by the stay of its job that day, else the short-term preset. Two reads inside the transaction (the prices,
+ * the job), so the stored `suggested` is what the form offered.
+ */
+async function handLogStart(tx: Transaction, propertyId: string, day: string): Promise<{ prices: CleaningPrices | null; suggestion: ReturnType<typeof handLogSuggestion> }> {
+  const [prices, jobSnap] = await Promise.all([pricesInTx(tx, propertyId), tx.get(getAdminDb().collection(CLEANING_JOBS_COLLECTION).doc(jobIdOf(propertyId, day)))]);
+  const job = jobSnap.exists ? readJob(jobSnap.id, jobSnap.data() ?? {}) : null;
+  return { prices, suggestion: handLogSuggestion(prices, job) };
 }
 
 // ─── Log ───────────────────────────────────────────────────────
@@ -237,8 +275,9 @@ export const LOG_REFUSALS: Record<Exclude<LogCleaningResult['kind'], 'logged' | 
 
 /**
  * Log one cleaning: its property and cleaner as they are named now, the day, the amount the admin left, the note,
- * and the amount the form started from, worked out again here from what is stored. Answers the statement it goes
- * on: its month's, or the next open one's once that is finished.
+ * the amount the form started from (the property's preset, worked out again here from what is stored) and where the
+ * amount came from — that preset, or typed. Answers the statement it goes on: its month's, or the next open one's once
+ * that is finished.
  */
 export async function logCleaning(actor: Actor, input: CleaningInput): Promise<LogCleaningResult> {
   const problem = cleaningDayProblem(input.day);
@@ -253,8 +292,8 @@ export async function logCleaning(actor: Actor, input: CleaningInput): Promise<L
       if (cleaner === 'missing') return { kind: 'no-such-cleaner' };
       if (cleaner === 'not-a-cleaner') return { kind: 'not-a-cleaner' };
       if (cleaner === 'inactive') return { kind: 'inactive' };
-      const theirs = await tx.get(db.collection(CLEANINGS_COLLECTION).where('propertyId', '==', input.propertyId).where('cleanerId', '==', input.cleanerId));
-      const suggested = suggestedAmount(readDocs(theirs.docs), input.cleanerId, input.propertyId, cleaner.defaultRateCents);
+      const { suggestion } = await handLogStart(tx, input.propertyId, input.day);
+      const suggested = { from: suggestion.from, cents: suggestion.cents };
       const statementMonth = await statementMonthOf(input.propertyId, monthOfDay(input.day), tx);
       const now = new Date().toISOString();
       const stored: Cleaning = {
@@ -268,6 +307,7 @@ export async function logCleaning(actor: Actor, input: CleaningInput): Promise<L
         note: input.note,
         status: 'logged',
         suggested,
+        amountFrom: amountSourceOf(suggestion, input.amountCents),
         createdAt: now,
         actor,
         history: [{ at: now, action: 'logged', actor, reason: null }],
@@ -382,6 +422,8 @@ export async function changeCleaning(actor: Actor, id: string, change: CleaningC
       const next = {
         day: after.day ?? stored.day,
         amountCents: after.amountCents ?? stored.amountCents,
+        // An amount an admin typed or changed came from them (Kian's ruling of 2026-10-19), whatever it started from.
+        amountFrom: after.amountCents !== undefined ? ('typed' as const) : stored.amountFrom,
         cleanerId: after.cleanerId ?? stored.cleanerId,
         cleanerNameAtEntry: cleanerName,
         note: 'note' in after ? (after.note ?? null) : stored.note,

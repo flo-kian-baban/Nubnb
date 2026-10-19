@@ -476,7 +476,9 @@ no checkout. Do not build toward one unless asked.
 - **Each cleaner has one default rate. A cleaning's amount starts from the
   amount that cleaner was last paid for that property, or their default if
   none, and the admin can change it freely. No per-property rate table, no
-  dated rates.**
+  dated rates.** Replaced by Kian's ruling of 2026-10-19 (Cleaning prices,
+  below): the amount starts from the property's preset, and the default rate
+  is no longer used.
 - **Admins log every cleaning by hand: cleaner, property, date, amount, an
   optional note. No list of bookings or checkouts to tick.** Its "no link
   between cleanings and bookings" is replaced: jobs link cleanings to
@@ -613,7 +615,9 @@ These replace the rulings they change: six-digit admin PINs.
   day on, creates a cleaning record (dispatch 37B's) at once, with no admin
   confirmation. The cleaner never types the amount; it is 37B's rule (last
   paid for that property, else their default rate). With neither, the job
-  is done and the cleaning waits for an admin to type its amount.**
+  is done and the cleaning waits for an admin to type its amount.** The
+  amount rule is replaced by Kian's ruling of 2026-10-19 (Cleaning prices,
+  below): the property's preset by the stay, none with two or more cleaners.
 - **With several cleaners on one job, each marks their own; the owner is
   charged what the cleaners are paid, added up (37B's one
   "Expense - Cleaning" line already does this).**
@@ -944,3 +948,51 @@ Kian's review of 2026-10-19:
   own dialog: "Make <name> the regular cleaner for <property>? New jobs there
   go to <name>." Then it saves, as now. The edit page's tile asks the same way
   if it saves outside the form's Save; if it saves with the form, leave it.**
+
+## Cleaning prices — Kian's ruling of 2026-10-19 (the NuBNB Cleaner Pay Schedule)
+
+- **"Cleaning prices are presets per property, not per cleaner: a short-term
+  price for an ordinary turnover and a long-term price after a stay of 28
+  nights or more. They are the base for each house; the admin can change any
+  cleaning's amount, because it may vary by unit, day or booking."**
+- The presets live in a server-only record per property
+  (`property_cleaning_prices/{propertyId}`), never on the property document,
+  never sent to the cleaner app, owners' files or public pages. They are set
+  on the Report For sheet (two columns, and an "Import prices" CSV that saves
+  only matched rows on the admin's confirm) and on the property's edit page.
+- **The amount rule**, replacing the 2026-10-14 rule "last paid for the
+  property, else the cleaner's default rate": a Mark cleaned on a job with
+  exactly one cleaner takes the long-term preset when the stay behind the job
+  is 28 nights or more, else the short-term preset, and no amount when the
+  property has no matching preset; a job with two or more cleaners gives every
+  cleaner's cleaning no amount, and the admin types the split; a cleaning
+  logged by hand prefills from the same rule. Each cleaning records where its
+  amount came from (short-term preset, long-term preset, typed). The cleaner's
+  default rate is no longer used anywhere; the stored field stays, and "Set
+  rate" is gone from the Team page. Changing a preset never changes an
+  existing cleaning. No backfill.
+- The pay schedule itself is confidential: the CSV and the PDF are never
+  committed. Kian imports the CSV himself after deploy.
+
+Kian's instruction and ruling of 2026-10-19 (the second round):
+
+- **A second cleaner after a mark:** on the Schedule, adding a cleaner to a
+  job where another cleaner's mark already created a cleaning with an amount
+  asks first in Nubnb's own dialog: "<name>'s cleaning already carries $X
+  (<short-term|long-term> preset). With two cleaners, the amounts need
+  splitting: edit them on the Cleanings tab." Confirming assigns as today;
+  no amount changes by itself.
+- **Properties with no preset:** "For unsure rows, we just keep it open as
+  input by admin, and we keep that input item as a recommendation for next
+  time (based on if it's short term or long term)." The recommendation for a
+  property and tier with no preset is the most recent amount an admin typed
+  for a cleaning there in that tier, counting only cleanings not removed,
+  typed, and from a job with exactly one cleaner or logged by hand; never a
+  share from a two-cleaner job. Wherever an admin types a missing amount
+  (the Cleanings tab's "Waiting for an amount" rows, and later the Team pay
+  view), the field opens prefilled with it, labelled "Last typed for
+  <short-term|long-term>: $X"; Enter or Save confirms it; nothing is charged
+  until an admin confirms. Mark cleaned and hand-logged cleanings on such a
+  property still arrive with no amount: the recommendation is never applied
+  automatically and never becomes a preset. A preset for that tier, once
+  set, replaces the recommendation completely.

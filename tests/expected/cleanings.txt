@@ -37,10 +37,7 @@
   ZIP 2026-10: owner's folder 4 files, any naming the cleaner: none · Nubnb's folder names them in: 2026-10 Cleanings.xlsx, cleanings 2026-10.json
     owner's workbook lists the cleanings: 5 cleaning rows · says "Differs": false
 
-═══ 5. The form's amount (Kian's ruling: last paid for the property, else the default rate) ═══
-  Zelda at this property: {"from":"last","cents":8000}
-  Zelda at another property, default $65.00: {"from":"default","cents":6500}
-  someone with no default: {"from":"none","cents":null}
+═══ 5. The form's cleaner (the amount now starts from the property's preset: Kian's ruling of 2026-10-19, tests/money/cleaning-prices.mjs) ═══
   the property's last cleaner: TESTCLEANERzelda0001
   typed amounts: 60→6000 60.5→6050 60.50→6050 $75→7500 0→null -5→null 10000→null abc→null
 

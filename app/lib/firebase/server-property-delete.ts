@@ -30,6 +30,7 @@ import { EARNINGS_LINES_COLLECTION, EARNINGS_TITLE_LINKS_COLLECTION } from '@/ap
 import { MONTHLY_REPORTS_COLLECTION, MONTHLY_REPORT_DRAFTS_COLLECTION, PROPERTY_MANAGEMENT_COLLECTION } from '@/app/lib/reports/model';
 import { DIRECT_ARRANGEMENTS_COLLECTION, DIRECT_PAYMENTS_COLLECTION } from '@/app/lib/direct/model';
 import { PROPERTY_REGULAR_CLEANERS_COLLECTION } from '@/app/lib/schedule/regular';
+import { PROPERTY_CLEANING_PRICES_COLLECTION } from '@/app/lib/cleanings/prices';
 
 /** What stops a property from being deleted: how many of each it holds. */
 export interface PropertyHoldings {
@@ -108,6 +109,8 @@ export async function deletePropertyUnlessItHoldsRecords(propertyId: string): Pr
     tx.delete(db.collection(PROPERTY_MANAGEMENT_COLLECTION).doc(propertyId));
     tx.delete(db.collection(PROPERTY_CLEANER_NAMES_COLLECTION).doc(propertyId));
     tx.delete(db.collection(PROPERTY_REGULAR_CLEANERS_COLLECTION).doc(propertyId));
+    // Its cleaning prices go with it (Kian's ruling of 2026-10-19): the record is the property's alone.
+    tx.delete(db.collection(PROPERTY_CLEANING_PRICES_COLLECTION).doc(propertyId));
     return { kind: 'deleted' };
   });
 }

@@ -154,7 +154,7 @@ export function mergeJob(previous: JobView, stored: StoredJob, team: readonly Te
     const a = assignments[cid];
     const member = byId.get(cid);
     const had = before.get(cid);
-    return { ...a, cleanerId: cid, name: member?.name ?? a.nameAtAssignment, status: member?.status ?? null, state: member ? 'found' : 'missing', cleaning: a.cleaningId === null || a.removedAt !== null ? null : had?.cleaningId === a.cleaningId ? had.cleaning : { state: 'found', status: 'logged', amountCents: null } };
+    return { ...a, cleanerId: cid, name: member?.name ?? a.nameAtAssignment, status: member?.status ?? null, state: member ? 'found' : 'missing', cleaning: a.cleaningId === null || a.removedAt !== null ? null : had?.cleaningId === a.cleaningId ? had.cleaning : { state: 'found', status: 'logged', amountCents: null, amountFrom: null } };
   });
   return { ...rest, property: previous.property, calendar: previous.calendar, assignees };
 }

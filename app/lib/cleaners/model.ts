@@ -66,7 +66,7 @@
 // ─── Collections ───────────────────────────────────────────────
 // Permanent: renaming one would mean moving documents, which is a backfill.
 
-import type { CleaningView, TeamRate } from '@/app/lib/cleanings/model';
+import type { CleaningView, TeamChoice } from '@/app/lib/cleanings/model';
 import type { CleanerJobView } from '@/app/lib/schedule/model';
 
 export const CLEANERS_COLLECTION = 'cleaners';
@@ -874,8 +874,8 @@ export interface CostsView {
   entries: CostEntryView[];
   /** Every cleaning, as the Cleanings tab lists it, newest day first (dispatch 37B). */
   cleanings: CleaningView[];
-  /** Every team member with their role, status and default rate, for the cleaning form (dispatch 37B). */
-  team: TeamRate[];
+  /** Every team member with their role and status, for the cleaning form's cleaner choice (dispatch 37B; no rate since Kian's ruling of 2026-10-19). */
+  team: TeamChoice[];
   /** Every recorded PDF, newest first. */
   exports: ReportExportView[];
   /** Every property's current name, A to Z; null when they could not be read. */

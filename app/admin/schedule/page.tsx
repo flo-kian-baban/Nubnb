@@ -53,6 +53,7 @@ import { fetchRegularCleaner, fetchSchedule, mergeJob, reopenJobFor, setJobClean
 import { addDays, dayText, isDay, minutesBetween } from "@/app/lib/availability/days";
 import { changeWords, isSameDay, jobState, type AssigneeView, type JobView, type TeamMember } from "@/app/lib/schedule/model";
 import { regularCleanerQuestion } from "@/app/lib/schedule/regular";
+import { secondCleanerQuestion } from "@/app/lib/cleanings/prices";
 
 type Loaded = { kind: "loading" } | { kind: "ready"; answer: ScheduleAnswer } | { kind: "error"; title: string; detail?: string; status: number };
 
@@ -218,6 +219,9 @@ function Schedule() {
   const sameCleanersTo = async (from: JobView, target: JobView) => {
     if (saving) return;
     const wanted = [...new Set([...target.cleanerIds, ...from.cleanerIds.filter((cid) => active.some((member) => member.id === cid))])];
+    // A cleaner added where another's mark already carries an amount: asked first (Kian's instruction of 2026-10-19).
+    const question = secondCleanerQuestion(target, wanted);
+    if (question && !(await ask(question))) return;
     setSaving(target.id);
     const result = await setJobCleaners(target.id, wanted, target.history.length);
     setSaving(null);
@@ -550,6 +554,17 @@ function AssignDialog(props: {
   const current = regular.kind === "ready" ? regular.data.regular : null;
   /** The one active cleaner ticked, when exactly one is and they are not already the regular cleaner. */
   const candidate = picked.length === 1 && regular.kind === "ready" && current?.cleanerId !== picked[0] ? (active.find((member) => member.id === picked[0]) ?? null) : null;
+  /**
+   * Save, asking first when a cleaner is added to a job where another cleaner's mark already carries an amount (Kian's
+   * instruction of 2026-10-19): "<name>'s cleaning already carries $X (<preset>). With two cleaners, the amounts need
+   * splitting: edit them on the Cleanings tab." Confirming assigns as before; no amount changes by itself.
+   */
+  const save = async () => {
+    if (busy) return;
+    const question = mode === "assign" ? secondCleanerQuestion(job, picked) : null;
+    if (question && !(await ask(question))) return;
+    onSave();
+  };
   const makeRegular = async () => {
     if (!candidate || regularBusy) return;
     if (!(await ask(regularCleanerQuestion(candidate.name, name)))) return;
@@ -611,7 +626,7 @@ function AssignDialog(props: {
           <button type="button" className={`${ed.btn} ${ed.btnGhost}`} onClick={onClose} disabled={busy}>
             Cancel
           </button>
-          <button type="button" className={`${ed.btn} ${ed.btnPrimary}`} onClick={onSave} disabled={busy}>
+          <button type="button" className={`${ed.btn} ${ed.btnPrimary}`} onClick={() => void save()} disabled={busy}>
             {busy ? "Saving…" : "Save"}
           </button>
         </>
