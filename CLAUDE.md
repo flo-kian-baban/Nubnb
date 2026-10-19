@@ -677,6 +677,9 @@ Function.
   last read, in amber past 24 hours.**
 - **The scheduled Cloud Function and its configuration are removed from the
   repo. Nothing in Google Cloud changes: the APIs stay off.**
+- Extended by Kian's ruling R1 of 2026-10-19 (Schedule, round 1, below): the
+  Schedule and a cleaner's app also start the same refresh when the calendar
+  copy is more than 3 hours old.
 
 ## Team pay — Kian's rulings of 2026-10-15
 
@@ -848,12 +851,14 @@ These replace the four tiles of 2026-10-02 and the header row of 2026-10-13
    counts that filter the list: Needs attention, Statements blocked,
    Statements ready, Airbnb lines to review, Needs a cleaner, Calendar not
    read, Direct overdue. Search and City stay. Sort: Needs attention
-   (default), Next checkout, Address.**
+   (default), Next checkout, Address.** Kian's ruling R3 of 2026-10-19 adds
+   "Not marked" (Schedule, round 1, below).
 6. **Each row has a Next step: the single most pressing action, linking to
    where it's done (Add Report For name, Finish <month>, Assign a cleaner
    for <day>, Review n Airbnb lines, Calendar not read, Record direct
    payment). "Up to date" when nothing is needed. A statement is "blocked"
-   when Finish would refuse it.**
+   when Finish would refuse it.** Kian's ruling R3 of 2026-10-19 adds "Not
+   marked" as a Next step (Schedule, round 1, below).
 7. **The Statement, Income and Cleaning cells stay, quiet unless they need
    something. A property whose calendar failed in the last refresh, or has
    no link, reads "Calendar not read", never "No turnover".**
@@ -901,3 +906,41 @@ Kian's review of 2026-10-17:
 - **K5. Remove (don't delete) the cleaning on [the property's address, left
   out: this file is public] of 15 October 2026, marked by a team member since
   deleted.**
+
+## Schedule, round 1 — Kian's rulings of 2026-10-19 (the Schedule audit)
+
+- **R5. A property can have one regular cleaner, set on the property's edit
+  page (internal group) and on the Schedule ("Make Ana the regular cleaner
+  for this property").**
+  - **A server-only field or record, never on the public property document;
+    the property save refuses it, as it refuses the cleaner-facing name.**
+  - **When the job sync creates a job and the property has an active regular
+    cleaner, it assigns them, recorded in the job's history as assigned by
+    "regular cleaner" (system actor).**
+  - **A deactivated or deleted regular cleaner assigns nobody, and the job
+    shows "Needs a cleaner".**
+  - **Existing jobs are never changed (no backfill).**
+- **R1. Reads on open: when the Schedule or a cleaner's app opens and the
+  calendar copy is more than 3 hours old, start the same background refresh
+  used for the day's first visit (one run at a time, the same lease). The
+  Schedule shows the result when that run finishes, without a manual reload.
+  The cleaner app re-reads its jobs once when the run finishes.** This extends
+  the first-visit ruling (Calendar refresh, 2026-10-14, night).
+- **R2. A booking-changed job on the cleaner's card reads "Cancelled: don't
+  go" or "Moved to <day>", with no Mark cleaned. On the Schedule, an admin
+  can take a cleaner off a booking-changed job; the server already accepts
+  this.**
+- **R3. "Not marked" (checkout passed, assigned, not marked cleaned and not
+  removed) becomes a Next step on the home, with its own chip and count,
+  using the one Next-step rule.**
+- **R4 is declined: jobs stay made two days before checkout (Cleaning
+  schedule, phase 1, ruling 1).**
+
+Kian's review of 2026-10-19:
+- **The home's Cleaning cell follows the Schedule: a job with nobody on it is
+  red on its checkout day and after, amber before. One shared rule for both
+  pages, not two copies.**
+- **Setting a regular cleaner from the Schedule's picker asks first in Nubnb's
+  own dialog: "Make <name> the regular cleaner for <property>? New jobs there
+  go to <name>." Then it saves, as now. The edit page's tile asks the same way
+  if it saves outside the form's Save; if it saves with the form, leave it.**

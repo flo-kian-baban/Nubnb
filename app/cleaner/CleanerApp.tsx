@@ -72,6 +72,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { CloudOff } from "lucide-react";
 import {
   jobAction,
+  loadJobsAfterRead,
   loadStart,
   readReceipt,
   sendEntry,
@@ -340,6 +341,36 @@ export function CleanerApp() {
       cancelled = true;
     };
   }, [enter]);
+
+  // A read of the calendars the start call announced (Kian's ruling R1 of 2026-10-19: the copy was more than three
+  // hours old): ask every few seconds until it ends, then take the jobs read again, once. Two answers in a row that
+  // nothing is coming end the wait; so does three minutes.
+  const startRead = phase.kind === "in" ? phase.start : null;
+  useEffect(() => {
+    if (!startRead?.refresh) return;
+    const since = startRead.refresh.lastFinishedAt;
+    let cancelled = false;
+    void (async () => {
+      const started = Date.now();
+      let quiet = 0;
+      for (let look = 0; !cancelled && Date.now() - started < 180_000; look += 1) {
+        await new Promise((resolve) => setTimeout(resolve, look === 0 ? 2_000 : 3_000));
+        if (cancelled) return;
+        const result = await loadJobsAfterRead(since);
+        if (cancelled) return;
+        if (result.kind === "done") {
+          setJobs(result.jobs);
+          return;
+        }
+        if (result.kind === "signed-out") return;
+        quiet = result.kind === "none" ? quiet + 1 : 0;
+        if (quiet >= 2) return;
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [startRead]);
 
   // The phone's Back: the screen before, as far as the draft allows.
   useEffect(() => {

@@ -8,6 +8,11 @@
  * page that shows the calendars hears it (`useCalendarsRefreshed`): the Schedule and Availability pages show what it
  * did, the property list reads its columns again.
  *
+ * A run this page did not press (the day's first visit, or a read on open: Kian's ruling R1 of 2026-10-19) is
+ * watched (`watchCalendarRun`): the state is looked at every few seconds until the run has written the copy, synced
+ * the jobs and let the lease go, and then every part of the page hears it (`useCalendarsRead`): the tag shows the new
+ * time, the Schedule reads its days again. One watch at a time; a second asker joins it.
+ *
  * Client-safe: imports only types and the tolerant error reader.
  */
 
@@ -103,6 +108,77 @@ export function useCalendarsRefreshing(): boolean {
     () => running !== null,
     () => false,
   );
+}
+
+// ─── A run this page did not press, watched to its end ───
+
+const READ_EVENT = 'nubnb:calendars-read';
+/** How often the watch looks, and for how long at most: a run reads 52 calendars in a few seconds, 154 s at worst. */
+const WATCH_FIRST_MS = 1_500;
+const WATCH_EVERY_MS = 3_000;
+const WATCH_MAX_MS = 180_000;
+/** Looks that found no run under way and nothing new: then nothing is coming, and the watch stops. */
+const WATCH_QUIET_LOOKS = 2;
+let watching: Promise<CalendarStatus | null> | null = null;
+const watchers = new Set<() => void>();
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Watch a run that is starting or under way until it ends: the status is read (two reads) at 1.5 s, then every 3 s.
+ * It ended when no run holds the lease and the copy is newer than `knownRefreshedAt` (the copy is written before the
+ * jobs are synced, so the lease's release is what says the jobs are made too). Then the page hears it
+ * (`useCalendarsRead`) and the watch answers the new status. Two looks in a row with no run and nothing new: nothing
+ * is coming, it answers null. A second call while one watches joins it.
+ */
+export function watchCalendarRun(knownRefreshedAt: string | null): Promise<CalendarStatus | null> {
+  if (watching) return watching;
+  watching = (async (): Promise<CalendarStatus | null> => {
+    const started = Date.now();
+    let quiet = 0;
+    for (let look = 0; Date.now() - started < WATCH_MAX_MS; look += 1) {
+      await sleep(look === 0 ? WATCH_FIRST_MS : WATCH_EVERY_MS);
+      const status = await fetchCalendarStatus();
+      if (!status.ok) continue;
+      const { running, refreshedAt } = status.data;
+      if (!running && refreshedAt !== null && refreshedAt !== knownRefreshedAt) {
+        window.dispatchEvent(new CustomEvent<CalendarStatus>(READ_EVENT, { detail: status.data }));
+        return status.data;
+      }
+      quiet = running ? 0 : quiet + 1;
+      if (quiet >= WATCH_QUIET_LOOKS) return null;
+    }
+    return null;
+  })().finally(() => {
+    watching = null;
+    watchers.forEach((listener) => listener());
+  });
+  watchers.forEach((listener) => listener());
+  return watching;
+}
+
+/** Whether a watch of a run is under way on this page. */
+export function useCalendarRunWatched(): boolean {
+  return useSyncExternalStore(
+    (listener) => {
+      watchers.add(listener);
+      return () => watchers.delete(listener);
+    },
+    () => watching !== null,
+    () => false,
+  );
+}
+
+/** Calls `handler` with the status once a watched run has ended: the copy and the jobs are new. */
+export function useCalendarsRead(handler: (status: CalendarStatus) => void): void {
+  const ref = useRef(handler);
+  useEffect(() => {
+    ref.current = handler;
+  });
+  useEffect(() => {
+    const on = (event: Event) => ref.current((event as CustomEvent<CalendarStatus>).detail);
+    window.addEventListener(READ_EVENT, on);
+    return () => window.removeEventListener(READ_EVENT, on);
+  }, []);
 }
 
 /** Calls `handler` with each refresh's outcome, from whichever control pressed it. */

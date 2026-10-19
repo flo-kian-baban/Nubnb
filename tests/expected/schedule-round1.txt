@@ -1,0 +1,120 @@
+═══ 1. The regular cleaner, on a job the sync is about to make (Kian's ruling R5) ═══
+  an active cleaner: on it TESTCLEANERround1ana · assigned by system/regular cleaner at 2026-10-19T11:00:00.000Z · history created(calendar) → assigned(regular cleaner) · reads back true
+  a deactivated cleaner: on it nobody · history created(calendar) · reads back true
+  a handyman: on it nobody · history created(calendar) · reads back true
+  an account that no longer exists: on it nobody · history created(calendar) · reads back true
+  no regular cleaner: on it nobody · history created(calendar) · reads back true
+   ok   an active cleaner is put on the job, by "regular cleaner"
+   ok   a deactivated cleaner, a handyman, a deleted account or none: nobody on it
+   ok   a job that already has someone on it is not changed
+
+═══ 2. The job sync gives each new job to its regular cleaner ═══
+  outcome: {"created":6,"changed":0,"watched":0,"unreadable":0,"failed":null} · reads 11 (cleaners 4, cleaning_jobs 1, property_regular_cleaners 6)
+  TESTPROPround1aaaa1 (Ana, active): on it TESTCLEANERround1ana · last event assigned by regular cleaner
+  TESTPROPround1aaaa2 (Ben, deactivated): on it nobody · last event created by calendar
+  TESTPROPround1aaaa3 (an account deleted): on it nobody · last event created by calendar
+  TESTPROPround1aaaa4 (none): on it nobody · last event created by calendar
+  TESTPROPround1aaaa5 (a handyman): on it nobody · last event created by calendar
+  TESTPROPround1aaaa6 (a record not in shape): on it nobody · last event created by calendar
+   ok   P1: Ana is on it, made then assigned
+   ok   the others: nobody on them ("Needs a cleaner")
+   ok   a job made before the regular cleaner was set is not changed (no backfill)
+  the same run again: {"created":0,"changed":0,"watched":6,"unreadable":0,"failed":null} · reads 6 (cleaning_jobs 6): nothing to make, so no regular cleaner is read
+   ok   no job to make: the records are not read
+
+═══ 3. Setting a regular cleaner ═══
+  Ben, deactivated: {"kind":"not-assignable","name":"Test Ben","why":"inactive"} · reads 3
+  a handyman: {"kind":"not-assignable","name":"Test Handy","why":"not-a-cleaner"} · reads 3
+  an account that does not exist: {"kind":"not-assignable","name":null,"why":"missing"} · reads 3
+  Ana, active: {"kind":"set","name":"Test Ana"} · reads 3
+  Ana again: {"kind":"unchanged"} · reads 3
+  read back: {"cleanerId":"TESTCLEANERround1ana","name":"Test Ana","state":"found","role":"cleaner","status":"active","assigns":true,"setAt":"…","setBy":{"role":"admin","id":"TESTADMINround1aaaa1","name":"Test admin"}} · choices Test Ana
+  Ana is the regular cleaner for: Test One, Test Seven
+   ok   only an active cleaner is set; the choices are the active cleaners
+  cleared: {"kind":"cleared"} · reads 2
+   ok   clearing it deletes the record
+   ok   a property that does not exist: refused
+  a property save carrying regularCleaner: refused: regularCleaner: Not a property field: the regular cleaner is set on the edit page's Cleaners section or on the Schedule, through /api/admin/properties/[id]/regular-cleaner
+  a property save carrying regularCleanerId: refused: regularCleanerId: Not a property field: the regular cleaner is set on the edit page's Cleaners section or on the Schedule, through /api/admin/properties/[id]/regular-cleaner
+  a property save carrying regularCleanerName: refused: regularCleanerName: Not a property field: the regular cleaner is set on the edit page's Cleaners section or on the Schedule, through /api/admin/properties/[id]/regular-cleaner
+   ok   the property save refuses it under any of its names, as it refuses the name cleaners see
+   ok   (the name cleaners see is refused there too, as before)
+  asked first: "Make Test Ana the regular cleaner for Test Seven?" / "New jobs there go to Test Ana." / [Make them its regular cleaner]
+  asked first, a cleaner with no name: "Make this cleaner the regular cleaner for Test Seven?" / "New jobs there go to them."
+   ok   setting it asks first, in Kian's words, the same on the Schedule's picker and the edit page
+
+═══ 4. A refresh on open: the copy more than three hours old ═══
+  the threshold: 3 hours
+  read today 2 h 59 min ago (10:01 Toronto), the Schedule opens: fresh (finished 2026-10-19T14:01:00.000Z)
+  read today exactly 3 h ago: fresh (finished 2026-10-19T14:00:00.000Z)
+  read today 3 h 1 min ago, the Schedule opens: claimed daily/admin-page
+  the same, a cleaner's app opens: claimed daily/cleaner-app
+  read yesterday at 23:30 Toronto (1 h 30 min before midnight), now 00:30: claimed daily/admin-page
+  a run holds the lease: running
+  read 5 h ago, but a try failed 10 min ago: paused until 2026-10-19T17:05:00.000Z
+  read 5 h ago, the first-visit rule alone (any other admin page): fresh (finished 2026-10-19T12:00:00.000Z)
+  nothing ever read: claimed daily/admin-page
+   ok   more than three hours old: the Schedule or a cleaner's app starts the run; three hours or less: nothing
+   ok   a copy from yesterday starts it however recent (the first visit of the day)
+   ok   one run at a time, the same lease; the same pause after a failed try
+   ok   every other admin page keeps the first-visit rule (one run a Toronto day)
+   ok   the state it writes reads back strictly, its source "daily": readers already deployed keep reading it
+
+═══ 5. A changed booking on the cleaner's card ═══
+  cancelled: "Cancelled: don’t go"
+  moved to Sat, Oct 24: "Moved to Sat, Oct 24"
+  its calendar link changed: "Don’t go unless the office asks." (beside "Booking changed")
+  the property deleted: "Don’t go unless the office asks." (beside "Booking changed")
+   ok   cancelled: "Cancelled: don't go"
+   ok   moved: "Moved to <day>"
+
+═══ 6. Not marked: a Next step, its own chip ═══
+  passed, Ana on it, not marked: not-marked · "Check Oct 16 was cleaned" · /admin/schedule?property=TESTPROPround1aaaa9&from=2026-10-16 · under attention,not-marked · Checkout Oct 16: not marked cleaned by Test Ana
+  passed, Ana marked it, Ben did not: not-marked · "Check Oct 17 was cleaned" · /admin/schedule?property=TESTPROPround1aaaa9&from=2026-10-17 · under attention,not-marked · Checkout Oct 17: not marked cleaned by Test Ben
+  passed, Ana's mark removed by the office: none · "Up to date" · - · under - · Nothing to do
+  checkout today, not marked yet: none · "Up to date" · - · under - · Nothing to do
+  passed, its booking changed: none · "Up to date" · - · under - · Nothing to do
+  passed 15 days ago: none · "Up to date" · - · under - · Nothing to do
+  a job with nobody on it tomorrow, and one not marked: assign · "Assign a cleaner for Oct 20" · /admin/schedule?property=TESTPROPround1aaaa9 · under attention,cleaner,not-marked · Checkout Oct 20: nobody is on it
+   ok   not marked: "Check <day> was cleaned", to the Schedule at that day, under its chip and Needs attention
+   ok   one of two not marked: named
+   ok   a removed mark, today, a changed booking, older than the column looks: not "Not marked"
+   ok   a job with nobody on it comes first; the row is still under Not marked
+   ok   its place: after Assign; its chip beside Needs a cleaner
+
+═══ 7. A job's state on the Schedule ═══
+  nobody, two days ahead: "Needs a cleaner" (needs)
+  nobody, tomorrow: "Needs a cleaner" (needs)
+  nobody, today: "Needs a cleaner" (needsNow)
+  nobody, yesterday: "Needs a cleaner" (needsNow)
+  Ana on it, today, not marked yet: "Assigned" (assigned)
+  Ana on it, yesterday, not marked: "Not marked" (notMarked)
+  Ana marked, Ben not, yesterday: "Not marked · 1 of 2 done" (notMarked)
+  Ana's mark removed by the office, yesterday: "Removed by the office" (removed)
+  both marked: "Done" (done)
+  cancelled: "Booking changed · Cancelled" (changed)
+   ok   nobody on it: amber ahead, red on its checkout day and after
+   ok   not marked once the checkout passed; a removed mark is the office's, not "Not marked"
+  nobody on it, checkout 2026-10-21: Schedule amber (needs) · home amber (needs) · Checkout Oct 21: nobody is on it yet
+  nobody on it, checkout 2026-10-20: Schedule amber (needs) · home amber (needs) · Checkout Oct 20: nobody is on it yet
+  nobody on it, checkout 2026-10-19: Schedule red (needsNow) · home red (needs-now) · Checkout Oct 19: checkout today with nobody on it
+  nobody on it, checkout 2026-10-18: Schedule red (needsNow) · home red (needs-now) · Checkout Oct 18: checkout passed with nobody on it
+  nobody on it, checkout 2026-10-05: Schedule red (needsNow) · home red (needs-now) · Checkout Oct 5: checkout passed with nobody on it
+   ok   the home's Cleaning cell says what the Schedule says: amber ahead, red on its checkout day and after
+
+═══ 8. A cleaner's list reads no cleaning ═══
+  removeCleaning on the 12th: removed
+  2026-10-10: marked true · canUndo false · refusal already-marked
+  2026-10-12: marked true · canUndo false · refusal removed
+  2026-10-14: marked true · canUndo false · refusal already-marked
+  2026-10-16: marked true · canUndo true · refusal already-marked
+  2026-10-18: marked false · canUndo false · refusal -
+  2026-10-20: marked false · canUndo false · refusal too-early
+  reads: 7 (cleaning_jobs 6, monthly_reports 1)
+   ok   Undo: not on a printed cleaning, a removed one, or one on or before the last payment (Oct 14); on the 16th, yes; the 18th unmarked
+   ok   no cleaning is read: a mark not removed by the office is a logged cleaning, from the job
+  read again on its own (after a refresh): 6 jobs · reads 12 (cleaning_jobs 6, monthly_reports 1, properties 2, property_cleaner_names 2, team_payments 1)
+   ok   read again on its own: only the two properties its jobs name, never every property, and no cleaning
+   ok   its home: the job still to mark (the 18th), and tomorrow's (Ana is the regular cleaner on P1, section 2)
+
+all checks passed

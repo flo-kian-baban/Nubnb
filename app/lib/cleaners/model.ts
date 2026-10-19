@@ -947,6 +947,12 @@ export interface CleanerStart {
   jobs: CleanerJobView[];
   /** Toronto's today, as the server sees it: when Mark cleaned opens is the server's to say. */
   today: string;
+  /**
+   * The calendars being read again because the copy was more than three hours old (Kian's ruling R1 of 2026-10-19):
+   * the app asks GET /api/cleaner/jobs until the run ends, then reads its jobs again, once. Null, or absent: nothing
+   * is coming.
+   */
+  refresh?: { state: 'starting' | 'running'; lastFinishedAt: string | null } | null;
   // No pay: the cleaner app shows none (Kian's ruling of 2026-10-16).
 }
 

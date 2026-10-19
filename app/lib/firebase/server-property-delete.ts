@@ -11,11 +11,12 @@
  * A property holding none of these is deleted together with the records
  * that only describe it, so none is left pointing at nothing: its unlisted
  * mark (dispatch 29), its owner record (`property_management`: Report For,
- * owners, statement months, default fee rate — no money) and its
- * cleaner-facing name.
+ * owners, statement months, default fee rate — no money), its
+ * cleaner-facing name and its regular cleaner (Kian's ruling R5 of
+ * 2026-10-19).
  *
  * One transaction: the five reads that say what the property holds, then
- * the four deletes. A draft, an entry or a link written meanwhile makes the
+ * the five deletes. A draft, an entry or a link written meanwhile makes the
  * transaction retry and the delete refuse. The reads are counted and named
  * in the refusal; nothing is read but the documents' IDs and what decides
  * whether a line was accepted.
@@ -28,6 +29,7 @@ import { CLEANINGS_COLLECTION } from '@/app/lib/cleanings/model';
 import { EARNINGS_LINES_COLLECTION, EARNINGS_TITLE_LINKS_COLLECTION } from '@/app/lib/income/model';
 import { MONTHLY_REPORTS_COLLECTION, MONTHLY_REPORT_DRAFTS_COLLECTION, PROPERTY_MANAGEMENT_COLLECTION } from '@/app/lib/reports/model';
 import { DIRECT_ARRANGEMENTS_COLLECTION, DIRECT_PAYMENTS_COLLECTION } from '@/app/lib/direct/model';
+import { PROPERTY_REGULAR_CLEANERS_COLLECTION } from '@/app/lib/schedule/regular';
 
 /** What stops a property from being deleted: how many of each it holds. */
 export interface PropertyHoldings {
@@ -105,6 +107,7 @@ export async function deletePropertyUnlessItHoldsRecords(propertyId: string): Pr
     tx.delete(db.collection(PROPERTY_VISIBILITY_COLLECTION).doc(propertyId));
     tx.delete(db.collection(PROPERTY_MANAGEMENT_COLLECTION).doc(propertyId));
     tx.delete(db.collection(PROPERTY_CLEANER_NAMES_COLLECTION).doc(propertyId));
+    tx.delete(db.collection(PROPERTY_REGULAR_CLEANERS_COLLECTION).doc(propertyId));
     return { kind: 'deleted' };
   });
 }

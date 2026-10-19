@@ -14,13 +14,18 @@
  *
  * The Next step, most pressing first (one per row):
  *   Assign a cleaner for <day>   a job from 14 days back to 2 ahead with nobody on it, the earliest
+ *   Check <day> was cleaned      a job from 14 days back whose checkout passed, assigned, with someone on it who has
+ *                                not marked it cleaned and whose mark the office did not remove, the earliest
+ *                                ("Not marked", Kian's ruling R3 of 2026-10-19)
  *   Add Report For name          a statement owed while Finish would refuse it
  *   Review n Airbnb lines        the month due's lines waiting on the Income page
  *   Record direct payment        a direct payment overdue
  *   Finish <month>               the oldest statement owed
  *   Calendar not read            no calendar link, or the last refresh could not read it
  *   Up to date                   none of these
- * A turnover cannot wait; what a statement holds comes before finishing it; a calendar not read is said last.
+ * A turnover cannot wait; a turnover that passed unmarked is the next thing to check (no cleaning is recorded for it,
+ * so its cleaner is not paid and its owner not charged); what a statement holds comes before finishing it; a calendar
+ * not read is said last.
  */
 
 import { addDays, dayText } from '@/app/lib/availability/days';
@@ -29,10 +34,10 @@ import type { ReportingStatus } from '@/app/lib/reports/statement';
 import type { DirectStanding } from '@/app/lib/direct/periods';
 import { COLUMN_DAYS_AHEAD, COLUMN_DAYS_BACK, type HomeJob } from '@/app/lib/schedule/standing';
 
-export type StepKey = 'assign' | 'report-for' | 'review' | 'direct' | 'finish' | 'calendar' | 'none';
+export type StepKey = 'assign' | 'not-marked' | 'report-for' | 'review' | 'direct' | 'finish' | 'calendar' | 'none';
 
 /** Most pressing first: the order the step is picked in, and the Needs attention sort's. */
-export const STEP_ORDER: readonly StepKey[] = ['assign', 'report-for', 'review', 'direct', 'finish', 'calendar', 'none'];
+export const STEP_ORDER: readonly StepKey[] = ['assign', 'not-marked', 'report-for', 'review', 'direct', 'finish', 'calendar', 'none'];
 
 export interface NextStep {
   key: StepKey;
@@ -45,15 +50,16 @@ export interface NextStep {
   when: string | null;
 }
 
-export type ChipKey = 'attention' | 'blocked' | 'ready' | 'review' | 'cleaner' | 'calendar' | 'direct';
+export type ChipKey = 'attention' | 'blocked' | 'ready' | 'review' | 'cleaner' | 'not-marked' | 'calendar' | 'direct';
 
-/** The chips above the list, in Kian's order. */
+/** The chips above the list, in Kian's order; "Not marked" beside "Needs a cleaner" (Kian's ruling R3 of 2026-10-19). */
 export const CHIPS: readonly { key: ChipKey; label: string }[] = [
   { key: 'attention', label: 'Needs attention' },
   { key: 'blocked', label: 'Statements blocked' },
   { key: 'ready', label: 'Statements ready' },
   { key: 'review', label: 'Airbnb lines to review' },
   { key: 'cleaner', label: 'Needs a cleaner' },
+  { key: 'not-marked', label: 'Not marked' },
   { key: 'calendar', label: 'Calendar not read' },
   { key: 'direct', label: 'Direct overdue' },
 ];
@@ -110,10 +116,21 @@ export function unstaffedJobs(jobs: readonly HomeJob[], today: string): HomeJob[
   return jobs.filter((job) => job.status === 'open' && job.cleaners.length === 0 && job.checkout >= from && job.checkout <= to).sort((a, b) => a.checkout.localeCompare(b.checkout));
 }
 
+/**
+ * The jobs the Cleaning column looks at whose checkout has passed with someone on them who has not marked them
+ * cleaned, and whose mark the office did not remove: "Not marked" (Kian's ruling R3 of 2026-10-19), earliest first. A
+ * mark the office removed is a mark (`marked`), so it is not one of these. A booking that changed is not a turnover.
+ */
+export function unmarkedJobs(jobs: readonly HomeJob[], today: string): HomeJob[] {
+  const from = addDays(today, -COLUMN_DAYS_BACK);
+  return jobs.filter((job) => job.status === 'open' && job.checkout < today && job.checkout >= from && job.cleaners.some((c) => !c.marked)).sort((a, b) => a.checkout.localeCompare(b.checkout));
+}
+
 /** One row: its Next step, the chips it is under, and its statements owed. */
 export function rowView(f: RowFacts): RowView {
   const owed = owedMonths(f.status);
   const unstaffed = unstaffedJobs(f.jobs, f.today);
+  const notMarked = unmarkedJobs(f.jobs, f.today);
   const overdue = f.direct?.state === 'overdue' ? f.direct : null;
   const blocked = f.hasReportFor ? 0 : owed.length;
   const ready = f.hasReportFor ? owed.length : 0;
@@ -125,6 +142,11 @@ export function rowView(f: RowFacts): RowView {
     const from = day < addDays(f.today, -7) ? `&from=${day}` : '';
     const more = unstaffed.length > 1 ? ` · ${plural(unstaffed.length - 1, 'other job', 'other jobs')} too` : '';
     step = { key: 'assign', label: `Assign a cleaner for ${dayText(day)}`, href: `/admin/schedule?property=${enc(f.propertyId)}${from}`, title: `Checkout ${dayText(day)}: nobody is on it${more}`, when: day };
+  } else if (notMarked.length > 0) {
+    const job = notMarked[0];
+    const who = job.cleaners.filter((c) => !c.marked).map((c) => c.name ?? 'a deleted cleaner').join(', ');
+    const more = notMarked.length > 1 ? ` · ${plural(notMarked.length - 1, 'other job', 'other jobs')} too` : '';
+    step = { key: 'not-marked', label: `Check ${dayText(job.checkout)} was cleaned`, href: `/admin/schedule?property=${enc(f.propertyId)}&from=${job.checkout}`, title: `Checkout ${dayText(job.checkout)}: not marked cleaned by ${who}${more}`, when: job.checkout };
   } else if (blocked > 0) {
     step = { key: 'report-for', label: 'Add Report For name', href: propertyMonth(f.propertyId, owed[0], 'details'), title: `${plural(owed.length, 'statement', 'statements')} owed (${owedText}): Finish refuses a statement with no Report For name`, when: owed[0] };
   } else if (f.review > 0) {
@@ -150,6 +172,7 @@ export function rowView(f: RowFacts): RowView {
       ready: ready > 0,
       review: f.review > 0,
       cleaner: unstaffed.length > 0,
+      'not-marked': notMarked.length > 0,
       calendar: !f.calendarRead,
       direct: overdue !== null,
     },

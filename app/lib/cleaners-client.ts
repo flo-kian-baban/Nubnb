@@ -293,8 +293,9 @@ export function deleteCleaner(id: string): Promise<CleanerResult<{ deleted: Clea
 }
 
 /** The jobs a team member is on and has not marked: what deactivating or deleting them takes them off (the cleaning schedule). */
-export function fetchUnmarkedJobs(id: string): Promise<CleanerResult<{ jobs: UnmarkedJob[] }>> {
-  return call(`/api/admin/cleaners/${encodeURIComponent(id)}/jobs`, {}, 'Reading their jobs failed', (data) => isRecord(data) && Array.isArray(data.jobs) && data.jobs.every(isUnmarkedJob));
+/** The jobs a team member is on and has not marked, and the properties they are the regular cleaner for (Kian's ruling R5). */
+export function fetchUnmarkedJobs(id: string): Promise<CleanerResult<{ jobs: UnmarkedJob[]; regularAt?: string[] }>> {
+  return call(`/api/admin/cleaners/${encodeURIComponent(id)}/jobs`, {}, 'Reading their jobs failed', (data) => isRecord(data) && Array.isArray(data.jobs) && data.jobs.every(isUnmarkedJob) && (data.regularAt === undefined || (Array.isArray(data.regularAt) && data.regularAt.every((name) => typeof name === 'string'))));
 }
 
 const isLock = (value: unknown): value is SignInLockView =>

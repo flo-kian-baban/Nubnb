@@ -9,7 +9,8 @@
  * stored 400-pixel copy rounded as the public cards, with the public site's blue badges on it — Today, Tomorrow,
  * Same-day turnover (the next guest arrives on the checkout day), Cleaned — then the day, the property by its name for
  * cleaners, its checkout time and when the next guest arrives, and what can be done. Mark cleaned opens on the checkout day; it is one tap, with no amount and no photo
- * (the cleaning schedule, 2026-10-14). A job whose booking changed says so and cannot be marked. A cleaned job reads
+ * (the cleaning schedule, 2026-10-14). A job whose booking changed says so and cannot be marked: "Cancelled: don't
+ * go", or "Moved to <day>" (Kian's ruling R2 of 2026-10-19), else "Don't go unless the office asks". A cleaned job reads
  * "Cleaned · Undo" — Undo while no finished statement prints its cleaning and no payment covers its day — with "Add a
  * receipt for this unit" (ruling 6). A mark whose cleaning the office deleted or removed reads "Removed by the office",
  * with no Undo, until the office reopens it; then the job reads Mark cleaned again.
@@ -19,7 +20,7 @@ import { Camera, Check, X } from "lucide-react";
 import type { CleanerJobView } from "@/app/lib/schedule/model";
 import type { CleanerProperty } from "@/app/lib/cleaners/model";
 import { dayText } from "@/app/lib/availability/days";
-import { jobBadges } from "@/app/lib/cleaner-home";
+import { changedWords, jobBadges } from "@/app/lib/cleaner-home";
 import styles from "./cleaner.module.css";
 import { UnitPhoto } from "./UnitList";
 
@@ -115,7 +116,7 @@ export function JobsSection({ jobs, today, busyId, messages, onMark, onUndo, onA
                 <div className={styles.jobBody}>
                   <p className={styles.jobDay}>
                     {dayLine(job, today)}
-                    {changed && <span className={styles.jobChanged}> · Booking changed</span>}
+                    {changed && !changedWords(job).plain && <span className={styles.jobChanged}> · Booking changed</span>}
                   </p>
                   <p className={styles.jobProperty}>
                     <span className={styles.propertyName}>{job.propertyName ?? "Property"}</span>
@@ -139,7 +140,7 @@ export function JobsSection({ jobs, today, busyId, messages, onMark, onUndo, onA
                       )}
                     </>
                   ) : changed ? (
-                    <p className={styles.jobNote}>Don’t go unless the office asks.</p>
+                    <p className={changedWords(job).plain ? styles.jobChangedNote : styles.jobNote}>{changedWords(job).words}</p>
                   ) : job.markRefusal === "too-early" ? (
                     <p className={styles.jobNote}>Mark cleaned opens {weekday(job.checkout)}</p>
                   ) : job.markRefusal === null ? (

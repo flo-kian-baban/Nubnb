@@ -327,6 +327,39 @@ export function changeWords(change: JobChange | null): string | null {
   }
 }
 
+/**
+ * A job with nobody on it is red from its checkout day on, amber before: the one rule for the Schedule's badge and the
+ * home's Cleaning cell (app/lib/schedule/standing.ts), so the two pages never disagree (Kian, 2026-10-19).
+ */
+export function needsCleanerNow(checkout: string, today: string): boolean {
+  return checkout <= today;
+}
+
+/** A job's state on the Schedule, as its badge says it and the tone it is drawn in. */
+export type JobTone = 'needs' | 'needsNow' | 'notMarked' | 'assigned' | 'partial' | 'done' | 'removed' | 'changed';
+
+/**
+ * A job's state on the Schedule, once (the Schedule's round 1, 2026-10-19). Nobody on it: "Needs a cleaner", red from
+ * its checkout day on, amber before (needsCleanerNow, which the home's Cleaning cell uses too). Its checkout passed
+ * with someone on it who has not marked it cleaned (a mark the office removed is a mark): "Not marked", red, as Kian's
+ * ruling R3 defines it for the home's Next step. Then a mark the office removed, then Assigned, n of m done, Done. A
+ * changed booking says what changed, and "after it was marked" when a cleaner had marked it before the change.
+ */
+export function jobState(job: Pick<JobView, 'status' | 'change' | 'checkout' | 'cleanerIds' | 'assignees'>, today: string): { label: string; tone: JobTone } {
+  if (job.status === 'booking-changed') {
+    const afterMark = !!job.change && job.assignees.some((a) => a.markedAt !== null && a.markedAt <= (job.change?.at ?? ''));
+    return { label: `Booking changed · ${changeWords(job.change)}${afterMark ? ' after it was marked' : ''}`, tone: 'changed' };
+  }
+  if (job.cleanerIds.length === 0) return { label: 'Needs a cleaner', tone: needsCleanerNow(job.checkout, today) ? 'needsNow' : 'needs' };
+  const unmarked = job.assignees.filter((a) => a.cleaningId === null).length;
+  const marked = job.cleanerIds.length - unmarked;
+  if (job.checkout < today && unmarked > 0) return { label: marked > 0 ? `Not marked · ${marked} of ${job.cleanerIds.length} done` : 'Not marked', tone: 'notMarked' };
+  if (job.assignees.some((a) => a.removedAt !== null)) return { label: 'Removed by the office', tone: 'removed' };
+  if (marked === 0) return { label: 'Assigned', tone: 'assigned' };
+  if (marked < job.cleanerIds.length) return { label: `${marked} of ${job.cleanerIds.length} done`, tone: 'partial' };
+  return { label: 'Done', tone: 'done' };
+}
+
 /** The first day a cleaner's list holds, for a Toronto `today`. */
 export function cleanerListFrom(today: string): string {
   return addDays(today, -CLEANER_LIST_DAYS);
@@ -400,6 +433,11 @@ export interface CleanerJobView {
   checkInTime: string | null;
   nextCheckIn: string | null;
   status: JobStatus;
+  /**
+   * What changed, on a job whose booking changed (Kian's ruling R2 of 2026-10-19): its card reads "Cancelled: don't go"
+   * or "Moved to <day>". Null while the booking stands.
+   */
+  change: { kind: ChangeKind; movedTo: { start: string; end: string } | null } | null;
   /** Their own mark: when, and whether Undo still holds (no finished statement prints the cleaning, and the office has not removed it). */
   markedAt: string | null;
   canUndo: boolean;

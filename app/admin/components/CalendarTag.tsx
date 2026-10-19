@@ -9,22 +9,22 @@
  * Below 1440 px the navigation is icons only (Kian's ruling of 2026-10-17, after his review): the tag shows its time
  * (or its day, when not today) and a Refresh icon, the whole sentence in its tooltip.
  *
- * While a run holds the lease (a first-visit refresh, another admin's press), the tag says so and looks again every
- * 15 seconds until it ends. A press while one runs is answered by the server: nothing else starts, and the tag says
- * it is already being read.
+ * While a run holds the lease (a first-visit refresh, a read on open, another admin's press), the tag says so and
+ * watches it to its end (`watchCalendarRun`: at 1.5 s, then every 3 s), then shows the new time; the page hears the
+ * same end and reads again (the Schedule's round 1, 2026-10-19: it no longer waits 15 seconds a look). On a copy from
+ * an earlier Toronto day it watches too, briefly: the page's own sign-in check is starting the day's first refresh.
+ * A press while one runs is answered by the server: nothing else starts, and the tag says it is already being read.
  */
 
 import { useCallback, useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
-import { fetchCalendarStatus, refreshCalendarsNow, useCalendarsRefreshed, useCalendarsRefreshing, type CalendarStatus } from "@/app/lib/calendar-refresh-client";
+import { fetchCalendarStatus, refreshCalendarsNow, useCalendarRunWatched, useCalendarsRead, useCalendarsRefreshed, useCalendarsRefreshing, watchCalendarRun, type CalendarStatus } from "@/app/lib/calendar-refresh-client";
 import styles from "./CalendarTag.module.css";
 
 /** Amber past this many hours, red past the second (Kian's ruling). */
 export const AMBER_AFTER_HOURS = 24;
 export const RED_AFTER_HOURS = 48;
 const HOUR_MS = 3_600_000;
-const POLL_MS = 15_000;
-const POLLS_MAX = 24;
 
 export type TagTone = "plain" | "amber" | "red";
 
@@ -53,8 +53,8 @@ export function CalendarTag() {
   const [held, setHeld] = useState<Held>({ kind: "loading" });
   const [said, setSaid] = useState<{ text: string; title: string } | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const [polls, setPolls] = useState(0);
   const refreshing = useCalendarsRefreshing();
+  const watched = useCalendarRunWatched();
 
   const take = useCallback((result: Awaited<ReturnType<typeof fetchCalendarStatus>>) => {
     setHeld(result.ok ? { kind: "ready", data: result.data, at: Date.now() } : { kind: "error", title: result.title });
@@ -65,7 +65,12 @@ export function CalendarTag() {
   useEffect(() => {
     let cancelled = false;
     fetchCalendarStatus().then((result) => {
-      if (!cancelled) take(result);
+      if (cancelled) return;
+      take(result);
+      // A run another trigger started, or the day's first one this page's sign-in check is starting: watch it end.
+      if (result.ok && (result.data.running !== null || (result.data.refreshedAt !== null && torontoDayOf(Date.parse(result.data.refreshedAt)) < torontoDayOf(Date.parse(result.data.now))))) {
+        void watchCalendarRun(result.data.refreshedAt);
+      }
     });
     const timer = setInterval(() => setNowMs(Date.now()), 60_000);
     return () => {
@@ -74,16 +79,12 @@ export function CalendarTag() {
     };
   }, [take]);
 
-  // A run another trigger started: look again until it ends.
-  const runningElsewhere = held.kind === "ready" && held.data.running !== null && !refreshing;
-  useEffect(() => {
-    if (!runningElsewhere || polls >= POLLS_MAX) return;
-    const timer = setTimeout(() => {
-      setPolls((n) => n + 1);
-      void load();
-    }, POLL_MS);
-    return () => clearTimeout(timer);
-  }, [runningElsewhere, polls, load]);
+  // A watched run ended (this tag's watch, or the page's): the new time.
+  useCalendarsRead((status) => {
+    setHeld({ kind: "ready", data: status, at: Date.now() });
+    setNowMs(Date.now());
+  });
+  const runningElsewhere = (watched || (held.kind === "ready" && held.data.running !== null)) && !refreshing;
 
   // Every refresh this page makes, from here or from a page's own control.
   useCalendarsRefreshed((outcome) => {
@@ -94,8 +95,7 @@ export function CalendarTag() {
       setSaid(outcome.data.jobs.failed ? { text: "Jobs not all made", title: `The calendars were read, but the job sync stopped (code ${outcome.data.jobs.failed}). Refresh again.` } : null);
     } else if (outcome.code === "REFRESH_RUNNING") {
       setSaid({ text: "Already being read", title: outcome.title });
-      setPolls(0);
-      void load();
+      void load().then(() => watchCalendarRun(held.kind === "ready" ? held.data.refreshedAt : null));
     } else {
       setSaid({ text: outcome.unknown ? "May not have run" : "Could not refresh", title: [outcome.title, outcome.detail].filter(Boolean).join(" ") });
     }

@@ -41,6 +41,11 @@ export interface ScheduleAnswer extends ScheduleRead {
   to: string;
   today: string;
   now: string;
+  /**
+   * The calendars being read again because the copy was more than three hours old (Kian's ruling R1 of 2026-10-19):
+   * the page watches the run and reads its days again when it ends. Null: nothing is coming.
+   */
+  refresh: { state: 'starting' | 'running'; lastFinishedAt: string | null } | null;
 }
 
 /** The jobs whose checkout falls from `from` to `to`, both Toronto days; the server's default range without them. */
@@ -49,11 +54,48 @@ export function fetchSchedule(from?: string, to?: string): Promise<ScheduleResul
   if (from) params.set('from', from);
   if (to) params.set('to', to);
   const query = params.toString();
-  return call(
+  return call<ScheduleAnswer>(
     `/api/admin/cleaning-jobs${query ? `?${query}` : ''}`,
     {},
     'Loading the schedule failed',
-    (data) => isRecord(data) && Array.isArray(data.jobs) && data.jobs.every((job) => isJobLike(job) && isRecord((job as Record<string, unknown>).property) && Array.isArray((job as Record<string, unknown>).assignees)) && Array.isArray(data.team) && isRecord(data.calendar) && typeof data.today === 'string',
+    (data) =>
+      isRecord(data) &&
+      Array.isArray(data.jobs) &&
+      data.jobs.every((job) => isJobLike(job) && isRecord((job as Record<string, unknown>).property) && Array.isArray((job as Record<string, unknown>).assignees)) &&
+      Array.isArray(data.team) &&
+      isRecord(data.calendar) &&
+      typeof data.today === 'string' &&
+      (data.refresh === undefined || data.refresh === null || (isRecord(data.refresh) && (data.refresh.state === 'starting' || data.refresh.state === 'running'))),
+  ).then((result) => (result.ok ? { ok: true, data: { ...result.data, refresh: result.data.refresh ?? null } } : result));
+}
+
+/** A property's regular cleaner as the Schedule and the edit page read it (Kian's ruling R5 of 2026-10-19). */
+export interface RegularCleanerAnswer {
+  regular: { cleanerId: string; name: string | null; state: 'found' | 'missing'; role: string | null; status: string | null; assigns: boolean; setAt: string } | null;
+  /** Every active cleaner, when asked for. */
+  choices: { id: string; name: string | null }[] | null;
+  /** The record exists but is not in the written shape: shown as none, and said. */
+  unreadable: boolean;
+}
+
+/** A property's regular cleaner (GET /api/admin/properties/[id]/regular-cleaner); `withChoices` adds every active cleaner. */
+export function fetchRegularCleaner(propertyId: string, withChoices = false): Promise<ScheduleResult<RegularCleanerAnswer>> {
+  return call(
+    `/api/admin/properties/${encodeURIComponent(propertyId)}/regular-cleaner${withChoices ? '?choices=1' : ''}`,
+    {},
+    'Loading the regular cleaner failed',
+    (data) => isRecord(data) && (data.regular === null || (isRecord(data.regular) && typeof data.regular.cleanerId === 'string' && typeof data.regular.assigns === 'boolean')) && (data.choices === null || Array.isArray(data.choices)) && typeof data.unreadable === 'boolean',
+  );
+}
+
+/** Make a cleaner a property's regular cleaner, or clear it (null). REGULAR_CLEANER_SAVE_FAILED: it may or may not have landed. */
+export function setRegularCleanerOf(propertyId: string, cleanerId: string | null): Promise<ScheduleResult<{ cleanerId: string | null; name: string | null; changed: boolean }>> {
+  return call(
+    `/api/admin/properties/${encodeURIComponent(propertyId)}/regular-cleaner`,
+    { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cleanerId }) },
+    'Saving the regular cleaner failed',
+    (data) => isRecord(data) && typeof data.changed === 'boolean',
+    ['REGULAR_CLEANER_SAVE_FAILED'],
   );
 }
 

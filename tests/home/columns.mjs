@@ -101,7 +101,7 @@ const job = (propertyId, checkout, cleaners = [], extra = {}) => ({ propertyId, 
 const ANA = 'Test Ana';
 const BEN = 'Test Ben';
 const cases = [
-  ['needs-past', [job(P(1), '2026-10-13'), job(P(1), '2026-10-16')], true],
+  ['needs-now', [job(P(1), '2026-10-13'), job(P(1), '2026-10-16')], true],
   ['not-marked', [job(P(2), '2026-10-14', [c(ANA)]), job(P(2), '2026-10-16')], true],
   ['needs', [job(P(3), '2026-10-16'), job(P(3), '2026-10-10', [c(ANA, { marked: true })])], true],
   ['removed', [job(P(4), '2026-10-12', [c(ANA, { marked: true, removed: true })])], true],
@@ -126,6 +126,11 @@ check(cleaning.cleaningStanding([job(P(7), '2026-10-15', [c(ANA)])], { today: TO
 check(cleaning.cleaningStanding([job(P(7), '2026-10-15', [c(ANA)])], { today: '2026-10-16', hasCalendar: true }).key === 'not-marked', 'the day after, it is Not marked');
 check(cleaning.cleaningStanding([job(P(9), '2026-10-05', [c(ANA, { marked: true })]), job(P(9), '2026-10-12', [c(BEN, { marked: true })])], { today: TODAY, hasCalendar: true }).day === '2026-10-12', 'Done shows the latest job');
 check(cleaning.cleaningStanding([job(P(1), '2026-10-12'), job(P(1), '2026-10-13')], { today: TODAY, hasCalendar: true }).day === '2026-10-12', 'a problem shows the longest waiting');
+// Nobody on it: red from its checkout day on, amber before, as on the Schedule (Kian, 2026-10-19).
+const onTheDay = cleaning.cleaningStanding([job(P(14), TODAY)], { today: TODAY, hasCalendar: true });
+console.log(`  ${P(14)} (nobody on it, checkout today): ${show(onTheDay)}`);
+check(onTheDay.key === 'needs-now' && onTheDay.tone === 'problem', 'nobody on it on its checkout day: red, as the Schedule shows it');
+check(cleaning.cleaningStanding([job(P(14), TODAY)], { today: '2026-10-14', hasCalendar: true }).tone === 'warning', 'the day before: amber');
 
 // ═══ 3. A stored job, made small ═══
 console.log('\n═══ 3. A stored job as the column reads it ═══');

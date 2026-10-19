@@ -3942,3 +3942,125 @@ CLAUDE.md. What was built is below.
    Kian's ruling K2's words (`leftOutLines`, `leftOutWords`; `buildReport` counts the two apart:
    `pendingLeftOut`, `noAmountLeftOut`).
 
+
+## 57. The Schedule, round 1: the regular cleaner, reads on open, changed bookings, Not marked, Kian's rulings R1, R2, R3 and R5 of 2026-10-19
+
+The audit of 2026-10-18 (report in `~/Downloads/nubnb-schedule-audit-2026-10-18`, kept out of the repo) found that a
+booking made after the day's one calendar read had no job until its checkout morning, that the page making that job
+did not show it, that a cancellation or move reached a cleaner a day late, that an unmarked passed job looked like any
+other, and that the page opened on last week. Kian's rulings R1, R2, R3 and R5 are in CLAUDE.md; R4 (jobs three days
+ahead) is declined. What was built is below.
+
+### 57.1 What was built
+
+1. **The regular cleaner (R5).** `property_regular_cleaners/{propertyId}` (app/lib/schedule/regular.ts: the record, its
+   strict reader, `withRegularCleaner`; app/lib/firebase/server-regular-cleaners.ts), server-only by firestore.rules'
+   catch-all, set through GET/PUT `/api/admin/properties/[id]/regular-cleaner` (recorded in the activity log as "Set a
+   property's regular cleaner"). Only an existing, active cleaner is set; clearing deletes the record. The property
+   save refuses `regularCleaner`, `regularCleanerId` and `regularCleanerName`, as it refuses `cleanerName`. The job
+   sync (schedule/store.ts) reads, only when it makes jobs, each such property's record and the account it names, and
+   puts an active cleaner on the job by REGULAR_CLEANER_ACTOR (`system`, "regular cleaner"): `created` then `assigned`.
+   A deactivated, deleted or handyman account, a record not in shape, or none: the job is made with nobody on it.
+   Existing jobs are never changed. Deleting a property deletes its record.
+   - **Edit page:** a self-saving "Regular cleaner" tile in the Cleaners section (internal group), Nubnb's own select
+     and question; it says when the regular cleaner is deactivated or deleted.
+   - **Schedule:** the picker says the property's regular cleaner (one read when it opens) and, with exactly one active
+     cleaner ticked who is not already it, offers "Make <name> the regular cleaner for this property".
+   - **Team page:** the question before deactivating or deleting someone names the properties they are the regular
+     cleaner for (GET `/api/admin/cleaners/[id]/jobs` answers `regularAt`).
+2. **Reads on open (R1).** `refreshIfStale` (availability/daily.ts) reads the refresh's state beside the route's own
+   reads (one read, no delay) and, when this Toronto day has no finished run or the last finished more than
+   STALE_AFTER_MS (3 h, run-state.ts) ago, starts the same refresh after the response under the same lease and pause
+   (`decideClaim`'s threshold; the stored state keeps its shape, source "daily" and its triggers). Used by GET
+   `/api/admin/cleaning-jobs` and, for a cleaner, GET `/api/cleaner/start` (a handyman's app keeps the first-visit
+   trigger). Both answer `refresh: { state: 'starting' | 'running', lastFinishedAt } | null`.
+   - **Admin pages:** `watchCalendarRun` (calendar-refresh-client.ts) looks at the status at 1.5 s, then every 3 s, up
+     to 3 minutes, until no run holds the lease and the copy is newer; the Schedule then reads its days again with a
+     notice, and the tag shows the new time (`useCalendarsRead`). The tag watches any run it sees, and briefly on a
+     copy from an earlier Toronto day (the page's own first visit), instead of looking every 15 s.
+   - **Cleaner app:** asks GET `/api/cleaner/jobs?since=` (new) every 3 s, the first at 2 s, up to 3 minutes; once a
+     run has finished after `since`, the jobs come back read on their own (`cleanerJobsRead`: only the properties they
+     name) and replace the list, once.
+3. **Changed bookings (R2).** A cleaner's job view carries `change` (`kind`, `movedTo`); the card reads "Cancelled: don't
+   go" or "Moved to <day>" (`changedWords`, cleaner-home.ts), with no Mark cleaned; other changes as before. On the
+   Schedule, a changed job with someone unmarked on it offers "Take off" (the picker in a take-off mode: those on it,
+   nobody added); the server already accepted removals.
+4. **Not marked (R3).** `unmarkedJobs` and the step "Check <day> was cleaned" (to the Schedule at that property and
+   day) after Assign in STEP_ORDER, and the chip "Not marked" beside "Needs a cleaner" (app/lib/home/next-step.ts).
+5. **The Schedule's states** (`jobState`, schedule/model.ts): nobody on it, red from its checkout day on, amber before;
+   "Not marked" (red) for a passed checkout with someone on it unmarked and not removed, "Not marked · 1 of 2 done" for
+   a partial one.
+6. **The Schedule opens on today:** today and the days ahead first, the days before under one "Earlier" line counting
+   what needs something there (not marked, with nobody on it, removed by the office), opened by a filter or a link to a
+   past day. The turnover cell wraps; the state badge wraps; the actions column is 20% (Cleaners 22%, Property 26%), so
+   "Same cleaners to <day>" and "Take off" stand whole at 1440 and 1280.
+7. **The cleaner app reads no cleaning.** A mark's cleaning stands while the mark does (Undo clears it; the office's
+   removal or deletion leaves "removed by the office"), so `cleanerJobs` takes its status from the job. Undo still
+   reads the cleaning before acting.
+8. **Comments:** the Schedule's header no longer says it has no home tile. firestore.rules' "Written by the scheduled
+   function" is left as it is: no rules change was needed (the new collection is denied by the catch-all), so no
+   rules deploy, and the comment waits for one.
+
+### 57.2 The developer's choices (for Kian)
+
+1. **The index:** the cleaner app's query already used the composite index on `cleaning_jobs (cleanerIds, checkout)`,
+   committed in 2da9b94 and deployed then (READY 2026-10-15). This round reads less through the same index; no index
+   changes, so none is deployed.
+2. **R1's runs are first-visit runs** in the stored state (source "daily", triggers "admin-page" and "cleaner-app"), so
+   the code running during a deploy keeps reading the state. A copy from an earlier Toronto day starts one however
+   recent it is: that is the first-visit rule.
+3. **The tag says "Reading calendars…" while it watches:** for up to about 4.5 s on a copy from an earlier day even if
+   no run comes (a paused or unreadable state).
+4. **The home's Cleaning cell kept the accepted tones** in the first build: nobody on a job was amber on its checkout
+   day there, red the day after (PROPERTY-LIST-COLUMNS-PLAN.md §7), while the Schedule showed it red on the day. Kian
+   ruled that the home follows the Schedule, by one shared rule (§57.4).
+5. **"Not marked" on the Schedule** uses R3's definition, so a removed mark is "Removed by the office", not "Not marked".
+6. **"Make <name> the regular cleaner"** in the picker saves at once, apart from Save, after Nubnb's own question
+   (§57.4); the job keeps who was ticked only if Save is pressed.
+7. **Not done:** bounding the deactivation's read to 45 days (the audit's item 7; it would leave older unmarked jobs
+   with the deactivated cleaner on them).
+
+### 57.3 Verification (2026-10-19)
+
+- **Tests:** `node tests/run.mjs`, 24 checks, identical but for recordings changed on purpose: admin-accounts (the new
+  route: 92 handlers), home-next-step ("Not marked" in the chips; its count check 7 → 8); new: schedule-round1 (the
+  regular-cleaner rule and the sync with it on an in-memory Firestore, setting it, the save's refusal, the 3-hour
+  trigger, the cards' words, Not marked, the Schedule's states, the cleaner's list without the cleanings).
+- **In memory, the audit's played Wednesday:** each cleaner's open 594 → 388, 548 → 364, 526 → 351 reads, the job
+  lists identical field for field.
+- **On production:** build `kI9wOCL_l6SSBWfW9yDBb` of this tree (built at 0 reads) on 127.0.0.1:4500, behind a write
+  guard, as a `__TEST__` admin; two Unlisted `__TEST__` properties whose calendars came from a local file, two
+  `__TEST__` cleaners, 40 marked jobs and cleanings in 2028. The shared calendar copy, the refresh's lease and the
+  day's copy were stubbed in the server's memory (never written); every real calendar was cut off. Shown live: a late
+  booking appearing after a stale open, by itself; a cancelled job's card; jobs given to the regular cleaner; a
+  deactivated regular cleaner's next job with nobody on it; the Not marked chip; the cleaner app's reads per open,
+  211 on HEAD's build and 171 on this one for the same 40 marked jobs. No write refused; 104 documents deleted by
+  exact ID; the closing export identical to the opening one.
+
+### 57.4 Round 1, Kian's two changes (2026-10-19)
+
+1. **One rule for a job with nobody on it** (`needsCleanerNow`, schedule/model.ts): red from its checkout day on, amber
+   before. The Schedule's badge (`jobState`) and the home's Cleaning cell (`cleaningStanding`, schedule/standing.ts)
+   both call it. The cell's key `needs-past` is now `needs-now`; its tooltip says "checkout today with nobody on it" on
+   the day and "checkout passed with nobody on it" after. A row whose job today has nobody on it now counts red as its
+   worst cell, which only breaks ties in the Needs attention order; the Next step, the chips and the Turnovers tile
+   never used the tone and are unchanged.
+2. **Asked first** (`regularCleanerQuestion`, schedule/regular.ts): "Make <name> the regular cleaner for <property>?
+   New jobs there go to <name>.", with Cancel and "Make them its regular cleaner", on the Schedule's picker and on the
+   edit page's tile. Both save at once (the tile never saved with the form), so both ask. On the Schedule the question
+   stands in for the picker while it is asked: one dialog open, so Escape answers only the question, and the picker
+   comes back as it was left, ticks and all. Each mounts afresh, so the keyboard starts on Cancel. The edit page's
+   question drops its own two lines ("Jobs already made are not changed", "Saved on its own, now: not with the
+   property's Save") so the two pages ask the same; clearing it there asks as before.
+3. **Verification:**
+   - `node tests/run.mjs`: 22 checks identical. Two re-recorded: property-columns (the key's new name; a job with
+     nobody on it red on its checkout day, amber the day before) and schedule-round1 (the question's words; the home's
+     cell and the Schedule agreeing on five days, two ahead to fourteen back). Run against the previous standing.ts,
+     the new checks fail on the checkout day.
+   - In memory, the Schedule audit's played Friday at 08:00: build `_qFr1oG2Nbr5l19ya3RCp` of this tree, the test
+     admin and `__TEST__` cleaners only, a made-up service account, every real calendar cut off; 0 production reads,
+     no production write. 23 of 23 home cells with nobody on a job show the Schedule's colour; the 4 whose checkout
+     is today are red on both.
+   - Picker: Make… shows the question alone. Escape returns to the picker with the tick kept, nothing sent. Confirm
+     sends one PUT, and the picker reads "Regular cleaner: <name>".
+   - Edit page: the same question; Cancel sends nothing; confirm sends one PUT.

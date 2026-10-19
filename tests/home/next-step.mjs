@@ -117,7 +117,8 @@ const read = status.calendarFactsOf(snapshot, TODAY);
 for (const [id, f] of Object.entries(read.properties)) console.log(`  ${id}: ${f.status} · next checkout ${f.nextCheckout ?? '-'}`);
 check(read.properties[P(1)].nextCheckout === '2026-10-19', 'the soonest reservation ending today or later; a block is not a checkout');
 check(read.properties[P(2)].status === 'failed' && read.properties[P(2)].nextCheckout === '2026-10-17', 'a calendar not read keeps its last good read; a checkout today counts');
-check(home.CHIPS.length === 7 && status.calendarFactsOf(null, TODAY).refreshedAt === null, 'no copy: nothing known');
+// Eight chips since Kian's ruling R3 of 2026-10-19 added "Not marked" beside "Needs a cleaner" (seven before).
+check(home.CHIPS.length === 8 && status.calendarFactsOf(null, TODAY).refreshedAt === null, 'no copy: nothing known');
 
 console.log(`\n${failures === 0 ? 'all checks passed' : `${failures} check(s) FAILED`}`);
 if (failures) process.exitCode = 1;

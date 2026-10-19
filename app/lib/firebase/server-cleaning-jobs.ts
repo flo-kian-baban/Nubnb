@@ -33,9 +33,9 @@
 import type { DocumentReference, Transaction } from 'firebase-admin/firestore';
 import { getAdminDb } from './admin';
 import { isDocumentId } from './server-leads';
-import { cleanerFacingNamesOf, getCleanerFacingName, internalNameOf, listCleanerFacingNames } from './server-property-names';
+import { cleanerFacingNamesOf, getCleanerFacingName, internalNameOf } from './server-property-names';
 import { cleaningDayProblem, readDocs, statementMonthOf, statementsPrinting } from './server-cleanings';
-import { paymentOnOrAfter } from './server-pay';
+import { latestPaymentDay, paymentOnOrAfter } from './server-pay';
 import type { PaymentView } from '@/app/lib/pay/model';
 import { CLEANERS_COLLECTION, fieldText, roleOf, type Actor, type Refusal } from '@/app/lib/cleaners/model';
 import { CLEANINGS_COLLECTION, CLEANING_SCHEMA_VERSION, readCleaning, suggestedAmount, type Cleaning } from '@/app/lib/cleanings/model';
@@ -266,36 +266,43 @@ async function printedAmong(byProperty: Map<string, string[]>): Promise<Set<stri
   return printed;
 }
 
+/** What changed on a job, as a cleaner's card says it (Kian's ruling R2): null while the booking stands. */
+const changeOf = (job: StoredJob): CleanerJobView['change'] => (job.status === 'booking-changed' && job.change ? { kind: job.change.kind, movedTo: job.change.movedTo } : null);
+
 /**
  * A cleaner's jobs as their app shows them: the jobs they are on whose checkout is within the 45 days their list
  * reaches (Kian's answer of the evening), or ahead; a job whose booking changed only until its checkout day has
  * passed, unless they marked it. Each with whether they can mark it now, and, once marked, whether Undo still holds.
  * Reads: the jobs they are on within those days (`cleanerIds` array-contains and `checkout` from 45 days back: theirs
  * only, never every job of the 45 days, Kian's instruction of 2026-10-15, and never their older jobs, Kian's approval
- * of the index the same day), the cleanings they marked, and the finished statements of those properties. The query
+ * of the index the same day), and the finished statements of the properties whose cleanings they marked. The query
  * needs the composite index on `cleanerIds` and `checkout` in firestore.indexes.json; without it Firestore refuses it.
+ *
+ * The cleanings their marks made are not read (2026-10-19, the Schedule's round 1): a mark's cleaning stands while the
+ * mark does. Undo clears the mark when it deletes the cleaning; the office's removal or deletion leaves it "removed
+ * by the office" (keepMarkRemoved); so a mark not removed is a logged cleaning of the job's property, read from the
+ * job alone. Undo itself still reads the cleaning before it acts.
+ *
+ * `properties` names them: a map already read (the start call reads every property for its unit list), or a loader
+ * the jobs' properties are read through, once the jobs are known (the re-read after a refresh).
  *
  * @throws if a read fails.
  */
-export async function cleanerJobs(cleanerId: string, properties: ReadonlyMap<string, JobProperty>, today: string = torontoDay(), paidThrough: string | null = null): Promise<CleanerJobView[]> {
+export async function cleanerJobs(cleanerId: string, properties: ReadonlyMap<string, JobProperty> | ((propertyIds: string[]) => Promise<ReadonlyMap<string, JobProperty>>), today: string = torontoDay(), paidThrough: string | null = null): Promise<CleanerJobView[]> {
   const db = getAdminDb();
   const from = cleanerListFrom(today);
   const snap = await db.collection(CLEANING_JOBS_COLLECTION).where('cleanerIds', 'array-contains', cleanerId).where('checkout', '>=', from).get();
   const mine = readJobs(snap.docs).jobs.filter((job) => job.cleanerIds.includes(cleanerId) && job.checkout >= from);
   const marked = mine.filter((job) => job.assignments[cleanerId].cleaningId !== null && job.assignments[cleanerId].removedAt === null);
-  const cleaningIds = distinct(marked.map((job) => job.assignments[cleanerId].cleaningId as string));
-  const cleaningDocs = cleaningIds.length ? await db.getAll(...cleaningIds.map((id) => db.collection(CLEANINGS_COLLECTION).doc(id)), { fieldMask: ['status', 'propertyId', 'cleanerId'] }) : [];
-  const live = new Map(cleaningDocs.filter((doc) => doc.exists).map((doc) => [doc.id, { status: fieldText(doc.get('status')), propertyId: fieldText(doc.get('propertyId')) }]));
   const byProperty = new Map<string, string[]>();
-  for (const [id, c] of live) if (c.status === 'logged' && c.propertyId) byProperty.set(c.propertyId, [...(byProperty.get(c.propertyId) ?? []), id]);
-  const printed = await printedAmong(byProperty);
+  for (const job of marked) byProperty.set(job.propertyId, [...(byProperty.get(job.propertyId) ?? []), job.assignments[cleanerId].cleaningId as string]);
+  const shown = mine.filter((job) => job.status === 'open' || job.checkout >= today || job.assignments[cleanerId].cleaningId !== null);
+  const [printed, named] = await Promise.all([printedAmong(byProperty), typeof properties === 'function' ? properties(distinct(shown.map((job) => job.propertyId))) : Promise.resolve(properties)]);
 
-  return mine
-    .filter((job) => job.status === 'open' || job.checkout >= today || job.assignments[cleanerId].cleaningId !== null)
+  return shown
     .map((job): CleanerJobView => {
       const a = job.assignments[cleanerId];
-      const property = properties.get(job.propertyId);
-      const cleaning = a.cleaningId ? live.get(a.cleaningId) : undefined;
+      const property = named.get(job.propertyId);
       return {
         id: job.id,
         propertyId: job.propertyId,
@@ -306,20 +313,36 @@ export async function cleanerJobs(cleanerId: string, properties: ReadonlyMap<str
         checkInTime: property?.checkIn ?? null,
         nextCheckIn: job.nextCheckIn,
         status: job.status,
+        change: changeOf(job),
         markedAt: a.markedAt,
         // Never on a cleaning dated on or before a payment to them (`paidThrough`, its latest day): the office removes those.
-        canUndo: a.cleaningId !== null && a.removedAt === null && cleaning?.status === 'logged' && !printed.has(a.cleaningId) && (paidThrough === null || job.checkout > paidThrough),
+        canUndo: a.cleaningId !== null && a.removedAt === null && !printed.has(a.cleaningId) && (paidThrough === null || job.checkout > paidThrough),
         markRefusal: markRefusal(job, cleanerId, today),
       };
     })
     .sort((x, y) => x.checkout.localeCompare(y.checkout) || (x.propertyName ?? '').localeCompare(y.propertyName ?? '', 'en-CA') || x.id.localeCompare(y.id));
 }
 
-/** A cleaner's list with the properties it names read here: for the answer to a mark or an undo. @throws if a read fails. */
-export async function cleanerJobsRead(cleanerId: string): Promise<CleanerJobView[]> {
+/**
+ * A cleaner's list read on its own, for their app to read its jobs again once a refresh it was told of has ended
+ * (Kian's ruling R1 of 2026-10-19): the jobs, then only the properties they name (name, city, listed times, each
+ * one's name for cleaners), and the latest day a payment to them was made, as the start call reads it.
+ *
+ * @throws if a read fails.
+ */
+export async function cleanerJobsRead(cleanerId: string, today: string = torontoDay()): Promise<CleanerJobView[]> {
   const db = getAdminDb();
-  const [props, facing] = await Promise.all([db.collection('properties').select('name', 'addressDetails', 'details').get(), listCleanerFacingNames()]);
-  return cleanerJobs(cleanerId, jobPropertiesOf(props.docs, facing));
+  const paidThrough = await latestPaymentDay(cleanerId);
+  return cleanerJobs(
+    cleanerId,
+    async (ids) => {
+      if (ids.length === 0) return new Map();
+      const [docs, facing] = await Promise.all([db.getAll(...ids.map((id) => db.collection('properties').doc(id)), { fieldMask: ['name', 'addressDetails', 'details'] }), cleanerFacingNamesOf(ids)]);
+      return jobPropertiesOf(docs.filter((doc) => doc.exists), facing);
+    },
+    today,
+    paidThrough,
+  );
 }
 
 /** Properties as a cleaner's list names them: the cleaner-facing name when set (dispatch 21), the city, the listed times. */
@@ -355,6 +378,7 @@ export async function oneCleanerJob(job: StoredJob, cleanerId: string, canUndo: 
     checkInTime: property?.checkIn ?? null,
     nextCheckIn: job.nextCheckIn,
     status: job.status,
+    change: changeOf(job),
     markedAt: a?.markedAt ?? null,
     canUndo: canUndo && !!a?.cleaningId && a.removedAt === null,
     markRefusal: markRefusal(job, cleanerId, today),

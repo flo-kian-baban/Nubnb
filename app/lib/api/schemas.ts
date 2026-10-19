@@ -7,6 +7,7 @@
  */
 
 import { z } from 'zod';
+import { REGULAR_CLEANER_FIELDS } from '../schedule/regular';
 
 // ─── Helper: URL-or-empty (for optional URL fields on updates) ──
 const urlOrEmpty = z.union([z.string().url(), z.literal('')]);
@@ -176,6 +177,13 @@ export const UpdatePropertySchema = z.object({
   .superRefine((body, ctx) => {
     for (const field of AIRBNB_TITLE_FIELDS) {
       if (field in body) ctx.addIssue({ code: 'custom', path: [field], message: 'Not a property field: the Airbnb title is set on the edit page\'s Airbnb title section, through /api/admin/properties/[id]/airbnb-title' });
+    }
+  })
+  // The regular cleaner lives in its own server-only record (Kian's ruling R5 of 2026-10-19: never on the public
+  // property document), so a body carrying it, under any of the names it might be sent as, is refused.
+  .superRefine((body, ctx) => {
+    for (const field of REGULAR_CLEANER_FIELDS) {
+      if (field in body) ctx.addIssue({ code: 'custom', path: [field], message: 'Not a property field: the regular cleaner is set on the edit page\'s Cleaners section or on the Schedule, through /api/admin/properties/[id]/regular-cleaner' });
     }
   });
 

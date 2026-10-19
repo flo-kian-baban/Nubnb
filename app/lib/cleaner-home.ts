@@ -9,7 +9,8 @@
  *   - the property a new receipt starts on (ruling 5): the job marked cleaned that day, else the soonest job today,
  *     else none;
  *   - History (ruling 7): the jobs done and the entries sent, newest first, by day;
- *   - the badges on a job's card (Kian's ruling of 2026-10-17): Today, Tomorrow, Same-day turnover, Cleaned.
+ *   - the badges on a job's card (Kian's ruling of 2026-10-17): Today, Tomorrow, Same-day turnover, Cleaned;
+ *   - what a changed booking's card says (Kian's ruling R2 of 2026-10-19): "Cancelled: don't go", "Moved to <day>".
  *
  * Pure and client-safe: no clock read (`today` is the server's Toronto day, from the start call), no storage, no
  * network. tests/cleaner/home.mjs runs it with made-up jobs.
@@ -109,4 +110,19 @@ export function jobBadges(job: CleanerJobView, today: string): string[] {
   if (job.nextCheckIn !== null && job.nextCheckIn === job.checkout) badges.push('Same-day turnover');
   if (job.markedAt !== null && job.markRefusal !== 'removed') badges.push('Cleaned');
   return badges;
+}
+
+/** "Sat, Oct 24": a day as the cards name it. */
+const cardDay = (day: string) => new Intl.DateTimeFormat('en-CA', { weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(`${day}T12:00:00`));
+
+/**
+ * What a changed booking's card says in place of Mark cleaned (Kian's ruling R2 of 2026-10-19): a cancelled one,
+ * "Cancelled: don't go"; a moved one, "Moved to <day>", the day it now checks out; any other change (its calendar
+ * link changed or was removed, the property deleted), as before: "Don't go unless the office asks." `plain` is false
+ * for those others, so the card keeps "Booking changed" beside the day.
+ */
+export function changedWords(job: Pick<CleanerJobView, 'change'>): { words: string; plain: boolean } {
+  if (job.change?.kind === 'gone') return { words: 'Cancelled: don’t go', plain: true };
+  if (job.change?.kind === 'moved' && job.change.movedTo) return { words: `Moved to ${cardDay(job.change.movedTo.end)}`, plain: true };
+  return { words: 'Don’t go unless the office asks.', plain: false };
 }

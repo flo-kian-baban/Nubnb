@@ -143,7 +143,11 @@ async function jobsLine(cleaner: CleanerSummary): Promise<string | null> {
   const result = await fetchUnmarkedJobs(cleaner.id);
   if (!result.ok) return "Their jobs could not be read: they still come off every job they have not marked.";
   const jobs = result.data.jobs;
-  return jobs.length === 0 ? null : `They come off ${jobs.length === 1 ? "1 job" : `${jobs.length} jobs`} they have not marked: ${jobsWords(jobs)}. Jobs they marked keep their mark and cleaning.`;
+  const off = jobs.length === 0 ? null : `They come off ${jobs.length === 1 ? "1 job" : `${jobs.length} jobs`} they have not marked: ${jobsWords(jobs)}. Jobs they marked keep their mark and cleaning.`;
+  // The regular cleaner (Kian's ruling R5 of 2026-10-19): deactivated or deleted, they assign nobody.
+  const regular = result.data.regularAt ?? [];
+  const at = regular.length === 0 ? null : `They are the regular cleaner for ${regular.join(", ")}: new jobs there will have nobody on them until you choose another.`;
+  return [off, at].filter(Boolean).join(" ") || null;
 }
 
 /** What the answer says they came off, for the notice. */

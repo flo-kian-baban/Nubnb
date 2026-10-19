@@ -8,8 +8,12 @@
  * Reads: one query, the jobs from today on (a few days' checkouts), one read
  * per property this run did not read that has an open job from today on — its
  * own document, the only ground for "property deleted" or "calendar removed"
- * (Kian's ruling of 2026-10-17); none when every calendar was read — and one
- * read per job that changed. Writes: one `create()` per new job — an ID that
+ * (Kian's ruling of 2026-10-17); none when every calendar was read — one
+ * read per job that changed, and, when the run makes jobs, one read per
+ * property it makes them for (its regular cleaner's record) and one per
+ * regular cleaner named (their account). Writes: one `create()` per new job,
+ * with the property's regular cleaner on it when they are an active cleaner
+ * (Kian's ruling R5 of 2026-10-19) — an ID that
  * exists already (two runs at once) is left as it is — and one transaction per
  * changed job, which reads it again and plans again before writing, so an
  * admin's assignment or a cleaner's mark in between is never lost.
@@ -22,6 +26,7 @@ import { createHash } from 'node:crypto';
 import type { Firestore } from 'firebase-admin/firestore';
 import type { AvailabilitySnapshot } from '../availability/types';
 import { CLEANING_JOBS_COLLECTION, readJob, type StoredJob } from './model';
+import { PROPERTY_REGULAR_CLEANERS_COLLECTION, readRegularCleaner, withRegularCleaner, type RegularCandidate } from './regular';
 import { planCreates, planJob, readThisRun, type KnownProperty } from './sync';
 
 /** A calendar link's key: the first ten hex of its SHA-256. Tells a changed link apart; never the link. '' for none. */
@@ -63,6 +68,40 @@ async function knownProperties(db: Firestore, propertyIds: string[]): Promise<Ma
   return known;
 }
 
+/**
+ * The regular cleaner of each property a run makes jobs for (Kian's ruling R5 of 2026-10-19): its record, then the
+ * account it names, as the rule needs it (name, role, status). A property with no record, or a record not in the
+ * written shape, has none; an account that no longer exists is answered as no one, so it assigns nobody.
+ *
+ * @throws if a read fails: the sync then stops before making any job, and the next run makes them with their regular
+ * cleaners.
+ */
+async function regularCleanersOf(db: Firestore, propertyIds: string[]): Promise<Map<string, RegularCandidate | null>> {
+  const out = new Map<string, RegularCandidate | null>();
+  if (propertyIds.length === 0) return out;
+  const records = await db.getAll(...propertyIds.map((id) => db.collection(PROPERTY_REGULAR_CLEANERS_COLLECTION).doc(id)));
+  const named = new Map<string, string>();
+  for (const doc of records) {
+    const record = doc.exists ? readRegularCleaner(doc.id, doc.data() ?? {}) : null;
+    if (record) named.set(doc.id, record.cleanerId);
+  }
+  const cleanerIds = [...new Set(named.values())];
+  const accounts = cleanerIds.length ? await db.getAll(...cleanerIds.map((id) => db.collection('cleaners').doc(id)), { fieldMask: ['name', 'role', 'status'] }) : [];
+  const byId = new Map(
+    accounts
+      .filter((doc) => doc.exists)
+      .map((doc) => {
+        const name: unknown = doc.get('name');
+        const role: unknown = doc.get('role');
+        const status: unknown = doc.get('status');
+        // As cleaners/model's roleOf and fieldText read them: a record written before roles existed is a cleaner.
+        return [doc.id, { id: doc.id, name: typeof name === 'string' ? name : null, role: role === undefined || role === null ? 'cleaner' : typeof role === 'string' ? role : 'cleaner', status: typeof status === 'string' ? status : null }];
+      }),
+  );
+  for (const id of propertyIds) out.set(id, named.has(id) ? (byId.get(named.get(id) as string) ?? null) : null);
+  return out;
+}
+
 /** Make and update the jobs from the copy just written. See the file's header. */
 export async function syncJobs(db: Firestore, snapshot: AvailabilitySnapshot, log: (line: string) => void = () => undefined): Promise<JobSyncOutcome> {
   const outcome: JobSyncOutcome = { created: 0, changed: 0, watched: 0, unreadable: 0, failed: null };
@@ -79,9 +118,12 @@ export async function syncJobs(db: Firestore, snapshot: AvailabilitySnapshot, lo
     const keys = new Map(Object.entries(snapshot.properties).map(([id, entry]) => [id, calendarKeyOf(entry.icalUrl)]));
     const nowIso = new Date().toISOString();
 
-    for (const { id, job } of planCreates({ snapshot, existing: new Set(stored.docs.map((doc) => doc.id)), keys, nowIso })) {
+    const planned = planCreates({ snapshot, existing: new Set(stored.docs.map((doc) => doc.id)), keys, nowIso });
+    // Each new job goes to its property's regular cleaner, when they are an active cleaner (Kian's ruling R5).
+    const regulars = await regularCleanersOf(db, [...new Set(planned.map(({ job }) => job.propertyId))]);
+    for (const { id, job } of planned) {
       try {
-        await jobsRef.doc(id).create(job);
+        await jobsRef.doc(id).create(withRegularCleaner(job, regulars.get(job.propertyId), nowIso));
         outcome.created += 1;
       } catch (err) {
         // ALREADY_EXISTS (gRPC code 6): another run made it a moment ago.

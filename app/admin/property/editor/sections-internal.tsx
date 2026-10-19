@@ -3,14 +3,20 @@
 /**
  * The Nubnb-only sections (dispatch 30): what the public never sees, kept
  * apart from the listing — whether the property is on the site and in
- * reporting (Status), the name cleaners see (Cleaners), the statements
- * record (Statements) and the calendar link (Calendar). The first three live
- * in their own server-only collections and are saved by their own routes;
- * the calendar link is on the document but stripped from every public read.
+ * reporting (Status), the name cleaners see and the regular cleaner
+ * (Cleaners), the statements record (Statements) and the calendar link
+ * (Calendar). The first three live in their own server-only collections and
+ * are saved by their own routes; the calendar link is on the document but
+ * stripped from every public read. The regular cleaner (Kian's ruling R5 of
+ * 2026-10-19) saves on its own, at once, not with the property's Save.
  */
 
+import { useEffect, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { AdminSelect } from "../../components/AdminSelect";
+import { useAsk } from "../../components/AskDialog";
+import { fetchRegularCleaner, setRegularCleanerOf, type RegularCleanerAnswer } from "@/app/lib/schedule-client";
+import { regularCleanerQuestion } from "@/app/lib/schedule/regular";
 import { STATEMENT_LIMITS, monthLabel, monthOfDay, referenceFromStem } from "@/app/lib/reports/model";
 import { torontoDayOf } from "@/app/lib/costs/report";
 import { Field, Switch, TextArea, TextInput } from "./controls";
@@ -74,7 +80,89 @@ export function CleanersSection({ ctx }: { ctx: SectionContext }) {
         )}
         <span className={styles.hint}>Shown instead of the title in the cleaners&rsquo; app, on every admin list, and on statements and cost exports. Empty uses &ldquo;{title}&rdquo;.</span>
       </Tile>
+      <RegularCleanerTile ctx={ctx} />
     </Panel>
+  );
+}
+
+type RegularRead = { kind: "loading" } | { kind: "ready"; data: RegularCleanerAnswer } | { kind: "error"; title: string };
+
+/**
+ * The regular cleaner (Kian's ruling R5 of 2026-10-19): one active cleaner, or none. When the job sync makes a job for
+ * this property, it puts them on it; a deactivated or deleted one assigns nobody. Saved at once through its own route
+ * into a server-only record, after Nubnb's own question; jobs already made are not changed.
+ */
+function RegularCleanerTile({ ctx }: { ctx: SectionContext }) {
+  const id = ctx.propertyId;
+  const [read, setRead] = useState<RegularRead>({ kind: "loading" });
+  const [attempt, setAttempt] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const { ask, dialog } = useAsk();
+
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    fetchRegularCleaner(id, true).then((result) => {
+      if (!cancelled) setRead(result.ok ? { kind: "ready", data: result.data } : { kind: "error", title: result.title });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, attempt]);
+
+  if (!id) {
+    return (
+      <Tile title="Regular cleaner" span={4}>
+        <span className={styles.hint}>Its regular cleaner is set once the property exists: create it first.</span>
+      </Tile>
+    );
+  }
+  const data = read.kind === "ready" ? read.data : null;
+  const current = data?.regular ?? null;
+  const choices = data?.choices ?? [];
+  const options = [{ value: "", label: "No regular cleaner" }, ...choices.map((c) => ({ value: c.id, label: c.name ?? "Unnamed" })), ...(current && !choices.some((c) => c.id === current.cleanerId) ? [{ value: current.cleanerId, label: `${current.name ?? "Unnamed"} (${current.state === "missing" ? "deleted" : "deactivated"})` }] : [])];
+  const property = ctx.draft.cleanerName.trim() || ctx.draft.property.name?.trim() || "this property";
+
+  const choose = async (cleanerId: string) => {
+    if (!data || saving || cleanerId === (current?.cleanerId ?? "")) return;
+    const picked = choices.find((c) => c.id === cleanerId) ?? null;
+    const yes = await ask(
+      picked
+        ? regularCleanerQuestion(picked.name, property)
+        : { title: `No regular cleaner for ${property}?`, lines: ["Each job made for it from now on starts with nobody on it.", "Jobs already made are not changed.", "Saved on its own, now: not with the property's Save."], confirm: "Clear it" },
+    );
+    if (!yes) return;
+    setSaving(true);
+    const result = await setRegularCleanerOf(id, cleanerId === "" ? null : cleanerId);
+    setSaving(false);
+    if (!result.ok) {
+      ctx.show({ tone: result.unknown ? "warning" : "error", title: result.unknown ? "The regular cleaner may or may not have been saved. Reload to see." : result.title, detail: result.detail });
+      return;
+    }
+    ctx.show({ tone: "success", title: picked ? `${picked.name ?? "They"} ${picked.name ? "is" : "are"} the regular cleaner for ${property}.` : `${property} has no regular cleaner.` });
+    setAttempt((n) => n + 1);
+  };
+
+  return (
+    <Tile title="Regular cleaner" span={4}>
+      <AdminSelect label="Regular cleaner" value={current?.cleanerId ?? ""} onChange={(value) => void choose(value)} groups={[{ options }]} disabled={read.kind !== "ready" || saving} />
+      {read.kind === "error" ? (
+        <span className={styles.issue} role="alert">
+          {read.title} It cannot be changed until the page is reloaded.
+        </span>
+      ) : current && !current.assigns ? (
+        <span className={styles.issue} role="alert">
+          {current.name ?? "They"} {current.state === "missing" ? "no longer exists" : "is deactivated"}: new jobs here are made with nobody on them. Choose another, or none.
+        </span>
+      ) : data?.unreadable ? (
+        <span className={styles.issue} role="alert">
+          Its record could not be read. Choosing again replaces it.
+        </span>
+      ) : (
+        <span className={styles.hint}>New jobs here go to them when they are made. Jobs already made are not changed. Saved on its own, at once.</span>
+      )}
+      {dialog}
+    </Tile>
   );
 }
 

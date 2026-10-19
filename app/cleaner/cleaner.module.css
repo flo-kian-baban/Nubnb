@@ -1460,6 +1460,13 @@
   font-size: 16px;
   font-weight: 600;
 }
+/* A cancelled or moved booking's words, in place of Mark cleaned (Kian's ruling R2 of 2026-10-19): what to do, plainly. */
+.jobChangedNote {
+  margin: 0;
+  color: var(--danger);
+  font-size: 18px;
+  font-weight: 700;
+}
 .jobMessage {
   margin: 0;
   color: var(--danger);

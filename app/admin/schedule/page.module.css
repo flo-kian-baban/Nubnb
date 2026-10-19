@@ -95,21 +95,22 @@
   table-layout: fixed;
 }
 .jobs th:nth-child(1) {
-  width: 27%;
+  width: 26%;
 }
 .jobs th:nth-child(2) {
   width: 15%;
 }
 .jobs th:nth-child(3) {
-  width: 26%;
+  width: 22%;
 }
 .jobs th:nth-child(4) {
   width: 17%;
 }
-/* Wide enough for Assign or Change whole at 1280 px (Kian's instruction of 2026-10-17): at 11% the button ran out of
-   its cell and the table's box cut it off. */
+/* Wide enough for Assign or Change whole at 1280 px (Kian's instruction of 2026-10-17: at 11% the button ran out of
+   its cell and the table's box cut it off), and for "Same cleaners to Oct 21" (176 px) above "Take off" on a moved
+   booking (round 1: at 15% it ran 25 px past the table's edge at 1440 and 1280). */
 .jobs th:nth-child(5) {
-  width: 15%;
+  width: 20%;
 }
 .jobs td {
   padding-top: 12px;
@@ -132,11 +133,17 @@
 .warn {
   color: #f0a63a;
 }
+/* The checkout time and the next guest: on one line when they fit, the next guest under it when they do not (round 1:
+   "11:00 AM next guest Oct 15" ran 19 px out of its cell into the cleaners' chips at 1440 and 1280). */
 .turnover {
-  white-space: nowrap;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 3px;
 }
-.turnover > * + * {
-  margin-left: 8px;
+.turnover > * {
+  white-space: nowrap;
 }
 .sameDay {
   padding: 2px 8px;
@@ -210,17 +217,28 @@
 }
 
 /* ── The job's state, once ── */
+/* The badge wraps inside its cell rather than running into the actions (round 1: "Booking changed · Moved to Oct 24"
+   covered "Same cleaners to …" by 28 px at 1440). */
 .state {
   display: inline-block;
+  max-width: 100%;
   padding: 3px 10px;
-  border-radius: 999px;
+  border-radius: 12px;
   font-size: 12px;
   font-weight: 700;
-  white-space: nowrap;
+  line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: normal;
 }
 .state_needs {
   background: rgba(240, 166, 58, 0.16);
   color: #f6c069;
+}
+/* Nobody on it, on its checkout day or after; or its checkout passed and someone on it has not marked it (round 1). */
+.state_needsNow,
+.state_notMarked {
+  background: rgba(239, 98, 98, 0.16);
+  color: #f19a9a;
 }
 .state_assigned {
   background: rgba(127, 176, 224, 0.14);
@@ -244,7 +262,63 @@
 }
 .actions {
   text-align: right;
+}
+/* A changed booking can offer two actions (Same cleaners to …, Take off): one above the other, each whole. */
+.actionStack {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
   white-space: nowrap;
+}
+
+/* ── Earlier: the days before today, folded (round 1) ── */
+.earlier {
+  margin-bottom: 18px;
+}
+.earlierToggle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  color: rgba(255, 255, 255, 0.85);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.earlierToggle:hover {
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.earlierToggle:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 1px;
+}
+.earlierTitle {
+  font-weight: 700;
+}
+.earlierAlert,
+.earlierWarn {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.earlierAlert {
+  background: rgba(239, 98, 98, 0.16);
+  color: #f19a9a;
+}
+.earlierWarn {
+  background: rgba(240, 166, 58, 0.16);
+  color: #f6c069;
+}
+.earlierDays {
+  margin-top: 14px;
 }
 
 /* ── The picker ── */
@@ -264,4 +338,24 @@
 }
 .pickName {
   font-weight: 600;
+}
+
+/* The picker's body, and its line about the property's regular cleaner (Kian's ruling R5). Spaced by gap: the dialog's
+   own rule takes the margins off paragraphs. */
+.dialogBody {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.regular {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 13px;
+}
+.regularLine {
+  color: rgba(255, 255, 255, 0.7);
 }

@@ -36,6 +36,7 @@ export const CHECKS = [
   { name: 'costs-month', script: 'money/costs-month.mjs', args: [] },
   { name: 'costs-queue', script: 'money/costs-queue.mjs', args: [] },
   { name: 'costs-look', script: 'money/costs-look.mjs', args: [] },
+  { name: 'schedule-round1', script: 'schedule/round1.mjs', args: [] },
 ];
 
 const argv = process.argv.slice(2);

@@ -15,6 +15,13 @@
  * runs. Each server instance remembers the Toronto day it has seen
  * refreshed, so its later page views that day read nothing at all.
  *
+ * Reads on open (Kian's ruling R1 of 2026-10-19, extending the first-visit
+ * ruling): when the Schedule or a cleaner's app opens and the last finished
+ * run is more than three hours old, the same refresh starts, one at a time
+ * under the same lease (`refreshIfStale`). Its route reads the refresh's
+ * state beside its own reads, so the page is not delayed and is told a run
+ * is coming; the page then shows the run's result when it ends.
+ *
  * The listing-page check does not run here: it was the scheduled function's,
  * subject to the datacenter test, and from Vercel a blocked answer would
  * replace a "gone" verdict with "unknown".
@@ -25,7 +32,14 @@ import type { Firestore } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/app/lib/firebase/admin';
 import { torontoDay } from './days';
 import { runRefresh, type RefreshOutcome } from './refresh';
-import { claimRefresh, decideClaim, finishRefresh, readRefreshStateDoc, type RefreshLease, type RunEnd } from './run-state';
+import { STALE_AFTER_MS, claimRefresh, decideClaim, finishRefresh, readRefreshStateDoc, type RefreshLease, type RunEnd } from './run-state';
+
+
+/**
+ * What a page opening on a stale copy is told: a run is starting after this answer, or one holds the lease now; and
+ * when the last run finished, so the page knows the next one when it sees it. Null: nothing is coming.
+ */
+export type OpenRefresh = { state: 'starting' | 'running'; lastFinishedAt: string | null } | null;
 
 /** The Toronto day this server instance has seen refreshed: its later page views that day read nothing. */
 let refreshedDay: string | null = null;
@@ -49,6 +63,40 @@ export function refreshIfFirstToday(trigger: 'admin-page' | 'cleaner-app'): void
       console.error(`[availability] the first-visit refresh (${trigger}) did not run: grpc code ${grpcCode(err)}`);
     }
   });
+}
+
+/**
+ * For the Schedule's read and the cleaner app's start call (Kian's ruling R1 of 2026-10-19): one read of the refresh's
+ * state, made beside the route's own reads; when this Toronto day has no finished run, or the last one finished more
+ * than STALE_AFTER_MS ago, and no run holds the lease (and no failed try is too recent), the first-visit refresh starts
+ * after the response, claiming the lease in a transaction first. Answers what the page should expect. Never throws: a
+ * failure is logged and answered as nothing coming.
+ */
+export async function refreshIfStale(trigger: 'admin-page' | 'cleaner-app', now: Date = new Date()): Promise<OpenRefresh> {
+  try {
+    const db = getAdminDb();
+    const state = await readRefreshStateDoc(db);
+    if (state === 'unreadable') return null;
+    const lastFinishedAt = state.lastDone?.finishedAt ?? null;
+    const look = decideClaim(state, 'daily', trigger, now, undefined, STALE_AFTER_MS);
+    if (look.kind === 'running') return { state: 'running', lastFinishedAt };
+    if (look.kind !== 'claimed') return null;
+    after(async () => {
+      try {
+        // Again, in a transaction: of two opens at once, one claims and the other finds it running.
+        const claim = await claimRefresh(db, 'daily', trigger, new Date(), STALE_AFTER_MS);
+        if (claim.kind !== 'claimed') return;
+        console.log(`[availability] refresh on open ${claim.run.id} (${trigger}) started: the copy was from ${lastFinishedAt ?? 'never'}`);
+        await runWithLease(db, claim.run);
+      } catch (err) {
+        console.error(`[availability] the refresh on open (${trigger}) did not run: grpc code ${grpcCode(err)}`);
+      }
+    });
+    return { state: 'starting', lastFinishedAt };
+  } catch (err) {
+    console.error(`[availability] the refresh state could not be read on open (${trigger}): grpc code ${grpcCode(err)}`);
+    return null;
+  }
 }
 
 async function refreshIfDue(trigger: 'admin-page' | 'cleaner-app'): Promise<void> {

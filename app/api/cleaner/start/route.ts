@@ -29,14 +29,19 @@
  *
  * The day's first cleaner app refreshes the calendars (Kian's ruling of
  * 2026-10-14, night): a signed-in call starts the refresh after the
- * response, when today has none yet (app/lib/availability/daily.ts). It never
- * delays the answer; maxDuration gives the run its 300 seconds.
+ * response, when today has none yet (app/lib/availability/daily.ts). For a
+ * cleaner it also starts when the last run finished more than three hours
+ * ago (Kian's ruling R1 of 2026-10-19), and the answer's `refresh` says a run
+ * is coming (`{ state, lastFinishedAt }`, else null): the app then asks
+ * GET /api/cleaner/jobs until it ends and reads its jobs again, once. The
+ * refresh's state is one read, made beside the rest; it never delays the
+ * answer, and maxDuration gives the run its 300 seconds.
  */
 
 import { apiSuccess, apiFailure, noStore } from '@/app/lib/api/safe-response';
 import { verifyCleanerSession } from '@/app/lib/cleaners/session';
 import { readCleanerStart } from '@/app/lib/firebase/server-cleaner-start';
-import { refreshIfFirstToday } from '@/app/lib/availability/daily';
+import { refreshIfFirstToday, refreshIfStale } from '@/app/lib/availability/daily';
 
 /** The day's first cleaner app may run the calendar refresh after its answer: it has this long. */
 export const maxDuration = 300;
@@ -52,11 +57,13 @@ export async function GET(request: Request) {
   const session = await verifyCleanerSession(request);
   if (!session.ok) return noStore(apiFailure(session.refusal));
   const { id, name, role } = session.cleaner;
-  refreshIfFirstToday('cleaner-app');
+  // A cleaner's app reads the calendars again on a copy more than three hours old (R1); a handyman's, as before, on
+  // the day's first visit only.
+  if (role !== 'cleaner') refreshIfFirstToday('cleaner-app');
 
   try {
-    const start = await readCleanerStart(id, role);
-    return noStore(apiSuccess({ cleaner: { id, name, role }, ...start }));
+    const [start, refresh] = await Promise.all([readCleanerStart(id, role), role === 'cleaner' ? refreshIfStale('cleaner-app') : Promise.resolve(null)]);
+    return noStore(apiSuccess({ cleaner: { id, name, role }, ...start, refresh }));
   } catch (err) {
     console.error(`[cleaner-start] read failed: grpc code ${grpcCode(err)}`);
     return noStore(

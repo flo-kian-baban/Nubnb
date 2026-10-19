@@ -133,7 +133,9 @@ function isCleanerStart(data: unknown): data is CleanerStart {
     data.itemNames.every((name) => typeof name === 'string') &&
     Array.isArray(data.jobs) &&
     data.jobs.every(isCleanerJob) &&
-    typeof data.today === 'string'
+    typeof data.today === 'string' &&
+    // A read of the calendars on its way (Kian's ruling R1 of 2026-10-19), or none.
+    (data.refresh === undefined || data.refresh === null || (isRecord(data.refresh) && (data.refresh.state === 'starting' || data.refresh.state === 'running') && isTextOrNull(data.refresh.lastFinishedAt)))
   );
 }
 
@@ -150,6 +152,8 @@ function isCleanerJob(data: unknown): data is CleanerJobView {
     isTextOrNull(data.checkInTime) &&
     isTextOrNull(data.nextCheckIn) &&
     (data.status === 'open' || data.status === 'booking-changed') &&
+    // What changed, on a changed booking (Kian's ruling R2 of 2026-10-19): its card's words.
+    (data.change === undefined || data.change === null || (isRecord(data.change) && typeof data.change.kind === 'string' && (data.change.movedTo === null || (isRecord(data.change.movedTo) && typeof data.change.movedTo.end === 'string')))) &&
     isTextOrNull(data.markedAt) &&
     typeof data.canUndo === 'boolean' &&
     isTextOrNull(data.markRefusal)
@@ -192,6 +196,37 @@ function parseJson(text: string): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+/** What GET /api/cleaner/jobs answers while the app waits for a read of the calendars to end (Kian's ruling R1). */
+export type JobsAfterReadResult =
+  | { kind: 'running' }
+  | { kind: 'done'; jobs: CleanerJobView[]; today: string; finishedAt: string }
+  | { kind: 'none' }
+  | { kind: 'signed-out' }
+  | { kind: 'failed' };
+
+/**
+ * Ask whether the read of the calendars the start call announced has ended, and once it has, the jobs read again
+ * (GET /api/cleaner/jobs?since=). `since`: when the last run before it finished, as the start call said. Never throws.
+ */
+export async function loadJobsAfterRead(since: string | null): Promise<JobsAfterReadResult> {
+  let res: Response;
+  try {
+    res = await fetch(`/api/cleaner/jobs${since ? `?since=${encodeURIComponent(since)}` : ''}`, { cache: 'no-store' });
+  } catch {
+    return { kind: 'failed' };
+  }
+  if (res.status === 401) return { kind: 'signed-out' };
+  const body = await readJson(res);
+  const data = body.data;
+  if (!res.ok || !isRecord(data)) return { kind: 'failed' };
+  if (data.state === 'running') return { kind: 'running' };
+  if (data.state === 'none') return { kind: 'none' };
+  if (data.state === 'done' && Array.isArray(data.jobs) && data.jobs.every(isCleanerJob) && typeof data.today === 'string' && typeof data.finishedAt === 'string') {
+    return { kind: 'done', jobs: data.jobs, today: data.today, finishedAt: data.finishedAt };
+  }
+  return { kind: 'failed' };
 }
 
 /** Who is signed in, and what the app lists. */

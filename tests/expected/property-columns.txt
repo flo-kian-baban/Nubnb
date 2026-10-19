@@ -30,8 +30,8 @@
    ok   with no file, nothing is "Not in file"
 
 ═══ 2. Cleaning: the most pressing job, 14 days back to 2 ahead (today 2026-10-15) ═══
-  TESTPROP0001: needs-past · "Needs a cleaner" · problem · 2026-10-13 · Checkout Oct 13: checkout passed with nobody on it · +1 more needs something
-   ok   needs-past
+  TESTPROP0001: needs-now · "Needs a cleaner" · problem · 2026-10-13 · Checkout Oct 13: checkout passed with nobody on it · +1 more needs something
+   ok   needs-now
   TESTPROP0002: not-marked · "Not marked" · problem · 2026-10-14 · Checkout Oct 14: checkout passed and not everyone on it has marked it cleaned · Test Ana · +1 more needs something
    ok   not-marked
   TESTPROP0003: needs · "Needs a cleaner" · warning · 2026-10-16 · Checkout Oct 16: nobody is on it yet
@@ -61,6 +61,9 @@
    ok   the day after, it is Not marked
    ok   Done shows the latest job
    ok   a problem shows the longest waiting
+  TESTPROP0014 (nobody on it, checkout today): needs-now · "Needs a cleaner" · problem · 2026-10-15 · Checkout Oct 15: checkout today with nobody on it
+   ok   nobody on it on its checkout day: red, as the Schedule shows it
+   ok   the day before: amber
 
 ═══ 3. A stored job as the column reads it ═══
   {"propertyId":"TESTPROP0001","checkout":"2026-10-14","status":"open","changedAfterMark":false,"change":null,"cleaners":[{"name":"Test Ana","marked":true,"removed":false,"pending":true},{"name":"Test Ben","marked":true,"removed":true,"pending":false},{"name":null,"marked":false,"removed":false,"pending":false}]}

@@ -5,10 +5,11 @@
  * It looks at the jobs with a checkout from 14 days back to 2 days ahead (jobs are made 2 days ahead: nothing later
  * exists). Its words are the Schedule's, and four of its own: Not marked, Amount needed, No turnover, Calendar not read.
  *
- *   red     a checkout passed with nobody on it, or with someone on it who has not marked it cleaned (from the day
- *           after the checkout: on the day itself an unmarked job is the normal state)
- *   amber   a job today or ahead with nobody on it; a mark the office removed; a booking that changed after it was
- *           marked; a cleaning waiting for its amount
+ *   red     a job with nobody on it, from its checkout day on (the Schedule's rule, needsCleanerNow in model.ts:
+ *           the two pages never disagree); a checkout passed with someone on it who has not marked it cleaned (from
+ *           the day after the checkout: on the day itself an unmarked job is the normal state)
+ *   amber   a job ahead with nobody on it; a mark the office removed; a booking that changed after it was marked; a
+ *           cleaning waiting for its amount
  *   blue    the next job, with someone on it
  *   green   the latest job done, nothing ahead
  *   words   no job in the days looked at
@@ -21,7 +22,7 @@
  */
 
 import { addDays, dayText } from '../availability/days';
-import { changedAfterMark, changeWords, type StoredJob } from './model';
+import { changedAfterMark, changeWords, needsCleanerNow, type StoredJob } from './model';
 
 /** How far back the column looks, and ahead: the furthest a job is made (CREATE_DAYS_AHEAD). */
 export const COLUMN_DAYS_BACK = 14;
@@ -71,7 +72,7 @@ export function homeJobOf(job: StoredJob, cleanings: CleaningLookup): HomeJob {
 export type CleaningTone = 'problem' | 'warning' | 'assigned' | 'done' | 'none';
 
 export interface CleaningStanding {
-  key: 'needs-past' | 'not-marked' | 'needs' | 'removed' | 'changed' | 'amount' | 'assigned' | 'done' | 'no-turnover' | 'not-read';
+  key: 'needs-now' | 'not-marked' | 'needs' | 'removed' | 'changed' | 'amount' | 'assigned' | 'done' | 'no-turnover' | 'not-read';
   label: string;
   tone: CleaningTone;
   /** The job's checkout; null for the quiet words. */
@@ -81,14 +82,14 @@ export interface CleaningStanding {
 }
 
 /** Most pressing first: the order the column picks in. */
-const ORDER: CleaningStanding['key'][] = ['needs-past', 'not-marked', 'needs', 'removed', 'changed', 'amount', 'assigned', 'done'];
+const ORDER: CleaningStanding['key'][] = ['needs-now', 'not-marked', 'needs', 'removed', 'changed', 'amount', 'assigned', 'done'];
 
 function standingOf(job: HomeJob, today: string): Omit<CleaningStanding, 'title'> | null {
   const day = job.checkout;
   if (job.status === 'booking-changed') return job.changedAfterMark ? { key: 'changed', label: 'Booking changed', tone: 'warning', day } : null;
   const on = job.cleaners.length;
   const marked = job.cleaners.filter((c) => c.marked).length;
-  if (on === 0) return day < today ? { key: 'needs-past', label: 'Needs a cleaner', tone: 'problem', day } : { key: 'needs', label: 'Needs a cleaner', tone: 'warning', day };
+  if (on === 0) return needsCleanerNow(day, today) ? { key: 'needs-now', label: 'Needs a cleaner', tone: 'problem', day } : { key: 'needs', label: 'Needs a cleaner', tone: 'warning', day };
   if (marked < on && day < today) return { key: 'not-marked', label: 'Not marked', tone: 'problem', day };
   if (job.cleaners.some((c) => c.removed)) return { key: 'removed', label: 'Removed by the office', tone: 'warning', day };
   if (marked < on) return { key: 'assigned', label: marked === 0 ? 'Assigned' : `${marked} of ${on} done`, tone: 'assigned', day };
@@ -97,7 +98,7 @@ function standingOf(job: HomeJob, today: string): Omit<CleaningStanding, 'title'
 }
 
 const DETAIL: Record<CleaningStanding['key'], string> = {
-  'needs-past': 'checkout passed with nobody on it',
+  'needs-now': 'checkout passed with nobody on it',
   'not-marked': 'checkout passed and not everyone on it has marked it cleaned',
   needs: 'nobody is on it yet',
   removed: 'the office removed a mark; reopen it for them from the Schedule, or leave it',
@@ -132,5 +133,6 @@ export function cleaningStanding(jobs: readonly HomeJob[], input: { today: strin
   const who = job.cleaners.length === 0 ? '' : ` · ${job.cleaners.map((c) => `${c.name ?? 'a deleted cleaner'}${c.removed ? ' (removed by the office)' : c.marked ? ' ✓' : ''}`).join(', ')}`;
   const others = seen.slice(1).filter((x) => x.state.tone === 'problem' || x.state.tone === 'warning').length;
   const more = others > 0 ? ` · +${others} more ${others === 1 ? 'needs' : 'need'} something` : '';
-  return { ...state, title: `Checkout ${dayText(job.checkout)}: ${DETAIL[state.key]}${who}${more}` };
+  const detail = state.key === 'needs-now' && job.checkout === input.today ? 'checkout today with nobody on it' : DETAIL[state.key];
+  return { ...state, title: `Checkout ${dayText(job.checkout)}: ${detail}${who}${more}` };
 }

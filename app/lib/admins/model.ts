@@ -479,6 +479,7 @@ const ACTION_WORDS: [method: string, path: RegExp, words: string][] = [
   ['PUT', new RegExp(`^/api/admin/properties/${ID}/cleaner-name$`), 'Set a property’s name for cleaners'],
   ['PUT', new RegExp(`^/api/admin/properties/${ID}/income-source$`), 'Marked whether a property is paid through Nubnb’s files'],
   ['PUT', new RegExp(`^/api/admin/properties/${ID}/management$`), 'Changed a property’s reporting'],
+  ['PUT', new RegExp(`^/api/admin/properties/${ID}/regular-cleaner$`), 'Set a property’s regular cleaner'],
   ['PUT', new RegExp(`^/api/admin/properties/${ID}/report-for$`), 'Set a property’s Report For'],
   ['PUT', new RegExp(`^/api/admin/properties/${ID}/visibility$`), 'Listed or unlisted a property'],
   ['PATCH', new RegExp(`^/api/leads/${ID}$`), 'Updated a lead'],
