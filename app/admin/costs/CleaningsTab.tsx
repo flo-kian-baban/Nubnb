@@ -28,8 +28,9 @@
  * ── Waiting for an amount (the Costs page, round 1) ──
  * A filter over the list, with its count, chosen first while any cleaning waits: every cleaning marked on a job with
  * no amount (in the property and cleaner chosen, whatever the dates), each with its amount typed in place — Enter or
- * Save — and the property's preset for its job's stay as the field's hint (with several cleaners on the job, the
- * preset for them all: the admin types each share), never filled in. A property with no preset for the tier (Kian's
+ * Save — the field opening with the property's preset for its job's stay (since 2026-10-19, as the Team page's pay view
+ * opens it; before, the preset was the field's hint only), with several cleaners on the job the preset for them all as
+ * the hint and nothing filled in (the admin types each share). A property with no preset for the tier (Kian's
  * ruling of 2026-10-19, the second round): the field opens prefilled with the most recent amount an admin typed for a
  * cleaning there in that tier, labelled "Last typed for short-term: $X", and Enter or Save confirms it; nothing is
  * charged until then (`missingAmountStart`, prices.ts). A typed one stays in the list, saying what was saved and
@@ -271,11 +272,11 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
     const ids = new Set(waitingAll.map((c) => c.id));
     return [...waitingAll, ...cleanings.filter((c) => typedHere.has(c.id) && !ids.has(c.id))].sort((a, b) => b.day.localeCompare(a.day) || b.createdAt.localeCompare(a.createdAt));
   }, [waitingAll, cleanings, typedHere]);
-  /** What a waiting row's field holds: what was typed, else the recommendation it opened with (Kian's ruling: confirmed by Enter or Save). */
+  /** What a waiting row's field holds: what was typed, else what it opened with — the property's preset for the tier, else the recommendation (Kian's ruling: confirmed by Enter or Save; the Team page's pay view opens its fields the same way, 2026-10-19). */
   const fieldOf = (c: CleaningView) => {
     if (typing[c.id] !== undefined) return typing[c.id];
     const start = missingAmountStart(pricesOf(c.propertyId), cleanings, jobs, c);
-    return start.kind === "recommendation" ? amountField(start.cents) : "";
+    return start.kind === "recommendation" || start.kind === "preset" ? amountField(start.cents) : "";
   };
   const saveAmount = async (c: CleaningView) => {
     if (busy) return;

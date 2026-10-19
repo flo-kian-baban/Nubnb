@@ -48,7 +48,7 @@ import {
   type CleaningView,
   type TeamChoice,
 } from '@/app/lib/cleanings/model';
-import { amountSourceOf, handLogSuggestion, stayNights, type CleaningPrices } from '@/app/lib/cleanings/prices';
+import { PROPERTY_CLEANING_PRICES_COLLECTION, amountSourceOf, handLogSuggestion, readCleaningPrices, stayNights, type CleaningPrices } from '@/app/lib/cleanings/prices';
 import { pricesInTx } from './server-cleaning-prices';
 import { torontoDayOf } from '@/app/lib/costs/report';
 import { CLEANING_JOBS_COLLECTION, jobEvent, jobIdOf, readJob, type StoredJob } from '@/app/lib/schedule/model';
@@ -66,7 +66,7 @@ function grpcCode(err: unknown): string {
 
 type CleanerNow = { name: string | null; status: string | null; role: string };
 
-type PropertyNow = { name: string | null; internalName: string | null };
+export type PropertyNow = { name: string | null; internalName: string | null };
 
 /**
  * The cleaners and the properties that exist, by ID, with their current names — a property's public title and the name
@@ -127,15 +127,56 @@ export function readDocs(docs: { id: string; data: () => Record<string, unknown>
 
 /**
  * Every cleaning, newest day first, with its cleaner's and property's current names. Read whole: no orderBy, no
- * limit, so none can silently drop out.
+ * limit, so none can silently drop out. `known`: properties the caller has already looked up (the whole costs read
+ * reads every property first), so none is read a second time here (the Team page audit of 2026-10-19 counted 54
+ * repeated lookups); null when that lookup failed, which leaves every property's name unknown here too.
  *
  * @throws if the read fails.
  */
-export async function listCleanings(): Promise<CleaningView[]> {
+export async function listCleanings(known?: ReadonlyMap<string, PropertyNow> | null): Promise<CleaningView[]> {
   const snapshot = await getAdminDb().collection(CLEANINGS_COLLECTION).get();
   const cleanings = readDocs(snapshot.docs);
-  const { cleaners, properties } = await lookUps(distinct(cleanings.map((c) => c.cleanerId)), distinct(cleanings.map((c) => c.propertyId)));
-  return cleanings.map((c) => toView(c, cleaners, properties)).sort(byDay);
+  const propertyIds = distinct(cleanings.map((c) => c.propertyId));
+  const { cleaners, properties } = await lookUps(distinct(cleanings.map((c) => c.cleanerId)), known === undefined ? propertyIds : known === null ? [] : propertyIds.filter((id) => !known.has(id)));
+  const merged = known === null ? null : known === undefined ? properties : properties === null ? null : new Map([...known, ...properties]);
+  return cleanings.map((c) => toView(c, cleaners, merged)).sort(byDay);
+}
+
+/**
+ * What a team member's missing amounts start from (the Team page's pay view, 2026-10-19; the rule is prices.ts
+ * `missingAmountStart`, the same the Cleanings tab applies): each named property's presets, and each named job's stay
+ * in nights and cleaner count. The page names the properties of the person's cleanings with no amount and the jobs of
+ * those and of the typed job cleanings there; it already holds every cleaning. One read per property and per job; a
+ * property with no record or a job that cannot be read is absent from the answer.
+ *
+ * @throws if a read fails.
+ */
+export async function amountStarts(propertyIds: readonly string[], jobIds: readonly string[]): Promise<{ prices: Record<string, CleaningPrices>; jobs: Record<string, { nights: number; cleaners: number }> }> {
+  const db = getAdminDb();
+  // A property ID as Nubnb issues them (a Firestore auto ID, or a test's letters and digits); never a path.
+  const properties = [...new Set(propertyIds.filter((id) => /^[A-Za-z0-9_-]{1,64}$/.test(id)))];
+  const jobs = [...new Set(jobIds.filter((id) => /^[A-Za-z0-9]{1,64}_\d{4}-\d{2}-\d{2}$/.test(id)))];
+  const [priceDocs, jobDocs] = await Promise.all([
+    properties.length ? db.getAll(...properties.map((id) => db.collection(PROPERTY_CLEANING_PRICES_COLLECTION).doc(id))) : Promise.resolve([]),
+    jobs.length ? db.getAll(...jobs.map((id) => db.collection(CLEANING_JOBS_COLLECTION).doc(id)), { fieldMask: ['reservation', 'checkout', 'cleanerIds'] }) : Promise.resolve([]),
+  ]);
+  const prices: Record<string, CleaningPrices> = {};
+  for (const doc of priceDocs) {
+    if (!doc.exists) continue;
+    const record = readCleaningPrices(doc.id, doc.data() ?? {});
+    if (record) prices[doc.id] = { shortTermCents: record.shortTermCents, longTermCents: record.longTermCents };
+  }
+  const out: Record<string, { nights: number; cleaners: number }> = {};
+  for (const doc of jobDocs) {
+    if (!doc.exists) continue;
+    const reservation: unknown = doc.get('reservation');
+    const checkout: unknown = doc.get('checkout');
+    const cleanerIds: unknown = doc.get('cleanerIds');
+    const start = reservation && typeof reservation === 'object' ? (reservation as { start?: unknown }).start : undefined;
+    if (typeof start !== 'string' || typeof checkout !== 'string' || !Array.isArray(cleanerIds)) continue;
+    out[doc.id] = { nights: stayNights(start, checkout), cleaners: cleanerIds.length };
+  }
+  return { prices, jobs: out };
 }
 
 /** One property's cleanings, for its statements; inside a transaction when one is given (names then unknown: display only). @throws if the read fails. */

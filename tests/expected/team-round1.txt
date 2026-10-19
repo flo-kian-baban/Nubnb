@@ -1,0 +1,95 @@
+═══ 1. Before a payment: K1 (not all counted) and K2 (more than is owed), in that order ═══
+  owed $300, paying $300, nothing waiting: no question
+  owed $300, paying $300, 2 cleanings with no amount and 1 receipt under review: "Record this payment while Test Ana's pay is not all counted?" / 2 cleanings have no amount yet, and 1 receipt or work entry is waiting for review. / The balance of $300.00 owed does not include them. / [Record anyway]
+  owed $300, paying $500, nothing waiting: "This pays $200.00 more than Test Ana is owed. Record it as an advance?" / Test Ana is owed $300.00; this payment is $500.00. / [Record as an advance]
+  owed $300, paying $500, 1 cleaning with no amount: "Record this payment while Test Ana's pay is not all counted?" / 1 cleaning has no amount yet. / The balance of $300.00 owed does not include them. / [Record anyway] THEN "This pays $200.00 more than Test Ana is owed. Record it as an advance?" / Test Ana is owed $300.00; this payment is $500.00. / [Record as an advance]
+  settled, paying $80: "This pays $80.00 more than Test Ana is owed. Record it as an advance?" / Test Ana is owed nothing; this payment is $80.00. / [Record as an advance]
+  overpaid $20, paying $50: "This pays $50.00 more than Test Ana is owed. Record it as an advance?" / Test Ana is already overpaid by $20.00; this payment is $50.00. / [Record as an advance]
+  settled, 3 cleanings with no amount, paying $0.01: "Record this payment while Test Ana's pay is not all counted?" / 3 cleanings have no amount yet. / The balance of $0.00, settled, does not include them. / [Record anyway] THEN "This pays $0.01 more than Test Ana is owed. Record it as an advance?" / Test Ana is owed nothing; this payment is $0.01. / [Record as an advance]
+   ok   nothing waiting and not above the balance: no question
+   ok   K1 names the counts
+   ok   K1 says the balance does not include them
+   ok   K2 in Kian's words, $X the amount above the balance
+   ok   both: K1 first, then K2
+   ok   overpaid already: the whole payment is above what is owed
+
+═══ 2. Deleting a member: refused with a balance (2026-10-15), with records that cannot be read, or with anything not counted (K3) ═══
+  settled, nothing waiting: may be deleted
+  owed $12.50: MEMBER_HAS_BALANCE — Test Ana's balance is $12.50 owed, so they cannot be deleted. Deactivate them instead. Nothing was deleted.
+  overpaid $5.00 and 1 cleaning with no amount: MEMBER_HAS_BALANCE — Test Ana's balance is $5.00 overpaid, and 1 cleaning has no amount yet, so they cannot be deleted. Deactivate them instead. Nothing was deleted.
+  settled, 1 record not in shape: MEMBER_HAS_BALANCE — Test Ana's balance cannot be worked out (1 record cannot be read), so they cannot be deleted. Deactivate them instead. Nothing was deleted.
+  settled, 1 entry that cannot add up: MEMBER_HAS_BALANCE — Test Ana's balance cannot be worked out (1 record cannot be read), so they cannot be deleted. Deactivate them instead. Nothing was deleted.
+  settled, 2 cleanings with no amount: MEMBER_HAS_OUTSTANDING — Test Ana: 2 cleanings have no amount yet, so they cannot be deleted. Deactivate them instead. Nothing was deleted.
+  settled, 1 receipt under review: MEMBER_HAS_OUTSTANDING — Test Ana: 1 receipt or work entry is waiting for review, so they cannot be deleted. Deactivate them instead. Nothing was deleted.
+  settled, 1 cleaning with no amount and 2 entries under review: MEMBER_HAS_OUTSTANDING — Test Ana: 1 cleaning has no amount yet, and 2 receipts or work entries are waiting for review, so they cannot be deleted. Deactivate them instead. Nothing was deleted.
+   ok   settled with nothing waiting: may be deleted
+   ok   a balance: MEMBER_HAS_BALANCE
+   ok   only cleanings with no amount: MEMBER_HAS_OUTSTANDING, naming them
+   ok   only an entry under review: refused too
+   ok   every refusal points to Deactivate
+
+═══ 3. What a missing amount's field opens with on the pay view (the same rule as the Cleanings tab) ═══
+  P1 short stay, preset $80: {"kind":"preset","tier":"short","cents":8000} → field "80.00"
+  P1 30-night stay, long preset $120: {"kind":"preset","tier":"long","cents":12000} → field "120.00"
+  P1 two cleaners on the job: {"kind":"split","tier":"short","cleaners":2} → field ""
+  P2 no preset, $70 typed before (short-term): {"kind":"recommendation","tier":"short","cents":7000,"day":"2028-11-09"} → field "70.00"
+  P3 nothing: {"kind":"none","tier":"short"} → field ""
+  P4 long preset only, a short stay: {"kind":"none","tier":"short"} → field ""
+   ok   a preset for the tier: the field opens with it
+   ok   two cleaners on the job: never prefilled, with a preset or not
+   ok   no preset: the last amount typed there in the tier, labelled
+   ok   no preset and nothing typed: empty
+   ok   a preset for the other tier only: nothing for this one
+
+═══ 4. K5: a code change's history entry leaves without the old or new code ═══
+  history as sent: created from=null to="active" · code_changed from=null to=null · deactivated from="active" to="deactivated" · code_released from=null to=null
+  in words: Created by Test admin on Oct 2, 2026 · Code changed by Test admin on Oct 19, 2026 · Deactivated by Test admin on Oct 16, 2026 · Code released by Test admin on Oct 17, 2026 (given to another team member)
+   ok   code_changed and code_released leave with from and to blanked
+   ok   a status event keeps its from and to
+   ok   no code value in what is sent (the current code aside)
+   ok   the words: "Code changed by <admin> on <day>"
+   ok   no history stays none
+
+═══ 5. The regular-cleaner record: a history, and nobody named (schema version 2) ═══
+  a version 1 record reads: {"schemaVersion":1,"propertyId":"TESTPROPteamr1aaaaa1","cleanerId":"TESTCLEANERteamr1ana","cleanerNameAtSet":"Test Ana","setAt":"2026-10-18T12:00:00.000Z","setBy":{"role":"admin","id":"TESTADMINteamr1aaaa1","name":"Test admin"},"history":[]}
+  after a replacement: {"schemaVersion":2,"propertyId":"TESTPROPteamr1aaaaa1","cleanerId":"TESTCLEANERteamr1ben","cleanerNameAtSet":"Test Ben","setAt":"2026-10-19T16:00:00.000Z","setBy":{"role":"admin","id":"TESTADMINteamr1aaaa1","name":"Test admin"},"history":[{"at":"2026-10-19T16:00:00.000Z","action":"replaced","actor":{"role":"admin","id":"TESTADMINteamr1aaaa1","name":"Test admin"},"from":{"cleanerId":"TESTCLEANERteamr1ana","name":"Test Ana"},"to":{"cleanerId":"TESTCLEANERteamr1ben","name":"Test Ben"},"reason":"deactivated"}]}
+  in words: Replaced Test Ana with Test Ben (deactivated) · Oct 19 by Test admin · Cleared (was Test Ben) · Oct 19 by Test admin · Set to Test Ana · Oct 19 by Test admin
+   ok   a version 1 record reads with an empty history
+   ok   the record after a replacement reads back, naming the replacement, one event
+   ok   a record naming nobody reads back, with both events
+  refused as not in shape — version 1 naming nobody: true
+  refused as not in shape — an event of an unknown action: true
+  refused as not in shape — an event with a reason that is not deactivated or deleted: true
+  refused as not in shape — another property's ID: true
+   ok   a replacement is an active cleaner other than the person leaving
+
+═══ 6. The server: K3 inside the delete, K4 inside the deactivation and the delete, the next job to the replacement ═══
+  delete Ana (a cleaning with no amount, settled otherwise): {"kind":"cannot-delete","code":"MEMBER_HAS_OUTSTANDING","message":"Test Ana: 1 cleaning has no amount yet, so they cannot be deleted."} · reads 5 (cleaner_codes 1, cleaners 1, cleanings 1, cost_entries 1, team_payments 1)
+   ok   K3: refused inside the transaction, nothing written
+  the Team page's schedule read: {"today":"2026-10-19","regular":{"TESTCLEANERteamr1ana":[{"propertyId":"TESTPROPteamr1aaaaa1","name":"Test 1 Round St"},{"propertyId":"TESTPROPteamr1aaaaa5","name":"Test Five"},{"propertyId":"TESTPROPteamr1aaaaa2","name":"Test Two"}],"TESTCLEANERteamr1ben":[{"propertyId":"TESTPROPteamr1aaaaa3","name":"Test Three"}],"TESTCLEANERteamr1dee":[{"propertyId":"TESTPROPteamr1aaaaa4","name":"Test Four"}]},"upcoming":{"TESTCLEANERteamr1ana":1}} · reads 15 (cleaning_jobs 1, properties 4, property_cleaner_names 5, property_regular_cleaners 5)
+   ok   regular properties by the name the admin knows them by; jobs ahead count the open jobs from today on
+  deactivate Ana with replacements: done · taken off Test 1 Round St 2026-10-20 · regular: Test 1 Round St replaced → Test Ben; Test Five cleared; Test Two not-assignable; Test Three not-theirs; a property not-theirs; Test Four not-theirs · reads 23 (cleaners 3, cleaning_jobs 2, properties 5, property_cleaner_names 7, property_regular_cleaners 6)
+  P1 now: Ben · replaced Test Ana → Test Ben (deactivated) by Test admin
+  P5 now: nobody · replaced Test Ana → nobody (deactivated) by Test admin
+  P2 (herself chosen): version 1, names Ana · P3 (Ben's): version 1, names Ben, history "none" · P4 (Dee's): version 1, names Dee
+  the job tomorrow: on it nobody · last event unassigned (deactivated)
+   ok   the outcomes: replaced, cleared, herself refused, three left as they were (not hers)
+   ok   P1: Ben, one "replaced (deactivated)" event from Ana
+   ok   P5: nobody, recorded
+   ok   P2, P3 and P4: untouched (P2 still names Ana, deactivated: it assigns nobody)
+   ok   existing jobs follow round 1: Ana comes off, nobody is put on in her place
+   ok   Ana is deactivated, her sessions ended
+  the sync: {"created":3,"changed":1,"watched":1,"unreadable":0,"failed":null} · P1's new job: on it TESTCLEANERteamr1ben (regular cleaner) · P2's (Ana, deactivated): on it nobody · P5's (nobody named): on it nobody · reads 7 (cleaners 2, cleaning_jobs 2, property_regular_cleaners 3)
+   ok   the next job on P1 goes to Ben by "regular cleaner"; P2's (a deactivated regular cleaner) and P5's (nobody) to nobody
+  the schedule read after: {"today":"2026-10-19","regular":{"TESTCLEANERteamr1ben":[{"propertyId":"TESTPROPteamr1aaaaa1","name":"Test 1 Round St"},{"propertyId":"TESTPROPteamr1aaaaa3","name":"Test Three"}],"TESTCLEANERteamr1ana":[{"propertyId":"TESTPROPteamr1aaaaa2","name":"Test Two"}],"TESTCLEANERteamr1dee":[{"propertyId":"TESTPROPteamr1aaaaa4","name":"Test Four"}]},"upcoming":{"TESTCLEANERteamr1ben":1}} · reads 16
+   ok   after: Ben is the regular cleaner for P1 and P3, with one job ahead; Ana only for P2 (left as it was), with no job ahead
+  delete Dee with P4 → Ben: deleted · regular: Test Four replaced → Test Ben · P4 now replaced Test Dee → Test Ben (deleted) by Test admin · reads 10 (cleaner_codes 1, cleaners 2, cleaning_jobs 1, cleanings 1, cost_entries 1, properties 1, property_cleaner_names 1, property_regular_cleaners 1, team_payments 1)
+   ok   K4 with a delete: the account is gone, P4 names Ben, "replaced (deleted)" recorded
+  clearing P3 by hand: cleared · reads back as null with history cleared Test Ben → nobody by Test admin
+   ok   a clear keeps the record naming nobody, read as none, its history kept
+  amount starts for P1, P2 and the job yesterday: {"prices":{"TESTPROPteamr1aaaaa1":{"shortTermCents":8000,"longTermCents":12000}},"jobs":{"TESTPROPteamr1aaaaa1_2026-10-18":{"nights":2,"cleaners":1}}} · reads 4 (cleaning_jobs 2, property_cleaning_prices 2)
+   ok   presets and job facts for what exists, one read each; IDs not in shape skipped
+  the whole costs read: 1 cleaning, 5 properties · reads 13 (cleaners 4, cleanings 1, cost_entries 1, cost_report_exports 1, properties 5, property_cleaner_names 1)
+   ok   the cleanings' properties are not looked up a second time: five properties, five property reads, the address still on the cleaning
+
+every check held

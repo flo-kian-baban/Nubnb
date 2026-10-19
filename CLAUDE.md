@@ -996,3 +996,38 @@ Kian's instruction and ruling of 2026-10-19 (the second round):
   property still arrive with no amount: the recommendation is never applied
   automatically and never becomes a preset. A preset for that tier, once
   set, replaces the recommendation completely.
+
+## Team page — Kian's rulings of 2026-10-19 (round 1; the Team page audit)
+
+Build per the 2026-10-19 audit, on top of the cleaning prices per property.
+
+- **Pay from the pay view (the audit's one change, Kian's instruction):** "The
+  person's pay view lists their cleanings with no amount at the top, each with
+  an amount field, plus 'Save all'. Each field opens prefilled the same way as
+  the Cleanings tab: the property's preset for that tier if one exists,
+  otherwise 'Last typed for <short-term|long-term>: $X', otherwise empty. A
+  two-cleaner share is never prefilled. Nothing is charged until Save or Save
+  all. Saving updates Earned and Balance without reloading. Use the same server
+  route and history rules as the Cleanings tab."
+- **K1.** "Recording a payment while the person has cleanings with no amount,
+  or receipts or work waiting for review, asks first in Nubnb's own dialog. The
+  dialog names the counts and says the balance doesn't include them. Still
+  allowed."
+- **K2.** "A payment larger than the current balance asks first: 'This pays $X
+  more than <name> is owed. Record it as an advance?' Still allowed."
+- **K3.** "Deleting a member is refused while they have any cleaning with no
+  amount, or any receipt or work not yet decided, as well as with a nonzero
+  balance (existing rule). The refusal names what's outstanding and points to
+  Deactivate."
+- **K4.** "Deactivating or deleting a member who is regular cleaner for any
+  property lists those properties in the same dialog. Each has a picker:
+  another active cleaner, or 'Nobody'. Saving applies the replacements
+  together with the deactivation or delete, recorded in each property's
+  regular-cleaner history. Existing jobs follow Schedule round 1's rules
+  unchanged."
+- **K5.** "A code change's history entry no longer sends the old or new code to
+  the browser. Admins see 'Code changed by <admin> on <day>'. Stored history is
+  unchanged: no backfill, and the server strips codes on read."
+- **The Team page shows, per person, the properties they're regular cleaner
+  for and their count of upcoming jobs (checkout today or later).** Each links
+  to the Schedule filtered to that person.

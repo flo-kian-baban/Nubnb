@@ -79,12 +79,14 @@ const unmarked = (job: JobView) => job.assignees.filter((a) => a.cleaningId === 
 
 /**
  * What a link asks for (the property list's Cleaning cell and Next step, Kian's rulings of 2026-10-15 and R3): `?property=`
- * picks the property, and `?from=`, a day, reads from it to the furthest job instead of from a week back.
+ * picks the property, `?cleaner=` picks the cleaner (the Team page's jobs count, 2026-10-19), and `?from=`, a day, reads
+ * from it to the furthest job instead of from a week back.
  */
-function linkFromUrl(): { property: string; from: string | undefined } {
+function linkFromUrl(): { property: string; cleaner: string; from: string | undefined } {
   const params = typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search);
   const from = params.get("from");
-  return { property: params.get("property") ?? "", from: isDay(from) ? from : undefined };
+  const id = (value: string | null) => (value !== null && /^[A-Za-z0-9_-]{1,64}$/.test(value) ? value : "");
+  return { property: id(params.get("property")), cleaner: id(params.get("cleaner")), from: isDay(from) ? from : undefined };
 }
 
 type Picking = { job: JobView; picked: string[]; mode: "assign" | "take-off" };
@@ -94,7 +96,7 @@ function Schedule() {
   const [loaded, setLoaded] = useState<Loaded>({ kind: "loading" });
   const [range, setRange] = useState<{ from: string; to: string } | null>(null);
   const [propertyId, setPropertyId] = useState(link.property);
-  const [cleanerId, setCleanerId] = useState("");
+  const [cleanerId, setCleanerId] = useState(link.cleaner);
   const [needsOnly, setNeedsOnly] = useState(false);
   /** "Earlier" opened or closed by the admin; null until they do, when filters and the link decide. */
   const [earlierChosen, setEarlierChosen] = useState<boolean | null>(null);

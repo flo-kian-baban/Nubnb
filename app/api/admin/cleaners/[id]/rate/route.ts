@@ -1,9 +1,10 @@
 /**
- * PUT /api/admin/cleaners/[id]/rate — Set a cleaner's one default rate for a cleaning (admin-only, dispatch 37B).
+ * PUT /api/admin/cleaners/[id]/rate — Set the account's default rate (admin-only, dispatch 37B).
  *
- * Kian's ruling of 2026-10-13: each cleaner has one default rate. A cleaning's amount starts from what the cleaner
- * was last paid for the property, or this rate if none, and the admin changes it freely. No per-property rate, no
- * dated rates: setting it changes no cleaning already logged.
+ * Kian's ruling of 2026-10-13 gave each cleaner one default rate that a cleaning's amount started from. Kian's ruling
+ * of 2026-10-19 (cleaning prices are presets per property) retired it: nothing reads the rate into money any more, no
+ * page calls this route, and the field stays stored as it was. The route stays, unused. Setting it changes no
+ * cleaning already logged.
  *
  * Request:  `{ defaultRate: "60.00" }`, or `{ defaultRate: null }` for none
  * Response: 200 `{ cleaner, changed }`

@@ -44,6 +44,23 @@ export interface CodeReleased {
   name: string | null;
 }
 
+/** A property the person is the regular cleaner for (Kian's rulings R5 and K4 of 2026-10-19), by ID and the name the admin knows it by. */
+export interface RegularProperty {
+  propertyId: string;
+  name: string;
+}
+
+/** What one replacement did (K4): another cleaner, nobody, or left as it was and why. */
+export interface RegularReplaced {
+  propertyId: string;
+  name: string;
+  outcome: 'replaced' | 'cleared' | 'not-theirs' | 'not-assignable';
+  to: { cleanerId: string; name: string | null } | null;
+}
+
+/** The replacements chosen before a deactivation or delete (K4): each property's new regular cleaner, or null for nobody. */
+export type RegularReplacements = Record<string, string | null>;
+
 /** The answer to a status or code change: the cleaner as now stored. */
 export interface CleanerChange {
   cleaner: CleanerSummary;
@@ -53,11 +70,17 @@ export interface CleanerChange {
   released?: CodeReleased | null;
   /** On a deactivation: the jobs it took them off (the cleaning schedule). */
   jobsTakenOff?: UnmarkedJob[];
+  /** On a deactivation: what each replacement regular cleaner did (K4). */
+  regular?: RegularReplaced[];
 }
 
 const isUnmarkedJob = (value: unknown): value is UnmarkedJob =>
   isRecord(value) && typeof value.id === 'string' && isTextOrNull(value.propertyName) && typeof value.checkout === 'string' && typeof value.status === 'string';
 const isJobsTakenOff = (value: unknown): boolean => value === undefined || (Array.isArray(value) && value.every(isUnmarkedJob));
+const isRegularProperty = (value: unknown): value is RegularProperty => isRecord(value) && typeof value.propertyId === 'string' && typeof value.name === 'string';
+const isReplaced = (value: unknown): value is RegularReplaced =>
+  isRecord(value) && typeof value.propertyId === 'string' && typeof value.name === 'string' && ['replaced', 'cleared', 'not-theirs', 'not-assignable'].includes(value.outcome as string) && (value.to === null || (isRecord(value.to) && typeof value.to.cleanerId === 'string' && isTextOrNull(value.to.name)));
+const isRegularOutcome = (value: unknown): boolean => value === undefined || (Array.isArray(value) && value.every(isReplaced));
 
 const isReleased = (value: unknown): boolean => value === null || value === undefined || (isRecord(value) && typeof value.id === 'string' && isTextOrNull(value.name));
 
@@ -194,16 +217,18 @@ export function suggestCode(): string {
   }
 }
 
+/** Deactivate or reactivate; on a deactivation, `regular` is the replacement regular cleaner for each of their properties (K4). */
 export function changeCleanerStatus(
   id: string,
   status: CleanerStatus,
+  regular?: RegularReplacements,
 ): Promise<CleanerResult<CleanerChange>> {
   return call(
     `/api/admin/cleaners/${encodeURIComponent(id)}`,
     {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify(regular && Object.keys(regular).length > 0 ? { status, regular } : { status }),
     },
     'Changing the status failed',
     (data) =>
@@ -212,7 +237,8 @@ export function changeCleanerStatus(
       data.cleaner.id === id &&
       data.cleaner.status === status &&
       typeof data.changed === 'boolean' &&
-      isJobsTakenOff(data.jobsTakenOff),
+      isJobsTakenOff(data.jobsTakenOff) &&
+      isRegularOutcome(data.regular),
   );
 }
 
@@ -221,8 +247,9 @@ export function changeCleanerStatus(
  * code — the typed one, or the one the server drew.
  */
 /**
- * Set a cleaner's one default rate for a cleaning (dispatch 37B, Kian's ruling of 2026-10-13), "60.00", or null for
- * none. No cleaning already logged changes.
+ * Set the account's default rate (dispatch 37B, Kian's ruling of 2026-10-13), "60.00", or null for none. Retired by
+ * Kian's ruling of 2026-10-19 (cleaning prices are presets per property): nothing reads the rate any more and no page
+ * calls this; it stays for the route, unused.
  */
 export function setDefaultRate(id: string, defaultRate: string | null): Promise<CleanerResult<{ cleaner: CleanerSummary; changed: boolean }>> {
   return call(
@@ -271,14 +298,15 @@ export interface CleanerDeleted {
 }
 
 /**
- * Delete a cleaner or a handyman for good (Kian's ruling of 2026-10-02). The
- * page confirms before calling; CLEANER_DELETE_FAILED means the answer does
- * not say whether the account is gone.
+ * Delete a cleaner or a handyman for good (Kian's ruling of 2026-10-02), with the replacement regular cleaner for each
+ * of their properties (K4). The page confirms before calling; CLEANER_DELETE_FAILED means the answer does not say
+ * whether the account is gone.
  */
-export function deleteCleaner(id: string): Promise<CleanerResult<{ deleted: CleanerDeleted; jobsTakenOff?: UnmarkedJob[] }>> {
+export function deleteCleaner(id: string, regular?: RegularReplacements): Promise<CleanerResult<{ deleted: CleanerDeleted; jobsTakenOff?: UnmarkedJob[]; regular?: RegularReplaced[] }>> {
+  const withBody = regular !== undefined && Object.keys(regular).length > 0;
   return call(
     `/api/admin/cleaners/${encodeURIComponent(id)}`,
-    { method: 'DELETE' },
+    withBody ? { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ regular }) } : { method: 'DELETE' },
     'Deleting the team member failed',
     (data) =>
       isRecord(data) &&
@@ -287,15 +315,50 @@ export function deleteCleaner(id: string): Promise<CleanerResult<{ deleted: Clea
       isTextOrNull(data.deleted.name) &&
       typeof data.deleted.role === 'string' &&
       typeof data.deleted.codes === 'number' &&
-      isJobsTakenOff(data.jobsTakenOff),
+      isJobsTakenOff(data.jobsTakenOff) &&
+      isRegularOutcome(data.regular),
     ['CLEANER_DELETE_FAILED'],
   );
 }
 
-/** The jobs a team member is on and has not marked: what deactivating or deleting them takes them off (the cleaning schedule). */
-/** The jobs a team member is on and has not marked, and the properties they are the regular cleaner for (Kian's ruling R5). */
-export function fetchUnmarkedJobs(id: string): Promise<CleanerResult<{ jobs: UnmarkedJob[]; regularAt?: string[] }>> {
-  return call(`/api/admin/cleaners/${encodeURIComponent(id)}/jobs`, {}, 'Reading their jobs failed', (data) => isRecord(data) && Array.isArray(data.jobs) && data.jobs.every(isUnmarkedJob) && (data.regularAt === undefined || (Array.isArray(data.regularAt) && data.regularAt.every((name) => typeof name === 'string'))));
+/**
+ * The jobs a team member is on and has not marked (what deactivating or deleting them takes them off: the cleaning
+ * schedule), and the properties they are the regular cleaner for, by name and by ID (Kian's rulings R5 and K4).
+ */
+export function fetchUnmarkedJobs(id: string): Promise<CleanerResult<{ jobs: UnmarkedJob[]; regularAt?: string[]; regularFor?: RegularProperty[] }>> {
+  return call(
+    `/api/admin/cleaners/${encodeURIComponent(id)}/jobs`,
+    {},
+    'Reading their jobs failed',
+    (data) =>
+      isRecord(data) &&
+      Array.isArray(data.jobs) &&
+      data.jobs.every(isUnmarkedJob) &&
+      (data.regularAt === undefined || (Array.isArray(data.regularAt) && data.regularAt.every((name) => typeof name === 'string'))) &&
+      (data.regularFor === undefined || (Array.isArray(data.regularFor) && data.regularFor.every(isRegularProperty))),
+  );
+}
+
+/** The Team page's schedule read (2026-10-19): each member's regular properties and their count of open jobs from today on. */
+export interface TeamSchedule {
+  today: string;
+  regular: Record<string, RegularProperty[]>;
+  upcoming: Record<string, number>;
+}
+
+export function fetchTeamSchedule(): Promise<CleanerResult<TeamSchedule>> {
+  return call(
+    '/api/admin/cleaners/schedule',
+    {},
+    "Loading the team's regular properties and jobs failed",
+    (data) =>
+      isRecord(data) &&
+      typeof data.today === 'string' &&
+      isRecord(data.regular) &&
+      Object.values(data.regular).every((list) => Array.isArray(list) && list.every(isRegularProperty)) &&
+      isRecord(data.upcoming) &&
+      Object.values(data.upcoming).every((n) => typeof n === 'number'),
+  );
 }
 
 const isLock = (value: unknown): value is SignInLockView =>

@@ -46,12 +46,33 @@
  * and Balance, worked out by the one function (app/lib/pay/balance.ts) from
  * the cost list this page already reads and every payment; the name and
  * "Pay" open the person's pay (PayView.tsx) at ?pay={id}, drawn from what
- * this page holds, so opening a person reads nothing more. A member whose
- * balance is not zero cannot be deleted: the page says so, naming the
- * balance, and the server refuses it too. A failed read shows "could not be
- * read", never a balance that might be wrong. The ID moved to the person's
- * pay, and every action but Pay behind the row's "⋯" (RowMenu.tsx), to make
- * room.
+ * this page holds, so opening a person reads nothing more. A failed read
+ * shows "could not be read", never a balance that might be wrong. The ID
+ * moved to the person's pay, and every action but Pay behind the row's "⋯"
+ * (RowMenu.tsx), to make room.
+ *
+ * ── The Team page, round 1 (the audit of 2026-10-19; Kian's rulings K1–K5) ──
+ * - A fourth read, the team's schedule (/api/admin/cleaners/schedule): each
+ *   person's regular properties (Kian's ruling R5) and their open jobs from
+ *   today on, shown in the row's Schedule cell; the count links to the
+ *   Schedule filtered to them.
+ * - The row's Balance says "· n waiting" while anything of theirs is not
+ *   counted (a cleaning with no amount, a receipt or work under review), and
+ *   reads "Settled" only when nothing waits; the pay view types the missing
+ *   amounts in place (PayView.tsx) and asks before a payment (K1, K2).
+ * - Delete is refused on the page, at no read, while their balance is not
+ *   zero or anything of theirs is not counted (Kian's ruling of 2026-10-15;
+ *   K3), in the words the server refuses it with (pay/checks.ts).
+ * - Deactivating or deleting a regular cleaner lists their properties in the
+ *   same dialog, each with a picker — another active cleaner or Nobody —
+ *   applied with the change and recorded in each property's regular-cleaner
+ *   history (K4; ReplaceRegularDialog.tsx). Existing jobs are unchanged.
+ * - A code change's history entry carries no code (K5): the server blanks
+ *   them on read, and the person's page says "Code changed by <admin> on
+ *   <day>".
+ * - The table fits beside the navigation at 1280 and 1440 with Pay in view:
+ *   Role and Status sit under the name, and the 90-day receipts moved to the
+ *   person's page, with only "Worth a look" kept under the name here.
  *
  * No pagination. The whole collection is one response.
  */
@@ -66,9 +87,10 @@ import { NoticeBanner, useNotice, type Notice } from "../components/Notice";
 import { fetchCosts } from "@/app/lib/costs-client";
 import { distributionText, watchList, type CleanerPattern } from "@/app/lib/costs/patterns";
 import type { CostEntryView } from "@/app/lib/cleaners/model";
-import type { CleaningView } from "@/app/lib/cleanings/model";
+import { cleaningEntryView, type CleaningView } from "@/app/lib/cleanings/model";
 import { fetchPayments } from "@/app/lib/pay-client";
 import { balanceWords, memberPay, type MemberPay } from "@/app/lib/pay/balance";
+import { deleteRefusal } from "@/app/lib/pay/checks";
 import type { PaymentView } from "@/app/lib/pay/model";
 import { formatCents } from "@/app/lib/cleaners/model";
 import { torontoDayOf } from "@/app/lib/costs/report";
@@ -79,11 +101,16 @@ import {
   deleteCleaner,
   fetchCleanerLocks,
   fetchCleaners,
+  fetchTeamSchedule,
   fetchUnmarkedJobs,
   liftCleanerLock,
   suggestCode,
   type CleanerResult,
   type CodeRequest,
+  type RegularProperty,
+  type RegularReplaced,
+  type RegularReplacements,
+  type TeamSchedule,
 } from "@/app/lib/cleaners-client";
 import type { SignInLockView } from "@/app/lib/admins/model";
 import type { UnmarkedJob } from "@/app/lib/schedule/model";
@@ -99,8 +126,10 @@ import {
   type CleanerSummary,
 } from "@/app/lib/cleaners/model";
 import { Absent, FieldText } from "../leads/lead-display";
+import Link from "next/link";
 import { NewMemberDialog } from "./NewMemberDialog";
 import { PayView, plainClick } from "./PayView";
+import { ReplaceRegularDialog, type ReplaceRegularProps } from "./ReplaceRegularDialog";
 import { RowMenu } from "./RowMenu";
 import { useAsk } from "../components/AskDialog";
 import shared from "../page.module.css";
@@ -122,6 +151,9 @@ type PaymentsState = { kind: "loading" } | { kind: "ready"; payments: PaymentVie
 /** A member's pay as the row shows it: worked out, still loading, or not readable — never a guess. */
 type RowPay = { kind: "ready"; pay: MemberPay; unreadable: number } | { kind: "loading" } | { kind: "error"; title: string };
 
+/** The team's schedule (round 1): each person's regular properties and jobs ahead; a failed read is said, never shown as none. */
+type ScheduleState = { kind: "loading" } | { kind: "ready"; data: TeamSchedule } | { kind: "error"; title: string };
+
 /** The cleaner whose code is being changed, as the row showed them. */
 interface CodeEditor {
   id: string;
@@ -136,21 +168,34 @@ const CODE_CHANGE_EFFECT = "The old code stops working at once. Any phone signed
 /** "Lake View (Oct 16), City Skyline (Oct 17)": jobs by property and checkout day. */
 const jobsWords = (jobs: UnmarkedJob[]) => jobs.map((job) => `${job.propertyName ?? "a property"} (${dayText(job.checkout)})`).join(", ");
 
-/** The confirmation's line about the cleaning schedule: the jobs they are on and have not marked, which they come off. */
-async function jobsLine(cleaner: CleanerSummary): Promise<string | null> {
-  if (cleaner.role === "handyman") return null;
+/**
+ * What the deactivate and delete questions say about the cleaning schedule: the jobs they are on and have not marked,
+ * which they come off; and the properties they are the regular cleaner for (Kian's rulings R5 and K4 of 2026-10-19),
+ * which the same dialog offers a replacement for. A handyman has neither.
+ */
+async function jobsAndRegular(cleaner: CleanerSummary): Promise<{ line: string | null; regular: RegularProperty[] }> {
+  if (cleaner.role === "handyman") return { line: null, regular: [] };
   const result = await fetchUnmarkedJobs(cleaner.id);
-  if (!result.ok) return "Their jobs could not be read: they still come off every job they have not marked.";
+  if (!result.ok) return { line: "Their jobs could not be read: they still come off every job they have not marked. The properties they are the regular cleaner for could not be read either: new jobs there will have nobody on them until you choose another on each property's page.", regular: [] };
   const jobs = result.data.jobs;
   const off = jobs.length === 0 ? null : `They come off ${jobs.length === 1 ? "1 job" : `${jobs.length} jobs`} they have not marked: ${jobsWords(jobs)}. Jobs they marked keep their mark and cleaning.`;
-  // The regular cleaner (Kian's ruling R5 of 2026-10-19): deactivated or deleted, they assign nobody.
-  const regular = result.data.regularAt ?? [];
-  const at = regular.length === 0 ? null : `They are the regular cleaner for ${regular.join(", ")}: new jobs there will have nobody on them until you choose another.`;
-  return [off, at].filter(Boolean).join(" ") || null;
+  return { line: off, regular: result.data.regularFor ?? [] };
 }
 
 /** What the answer says they came off, for the notice. */
 const takenOffWords = (jobs: UnmarkedJob[]) => (jobs.length === 0 ? null : `Taken off ${jobs.length === 1 ? "1 job" : `${jobs.length} jobs`}: ${jobsWords(jobs)}.`);
+
+/** What the answer says each replacement did (K4), for the notice. */
+function replacedWords(regular: RegularReplaced[] | undefined): string | null {
+  if (!regular || regular.length === 0) return null;
+  const words = regular.map((r) => {
+    if (r.outcome === "replaced") return `${r.name} → ${r.to?.name ?? "another cleaner"}`;
+    if (r.outcome === "cleared") return `${r.name} → nobody`;
+    if (r.outcome === "not-theirs") return `${r.name}: left as it was (its regular cleaner had already changed)`;
+    return `${r.name}: left as it was (the cleaner chosen is no longer an active cleaner)`;
+  });
+  return `Regular cleaner: ${words.join("; ")}.`;
+}
 
 /** "Oct 14, 19:45", Toronto. */
 const clockWords = (iso: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Toronto", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(iso));
@@ -191,6 +236,10 @@ function Cleaners() {
   const [locks, setLocks] = useState<{ kind: "loading" } | { kind: "ready"; locks: SignInLockView[] } | { kind: "error"; title: string }>({ kind: "loading" });
   const [lifting, setLifting] = useState<string | null>(null);
   const [payments, setPayments] = useState<PaymentsState>({ kind: "loading" });
+  /** The team's schedule: regular properties and jobs ahead, per person (round 1). */
+  const [schedule, setSchedule] = useState<ScheduleState>({ kind: "loading" });
+  /** The K4 question open now: a deactivation or delete of a regular cleaner, with a picker per property. */
+  const [replacing, setReplacing] = useState<ReplaceRegularProps | null>(null);
   /** The person whose pay is open (?pay={id}), or null for the list. */
   const payId = useSearchParams().get("pay");
 
@@ -256,6 +305,30 @@ function Cleaners() {
     };
   }, [attempt]);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetchTeamSchedule().then((result) => {
+      if (!cancelled) setSchedule(result.ok ? { kind: "ready", data: result.data } : { kind: "error", title: result.title });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [attempt]);
+
+  /** Ask the K4 question: the deactivate or delete lines, and a picker per regular property; the replacements, or null for no. */
+  const askReplacing = (question: Omit<ReplaceRegularProps, "onAnswer">) =>
+    new Promise<RegularReplacements | null>((resolve) => {
+      setReplacing({
+        ...question,
+        onAnswer: (answer) => {
+          setReplacing(null);
+          resolve(answer);
+        },
+      });
+    });
+  /** The active cleaners a property can go to, the person leaving left out. */
+  const choicesWithout = (id: string) => (list.kind === "ready" ? list.cleaners.filter((c) => c.id !== id && c.role === "cleaner" && c.status === "active").map((c) => ({ id: c.id, name: c.name })) : []);
+
   /** Open a person's pay, or go back to the list: the address changes, nothing is read again. */
   const openPay = (id: string) => {
     clearNotice();
@@ -278,11 +351,21 @@ function Cleaners() {
     );
   };
 
+  /** A cleaning as the server stored it after its amount was typed on the pay view: in place of the one held, and of its entry view. */
+  const putCleaning = (cleaning: CleaningView) => {
+    setPatterns((prev) => {
+      if (prev.kind !== "ready") return prev;
+      const entry = cleaningEntryView(cleaning);
+      return { ...prev, cleanings: prev.cleanings.map((c) => (c.id === cleaning.id ? cleaning : c)), entries: prev.entries.map((e) => (e.id === cleaning.id && e.kind === "cleaning" ? entry : e)) };
+    });
+  };
+
   const reload = () => {
     setList({ kind: "loading" });
     setPatterns({ kind: "loading" });
     setPayments({ kind: "loading" });
     setLocks({ kind: "loading" });
+    setSchedule({ kind: "loading" });
     setAttempt((n) => n + 1);
   };
 
@@ -368,16 +451,21 @@ function Cleaners() {
   const changeStatus = async (cleaner: CleanerSummary, target: CleanerStatus) => {
     if (busy) return;
     const who = displayName(cleaner.name);
-    const jobs = target === "deactivated" ? await jobsLine(cleaner) : null;
-    const yes =
-      target === "deactivated"
-        ? await ask({ title: `Deactivate ${who}?`, lines: ["Their code stops working at once and any signed-in phone is signed out. Their entries keep their name.", jobs], confirm: "Deactivate", danger: true })
-        : await ask({ title: `Reactivate ${who}?`, lines: ["Their existing code works again. Phones signed in before are still signed out.", "They are put back on no job."], confirm: "Reactivate" });
-    if (!yes) return;
+    let replacements: RegularReplacements = {};
+    if (target === "deactivated") {
+      const { line, regular } = await jobsAndRegular(cleaner);
+      const lines = ["Their code stops working at once and any signed-in phone is signed out. Their entries keep their name.", line];
+      if (regular.length > 0) {
+        // Kian's ruling K4: the same dialog lists their regular properties, each with a picker.
+        const answer = await askReplacing({ title: `Deactivate ${who}?`, lines, properties: regular, choices: choicesWithout(cleaner.id), confirm: "Deactivate", danger: true });
+        if (answer === null) return;
+        replacements = answer;
+      } else if (!(await ask({ title: `Deactivate ${who}?`, lines, confirm: "Deactivate", danger: true }))) return;
+    } else if (!(await ask({ title: `Reactivate ${who}?`, lines: ["Their existing code works again. Phones signed in before are still signed out.", "They are put back on no job."], confirm: "Reactivate" }))) return;
 
     clearNotice();
     setSaving({ id: cleaner.id, what: "status" });
-    const result = await changeCleanerStatus(cleaner.id, target);
+    const result = await changeCleanerStatus(cleaner.id, target, replacements);
     setSaving(null);
 
     if (!result.ok) {
@@ -394,10 +482,15 @@ function Cleaners() {
     }
 
     replaceRow(result.data.cleaner);
+    if (result.data.changed && target === "deactivated") {
+      // Their regular properties and jobs changed hands: the Schedule cells follow, in one read.
+      setSchedule({ kind: "loading" });
+      void fetchTeamSchedule().then((r) => setSchedule(r.ok ? { kind: "ready", data: r.data } : { kind: "error", title: r.title }));
+    }
     const label = CLEANER_STATUS_LABELS[target].toLowerCase();
     showNotice(
       result.data.changed
-        ? { tone: "success", title: `${target === "deactivated" ? "Deactivated" : "Reactivated"} ${who}.`, detail: takenOffWords(result.data.jobsTakenOff ?? []) ?? undefined }
+        ? { tone: "success", title: `${target === "deactivated" ? "Deactivated" : "Reactivated"} ${who}.`, detail: [takenOffWords(result.data.jobsTakenOff ?? []), replacedWords(result.data.regular)].filter(Boolean).join(" ") || undefined }
         : { tone: "info", title: `Nothing was changed: ${who} was already ${label}.` },
     );
   };
@@ -463,15 +556,13 @@ function Cleaners() {
   const remove = async (cleaner: CleanerSummary) => {
     if (busy) return;
     const who = displayName(cleaner.name);
-    // Kian's ruling of 2026-10-15: a member whose balance is not zero is never deleted. Said here without asking;
-    // the server refuses it too.
+    // Kian's rulings of 2026-10-15 and K3 of 2026-10-19: a member whose balance is not zero, or with a cleaning with no
+    // amount or a receipt or work not yet decided, is never deleted. Said here without asking, in the server's own words
+    // (pay/checks.ts); the server refuses it too.
     const rowPay = payOf(cleaner.id);
-    if (rowPay.kind === "ready" && (rowPay.pay.balanceCents !== 0 || rowPay.pay.cannotAddUp > 0 || rowPay.unreadable > 0)) {
-      showNotice({
-        tone: "error",
-        title: rowPay.pay.balanceCents !== 0 ? `${who}'s balance is ${balanceWords(rowPay.pay.balanceCents).words}, so they cannot be deleted.` : `${who}'s balance cannot be worked out, so they cannot be deleted.`,
-        detail: "Deactivate them instead. Nothing was deleted.",
-      });
+    const refusal = rowPay.kind === "ready" ? deleteRefusal(rowPay.pay, rowPay.unreadable, who) : null;
+    if (refusal) {
+      showNotice({ tone: "error", title: refusal.message, detail: refusal.hint });
       return;
     }
     const role = isCleanerRole(cleaner.role) ? CLEANER_ROLE_LABELS[cleaner.role] : cleaner.role;
@@ -487,18 +578,19 @@ function Cleaners() {
           ? "They logged no entries."
           : `They logged ${theirs.length === 1 ? "1 entry" : `${theirs.length} entries`}${pending > 0 ? ` (${pending} pending review)` : ""}; those stay on the ledger under the name “${cleaner.name ?? who}”.`;
     const cleaningsLine = cleaned === 0 ? null : `${cleaned === 1 ? "1 cleaning" : `${cleaned} cleanings`} done by them ${cleaned === 1 ? "stays" : "stay"}, under the same name.`;
-    const jobs = await jobsLine(cleaner);
-    const yes = await ask({
-      title: `Delete ${who} for good?`,
-      lines: [`${role}${cleaner.code ? `, code ${cleaner.code}` : ", no code on record"}. The code stops working at once; any signed-in phone is signed out.`, entriesLine, cleaningsLine, jobs, "The account cannot be reactivated. This cannot be undone."],
-      confirm: "Delete for good",
-      danger: true,
-    });
-    if (!yes) return;
+    const { line: jobs, regular } = await jobsAndRegular(cleaner);
+    const lines = [`${role}${cleaner.code ? `, code ${cleaner.code}` : ", no code on record"}. The code stops working at once; any signed-in phone is signed out.`, entriesLine, cleaningsLine, jobs, "The account cannot be reactivated. This cannot be undone."];
+    let replacements: RegularReplacements = {};
+    if (regular.length > 0) {
+      // Kian's ruling K4: the same dialog lists their regular properties, each with a picker.
+      const answer = await askReplacing({ title: `Delete ${who} for good?`, lines, properties: regular, choices: choicesWithout(cleaner.id), confirm: "Delete for good", danger: true });
+      if (answer === null) return;
+      replacements = answer;
+    } else if (!(await ask({ title: `Delete ${who} for good?`, lines, confirm: "Delete for good", danger: true }))) return;
 
     clearNotice();
     setSaving({ id: cleaner.id, what: "delete" });
-    const result = await deleteCleaner(cleaner.id);
+    const result = await deleteCleaner(cleaner.id, replacements);
     setSaving(null);
 
     if (!result.ok) {
@@ -511,10 +603,11 @@ function Cleaners() {
     }
     setList((prev) => (prev.kind === "ready" ? { kind: "ready", cleaners: prev.cleaners.filter((c) => c.id !== cleaner.id) } : prev));
     const offWords = takenOffWords(result.data.jobsTakenOff ?? []);
+    const regularWords = replacedWords(result.data.regular);
     showNotice({
       tone: "success",
       title: `Deleted ${who}.`,
-      detail: `Their code no longer works.${theirs && theirs.length > 0 ? ` ${theirs.length === 1 ? "1 entry stays" : `${theirs.length} entries stay`} on the ledger under their name.` : ""}${offWords ? ` ${offWords}` : ""}`,
+      detail: `Their code no longer works.${theirs && theirs.length > 0 ? ` ${theirs.length === 1 ? "1 entry stays" : `${theirs.length} entries stay`} on the ledger under their name.` : ""}${offWords ? ` ${offWords}` : ""}${regularWords ? ` ${regularWords}` : ""}`,
     });
   };
 
@@ -568,9 +661,11 @@ function Cleaners() {
             list={list}
             patterns={patterns}
             payments={payments}
+            schedule={schedule}
             onBack={closePay}
             onRetry={reload}
             onPayment={putPayment}
+            onCleaning={putCleaning}
             show={showNotice}
             clear={clearNotice}
             ask={ask}
@@ -679,10 +774,8 @@ function Cleaners() {
                   <thead>
                     <tr>
                       <th>Name</th>
-                      <th>Role</th>
                       <th>Code</th>
-                      <th>Status</th>
-                      <th>Last 90 days</th>
+                      <th>Schedule</th>
                       <th className={styles.payHead}>Earned</th>
                       <th className={styles.payHead}>Paid</th>
                       <th className={styles.payHead}>Balance</th>
@@ -706,18 +799,18 @@ function Cleaners() {
                             >
                               <FieldText value={cleaner.name} />
                             </a>
-                          </td>
-                          <td>
-                            <RoleBadge role={cleaner.role} />
+                            {/* Role and status under the name (round 1): two columns fewer, so the table fits beside the navigation. */}
+                            <span className={styles.nameBadges}>
+                              <RoleBadge role={cleaner.role} />
+                              <StatusBadge status={cleaner.status} />
+                            </span>
+                            <WorthALook cleaner={cleaner} state={patterns} />
                           </td>
                           <td>
                             <CodeCell code={cleaner.code} />
                           </td>
-                          <td>
-                            <StatusBadge status={cleaner.status} />
-                          </td>
-                          <td className={styles.patternCell}>
-                            <Pattern cleaner={cleaner} state={patterns} />
+                          <td className={styles.scheduleCell}>
+                            <ScheduleCell cleaner={cleaner} state={schedule} />
                           </td>
                           <PayCells pay={payOf(cleaner.id)} />
                           <td className={styles.actionCell}>
@@ -794,12 +887,13 @@ function Cleaners() {
         />
       )}
       {dialog}
+      {replacing && <ReplaceRegularDialog key={replacing.title} {...replacing} />}
     </div>
   );
 }
 
 /** A person's pay (?pay={id}), once the team, the cost list and the payments are in; a failed read is said, never shown as nothing. */
-function PayBranch({ payId, list, patterns, payments, onBack, onRetry, onPayment, show, clear, ask }: { payId: string; list: ListState; patterns: PatternsState; payments: PaymentsState; onBack: () => void; onRetry: () => void; onPayment: (payment: PaymentView) => void } & Pick<Parameters<typeof PayView>[0], "show" | "clear" | "ask">) {
+function PayBranch({ payId, list, patterns, payments, schedule, onBack, onRetry, onPayment, onCleaning, show, clear, ask }: { payId: string; list: ListState; patterns: PatternsState; payments: PaymentsState; schedule: ScheduleState; onBack: () => void; onRetry: () => void; onPayment: (payment: PaymentView) => void; onCleaning: (cleaning: CleaningView) => void } & Pick<Parameters<typeof PayView>[0], "show" | "clear" | "ask">) {
   const failed = list.kind === "error" ? list.title : patterns.kind === "error" ? patterns.title : payments.kind === "error" ? payments.title : null;
   if (failed !== null) {
     return (
@@ -836,6 +930,8 @@ function PayBranch({ payId, list, patterns, payments, onBack, onRetry, onPayment
       </div>
     );
   }
+  const pattern = member.role === "handyman" ? null : patterns.patterns.find((p) => p.cleanerId === member.id);
+  const patternWords = member.role === "handyman" ? null : pattern ? `${distributionText(pattern)}${pattern.worthALook ? ` · Worth a look: ${pattern.reasons.join("; ")}` : ""}` : "no receipts";
   return (
     <PayView
       key={member.id}
@@ -844,14 +940,57 @@ function PayBranch({ payId, list, patterns, payments, onBack, onRetry, onPayment
       entries={patterns.entries}
       payments={payments.payments}
       unreadablePayments={payments.unreadable}
+      schedule={schedule.kind === "ready" ? { regular: schedule.data.regular[member.id] ?? [], upcoming: schedule.data.upcoming[member.id] ?? 0 } : null}
+      patternWords={patternWords}
       today={torontoDayOf(new Date())}
       onBack={onBack}
       onRefresh={onRetry}
       onPayment={onPayment}
+      onCleaning={onCleaning}
       show={show}
       clear={clear}
       ask={ask}
     />
+  );
+}
+
+/**
+ * The row's Schedule cell (round 1): the properties they are the regular cleaner for, and their open jobs from today
+ * on, the count linking to the Schedule filtered to them. A handyman has neither; a failed read is said.
+ */
+function ScheduleCell({ cleaner, state }: { cleaner: CleanerSummary; state: ScheduleState }) {
+  if (cleaner.role === "handyman") return <span className={styles.patternMuted}>Logs work</span>;
+  if (state.kind === "loading") return <span className={styles.patternMuted}>…</span>;
+  if (state.kind === "error") {
+    return (
+      <span className={styles.patternWarn} title={state.title}>
+        Could not be read
+      </span>
+    );
+  }
+  const regular = state.data.regular[cleaner.id] ?? [];
+  const upcoming = state.data.upcoming[cleaner.id] ?? 0;
+  return (
+    <>
+      <span className={styles.scheduleLine} title={regular.map((p) => p.name).join(", ") || undefined}>
+        {regular.length === 0 ? "Regular for no property" : `Regular for ${regular.length === 1 ? "1 property" : `${regular.length} properties`}`}
+      </span>
+      <Link href={`/admin/schedule?cleaner=${encodeURIComponent(cleaner.id)}`} prefetch={false} className={`${styles.scheduleLine} ${styles.scheduleLink}`}>
+        {upcoming === 0 ? "No job ahead" : upcoming === 1 ? "1 job ahead" : `${upcoming} jobs ahead`}
+      </Link>
+    </>
+  );
+}
+
+/** Under the name: "Worth a look" and why, only when the 90-day pattern says so (the words themselves moved to the person's page). */
+function WorthALook({ cleaner, state }: { cleaner: CleanerSummary; state: PatternsState }) {
+  if (cleaner.role === "handyman" || state.kind !== "ready") return null;
+  const pattern = state.patterns.find((p) => p.cleanerId === cleaner.id);
+  if (!pattern || !pattern.worthALook) return null;
+  return (
+    <span className={`${styles.nameNote} ${styles.patternWarn}`} title={distributionText(pattern)}>
+      Worth a look: {pattern.reasons.join("; ")}
+    </span>
   );
 }
 
@@ -871,12 +1010,15 @@ function PayCells({ pay }: { pay: RowPay }) {
   }
   const balance = balanceWords(pay.pay.balanceCents);
   const uncertain = pay.pay.cannotAddUp + pay.unreadable;
+  const waiting = pay.pay.waiting;
   return (
     <>
       <td className={styles.payCell}>{formatCents(pay.pay.earnedCents)}</td>
       <td className={styles.payCell}>{formatCents(pay.pay.paidCents)}</td>
       <td className={`${styles.payCell} ${balance.tone === "overpaid" || uncertain > 0 ? styles.payWarn : ""}`}>
-        {balance.tone === "settled" ? <span className={styles.muted}>—</span> : balance.words}
+        {/* "Settled" only when nothing waits (round 1): a dash with items not counted would read as nothing owed. */}
+        {balance.tone === "settled" ? waiting > 0 ? <span className={styles.muted}>$0.00 so far</span> : <span className={styles.muted}>—</span> : balance.words}
+        {waiting > 0 && <span className={`${styles.payNote} ${styles.payWarn}`}> · {waiting === 1 ? "1 waiting" : `${waiting} waiting`}</span>}
         {uncertain > 0 && <span className={styles.payNote}> · {uncertain === 1 ? "1 record" : `${uncertain} records`} left out</span>}
       </td>
     </>
@@ -913,27 +1055,6 @@ function RoleBadge({ role }: { role: string }) {
   return (
     <span className={`${styles.badge} ${styles.badgeOdd}`} title="Not one of cleaner or handyman">
       {role.trim() === "" ? "Empty" : role}
-    </span>
-  );
-}
-
-/** A cleaner's last 90 days in words; a handyman has no receipts to count; a failed read is said, never shown as nothing. */
-function Pattern({ cleaner, state }: { cleaner: CleanerSummary; state: PatternsState }) {
-  if (cleaner.role === "handyman") return <span className={styles.patternMuted}>Logs work, not receipts</span>;
-  if (state.kind === "loading") return <span className={styles.patternMuted}>…</span>;
-  if (state.kind === "error") {
-    return (
-      <span className={styles.patternWarn} title={state.title}>
-        Could not be read
-      </span>
-    );
-  }
-  const pattern = state.patterns.find((p) => p.cleanerId === cleaner.id);
-  if (!pattern) return <span className={styles.patternMuted}>No receipts in the last 90 days</span>;
-  return (
-    <span className={pattern.worthALook ? styles.patternWarn : undefined}>
-      {distributionText(pattern)}
-      {pattern.worthALook && ` · Worth a look: ${pattern.reasons.join("; ")}`}
     </span>
   );
 }

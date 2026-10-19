@@ -56,7 +56,7 @@ export const DeleteCleaningSchema = z.strictObject({
   seen: z.number().int().min(0).max(1_000_000),
 });
 
-/** A cleaner's one default rate (Kian's ruling of 2026-10-13), or null to have none. */
+/** The account's default rate (Kian's ruling of 2026-10-13; retired by the ruling of 2026-10-19: presets per property), or null to have none. The route stays, unused. */
 export const DefaultRateSchema = z.strictObject({
   defaultRate: AmountSchema.nullable(),
 });

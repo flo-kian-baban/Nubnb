@@ -83,7 +83,8 @@ async function regularCleanersOf(db: Firestore, propertyIds: string[]): Promise<
   const named = new Map<string, string>();
   for (const doc of records) {
     const record = doc.exists ? readRegularCleaner(doc.id, doc.data() ?? {}) : null;
-    if (record) named.set(doc.id, record.cleanerId);
+    // A version 2 record naming nobody (cleared, or replaced by nobody when its cleaner left: Kian's ruling K4) assigns nobody.
+    if (record && record.cleanerId !== null) named.set(doc.id, record.cleanerId);
   }
   const cleanerIds = [...new Set(named.values())];
   const accounts = cleanerIds.length ? await db.getAll(...cleanerIds.map((id) => db.collection('cleaners').doc(id)), { fieldMask: ['name', 'role', 'status'] }) : [];

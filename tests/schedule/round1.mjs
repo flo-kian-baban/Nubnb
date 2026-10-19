@@ -125,11 +125,17 @@ await set('an account that does not exist', GONE.id);
 const made = await set('Ana, active', ANA.id);
 await set('Ana again', ANA.id);
 const view = await srv.getRegularCleaner(P(7), true);
-console.log(`  read back: ${JSON.stringify({ ...view.regular, setAt: '…' })} · choices ${view.choices.map((c) => c.name).join(', ')}`);
+// The record's history (schema version 2, Kian's ruling K4 of 2026-10-19) carries the run's time: printed without it.
+const eventsOf = (history) => history.map((e) => `${e.action} ${e.from?.name ?? 'nobody'} → ${e.to?.name ?? 'nobody'}${e.reason ? ` (${e.reason})` : ''} by ${e.actor.name}`).join('; ');
+console.log(`  read back: ${JSON.stringify({ ...view.regular, setAt: '…', history: undefined })} · history: ${eventsOf(view.regular.history)} · choices ${view.choices.map((c) => c.name).join(', ')}`);
 console.log(`  Ana is the regular cleaner for: ${(await srv.regularAt(ANA.id)).join(', ')}`);
 check(made.kind === 'set' && view.regular.assigns === true && view.choices.every((c) => c.id !== BEN.id && c.id !== HANDY.id), 'only an active cleaner is set; the choices are the active cleaners');
 const cleared = await set('cleared', null);
-check(cleared.kind === 'cleared' && doc(reg.PROPERTY_REGULAR_CLEANERS_COLLECTION, P(7)) === null, 'clearing it deletes the record');
+const kept = doc(reg.PROPERTY_REGULAR_CLEANERS_COLLECTION, P(7));
+const keptRead = kept ? reg.readRegularCleaner(P(7), kept) : null;
+console.log(`  after clearing: record kept ${kept !== null} · names ${keptRead?.cleanerId ?? 'nobody'} · schema ${keptRead?.schemaVersion} · history: ${keptRead ? eventsOf(keptRead.history) : '-'} · read back as ${JSON.stringify((await srv.getRegularCleaner(P(7))).regular)}`);
+check(cleared.kind === 'cleared' && keptRead !== null && keptRead.cleanerId === null && keptRead.history.map((e) => e.action).join(',') === 'set,cleared', 'clearing it keeps the record naming nobody, with its history (schema version 2; Kian\'s ruling K4 of 2026-10-19), and it reads back as none');
+check((await set('cleared again', null)).kind === 'unchanged', 'clearing a record that names nobody writes nothing');
 check((await srv.setRegularCleaner(ADMIN, 'TESTPROPnosuchone001', ANA.id)).kind === 'no-such-property', 'a property that does not exist: refused');
 for (const field of reg.REGULAR_CLEANER_FIELDS) {
   const parsed = UpdatePropertySchema.safeParse({ name: 'x', [field]: ANA.id });

@@ -1,9 +1,9 @@
 /**
  * Team pay: the one function that works out what a team member is owed and has been paid (Kian's rulings of
  * 2026-10-15, in CLAUDE.md under *Team pay*; TEAM-PAY-PLAN.md §2). The Team page runs it over the cleanings and cost
- * entries it already loads, and every payment; the cleaner app's start call runs it on the server over that person's
- * own, and sends only their figures (ruling 6); deleting a team member runs it inside the delete. Pure and
- * client-safe: nothing here reads or writes.
+ * entries it already loads, and every payment; deleting a team member runs it inside the delete. The cleaner app shows
+ * no pay (Kian's ruling of 2026-10-16, replacing ruling 6), so nothing of it runs for a cleaner. Pure and client-safe:
+ * nothing here reads or writes.
  *
  * ── What is owed (ruling 1) ──
  *   a cleaning       theirs, logged (not removed), with an amount: its amount
@@ -104,8 +104,12 @@ export interface MemberPay {
   paidCents: number;
   balanceCents: number;
   parts: { cleaningsCents: number; receiptsCents: number; workCents: number };
-  /** Listed, not yet counted: a cleaning with no amount yet, a receipt or work waiting for review. */
+  /** Listed, not yet counted: a cleaning with no amount yet, a receipt or work waiting for review (`noAmount` + `waitingReview`). */
   waiting: number;
+  /** Their cleanings with no amount yet (Kian's rulings K1 and K3 of 2026-10-19 name them apart). */
+  noAmount: number;
+  /** Their receipts and work waiting for review. */
+  waitingReview: number;
   /** Entries whose lines cannot be read: left out of the balance, which is then never shown as whole. */
   cannotAddUp: number;
   /** Newest first. */
@@ -330,6 +334,8 @@ export function memberPay(memberId: string, sources: PaySources, range?: { from:
       workCents: sum(rows.filter((row) => row.kind === 'work'), (row) => row.earnedCents),
     },
     waiting: rows.filter((row) => row.state === 'waiting' || row.state === 'no-amount').length,
+    noAmount: rows.filter((row) => row.state === 'no-amount').length,
+    waitingReview: rows.filter((row) => row.state === 'waiting').length,
     cannotAddUp: rows.filter((row) => row.state === 'cannot-add-up').length,
     rows,
     range: range

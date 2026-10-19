@@ -313,6 +313,22 @@ export function fetchCleanings(): Promise<CostResult<CleaningsRead>> {
   );
 }
 
+/** What missing amounts start from (the Team page's pay view, 2026-10-19): the named properties' presets and the named jobs' stay and cleaner count, for prices.ts `missingAmountStart`. */
+export function fetchAmountStarts(propertyIds: readonly string[], jobIds: readonly string[]): Promise<CostResult<{ prices: Record<string, CleaningPrices>; jobs: Record<string, { nights: number; cleaners: number }> }>> {
+  const query = new URLSearchParams({ properties: propertyIds.join(','), jobs: jobIds.join(',') });
+  return call(
+    `/api/admin/cleanings/starts?${query.toString()}`,
+    {},
+    'Reading what the amounts start from failed',
+    (data) =>
+      isRecord(data) &&
+      isRecord(data.prices) &&
+      Object.values(data.prices).every(isPrices) &&
+      isRecord(data.jobs) &&
+      Object.values(data.jobs).every((job) => isRecord(job) && typeof job.nights === 'number' && typeof job.cleaners === 'number'),
+  );
+}
+
 /** What a cleaning logged by hand for this property and day starts from (Kian's ruling of 2026-10-19): the preset by the stay of its job that day, else the short-term preset. */
 export function fetchCleaningSuggestion(propertyId: string, day: string): Promise<CostResult<{ from: PresetKind; cents: number | null; nights: number; job: boolean }>> {
   return call(

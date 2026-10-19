@@ -1090,14 +1090,15 @@ async function lookUpAllProperties(): Promise<Map<string, PropertyNow> | null> {
  */
 export async function listCosts(): Promise<CostsView> {
   const db = getAdminDb();
-  const [snapshot, exported, properties, cleanings, team] = await Promise.all([
+  const [snapshot, exported, properties, team] = await Promise.all([
     db.collection(COST_ENTRIES_COLLECTION).get(),
     db.collection(COST_REPORT_EXPORTS_COLLECTION).get(),
     lookUpAllProperties(),
-    // Cleanings (dispatch 37B): costs the statements read, each one an entry of kind `cleaning` below.
-    listCleanings(),
     listTeamChoices(),
   ]);
+  // Cleanings (dispatch 37B): costs the statements read, each one an entry of kind `cleaning` below. Their properties
+  // were just read, so none is looked up a second time (the Team page audit of 2026-10-19 counted 54 repeats).
+  const cleanings = await listCleanings(properties);
   const entries = snapshot.docs.map((doc) => readCostEntryFields(doc.id, doc.data()));
   const cleaners = await lookUpCleaners(distinctIds(entries.map((entry) => entry.cleanerId)));
 

@@ -63,7 +63,10 @@ import { getAdminDb } from './admin';
 import { adminPinHolds, countTry, lockStateOf, readConnectionLock } from './server-admins';
 import { readUnmarkedJobs, takeOffJobs } from './server-cleaning-jobs';
 import { memberPaySources } from './server-pay';
+import { readRegularReplacements, type RegularReplaced } from './server-regular-cleaners';
 import { memberPay } from '@/app/lib/pay/balance';
+import { deleteRefusal, type DeleteRefusal } from '@/app/lib/pay/checks';
+import type { RegularReplacements } from '@/app/lib/schedule/regular';
 import type { UnmarkedJob } from '@/app/lib/schedule/model';
 import { isDocumentId } from './server-leads';
 import { DAILY_TRIES, MAX_WRONG_TRIES, afterTry, lockHolding, type LockState, type SignInLockView } from '@/app/lib/admins/model';
@@ -422,9 +425,11 @@ async function issueTyped(
 export type SetCleanerStatusResult =
   /**
    * `changed` is false when the cleaner already had that status: nothing was written. `jobsTakenOff`: the jobs a
-   * deactivation took them off, which they were on and had not marked (the cleaning schedule, 2026-10-14).
+   * deactivation took them off, which they were on and had not marked (the cleaning schedule, 2026-10-14). `regular`:
+   * the properties whose regular cleaner they were, with what the admin's replacements did (Kian's ruling K4 of
+   * 2026-10-19).
    */
-  | { kind: 'done'; cleaner: CleanerSummary; changed: boolean; jobsTakenOff: UnmarkedJob[] }
+  | { kind: 'done'; cleaner: CleanerSummary; changed: boolean; jobsTakenOff: UnmarkedJob[]; regular: RegularReplaced[] }
   /** No cleaner has this ID. */
   | { kind: 'not-found' }
   /** The stored session epoch or history is not in a shape that can be advanced. Nothing was written. */
@@ -439,11 +444,18 @@ export type SetCleanerStatusResult =
  * stops working on the next request — and stays dead after a reactivation,
  * which covers a lost phone. The code itself is untouched: reactivation
  * makes the same code work again.
+ *
+ * `replacements` (Kian's ruling K4 of 2026-10-19), on a deactivation: for each
+ * property they are the regular cleaner for, another active cleaner or null
+ * for nobody, applied in the same transaction and recorded in each property's
+ * regular-cleaner history. Existing jobs are not changed by it: they come off
+ * the jobs they had not marked, as before, and nobody is put on in their place.
  */
 export async function setCleanerStatus(
   actor: Actor,
   id: string,
   target: CleanerStatus,
+  replacements: RegularReplacements = {},
 ): Promise<SetCleanerStatusResult> {
   if (!isDocumentId(id)) return { kind: 'not-found' };
 
@@ -457,14 +469,16 @@ export async function setCleanerStatus(
 
       const stored = snap.data() ?? {};
       if (stored.status === target) {
-        return { kind: 'done', cleaner: readCleanerSummary(id, stored), changed: false, jobsTakenOff: [] };
+        return { kind: 'done', cleaner: readCleanerSummary(id, stored), changed: false, jobsTakenOff: [], regular: [] };
       }
 
       const epoch: unknown = stored.sessionEpoch;
       const history: unknown = stored.history;
       if (!isSessionEpoch(epoch) || !Array.isArray(history)) return { kind: 'unreadable' };
       // Deactivated, they come off every job they are on and have not marked; a reactivation puts them back on none.
+      // Every read before the first write: the jobs, then the regular-cleaner records and the replacements' accounts.
       const jobs = target === 'deactivated' ? await readUnmarkedJobs(tx, id) : [];
+      const regular = target === 'deactivated' ? await readRegularReplacements(tx, id, replacements) : null;
 
       const now = new Date().toISOString();
       const event: HistoryEvent = {
@@ -484,7 +498,8 @@ export async function setCleanerStatus(
 
       tx.update(ref, changes);
       const jobsTakenOff = takeOffJobs(tx, jobs, id, actor, 'deactivated', now);
-      return { kind: 'done', cleaner: readCleanerSummary(id, { ...stored, ...changes }), changed: true, jobsTakenOff };
+      const replaced = regular ? regular.apply(actor, 'deactivated', now) : [];
+      return { kind: 'done', cleaner: readCleanerSummary(id, { ...stored, ...changes }), changed: true, jobsTakenOff, regular: replaced };
     });
   } catch (err) {
     console.error(`[cleaners] status change failed: grpc code ${grpcCode(err)}`);
@@ -514,9 +529,10 @@ export const RATE_REFUSALS: Record<Exclude<SetDefaultRateResult['kind'], 'done'>
 const rateWords = (cents: number | null) => (cents === null ? 'none' : `$${(cents / 100).toFixed(2)}`);
 
 /**
- * Set a cleaner's one default rate for a cleaning, or clear it (Kian's ruling of 2026-10-13: one default rate per
- * cleaner, no per-property rate, no dated rates). One transaction: the rate and a history event saying what it was
- * and what it is. No cleaning already logged changes: each keeps the amount it was logged with.
+ * Set the account's default rate, or clear it (Kian's ruling of 2026-10-13: one default rate per cleaner). Retired by
+ * Kian's ruling of 2026-10-19 (cleaning prices are presets per property): nothing reads the rate any more and no page
+ * calls this; it stays for the unused route. One transaction: the rate and a history event saying what it was and what
+ * it is. No cleaning already logged changes: each keeps the amount it was logged with.
  */
 export async function setCleanerDefaultRate(actor: Actor, id: string, cents: number | null): Promise<SetDefaultRateResult> {
   if (!isDocumentId(id)) return { kind: 'not-found' };
@@ -724,19 +740,21 @@ async function writeCode(
 // ─── Delete ────────────────────────────────────────────────────
 
 export type DeleteCleanerResult =
-  /** The account is gone; `codes` is how many of its code documents were retired (current and replaced); `jobsTakenOff` the jobs it was on and had not marked. */
-  | { kind: 'deleted'; cleaner: CleanerSummary; codes: number; jobsTakenOff: UnmarkedJob[] }
+  /** The account is gone; `codes` is how many of its code documents were retired (current and replaced); `jobsTakenOff` the jobs it was on and had not marked; `regular` what the admin's replacements did (Kian's ruling K4). */
+  | { kind: 'deleted'; cleaner: CleanerSummary; codes: number; jobsTakenOff: UnmarkedJob[]; regular: RegularReplaced[] }
   /** No cleaner has this ID. */
   | { kind: 'not-found' }
   /**
-   * Their balance is not zero, or cannot be worked out (`uncertain`: their entries that cannot add up and records not
-   * in shape): Kian's ruling of 2026-10-15, they cannot be deleted; deactivate them instead. Nothing was written.
+   * Their balance is not zero, or cannot be worked out (records of theirs not in shape, entries that cannot add up),
+   * or something of theirs is not counted yet — a cleaning with no amount, a receipt or work waiting for review (Kian's
+   * rulings of 2026-10-15 and K3 of 2026-10-19): they cannot be deleted; deactivate them instead. The refusal's words
+   * are the page's (pay/checks.ts). Nothing was written.
    */
-  | { kind: 'has-balance'; balanceCents: number; uncertain: number; name: string | null }
+  | { kind: 'cannot-delete'; refusal: DeleteRefusal; balanceCents: number; noAmount: number; waitingReview: number; uncertain: number; name: string | null }
   /** The transaction failed: it may or may not have landed. */
   | { kind: 'failed' };
 
-export const DELETE_CLEANER_REFUSALS: Record<Exclude<DeleteCleanerResult['kind'], 'deleted' | 'has-balance'>, Refusal> = {
+export const DELETE_CLEANER_REFUSALS: Record<Exclude<DeleteCleanerResult['kind'], 'deleted' | 'cannot-delete'>, Refusal> = {
   'not-found': {
     status: 404,
     code: 'CLEANER_NOT_FOUND',
@@ -768,8 +786,13 @@ export const DELETE_CLEANER_REFUSALS: Record<Exclude<DeleteCleanerResult['kind']
  * Returns the account as it was, for the page's notice. The code documents
  * are counted, never listed: a code never leaves this module but through the
  * list and the create.
+ *
+ * `replacements` (Kian's ruling K4 of 2026-10-19): for each property they are
+ * the regular cleaner for, another active cleaner or null for nobody, applied
+ * in the same transaction and recorded in each property's regular-cleaner
+ * history. Existing jobs are not changed by it.
  */
-export async function deleteCleaner(actor: Actor, id: string): Promise<DeleteCleanerResult> {
+export async function deleteCleaner(actor: Actor, id: string, replacements: RegularReplacements = {}): Promise<DeleteCleanerResult> {
   if (!isDocumentId(id)) return { kind: 'not-found' };
 
   try {
@@ -780,15 +803,18 @@ export async function deleteCleaner(actor: Actor, id: string): Promise<DeleteCle
     return await db.runTransaction(async (tx): Promise<DeleteCleanerResult> => {
       const [snap, theirs] = await Promise.all([tx.get(ref), tx.get(codes)]);
       if (!snap.exists) return { kind: 'not-found' };
-      // A team member whose balance is not zero is never deleted (Kian's ruling of 2026-10-15): worked out by the one
-      // function, from their cleanings, entries and payments read in this transaction.
+      // A team member whose balance is not zero is never deleted (Kian's ruling of 2026-10-15), nor one with a cleaning
+      // with no amount or a receipt or work not yet decided (Kian's ruling K3 of 2026-10-19): worked out by the one
+      // function, from their cleanings, entries and payments read in this transaction, refused in the page's words.
       const { sources, unreadable } = await memberPaySources(id, tx);
       const pay = memberPay(id, sources);
-      if (pay.balanceCents !== 0 || pay.cannotAddUp > 0 || unreadable > 0) {
-        return { kind: 'has-balance', balanceCents: pay.balanceCents, uncertain: pay.cannotAddUp + unreadable, name: fieldText(snap.get('name')) };
-      }
-      // The jobs they are on and have not marked: they come off them, in this transaction (the cleaning schedule).
+      const name = fieldText(snap.get('name'));
+      const refusal = deleteRefusal(pay, unreadable, name);
+      if (refusal) return { kind: 'cannot-delete', refusal, balanceCents: pay.balanceCents, noAmount: pay.noAmount, waitingReview: pay.waitingReview, uncertain: pay.cannotAddUp + unreadable, name };
+      // The jobs they are on and have not marked: they come off them, in this transaction (the cleaning schedule). Then
+      // the regular-cleaner records and the replacements' accounts: every read before the first write.
       const jobs = await readUnmarkedJobs(tx, id);
+      const regular = await readRegularReplacements(tx, id, replacements);
       const stored = snap.data() ?? {};
       const now = new Date().toISOString();
       // Only a code document that is theirs is touched, and only its retirement is written.
@@ -798,7 +824,8 @@ export async function deleteCleaner(actor: Actor, id: string): Promise<DeleteCle
       }
       tx.delete(ref);
       const jobsTakenOff = takeOffJobs(tx, jobs, id, actor, 'deleted', now);
-      return { kind: 'deleted', cleaner: readCleanerSummary(id, stored), codes: mine.length, jobsTakenOff };
+      const replaced = regular.apply(actor, 'deleted', now);
+      return { kind: 'deleted', cleaner: readCleanerSummary(id, stored), codes: mine.length, jobsTakenOff, regular: replaced };
     });
   } catch (err) {
     console.error(`[cleaners] delete failed: grpc code ${grpcCode(err)}`);

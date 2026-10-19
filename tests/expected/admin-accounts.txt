@@ -125,6 +125,7 @@
   GET    /api/admin/cleaners/locks                            read, not recorded
   GET    /api/admin/cleaners                                  read, not recorded
   POST   /api/admin/cleaners                                  recorded as "Added a team member"
+  GET    /api/admin/cleaners/schedule                         read, not recorded
   POST   /api/admin/cleaning-jobs/[id]/reopen                 recorded as "Reopened a cleaning job for a cleaner"
   PATCH  /api/admin/cleaning-jobs/[id]                        recorded as "Changed who is on a cleaning job"
   GET    /api/admin/cleaning-jobs                             read, not recorded
@@ -134,6 +135,7 @@
   DELETE /api/admin/cleanings/[id]                            recorded as "Deleted a cleaning"
   GET    /api/admin/cleanings                                 read, not recorded
   POST   /api/admin/cleanings                                 recorded as "Logged a cleaning"
+  GET    /api/admin/cleanings/starts                          read, not recorded
   GET    /api/admin/cleanings/suggest                         read, not recorded
   POST   /api/admin/cost-entries/[id]/lines                   recorded as "Corrected a cost entry’s lines"
   POST   /api/admin/cost-entries/[id]/paid-with               recorded as "Marked who paid for a receipt"
@@ -206,7 +208,7 @@
   POST   /api/properties                                      recorded as "Added a property"
   POST   /api/scrape-airbnb                                   recorded as "Read an Airbnb listing"
   POST   /api/upload-image                                    recorded as "Uploaded an image"
-  97 handlers through adminRoute; problems: 0
+  99 handlers through adminRoute; problems: 0
   routes still on the PIN-signed session: 0
   a route that unlocks an admin's PIN (the first version's per-admin lock): false
 

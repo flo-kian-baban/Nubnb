@@ -4244,3 +4244,148 @@ the stop (a runner fault, since fixed: it now exits as the export did). The clos
 to the last complete export, the first round's closing one: nothing of either round remains. Reads 2,930 of 3,000: the
 stalled export 1,032, the server 614, cleanup 96, the closing export 1,188. 32 documents deleted by exact ID; no write
 refused.
+
+## 59. The Team page, round 1: pay from the pay view, Kian's rulings K1–K5 of 2026-10-19 (the Team page audit)
+
+Kian's rulings and his instruction are in CLAUDE.md under *Team page*. The audit (2026-10-19, `~/Downloads/
+nubnb-team-page-audit-2026-10-19`) found a person could be paid in full while their cleanings had no amount, with nothing
+saying so; that a member with nothing counted could be deleted; that a payment above what is owed asked nothing; that a
+departing regular cleaner left every property without a way forward from the Team side; and that replaced codes
+reached every admin's browser in `history`. What was built is below.
+
+### 59.1 What was built
+
+1. **Pay from the pay view** (`PayView.tsx`; the audit's one change, Kian's instruction). The person's pay view opens
+   with a "Not counted yet · n" block: their cleanings with no amount, each with an amount field and Save, plus "Save
+   all"; and their receipts and work waiting for review, each linked to the Costs page. A field opens as the Cleanings
+   tab's does (prices.ts `missingAmountStart`, the same rule): the property's preset for the tier when it has one
+   (labelled "Short-term preset: $80.00"), else "Last typed for <short-term|long-term>: $X", else empty; a share of a job
+   with several cleaners is never prefilled (its words say the preset for them all). What the fields start from is read
+   once when the view opens, through GET `/api/admin/cleanings/starts?properties=&jobs=` (new; `amountStarts` in
+   server-cleanings.ts): the presets of the properties of the person's waiting cleanings and the stay and cleaner count
+   of their jobs and of the typed job cleanings there — one read per property and per job; the page already holds every
+   cleaning. A set that only shrinks (a row saved) is not read again. Save and Save all send PATCH
+   `/api/admin/cleanings/[id]` with `{ seen, amount, reason: null }`, the Cleanings tab's own route and history rules,
+   one request and one `changed` event per cleaning, one after another; the saved cleaning replaces the page's copy (and
+   its entry view), so Earned and Balance follow with no reload; a saved row stays listed as "Saved $X · counted" until
+   the page is refreshed. Nothing is charged until Save or Save all. The Cleanings tab's waiting rows now open with the
+   preset too (before, the preset was the field's hint only; the recommendation was already prefilled), so the two
+   places open the same way.
+2. **K1 and K2 before a payment** (`app/lib/pay/checks.ts`, pure: `recordQuestions`). Record asks first, in Nubnb's own
+   dialog: while anything of theirs is not counted — "Record this payment while <name>'s pay is not all counted?" with
+   the counts ("2 cleanings have no amount yet, and 1 receipt or work entry is waiting for review.") and "The balance of
+   $X owed does not include them." — and, when the payment is larger than the balance, "This pays $X more than <name>
+   is owed. Record it as an advance?" (K2, Kian's words; $X is the amount above what is owed, the whole payment when
+   nothing or less than nothing is owed). Both still allowed ("Record anyway", "Record as an advance"); when both
+   apply, K1 is asked first. The one function (`memberPay`) now says `noAmount` and `waitingReview` apart beside
+   `waiting`.
+3. **K3, the delete refusal** (`deleteRefusal`, checks.ts; shared by the page and the server so the words match). A
+   member is not deleted while their balance is not zero (Kian's ruling of 2026-10-15, as before: MEMBER_HAS_BALANCE),
+   while a record of theirs cannot be read or add up (the same code), or while any cleaning of theirs has no amount or
+   any receipt or work of theirs is not yet decided (409 MEMBER_HAS_OUTSTANDING, new): "<name>: 2 cleanings have no
+   amount yet, and 1 receipt or work entry is waiting for review, so they cannot be deleted. Deactivate them instead.
+   Nothing was deleted." The page refuses at no read and no call; `deleteCleaner` refuses again inside its transaction,
+   from the same pay worked out there.
+4. **K4, the replacement regular cleaner** (`ReplaceRegularDialog.tsx`; `readRegularReplacements` in
+   server-regular-cleaners.ts; the record's schema version 2 in schedule/regular.ts). Deactivating or deleting a member
+   who is the regular cleaner for any property lists those properties in the same dialog (the deactivate or delete
+   question, with its lines about the code, the entries and the jobs they come off), each with a picker: another active
+   cleaner, or "Nobody" (the start). Confirming sends the replacements with the change — PATCH `{ status, regular }`,
+   DELETE with a JSON body `{ regular }` — and the server applies them inside the same transaction, every read before
+   the first write: a property's record is rewritten only where it still names the person leaving, and only to an
+   active cleaner other than them or to nobody; anything else is left as it is and said (`not-theirs`,
+   `not-assignable`). Each property's record carries the change in its history. Existing jobs follow Schedule round 1
+   unchanged: the person comes off the jobs they had not marked, and nobody is put on them in their place; the next
+   job the sync makes for the property goes to the replacement by "regular cleaner" (R5). The notice names what each
+   replacement did.
+   - **The record, schema version 2:** `property_regular_cleaners/{propertyId}` gains `history` — one event per change
+     (`set`, `cleared`, `replaced`) with who, when, from whom to whom, and the reason (`deactivated`, `deleted`) when
+     it was not the admin's own choice — and `cleanerId` may be null: a record naming nobody, kept for its history.
+     Clearing a regular cleaner by hand now keeps the record naming nobody (before, it deleted it); "none" is a
+     missing record or a record naming nobody, and both assign nobody (the sync, `getRegularCleaner`, the Team page's
+     schedule read). Version 1 records read as before, with an empty history, and are rewritten only by the next
+     change: no backfill. The regular-cleaner route's GET answers the history too.
+5. **K5, no code in a history sent** (`withoutCodes` in cleaners/model.ts, applied in `readCleanerSummary`, which every
+   server answer about a team member is built from). A `code_changed` or `code_released` event leaves with `from` and
+   `to` blanked; the stored history is unchanged (no backfill, the server strips on read). The person's page shows the
+   account's history in words (`accountEventWords`): "Code changed by <admin> on <day>", "Created by …", "Deactivated by
+   …", "Code released by … (given to another team member)".
+6. **The Team page** (`page.tsx`). A fourth read, GET `/api/admin/cleaners/schedule` (new; `teamSchedule` in
+   server-regular-cleaners.ts): each person's regular properties (by the name the admin knows them by) and their open
+   jobs from today on — one query over the regular-cleaner records, their names, and one query over the jobs from
+   today on (jobs are made two days ahead, so a few documents). Each row's Schedule cell says "Regular for n
+   properties" (the names in its title) and "n jobs ahead", the count linking to the Schedule filtered to them
+   (`/admin/schedule?cleaner=<id>`, which the Schedule now takes from the address as it takes `?property=`). The
+   person's page says the same, the properties linked. The Balance cell reads "· n waiting" while anything of theirs is
+   not counted, and "$0.00 so far · n waiting" rather than "—" so nothing reads as settled while something waits.
+   Columns: Name (role and status under it; "Worth a look" and why, in amber, when the 90-day pattern says so), Code,
+   Schedule, Earned, Paid, Balance, Actions — seven, down from nine: the 90-day receipts moved to the person's page
+   ("Last 90 days: …"). The table fits beside the navigation at 1440 and 1280 with Pay in view.
+7. **Engineering.** The whole costs read no longer looks the cleanings' properties up a second time: `listCleanings`
+   takes the properties `listCosts` has just read (`known`) and looks up only what is missing; the Team page audit
+   counted 54 repeats at a month's end. After a payment is deleted, the amount field refills with that payment's
+   amount, and the notice says so. The stale comments are corrected: PayView's and balance.ts's headers no longer say
+   the cleaner app shows pay; `SignInLockView.capped` says who lifts which door's lock; the comments on the default
+   rate (cleaners/model.ts, cleaners-client.ts, the rate route, `setCleanerDefaultRate`, schemas.ts) say it is
+   retired and unread.
+
+### 59.2 The developer's choices (for Kian)
+
+1. **The pay view prefills the preset** (Kian's instruction lists it first), and so, now, does the Cleanings tab, whose
+   waiting rows before showed the preset as the field's hint and prefilled only the recommendation. One rule, two places.
+2. **K1 and K2 are two questions, asked in that order** when both apply, rather than one dialog with both — each is its
+   own ruling with its own words, and both together are rare.
+3. **"Nobody" is each picker's start** in the K4 dialog, since that is what happens without a choice (R5).
+4. **A record naming nobody is kept (schema version 2)** so a clear or a replacement by nobody has a history; before,
+   clearing deleted the record. Both forms read as none everywhere.
+5. **A property whose record no longer names the person, or a replacement who is not an active cleaner other than
+   them, is left as it is and said in the notice**, never refused as a whole: the deactivation or delete goes ahead.
+6. **The Balance cell says "$0.00 so far · n waiting" rather than "—"** while something waits: a dash would read as
+   nothing owed.
+7. **The Schedule takes `?cleaner=`** (a small addition to its address rule) so the Team page's jobs count can link to it
+   filtered, as Kian's item 7 allows.
+8. **The schedule read is a separate GET**, not folded into the list route, whose answer is an array the client checks.
+9. **The starts read names its IDs in the query string** (at most 40 properties and 200 jobs), so the page, which already
+   holds every cleaning, reads only the presets and jobs it needs: 2 reads for Ana's two waiting cleanings.
+
+### 59.3 Verification (2026-10-19)
+
+- **Tests:** `node tests/run.mjs`, 26 checks, identical but for recordings changed on purpose — admin-accounts (the two
+  new GET routes, read, not recorded), schedule-round1 (clearing a regular cleaner keeps the record naming nobody, with
+  its history; the read-back prints the history without its time) — and new: team-round1 (K1 and K2's questions and
+  their order, K3's refusal for a balance, unreadable records, cleanings with no amount and entries under review, the
+  field's opening value — preset, recommendation, empty, never a share, a preset for the other tier only — K5's
+  blanked codes and words, the record's two schema versions and its reader's refusals, and on the in-memory Firestore:
+  K3 refused inside the delete, a deactivation applying six replacements with every outcome, Ana off her job with nobody
+  put on, the sync giving P's next job to Ben and P5's to nobody, the schedule read before and after, a delete with a
+  replacement, a clear by hand, the starts read at one read each, and the whole costs read at one property read per
+  property). pay-balance is unchanged (the new fields are not printed).
+- **On production:** build `_2C7Fi28eg1NKzKKHD9h1` of this tree (built at 0 reads; its predecessor `UL55Klpff13F10vuAH8si`
+  served the first checks before the saved-row fix) on 127.0.0.1:4500, behind the write guard, as a `__TEST__` admin
+  (ordinary level, never a real one), with two Unlisted `__TEST__` properties (P with presets $80/$120, Q with none),
+  three `__TEST__` cleaners (Ana, regular for P and Q; Ben; Cy), four jobs and four cleanings in November 2028 with
+  the server's clock there (moved after its token, as in §58.4), the calendar copy and the refresh's lease stubbed in
+  the server's memory, every real calendar cut off (208 cut, 4 test feeds answered). Shown live: the table at 1440 and
+  1280 fitting its box (1,142 and 1,158 px) with every Pay in view; Ana's row "Regular for 2 properties · 1 job ahead"
+  and "$70.00 owed · 2 waiting"; her pay view's fields opening with 80.00 ("Short-term preset: $80.00") and 70.00
+  ("Last typed for short-term: $70.00"); K1 asked in Kian's words, Cancel sending nothing; Save all sending two PATCHes,
+  Earned $70.00 → $220.00 with no reload, both cleanings stored "typed" with one event each; K2 asked for $300.00
+  against $220.00 ("This pays $80.00 more …"), recorded as an advance (Overpaid $80.00); the payment deleted and the
+  amount field holding 300.00 again; Cy's one row saved and kept as "Saved $70.00 · counted"; K3 refused on the page at
+  0 reads and 0 calls and by the server (409 MEMBER_HAS_OUTSTANDING, Cy still listed); Cy's code changed and the list
+  carrying `code_changed from=null to=null`, the typed code nowhere in the answer but the current-code field, his page
+  reading "Code changed by __TEST__ Admin on Nov 15, 2028"; Ana deactivated with P → Ben and Q → Nobody in one dialog,
+  one PATCH, P's record "replaced Ana → Ben (deactivated)", Q's "replaced Ana → nobody (deactivated)", Ana off her three
+  open jobs with nobody on them; and on the next Toronto day the refresh making P's job with Ben by "regular cleaner"
+  and Q's with nobody.
+- **Reads to open the Team page**, same data, same session: the b53f5ac build 168 (1440) and 167 (1280); this tree 168
+  (1280). The schedule read adds three (two records, one jobs query); the de-duplicated lookups saved two at today's
+  five cleanings over two properties — the audit's 54 repeats were at a month's end over 54 properties, which the
+  in-memory test shows (five properties, five property reads with a cleaning). The first open of each new server costs
+  the day's first-visit refresh besides (about 60 property reads here: the old server had consumed the stubbed refresh
+  state, so the new one read production's and ran the day's refresh, its writes stubbed, its two jobs on the test
+  properties). Reads in all: opening export 1,188, the old build 337, the new builds 1,030 + 770, cleanup 108, closing
+  export 1,188 — 4,621 of 8,000. No write refused; 36 documents deleted by exact ID; the closing export identical to the
+  opening one (686 documents, 0 differences, 23 collections).
+- **No rules or index change.** The two new routes are reads; `property_regular_cleaners` and the other collections
+  touched were already denied to browsers by the catch-all.

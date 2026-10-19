@@ -410,7 +410,7 @@ export interface SignInLockView {
   id: string;
   /** When the fifteen-minute lock ends; null when it holds until lifted. */
   lockedUntil: string | null;
-  /** Twenty tries in a Toronto day: until a main admin lifts it. */
+  /** Twenty tries in a Toronto day: until lifted — by a main admin at the admin door (the Admins page), by any admin at the cleaner door (the Team page; Kian's ruling of 2026-10-14, evening). */
   capped: boolean;
   lastFailedAt: string | null;
 }

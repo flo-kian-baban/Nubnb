@@ -637,8 +637,9 @@ export interface CleanerSummary {
   /** `cleaner` or `handyman` (dispatch 24); `cleaner` when the document has no role; anything else as stored. */
   role: string;
   /**
-   * The cleaner's one default rate for a cleaning (dispatch 37B, Kian's ruling of 2026-10-13), in cents; null when
-   * none is set. Admins only: the cleaner app never reads it.
+   * The default rate the account was given under dispatch 37B (Kian's ruling of 2026-10-13), in cents; null when none
+   * was set. Retired by Kian's ruling of 2026-10-19 (cleaning prices are presets per property): nothing reads it into
+   * money any more, and no page shows it; the stored field stays as it was. Admins only: the cleaner app never read it.
    */
   defaultRateCents: number | null;
 }
@@ -1178,10 +1179,36 @@ function readReceipt(value: unknown): ReceiptView {
   };
 }
 
+/** The history actions whose `from` and `to` are codes, not statuses: never sent to a browser (Kian's ruling K5 of 2026-10-19). */
+const CODE_VALUED_ACTIONS: ReadonlySet<string> = new Set(['code_changed', 'code_released']);
+
+/**
+ * A history as the browser may see it (Kian's ruling K5 of 2026-10-19): a code change's or release's entry keeps who
+ * and when, and its `from` and `to` — the old and new codes as stored — are blanked. The stored history is unchanged;
+ * this is the server stripping on read, applied to every answer built from `readCleanerSummary`.
+ */
+export function withoutCodes(history: HistoryEventView[] | null): HistoryEventView[] | null {
+  return history === null ? null : history.map((event) => (event.action !== null && CODE_VALUED_ACTIONS.has(event.action) ? { ...event, from: null, to: null } : event));
+}
+
+/**
+ * One event of a team member's history, as an admin reads it on their page: "Code changed by Kian on Oct 19",
+ * "Created by Kian on Oct 2", "Deactivated by Kian on Oct 16". No code is ever in it (withoutCodes).
+ */
+export function accountEventWords(event: HistoryEventView): string {
+  const label = event.action !== null && (HISTORY_ACTIONS as readonly string[]).includes(event.action) ? HISTORY_ACTION_LABELS[event.action as HistoryAction] : event.action ?? 'An event';
+  const by = event.actor?.name ?? (event.actor?.role === 'system' ? 'Nubnb' : null);
+  const time = Date.parse(event.at ?? '');
+  const day = Number.isFinite(time) ? new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Toronto', month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(time)) : null;
+  const reason = event.action === 'code_released' && event.reason ? ` (${event.reason.toLowerCase()})` : '';
+  return `${label}${by ? ` by ${by}` : ''}${day ? ` on ${day}` : ''}${reason}`;
+}
+
 /**
  * A cleaner document as a list row. Reads only the summary fields, so a
  * document read whole still yields nothing about its session epoch or, on a
- * version 1 document, its code's digest.
+ * version 1 document, its code's digest. Its history carries no code value
+ * (withoutCodes; Kian's ruling K5 of 2026-10-19).
  */
 export function readCleanerSummary(id: string, fields: Record<string, unknown>): CleanerSummary {
   return {
@@ -1191,7 +1218,7 @@ export function readCleanerSummary(id: string, fields: Record<string, unknown>):
     status: fieldText(fields.status),
     statusChangedAt: fieldText(fields.statusChangedAt),
     createdAt: fieldText(fields.createdAt),
-    history: readHistory(fields.history),
+    history: withoutCodes(readHistory(fields.history)),
     role: roleOf(fields),
     defaultRateCents: typeof fields.defaultRateCents === 'number' && Number.isSafeInteger(fields.defaultRateCents) && fields.defaultRateCents > 0 ? fields.defaultRateCents : null,
   };

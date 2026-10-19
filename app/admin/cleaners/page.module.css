@@ -11,12 +11,16 @@
   overflow-x: auto;
 }
 
-/* Ten columns: 14 px either side of each cell (the shared table's 20 is too wide), so the whole table fits beside the
-   navigation at 1280 and 1440 px (Kian's instruction of 2026-10-17). */
+/* Seven columns since round 1 (2026-10-19): 14 px either side of each cell (the shared table's 20 is too wide), so the
+   whole table fits beside the navigation at 1280 and 1440 px with Pay in view (Kian's instruction of 2026-10-17, and the
+   Team page audit: Role and Status sit under the name, the 90-day receipts moved to the person's page). */
 .teamTable th,
 .teamTable td {
   padding-left: 14px;
   padding-right: 14px;
+}
+.teamTable {
+  table-layout: auto;
 }
 
 /* ── Buttons ── */
@@ -256,7 +260,7 @@
   border-color: rgba(167, 139, 250, 0.3);
 }
 .patternCell {
-  min-width: 260px;
+  min-width: 0;
   max-width: 420px;
   font-size: 12px;
   line-height: 1.5;
@@ -802,4 +806,178 @@ table td.payCol {
 .rowMenuItemDanger:focus-visible {
   color: #ff6b68;
   background: rgba(239, 68, 68, 0.1);
+}
+
+/* ── Round 1 (2026-10-19): the name cell's badges and note, the Schedule cell ── */
+.nameBadges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin-top: 6px;
+}
+.nameNote {
+  display: block;
+  margin-top: 5px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  font-weight: 500;
+  max-width: 220px;
+}
+.scheduleCell {
+  min-width: 9em;
+  font-size: 12.5px;
+  line-height: 1.45;
+  white-space: nowrap;
+  color: #a9b4c2;
+}
+.scheduleLine {
+  display: block;
+}
+.scheduleLink {
+  color: #8dbbe8;
+  text-decoration: none;
+}
+.scheduleLink:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ── The pay view's head: links and the account's history (K5: never a code) ── */
+.payLink {
+  color: #8dbbe8;
+  text-decoration: none;
+}
+.payLink:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.payHistory {
+  margin-top: 8px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.55);
+}
+.payHistory summary {
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.7);
+}
+.payHistory ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  line-height: 1.6;
+}
+
+/* ── Not counted yet: the person's cleanings with no amount, typed in place, and their items under review ── */
+.notCounted {
+  margin: 0 0 20px;
+  padding: 18px 20px;
+  background: rgba(245, 158, 11, 0.05);
+  border: 1px solid rgba(245, 158, 11, 0.22);
+  border-radius: 14px;
+}
+.notCountedNote {
+  margin: 4px 0 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.6);
+}
+.waitingTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.waitingTable th {
+  text-align: left;
+  padding: 0 10px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.4);
+  white-space: nowrap;
+}
+.waitingTable td {
+  padding: 8px 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  vertical-align: middle;
+}
+.waitingForm {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.waitingField {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+.waitingInput {
+  width: 108px;
+  height: 36px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.waitingWords {
+  font-size: 11.5px;
+  line-height: 15px;
+  color: rgba(255, 255, 255, 0.5);
+  white-space: nowrap;
+}
+.waitingWords[data-start="recommendation"] {
+  color: #e8c27a;
+}
+.waitingSave {
+  min-width: 72px;
+  height: 36px;
+}
+.waitingSaved {
+  font-size: 12px;
+  color: #7ec99a;
+  white-space: nowrap;
+}
+.waitingAll {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 12px;
+}
+.waitingAll .notCountedNote {
+  margin: 0;
+}
+.waitingEntries {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* ── The K4 dialog: a picker per regular property ── */
+.replaceBody {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.replaceList {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.replaceRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  align-items: center;
+  gap: 12px;
+}
+.replaceProperty {
+  font-size: 13px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.replaceSelect {
+  min-width: 0;
 }

@@ -28,11 +28,14 @@
   an account that does not exist: {"kind":"not-assignable","name":null,"why":"missing"} · reads 3
   Ana, active: {"kind":"set","name":"Test Ana"} · reads 3
   Ana again: {"kind":"unchanged"} · reads 3
-  read back: {"cleanerId":"TESTCLEANERround1ana","name":"Test Ana","state":"found","role":"cleaner","status":"active","assigns":true,"setAt":"…","setBy":{"role":"admin","id":"TESTADMINround1aaaa1","name":"Test admin"}} · choices Test Ana
+  read back: {"cleanerId":"TESTCLEANERround1ana","name":"Test Ana","state":"found","role":"cleaner","status":"active","assigns":true,"setAt":"…","setBy":{"role":"admin","id":"TESTADMINround1aaaa1","name":"Test admin"}} · history: set nobody → Test Ana by Test admin · choices Test Ana
   Ana is the regular cleaner for: Test One, Test Seven
    ok   only an active cleaner is set; the choices are the active cleaners
   cleared: {"kind":"cleared"} · reads 2
-   ok   clearing it deletes the record
+  after clearing: record kept true · names nobody · schema 2 · history: set nobody → Test Ana by Test admin; cleared Test Ana → nobody by Test admin · read back as null
+   ok   clearing it keeps the record naming nobody, with its history (schema version 2; Kian's ruling K4 of 2026-10-19), and it reads back as none
+  cleared again: {"kind":"unchanged"} · reads 2
+   ok   clearing a record that names nobody writes nothing
    ok   a property that does not exist: refused
   a property save carrying regularCleaner: refused: regularCleaner: Not a property field: the regular cleaner is set on the edit page's Cleaners section or on the Schedule, through /api/admin/properties/[id]/regular-cleaner
   a property save carrying regularCleanerId: refused: regularCleanerId: Not a property field: the regular cleaner is set on the edit page's Cleaners section or on the Schedule, through /api/admin/properties/[id]/regular-cleaner
