@@ -102,9 +102,6 @@ no checkout. Do not build toward one unless asked.
 - **Admin PINs are stored readably**, by Kian's ruling (2026-10-13, night):
   any copy of the database — every `./backups/` export included — holds every
   admin PIN, and a main admin can act as any admin.
-- **"Amir and Bahareh codes should not be changed"** — Kian's ruling of
-  2026-10-19. Their current admin PINs appear in the public repository's
-  history.
 
 ## Receipt reading — Kian's decision (2026-09-30)
 

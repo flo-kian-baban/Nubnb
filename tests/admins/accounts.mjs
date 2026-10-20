@@ -78,8 +78,8 @@ if (keptEnv.list !== undefined) process.env.CLEANER_CODE_DENYLIST = keptEnv.list
 if (keptEnv.key !== undefined) process.env.CLEANER_SESSION_SECRET = keptEnv.key;
 const pinRoutes = ['app/api/admin/admins/route.ts', 'app/api/admin/admins/[id]/pin/route.ts', 'app/api/admin-auth/pin/route.ts'];
 out(`  the routes that take a PIN ask the list before any read: ${pinRoutes.filter((f) => /const denied = pinDenied\(/.test(fs.readFileSync(path.join(ROOT, f), 'utf8'))).length} of ${pinRoutes.length}`);
-// Kian's ruling of 2026-10-19: Amir's and Bahareh's PINs stay as they are although they are on the list. Sign-in never asks
-// the list: a listed PIN still signs its holder in; only choosing or setting a PIN is refused.
+// Kian's ruling of 2026-10-19: a PIN already held stays as it is even when it is on the list. Sign-in never asks the list:
+// a listed PIN still signs its holder in; only choosing or setting a PIN is refused.
 const signInSources = ['app/api/admin-auth/route.ts', 'app/lib/firebase/server-admins.ts'].map((f) => fs.readFileSync(path.join(ROOT, f), 'utf8'));
 out(`  sign-in never asks the list (a listed PIN still signs its holder in): the sign-in route and signIn() name neither the list nor pinDenied: ${signInSources.every((src) => !/pin-denylist|cleaners\/denylist|isPublicCode|pinDenied|CLEANER_CODE_DENYLIST/.test(src))}; sign-in compares the PIN only: ${/samePin|sharedPinMatches/.test(signInSources[1])}`);
 const OTHER = [0, 4, 2, 9].join('');
