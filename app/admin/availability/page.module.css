@@ -223,17 +223,112 @@
 
 /* ── Cells ── */
 /* Twelve columns have to fit: tighter cells than the property list's. */
+/* Round 1 (2026-10-19): 10 px either side of each cell, six columns in the search and nine in the ranking, so both
+   tables fit beside the navigation at 1440 (a 1,142 px box) and 1280 (1,158 px): no sideways scroll. */
 .compact th,
 .compact td {
-  padding: 12px 14px;
+  padding: 11px 10px;
 }
 .compact th:first-child,
 .compact td:first-child {
-  padding-left: 18px;
+  padding-left: 16px;
 }
 .compact th:last-child,
 .compact td:last-child {
-  padding-right: 18px;
+  padding-right: 14px;
+}
+.tableBox {
+  overflow: hidden;
+}
+.tableBox table {
+  table-layout: auto;
+  width: 100%;
+}
+/* The ranking's figure columns: tight, numbers aligned. */
+.ranking th,
+.ranking td {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+/* ── For the stay (Kian's ruling K1): the total, the one line, Copy ── */
+.stayCell {
+  min-width: 12em;
+  max-width: 15em;
+}
+.stay {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+.stayTotal {
+  font-size: 14px;
+}
+.stayLine {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.55);
+}
+.copyBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  margin-top: 2px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.75);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.copyBtn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+.copyBtn:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 2px;
+}
+
+/* ── Actions as small square buttons (round 1): Airbnb, Edit ── */
+.iconAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.75);
+  text-decoration: none;
+}
+.iconAction:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.iconAction:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 2px;
+}
+
+/* "Not on the site" (Kian's ruling K5). */
+.reasonSite {
+  color: #e8c27a;
+  border-color: rgba(232, 194, 122, 0.35);
+  background: rgba(232, 194, 122, 0.08);
+}
+
+/* The status line while a run started on open is being watched (K2). */
+.statusReading {
+  color: #8dbbe8;
+  font-weight: 600;
 }
 
 .num {
@@ -270,8 +365,10 @@
   display: block;
   margin-top: 2px;
   font-size: 11.5px;
+  line-height: 1.4;
   color: rgba(255, 255, 255, 0.4);
-  white-space: nowrap;
+  /* Wraps (round 1): the facts line under the name no longer sets the Property column's width. */
+  white-space: normal;
 }
 /* The public title, under the name (the address): what renters ask about (Kian's rulings of 2026-10-15, evening). */
 .publicTitle {
@@ -329,8 +426,8 @@
 .reasons {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  max-width: 260px;
+  gap: 5px;
+  max-width: 210px;
 }
 .reason {
   display: inline-flex;

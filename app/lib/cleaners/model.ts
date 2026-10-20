@@ -218,7 +218,7 @@ function runsIn(digits: string): string[] {
 
 /**
  * The easy list: the twenty-four four-digit codes too easy to guess or to
- * type by accident — the ten same-digit codes (0000 … 9999), the seven
+ * type by accident — the ten same-digit codes, the seven
  * ascending runs (0123 … 6789) and the seven descending runs (9876 … 3210).
  * With only ten thousand codes, these are the first an attacker would try.
  *

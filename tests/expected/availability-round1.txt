@@ -1,0 +1,50 @@
+1. K1: the stay total is nights × nightly + the cleaning fee, before taxes; each value an admin-set price, the sum the only arithmetic
+  2 × $99, fee 100: "2 nights × $99 + $100 cleaning = $298 before taxes" · total 298
+  2 × $150, fee 0: "2 nights × $150, no cleaning fee set = $300 before taxes" · total 300
+  1 × $1250, fee 75: "1 night × $1,250 + $75 cleaning = $1,325 before taxes" · total 1325
+  3 × $200, fee -5: "3 nights × $200, no cleaning fee set = $600 before taxes" · total 600
+  30 × $85, fee 120: "30 nights × $85 + $120 cleaning = $2,670 before taxes" · total 2670
+
+2. K4: a stay shorter than the listed minimum is a near miss, never a fit
+  2026-11-10 → 2026-11-12 (2 nights): fits R[Fits · total 160] P[Fits · total 298] · near Q[minimum 28 nights! · total 300] · unread none
+  2026-11-10 → 2026-11-11 (1 night): fits R[Fits · total 80] · near P[minimum 2 nights! · total 199] Q[minimum 28 nights! · total 150] · unread none
+  2026-11-10 → 2026-12-08 (28 nights): fits R[Fits · total 2240] P[Fits · total 2872] Q[Fits · total 4200] · near (none) · unread none
+  2026-11-10 → 2026-12-07 (27 nights): fits R[Fits · total 2160] P[Fits · total 2773] · near Q[minimum 28 nights! · total 4050] · unread none
+  Q for 5 guests, 2 nights: fits (none) · near Q[minimum 28 nights!, sleeps 4! · total 300]
+  Q for 5 guests in Ajax, 2 nights: fits (none) · near (none) (three misses: out)
+  no dates: fits P[Fits] Q[Fits] · near (none)
+
+3. The marks a row carries: "Not on the site" (K5), "Not on Airbnb · checked <day>" (K3), "calendar read <day, time>"
+  P, read by the run: (no mark)
+  R, unlisted, Airbnb page gone, its read failed: site: Not on the site | gone: Not on Airbnb · checked Sep 30 | stale: calendar read Oct 31, 12:13
+  listed, read before the run (fetchedAt 31 Oct 12:13 Toronto): stale: calendar read Oct 31, 12:13
+  listed, read by the run but the page gone, checked 30 Sep: gone: Not on Airbnb · checked Sep 30
+  page live: (no mark)
+  page unknown: (no mark)
+  no feed stored: (no mark)
+  never read (fetchedAt null): (no mark)
+  no run time known: (no mark)
+  readBehindRun: same instant null · a second earlier 2026-11-01T11:59:59.000Z
+  on the search rows:
+    R: site: Not on the site | gone: Not on Airbnb · checked Sep 30 | stale: calendar read Oct 31, 12:13
+    P: (no mark)
+    Q: (no mark)
+  on the ranking rows:
+    Q (ranked, sellable 30): (no mark)
+    P (ranked, sellable 30): (no mark)
+    R (ranked, sellable 30): site: Not on the site | gone: Not on Airbnb · checked Sep 30 | stale: calendar read Oct 31, 12:13
+
+4. The slice of a property the page reads (GET /api/admin/availability/properties), and the browser's strict reading of it
+  fields: id, name, publicName, slug, city, area, location, type, guests, bedrooms, bathrooms, nightly, minNights, cleaningFee, coverImage, airbnbUrl, offerNames, unlisted
+  name "12 Example St" (the address), public "Bright 2BR near the lake", nightly 99, fee 100, min 2, offers ["Hot tub"], unlisted true
+  the calendar link in the slice: false · images: false · description: false
+  without a cleaner-facing name, listed: name "Bright 2BR near the lake", unlisted false
+  no priceInfo: nightly 99, fee 0, min 1
+  the slice as the server answers it: true
+  unlisted missing: false
+  unlisted as a string: false
+  a number among the offer names: false
+  nightly as a string: false
+  cleaningFee NaN: false
+  the whole property document: false
+  null: false

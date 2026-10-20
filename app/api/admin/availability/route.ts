@@ -14,7 +14,13 @@
  * browser's.
  *
  * One read of the current document and one query for the history: the
- * page does everything else itself. Nothing here fetches a feed.
+ * page does everything else itself. Nothing here fetches a feed before the
+ * answer: `refresh` (Kian's ruling K2 of 2026-10-19, extending R1 to this
+ * page) says when the copy is more than three hours old and the same
+ * background refresh the Schedule starts is starting after this answer, or one
+ * holds the lease now — `{ state: 'starting' | 'running', lastFinishedAt }`,
+ * null otherwise — so the page watches the run and shows its result when it
+ * ends. One more read for the refresh's state.
  */
 
 import { adminRoute } from '@/app/lib/api/verify-admin';
@@ -25,6 +31,10 @@ import { addDays, torontoDay } from '@/app/lib/availability/days';
 import { historyView } from '@/app/lib/availability/attention';
 import { readCurrent, readHistoryFrom } from '@/app/lib/availability/store';
 import { HISTORY_DAYS } from '@/app/lib/availability/attention';
+import { refreshIfStale } from '@/app/lib/availability/daily';
+
+/** A refresh on open may run after the answer (Kian's ruling K2): it has this long, as the Schedule's read does. */
+export const maxDuration = 300;
 
 const grpcCode = (err: unknown): string => {
   const code = (err as { code?: unknown } | null)?.code;
@@ -35,10 +45,10 @@ export const GET = adminRoute(async function GET() {
   try {
     const db = getAdminDb();
     const today = torontoDay();
-    const [snapshot, kept] = await Promise.all([readCurrent(db), readHistoryFrom(db, addDays(today, -HISTORY_DAYS), today)]);
+    const [snapshot, kept, refresh] = await Promise.all([readCurrent(db), readHistoryFrom(db, addDays(today, -HISTORY_DAYS), today), refreshIfStale('admin-page')]);
     const history = kept ? historyView(kept.snapshot, kept.day) : null;
     // The calendars that could not be read, named as the admin names them (Kian's rulings of 2026-10-15, evening).
-    return noStore(apiSuccess({ snapshot: await failedNamedInternally(snapshot), history, today, now: new Date().toISOString() }));
+    return noStore(apiSuccess({ snapshot: await failedNamedInternally(snapshot), history, today, now: new Date().toISOString(), refresh }));
   } catch (err) {
     console.error(`[availability] read failed: grpc code ${grpcCode(err)}`);
     return noStore(

@@ -13,14 +13,14 @@
  * the PIN.
  */
 
-import { timingSafeEqual } from 'node:crypto';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 
 /** Four digits (Kian's rulings of 2026-10-13, late night). */
 export const PIN_PATTERN = /^[0-9]{4}$/;
 
 const runsIn = (digits) => Array.from({ length: digits.length - 3 }, (_, start) => digits.slice(start, start + 4));
 
-/** The easy list (app/lib/cleaners/model.ts): 0000 … 9999, 0123 … 6789 and 9876 … 3210. Admin PINs refuse it; cleaner codes no longer do (2026-10-17). */
+/** The easy list (app/lib/cleaners/model.ts): the ten same-digit codes, the seven ascending runs and the seven descending runs. Admin PINs refuse it; cleaner codes no longer do (2026-10-17). */
 export const TOO_EASY = new Set([...'0123456789'.split('').map((digit) => digit.repeat(4)), ...runsIn('0123456789'), ...runsIn('9876543210')]);
 
 /** Whether two PINs are the same, in constant time, as app/lib/admins/pin.ts compares them. */
@@ -46,7 +46,7 @@ export function viewStateOf(pin) {
 /** Why `pin` cannot be an admin's own from the PIN alone — not four digits, too easy, the shared PIN — in one plain line, or null. */
 export function pinShapeProblem(pin, sharedPin) {
   if (typeof pin !== 'string' || !PIN_PATTERN.test(pin)) return 'A PIN is four digits.';
-  if (TOO_EASY.has(pin)) return 'Too easy to guess: four of one digit, or a straight run like 1234.';
+  if (TOO_EASY.has(pin)) return 'Too easy to guess: four of one digit, or a straight run.';
   if (typeof sharedPin === 'string' && samePin(pin, sharedPin)) return 'That is the shared PIN (ADMIN_PIN), which is never an admin’s own.';
   return null;
 }
@@ -79,9 +79,33 @@ export const RECOVERY_SCRIPT = { role: 'system', id: null, name: 'recovery scrip
  *
  * Returns { kind: 'refused', reason } | { kind: 'checked' } | { kind: 'set', from, epoch, freed }.
  */
-export async function setOwnPin(db, tx, { adminId, pin, sharedPin, at, write }) {
+/**
+ * The list of codes never given out (security rule, 2026-10-19), as app/lib/cleaners/codes.ts keeps it: HMAC-SHA256 of
+ * each value under CLEANER_SESSION_SECRET with this label, comma-separated in CLEANER_CODE_DENYLIST. The same list
+ * refuses an admin PIN, with the same sentence (app/lib/admins/pin-denylist.ts).
+ */
+export const DENYLIST_LABEL = 'nubnb:code-denylist:v1:';
+export const PUBLIC_REFUSAL_LINE = "That code has appeared in Nubnb's public code and is never given out.";
+export const DENYLIST_UNKEYED_LINE = 'CLEANER_CODE_DENYLIST is set but CLEANER_SESSION_SECRET is not: the list of codes never given out cannot be checked.';
+export function denylistHash(value, key) {
+  return createHmac('sha256', key).update(`${DENYLIST_LABEL}${value}`, 'utf8').digest('hex');
+}
+/** The list from the environment: null when not set (or not hashes, as the app reads it); 'unkeyed' when set without the key; else its hashes with the key. */
+export function readDenylist(value, secret) {
+  if (typeof value !== 'string' || value.trim() === '') return null;
+  const hashes = value.split(',').map((h) => h.trim()).filter(Boolean);
+  if (hashes.length === 0 || !hashes.every((h) => /^[0-9a-f]{64}$/.test(h))) return null;
+  if (typeof secret !== 'string' || !/^[A-Za-z0-9_-]{43,}$/.test(secret)) return 'unkeyed';
+  return { hashes: new Set(hashes), key: Buffer.from(secret, 'base64url') };
+}
+export const isPublicValue = (value, denylist) => !!denylist && denylist !== 'unkeyed' && denylist.hashes.has(denylistHash(value, denylist.key));
+
+export async function setOwnPin(db, tx, { adminId, pin, sharedPin, at, write, denylist = null }) {
   const shape = pinShapeProblem(pin, sharedPin);
   if (shape) return { kind: 'refused', reason: shape };
+  // The list of codes never given out (security rule, 2026-10-19): before any read, and failing closed when it cannot be checked.
+  if (denylist === 'unkeyed') return { kind: 'refused', reason: DENYLIST_UNKEYED_LINE };
+  if (isPublicValue(pin, denylist)) return { kind: 'refused', reason: PUBLIC_REFUSAL_LINE };
 
   const ref = db.collection('admins').doc(adminId);
   const newRef = db.collection('admin_pins').doc(pin);

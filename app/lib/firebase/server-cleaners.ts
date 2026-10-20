@@ -70,7 +70,9 @@ import type { RegularReplacements } from '@/app/lib/schedule/regular';
 import type { UnmarkedJob } from '@/app/lib/schedule/model';
 import { isDocumentId } from './server-leads';
 import { DAILY_TRIES, MAX_WRONG_TRIES, afterTry, lockHolding, type LockState, type SignInLockView } from '@/app/lib/admins/model';
-import { generateCandidate, isDrawable, reservedReason, type ReservedReason } from '@/app/lib/cleaners/codes';
+import { generateCandidate, isDrawable, reservedReason, type CodeDenylist, type ReservedReason } from '@/app/lib/cleaners/codes';
+// The codes never given out (security rule, 2026-10-19), read from the environment on each issuance; the same list refuses an admin PIN (pin-denylist.ts).
+import { codeDenylist } from '@/app/lib/cleaners/denylist';
 import {
   CLEANERS_COLLECTION,
   CLEANER_CODES_COLLECTION,
@@ -251,12 +253,14 @@ export type IssueCleanerResult =
   | { kind: 'unavailable' }
   /** The typed code is not four digits. Nothing was read or written. */
   | { kind: 'not-a-code' }
-  /** The typed code is the admin PIN (ADMIN_PIN). Nothing was read or written. */
+  /** The typed code is the admin PIN (ADMIN_PIN), or one that appeared in Nubnb's public code. Nothing was written (a public one is counted on the connection). */
   | { kind: 'reserved'; reason: ReservedReason }
   /** The typed code is an active account's now (`holder` is their name). Nothing was written. */
   | { kind: 'taken'; holder: string | null }
   /** Every candidate was reserved, easy or already issued. Nothing was written. */
   | { kind: 'exhausted' }
+  /** The denylist of codes that appeared in public code is set but cannot be checked (no cleaner key). Nothing was read or written. */
+  | { kind: 'denylist-unkeyed' }
   /** The write failed in a way that does not say whether it landed. Never retried. */
   | { kind: 'unconfirmed' };
 
@@ -332,13 +336,15 @@ export async function issueCleaner(
     console.error('[cleaners] create failed before any write: the database is not configured');
     return { kind: 'unavailable' };
   }
+  const denied = codeDenylist();
+  if (denied.kind === 'unkeyed') return { kind: 'denylist-unkeyed' };
 
-  if (typed !== null && typer !== null) return issueTyped(db, name, role, typed, actor, adminPin, typer);
+  if (typed !== null && typer !== null) return issueTyped(db, name, role, typed, actor, adminPin, typer, denied.denylist);
 
   for (let n = 1; n <= MAX_CANDIDATES; n++) {
     const code = generateCandidate();
-    if (!isDrawable(code, adminPin)) {
-      console.warn(`[cleaners] reserved or easy candidate skipped (candidate ${n}/${MAX_CANDIDATES})`);
+    if (!isDrawable(code, adminPin, denied.denylist)) {
+      console.warn(`[cleaners] reserved, public or easy candidate skipped (candidate ${n}/${MAX_CANDIDATES})`);
       continue;
     }
 
@@ -392,6 +398,7 @@ async function issueTyped(
   actor: Actor,
   adminPin: string,
   typer: CodeTyper,
+  denylist: CodeDenylist | null,
 ): Promise<IssueCleanerResult> {
   const cleanerRef = db.collection(CLEANERS_COLLECTION).doc();
   try {
@@ -399,7 +406,7 @@ async function issueTyped(
       const nowMs = Date.now();
       const lock = typer.counted ? await readConnectionLock(tx, typer.connection, nowMs) : null;
       if (lock?.holding) return { kind: 'locked', lockedUntil: lock.holding.until, now: false };
-      const reason = reservedReason(code, adminPin);
+      const reason = reservedReason(code, adminPin, denylist);
       const available = reason ? null : await codeAvailability(tx, db, code, cleanerRef.id);
       // ── Writes ── An ordinary admin's try counts, whatever the answer.
       const counted = lock ? countTry(tx, lock.ref, lock.lock, nowMs) : null;
@@ -579,12 +586,14 @@ export type SetCleanerCodeResult =
   | { kind: 'not-a-code' }
   /** No admin PIN to keep codes clear of. Nothing was read or written. */
   | { kind: 'admin-pin-missing' }
-  /** The typed code is the admin PIN (ADMIN_PIN). Nothing was read or written. */
+  /** The typed code is the admin PIN (ADMIN_PIN), or one that appeared in Nubnb's public code. Nothing was written (a public one is counted on the connection). */
   | { kind: 'reserved'; reason: ReservedReason }
   /** The typed code is an active account's now (`holder` is their name). Nothing was written. */
   | { kind: 'taken'; holder: string | null }
   /** Every candidate drawn was reserved, easy or taken. Nothing was written. */
   | { kind: 'exhausted' }
+  /** The denylist of codes that appeared in public code is set but cannot be checked (no cleaner key). Nothing was read or written. */
+  | { kind: 'denylist-unkeyed' }
   /** The stored session epoch or history is not in a shape that can be advanced. Nothing was written. */
   | { kind: 'unreadable' }
   /** The transaction failed: it may or may not have landed. */
@@ -623,17 +632,19 @@ export async function setCleanerCode(
 ): Promise<SetCleanerCodeResult> {
   if (!isDocumentId(id)) return { kind: 'not-found' };
   if (!adminPin) return { kind: 'admin-pin-missing' };
+  const denied = codeDenylist();
+  if (denied.kind === 'unkeyed') return { kind: 'denylist-unkeyed' };
 
   if (request.kind === 'typed') {
     if (!CODE_PATTERN.test(request.code)) return { kind: 'not-a-code' };
     if (typer === null) return { kind: 'not-configured' };
-    return writeCode(actor, id, request.code, { kind: 'typed', adminPin, typer });
+    return writeCode(actor, id, request.code, { kind: 'typed', adminPin, typer, denylist: denied.denylist });
   }
 
   for (let n = 1; n <= MAX_CANDIDATES; n++) {
     const code = generateCandidate();
-    if (!isDrawable(code, adminPin)) {
-      console.warn(`[cleaners] reserved or easy candidate skipped (candidate ${n}/${MAX_CANDIDATES})`);
+    if (!isDrawable(code, adminPin, denied.denylist)) {
+      console.warn(`[cleaners] reserved, public or easy candidate skipped (candidate ${n}/${MAX_CANDIDATES})`);
       continue;
     }
     const result = await writeCode(actor, id, code, { kind: 'drawn' });
@@ -655,7 +666,7 @@ async function writeCode(
   actor: Actor,
   id: string,
   code: string,
-  how: { kind: 'typed'; adminPin: string; typer: CodeTyper } | { kind: 'drawn' },
+  how: { kind: 'typed'; adminPin: string; typer: CodeTyper; denylist: CodeDenylist | null } | { kind: 'drawn' },
 ): Promise<SetCleanerCodeResult> {
   const source = how.kind;
   try {
@@ -686,7 +697,7 @@ async function writeCode(
       const history: unknown = stored.history;
       if (!isSessionEpoch(epoch) || !Array.isArray(history)) return { kind: 'unreadable' };
 
-      const reason = how.kind === 'typed' ? reservedReason(code, how.adminPin) : null;
+      const reason = how.kind === 'typed' ? reservedReason(code, how.adminPin, how.denylist) : null;
       const available = reason ? null : await codeAvailability(tx, db, code, id);
 
       // The document of the code being replaced: the current code's, or on a

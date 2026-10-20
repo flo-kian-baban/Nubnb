@@ -59,7 +59,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cert, initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { setOwnPin } from './admin-pin-rules.mjs';
+import { setOwnPin, readDenylist } from './admin-pin-rules.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -136,13 +136,15 @@ if (setPin) {
     process.exit(2);
   }
   const at = new Date().toISOString();
-  const outcome = await db.runTransaction((tx) => setOwnPin(db, tx, { adminId, pin: newPin, sharedPin, at, write }));
+  // The list of codes never given out (security rule, 2026-10-19), from .env.local as the server reads it.
+  const denylist = readDenylist(env.CLEANER_CODE_DENYLIST, env.CLEANER_SESSION_SECRET);
+  const outcome = await db.runTransaction((tx) => setOwnPin(db, tx, { adminId, pin: newPin, sharedPin, at, write, denylist }));
   if (outcome.kind === 'refused') {
     console.error(`Refused: ${outcome.reason} Nothing was changed.`);
     process.exit(1);
   }
   if (outcome.kind === 'checked') {
-    console.log('Dry run: every check passed (four digits, not too easy, not ADMIN_PIN, no other admin’s PIN, never a cleaner code). With --write, it becomes their PIN, stored readably, and every session they hold ends.');
+    console.log(`Dry run: every check passed (four digits, not too easy, not ADMIN_PIN, ${denylist === null ? 'no list of codes never given out set, ' : 'not on the list of codes never given out, '}no other admin’s PIN, never a cleaner code). With --write, it becomes their PIN, stored readably, and every session they hold ends.`);
     process.exit(0);
   }
   const after = (await ref.get()).data();

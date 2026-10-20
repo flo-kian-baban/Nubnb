@@ -995,7 +995,7 @@ Against the repo's production build (`next start` on 4620 and 4621) reading prod
 
 ### 13.1 What the investigation found first
 
-Kian reported that admins could not see or review cost logs. On production, `/admin/costs` answered 200, its API refused without a session, and the admin header carried the Costs link. On a local build of the deployed commit reading production, the page listed the one entry Kian had logged (pending, $110.47), rendered its receipt from Storage, showed Approve, Reject and Remove and the Correct buttons, and the Excel export downloaded once a property was chosen, after a confirm that the pending entry was not in it: "0 approved entries · $0". Nothing was broken. What the page did not do: open as a queue, hold anything in a report until an entry was approved, or keep the tax apart from the items (that entry stored "HST 13.0000 %" as line 8).
+Kian reported that admins could not see or review cost logs. On production, `/admin/costs` answered 200, its API refused without a session, and the admin header carried the Costs link. On a local build of the deployed commit reading production, the page listed the one entry Kian had logged (pending, $110.47), rendered its receipt from Storage, showed Approve, Reject and Remove and the Correct buttons, and the Excel export downloaded once a property was chosen, after a confirm that the pending entry was not in it: "0 approved entries · $0". Nothing was broken. What the page did not do: open as a queue, hold anything in a report until an entry was approved, or keep the tax apart from the items (that entry stored "HST 13 % (a four-decimal percentage)" as line 8).
 
 ### 13.2 Tax is a field
 
@@ -1038,7 +1038,7 @@ The items screen is `inert` from the moment the photo is kept until the answer c
 
 Against the repo's build reading production data (`next start` on 4620, and on 4621 through a stub Gemini answering slowly or with 500), throwaway admin and cleaner secrets, one `__TEST__` cleaner. Opening export `backups/2026-09-30T14-35-41Z` (55 documents in 8 collections, Kian's own entry among them and left untouched).
 
-- **Both tax shapes, everywhere.** A new-shape entry read by Gemini from the r08 photo stored `schemaVersion 2, taxCents 278` and four item lines with no HST line; the reading document marked the model's tax line `outcome: tax` and `tax: { readCents: 278, sentCents: 278, edited: false }`. An old-shape entry was written directly in the dispatch 17–20 shape (`schemaVersion 1`, no `taxCents`, "HST 13.0000 %" as line 3, $1.36). The cleaner's "My receipts" showed $24.16 (21.38 + 2.78) and $11.80; the admin pane showed Items $21.38 / Tax $2.78 / Total $24.16 and Items $11.80 / Tax "in items" / Total $11.80, each with its receipt rendered; the queue and ledger tables showed the same in their Items, Tax and Total columns, Kian's own entry reading "in items". Excel (opened in Microsoft Excel) row 7: `Lm1PTE … 3 | 11.8 | in items | 11.8`; row 8: `FJ7tts … 4 | 21.38 | 2.78 | 24.16`; period total `33.18 | 2.78 | 35.96`; the Items sheet listed the seven lines and one `Tax | 2.78` row for the new-shape entry. The PDF (pdftotext): the same two rows, `Period total $33.18 $2.78 $35.96`, and the "in items" note.
+- **Both tax shapes, everywhere.** A new-shape entry read by Gemini from the r08 photo stored `schemaVersion 2, taxCents 278` and four item lines with no HST line; the reading document marked the model's tax line `outcome: tax` and `tax: { readCents: 278, sentCents: 278, edited: false }`. An old-shape entry was written directly in the dispatch 17–20 shape (`schemaVersion 1`, no `taxCents`, "HST 13 % (a four-decimal percentage)" as line 3, $1.36). The cleaner's "My receipts" showed $24.16 (21.38 + 2.78) and $11.80; the admin pane showed Items $21.38 / Tax $2.78 / Total $24.16 and Items $11.80 / Tax "in items" / Total $11.80, each with its receipt rendered; the queue and ledger tables showed the same in their Items, Tax and Total columns, Kian's own entry reading "in items". Excel (opened in Microsoft Excel) row 7: `Lm1PTE … 3 | 11.8 | in items | 11.8`; row 8: `FJ7tts … 4 | 21.38 | 2.78 | 24.16`; period total `33.18 | 2.78 | 35.96`; the Items sheet listed the seven lines and one `Tax | 2.78` row for the new-shape entry. The PDF (pdftotext): the same two rows, `Period total $33.18 $2.78 $35.96`, and the "in items" note.
 - **Locked while reading:** with the stub answering after 8 s, at 10:39:47.9 the items list and the tax card were `inert`, the first input could not take focus, and Send and Add item were disabled, under the panel "Reading the receipt… The items will appear here in a moment."; at 10:39:56.5 the lines were there, the tax field read 2.78, and everything was enabled. With the stub answering 500, the form was unlocked at once with "The receipt couldn't be read. Type the items.", the photo still shown; a typed line and a typed tax ($5.00 + $0.65) sent as a version 2 entry with `taxCents 65`, its reading document `failed / http_500`.
 - **The camera frame** on a 390×844 viewport, with `getUserMedia` replaced by a canvas stream that drew a receipt in the bottom-left corner, outside the frame: the video played at 1080×1920, the frame and "Fit the receipt in the frame" showed, the shutter produced a 1080×1920 photo that was accepted with Next enabled, and the entry made from it sent.
 - **Cleaner-facing name (first round, on the property document, since replaced):** the cleaner's list, search and "My receipts" showed the set name and never the real one, and the admin and the exports kept the real one. That design put the name on the world-readable property document; Kian ruled it into its own collection, verified below (§13.8).
@@ -1684,7 +1684,7 @@ Kian's rulings (in `CLAUDE.md` under *Team and costs*): an admin types a new cle
 
 ### 24.1 What was built
 
-- **The code at creation.** `POST /api/admin/cleaners` takes `{ name, role?, code? }`. A typed code goes through `issueCleaner`'s new `issueTyped`: the PIN and the reserved list are refused before anything is read (422 `CLEANER_CODE_IS_ADMIN_PIN`, `CLEANER_CODE_TOO_EASY`); one transaction reads `cleaner_codes/{code}`, refuses one ever issued (409 `CLEANER_CODE_TAKEN`, "belongs to someone else on the team" or "was used before and is never given out again"), then `create()`s the code and the account. Without `code` the server draws one, as before. The reserved list moved from `codes.ts` to `model.ts` (`isTooEasyCode`), the same 24 codes, so the browser can use it. The dialog (`NewMemberDialog.tsx`) has a Code field after the name, digits only, at most four, and **Generate**, which fills the field with `suggestCode()` (uniform over 0000–9999 from `crypto.getRandomValues`, never a reserved code) for the admin to keep or change; Create waits for four digits. A refusal stays in the dialog with what was typed. "Change code" is untouched.
+- **The code at creation.** `POST /api/admin/cleaners` takes `{ name, role?, code? }`. A typed code goes through `issueCleaner`'s new `issueTyped`: the PIN and the reserved list are refused before anything is read (422 `CLEANER_CODE_IS_ADMIN_PIN`, `CLEANER_CODE_TOO_EASY`); one transaction reads `cleaner_codes/{code}`, refuses one ever issued (409 `CLEANER_CODE_TAKEN`, "belongs to someone else on the team" or "was used before and is never given out again"), then `create()`s the code and the account. Without `code` the server draws one, as before. The reserved list moved from `codes.ts` to `model.ts` (`isTooEasyCode`), the same 24 codes, so the browser can use it. The dialog (`NewMemberDialog.tsx`) has a Code field after the name, digits only, at most four, and **Generate**, which fills the field with `suggestCode()` (uniform over the ten thousand four-digit codes from `crypto.getRandomValues`, never a reserved code) for the admin to keep or change; Create waits for four digits. A refusal stays in the dialog with what was typed. "Change code" is untouched.
 - **Deleting an entry.** `deleteCostEntry` (`server-cost-entries.ts`) and `DELETE /api/admin/cost-entries/[id]` with `{ seen }`. One transaction: the entry as the admin saw it (else 409 `ENTRY_CHANGED`); every finished statement of its property, and any whose `entryIds` name it, read from their raw fields (cost rows, `entryIds`, adjustments; current or replaced) — any printing it refuses with 409 `ENTRY_IN_STATEMENT`, the hint naming each ("It is in the statement for October 2026 (# Oct-…), finished 2 October 2026…") and `evidence.statements` their IDs; then the entry, its reading (`cost_entry_readings/{id}`) and the one-time-key record naming it (`cost_entry_submissions`, `where entryId ==`) are deleted. After the commit each receipt object at the entry's stored path, only under `receipts/{id}/`, is deleted; a failure leaves it, logged by path, and the answer says `left`. One log line per delete.
 - **The pane** (`EntryPane.tsx`): **Delete…** in red beside Remove, for an entry of any status. When the property's statements show a finished one printing the entry, it refuses at once with the server's words, without asking. Otherwise the confirmation: "Delete this entry for good? / Logged by Amir (cleaner) on Oct 2, 2026, 11:03:01 a.m. / Amount: $45.20, for … / The receipt photo is deleted with it. [or: It has no receipt photo.] / [It went out in a PDF exported …; that PDF will no longer match the ledger.] / Nothing is kept: there will be no record of what was claimed or who logged it. This cannot be undone. / To take it out of totals and keep it on record, use Remove instead." Afterwards the pane closes, the entry leaves the page's list and the page says what went. Remove's icon is now a circle with a minus, so the bin is Delete's alone. The approved note no longer ends "and nothing is erased".
 - **The ledger after a delete** (`deletedSincePdf` in `costs/report.ts`): an entry gone has no row to mark, so the ledger on the costs page (every PDF of the property) and the property page's Costs tab (PDFs covering the month) say, per recorded cost PDF that lists one: "The cost PDF exported … for … lists an entry since deleted, at $45.20: whoever received it holds a total that includes it." `sincePdf`'s `missing` is no longer "not expected".
@@ -1709,7 +1709,7 @@ Checked against the live build (www.nubnb.ca, `3189872`) with a `__TEST__` handy
 Against a local production build of this tree reading production data (`next start` on 127.0.0.1:4500, throwaway admin and cleaner secrets, no `.env.local` in the copy; builds `FEbbJbYz3qoAnLK0xvRqL`, then `vZVqA-6TK5QZSg9n_mW0-` after the wording fixes), and production itself for the handyman check. **Opening export `backups/2026-10-02T14-47-22Z`: 96 documents, 13 collections; Storage 4,645 objects (4,640 property photos, 5 receipts).** Test property Nice Room In Renovated Basement (`4zOZFqCCkwlh2xuJsIKB`: no entry, draft, statement, record or cost PDF). Raw outputs in the session scratchpad `out/`, screenshots in `shots/`.
 
 - **Pure:** the reserved list before (HEAD `codes.ts`) and after (`isTooEasyCode`) identical, 24 codes; `suggestCode` ×200,000 offered no reserved code and all 9,976 others, each 6–36 times (~20 expected).
-- **Codes at creation:** the cleaner by the API with 8341 → 201, stored 8341; the handyman from the dialog with 9263 typed (after Generate filled 9201, 5475, 7764) → "Created __TEST__ 23H handyman as a handyman. Their code is 9263." Refused, nothing written: 9263 again → 409 "belongs to someone else on the team"; the server's own admin PIN → 422 `CLEANER_CODE_IS_ADMIN_PIN`; 1234 and 0000 → 422 `CLEANER_CODE_TOO_EASY`; "12a4" → 422 validation; 8341 after the cleaner's code was changed to 9759 → 409 "used before". Then 7 accounts (5 + 2), `cleaner_codes/1234` and `/0000` missing. In the dialog, the refusal kept the name and the code.
+- **Codes at creation:** the cleaner by the API with <a test code> → 201, stored <a test code>; the handyman from the dialog with <a test code> typed (after Generate filled <a test code>, <a test code>, <a test code>) → "Created __TEST__ 23H handyman as a handyman. Their code is <a test code>." Refused, nothing written: <a test code> again → 409 "belongs to someone else on the team"; the server's own admin PIN → 422 `CLEANER_CODE_IS_ADMIN_PIN`; <a test code> and <a test code> → 422 `CLEANER_CODE_TOO_EASY`; "12a4" → 422 validation; <a test code> after the cleaner's code was changed to <a test code> → 409 "used before". Then 7 accounts (5 + 2), `cleaner_codes/<a test code>` and `/<a test code>` missing. In the dialog, the refusal kept the name and the code.
 - **Handymen:** above (§24.3); the four work entries showed in the queue as Pending.
 - **A cleaner's receipt under $200:** three, all `approved`, the second event by the system actor, `autoApproved {thresholdCents 20000, totalCents 4520}` on the first.
 - **Deleted:** entry A (`1u83iE705VtH4JCIgbwp`, $45.20, auto-approved, with a `__TEST__` reading written beside it) after an Excel file and a recorded PDF that listed it. From the pane: the confirmation as above; afterwards `cost_entries/…`, `cost_entry_readings/…`, its `cost_entry_submissions` record and `receipts/1u83iE…/fab6fe2a….jpg` each read MISSING; the server log "deleted with 1 submission record(s), reading deleted, receipts deleted"; Storage 4,648 → 4,647; the cost PDF record unchanged. The ledger: 3 entries · $143.00 → 2 · $97.80, and the line about the PDF; the Excel file and the PDF made afterwards hold no trace of it (0 matches for its ref, its items or $45.20), the PDF two entries and $97.80. The property page's Costs tab carries the same line. Entry C, removed first, was deleted from the queue the same way (4,648 → 4,647 with the statement's PDF present).
@@ -3470,7 +3470,7 @@ Kian's rulings are in `CLAUDE.md` under *Codes and PINs*: cleaner and handyman c
 
 ### 52.1 What changed
 
-- **Cleaner codes.** `reservedReason` (`app/lib/cleaners/codes.ts`) refuses the shared PIN alone: an admin who types 1234, 0000 or any other easy code gets it, at creation or in a change. `422 CLEANER_CODE_TOO_EASY` is gone from both routes. A code an admin's PIN holds, and one an active account holds, are refused as before.
+- **Cleaner codes.** `reservedReason` (`app/lib/cleaners/codes.ts`) refuses the shared PIN alone: an admin who types an easy code (four of one digit, a straight run) gets it, at creation or in a change. `422 CLEANER_CODE_TOO_EASY` is gone from both routes. A code an admin's PIN holds, and one an active account holds, are refused as before.
 - **Former admin PINs.** A PIN counts as held only while an admin's document holds it now (`pinHeld`, `app/lib/firebase/server-admins.ts`): the digits' `admin_pins` entry, and the admin it names, who must still exist and hold them. The app already deleted an admin's entry when their PIN changed or they were removed, so a former PIN was free unless an entry was left behind (its admin gone or on another PIN, as after a cleanup by ID). Such an entry is now free, and the PIN set next writes over it. Adding an admin, setting one's PIN, one's own Change PIN and the recovery script (`scripts/admin-pin-rules.mjs`) all read it this way, and so does a cleaner code (`adminPinHolds`). Sign-in already treated such an entry as a wrong PIN; that is unchanged.
 - **One line per refusal.** Each refusal of a code or a PIN is one line that says why, with no hint under it:
   - a code: "That is an admin PIN, and a code can never be one." · "Amir already has that code." (or "Someone else on the team already has that code.") · "Every code drawn was already in use: try again.";
@@ -3478,7 +3478,7 @@ Kian's rulings are in `CLAUDE.md` under *Codes and PINs*: cleaner and handyman c
   - one's own Change PIN and Set your PIN now give the same reasons, not "That PIN is taken."; the warning that one more try locks stays after it;
   - a locked connection, as the Team page shows it for a typed code: "Too many tries in a row: sign-in from this connection is locked for 12 more minutes." or "Too many tries today: … until a main admin lifts it."; Change PIN and Set your PIN say "Too many tries: sign-in from here is locked until 3:12 am."
 - **The Team page** shows a code refusal as its line alone: no hint and no error code under it.
-- **Tests:** `admin-accounts` (cleaner codes refused by their digits: the shared PIN only; 1234, 0000, 9876, 7777 free; a draw skips 25) and `admin-recover-pin` (the new words; an entry naming an admin who is gone, or one on another PIN, or themselves, written over; a former PIN back to its admin, then to another) re-recorded.
+- **Tests:** `admin-accounts` (cleaner codes refused by their digits: the shared PIN only; four easy codes free; a draw skips 25) and `admin-recover-pin` (the new words; an entry naming an admin who is gone, or one on another PIN, or themselves, written over; a former PIN back to its admin, then to another) re-recorded.
 
 ### 52.2 Decisions, not rulings
 
@@ -3493,9 +3493,9 @@ Kian's review of 2026-10-17: he accepted the three decisions put to him in the r
 
 - **Offline:** `node tests/run.mjs` 16 of 16 (two re-recorded after reading the diff); `tsc` clean outside stale `.next/` files; `eslint` output identical to HEAD's (10 problems).
 - **Live**, on a build of the tree (`5dMEXk1t-ZJ9VSK2U7mEY`, 127.0.0.1:4500) reading production, with a throwaway shared PIN and keys, behind a write guard that allowed only the test's own records (its rules tested offline first, 28 of 28) and as `__TEST__` admins only: a seeded main admin, then Ada, Bo and Cy added through the app. Values drawn at random, none a production code or PIN.
-  - **Easy codes:** 1234 for a new cleaner and 0000 for a new handyman, 201 each, each deactivated by the next call (about a second active); 9999 and, on the Team page, 1111 through a code change.
+  - **Easy codes:** <an easy code> for a new cleaner and <an easy code> for a new handyman, 201 each, each deactivated by the next call (about a second active); <an easy code> and, on the Team page, <an easy code> through a code change.
   - **Former PINs:** Ada moved off her PIN and back (200); her former PIN then set for Bo (200); Bo's former PIN for a new admin, Cy (201); Ada's own Change PIN to a new PIN and back to her former one (200 each). An entry left behind naming Bo, then one naming Ada, each taken over by Cy (200); one naming Ada given as a cleaner code (200), after which it was refused for Cy as a cleaner code.
-  - **Refused, each with its line:** 1234 and 0000 for an admin (422, "Too easy to guess …"); a retired and a current cleaner code (409, "That is a cleaner code, now or before …"); a PIN in use, on the add, set and own-change paths (409, "Another admin has that PIN."); the shared PIN (422); an admin's PIN and the shared PIN as a cleaner code (422, "That is an admin PIN …"); a code an active account holds (409, "__TEST__ Holder already has that code."). In the Admins page's Add an admin, the Team page's New team member (one line, nothing under it) and Ada's Change PIN dialog, the same lines. The fourth counted own change carried "One more try locks sign-in from here for 15 minutes."
+  - **Refused, each with its line:** two easy codes for an admin (422, "Too easy to guess …"); a retired and a current cleaner code (409, "That is a cleaner code, now or before …"); a PIN in use, on the add, set and own-change paths (409, "Another admin has that PIN."); the shared PIN (422); an admin's PIN and the shared PIN as a cleaner code (422, "That is an admin PIN …"); a code an active account holds (409, "__TEST__ Holder already has that code."). In the Admins page's Add an admin, the Team page's New team member (one line, nothing under it) and Ada's Change PIN dialog, the same lines. The fourth counted own change carried "One more try locks sign-in from here for 15 minutes."
   - **Not exercised:** the new lock wording (no connection was locked: the Team page's line, Change PIN's and Set your PIN's); Set your PIN's refusal on screen (it shows the same server line as Change PIN); two writes over one left-behind entry at the same moment.
 - **The guard** recorded 94 writes, 93 allowed. The one refused was a code the guard's first list did not hold (its transaction wrote nothing; the list was widened and the step run again with a new value).
 - **Cleanup:** the four team members and the four admins through the app (the test main admin last, by itself); 43 records by exact ID from the test's ledger after export `2026-10-17T07-04-46Z` (31 activity lines, 8 retired test codes, 3 test-address locks, 1 entry left behind). Exports `2026-10-17T06-56-57Z` and `2026-10-17T07-06-14Z`: 20 of 20 files byte-identical, 510 documents. Storage 6,624 objects before and after, same names and generations. About 5,300 reads, besides the exports (the build 3,890). Evidence in `~/Backups/Nubnb/codes-pins-1017`; its scan: 0 production codes or PINs.
@@ -4389,3 +4389,176 @@ reached every admin's browser in `history`. What was built is below.
   opening one (686 documents, 0 differences, 23 collections).
 - **No rules or index change.** The two new routes are reads; `property_regular_cleaners` and the other collections
   touched were already denied to browsers by the catch-all.
+
+## 60. Codes that appeared in Nubnb's public code: the security rule of 2026-10-19
+
+Not a ruling of Kian's: the developer's rule, recorded in CLAUDE.md under *Security rules*, after a four-digit example
+in a pre-existing CLAUDE.md line (the accepted-risk wording of 2026-10-17 on easy codes) turned out to equal a cleaner's
+current code. The repository is public, so the digits were public too.
+
+### 60.1 What was built
+
+1. **The line itself** names no digits now: "may be easy codes (all one digit, or a straight run of digits)". The
+   meaning of Kian's ruling is unchanged.
+2. **A whole-tree scan before every commit** (`scripts/scan-tree-for-codes.mjs [backups/<folder>]`): every tracked file,
+   not only the staged diff, against the current cleaner codes and the admin PINs (the readable values and the PIN
+   index) of a fresh export, and the shared PIN from .env.local when present. Counts and file names only; exit 1 on any
+   hit, and the commit is refused. Years are not set aside: a code that reads like a year is still found.
+3. **The denylist** (`app/lib/cleaners/codes.ts`): every code or PIN ever issued — the `cleaner_codes` index, current
+   and retired; every account's code and the codes in its history; the PIN index; the admins' readable PINs; the shared
+   PIN — whose four digits appear anywhere in the git history (every commit's patch and message, every four-digit
+   window of every digit run) is never given out again: `isDrawable` skips it and `reservedReason` answers
+   `public-history`, which both routes refuse with 422 CLEANER_CODE_PUBLIC, "That code has appeared in Nubnb's public
+   code and is never given out." (one plain line, as Kian's ruling of 2026-10-17 asks). The list is kept out of the
+   repository and the database: `CLEANER_CODE_DENYLIST` in the server's environment, comma-separated HMAC-SHA256 hashes
+   of each code under `CLEANER_SESSION_SECRET` with the label `nubnb:code-denylist:v1:`, made by
+   `node scripts/code-denylist.mjs [backups/<folder>]`, which prints the line to set (and counts to stderr) and never a
+   code. With the variable unset nothing is denied; set but unkeyed (no CLEANER_SESSION_SECRET), issuance fails closed
+   (503 CLEANER_CODE_DENYLIST_UNKEYED). Rotating the key means running the script again; so does any commit that could
+   add a code to the history.
+4. **Tests** (admin-accounts §2): a listed code refused when typed and never drawable, an unlisted one not, the shared
+   PIN still refused as before, the same hashes under another key denying nothing, the environment value holding no
+   digits, and the three readings of the variable (none, unkeyed, hashes).
+5. **The same list refuses an admin PIN** (Kian's instruction of 2026-10-19, the release; `app/lib/admins/pin-denylist.ts`,
+   `pinDenied`): a new admin's PIN, one a main admin sets, and an admin's own change are refused with the same
+   sentence, 422 ADMIN_PIN_PUBLIC, checked before any read like the shared PIN; with the list set and the cleaner key
+   missing, 503 ADMIN_PIN_DENYLIST_UNKEYED and nothing changes (fails closed, as issuance does). The recovery script's
+   `--set-pin` mirrors it (`scripts/admin-pin-rules.mjs`: `readDenylist`, `denylistHash`, the same label and sentence,
+   from .env.local). The list is keyed with `CLEANER_SESSION_SECRET`: rotating that secret means regenerating
+   `CLEANER_CODE_DENYLIST` before codes can be issued or PINs set again (CLAUDE.md, Security rules). Tests: admin-accounts
+   §2 (the helper against the environment: listed, unlisted, unkeyed, unset; the three routes ask it) and
+   admin-recover-pin §6 (the script's hash equals the app's, the readings, a listed PIN refused before any read, the
+   unkeyed list refused, an unlisted PIN checked as before). The reading of the list moved to
+   `app/lib/cleaners/denylist.ts`, shared by issuance and PINs.
+
+### 60.2 The developer's choices
+
+1. **The environment, not a Firestore record**, so building the list writes nothing to production and the check reads
+   nothing: the generator already reads the admin PIN index and the code index in its transaction, and a list read on
+   every draw would add a read. The price: Kian sets the variable in Vercel and in .env.local, and nothing is denied
+   until he does; the deploy check cannot see an environment variable.
+2. **Keyed hashes under the cleaner key**, so the variable's value names no code even to someone who reads it, and no
+   new secret is needed.
+3. **Every four-digit window counts**, so a code inside a longer number (an ID, a timestamp) in the history is on the
+   list too: the list is bounded by the codes ever issued, so being conservative costs nothing.
+4. **Current codes that appear in the history go on the list too.** The list only governs what is given out next; a
+   current holder keeps their code until an admin changes it.
+5. **A denied PIN is not a wrong try.** A PIN refused because another admin or a cleaner code holds it counts against
+   the connection's lock, since the refusal reveals something about an account; a value on the list is public already
+   and reveals nothing, so the own-PIN change refuses it before the current PIN is tried, uncounted.
+
+## 61. The Availability page, round 1: the stay's line, reads on open, dated marks, the minimum, "Not on the site" — Kian's rulings K1–K5 of 2026-10-19 (the Availability audit)
+
+Built from the audit of 2026-10-19 (`~/Downloads/nubnb-availability-audit-2026-10-19/REPORT.md`) and Kian's rulings
+K1–K5 and instruction of the same day, recorded in CLAUDE.md under *Availability page*. Nothing here changes money, a
+statement or what an owner receives: the page tells an admin on the phone what is free and what it would cost before
+taxes, from prices admins set.
+
+### 61.1 What was built
+
+1. **K1, the stay's one line** (`app/lib/availability/search.ts`, `stayTotalOf`, `stayLine`): a search row's "For the
+   stay" cell shows the total in bold and under it the line a caller is told — "2 nights × $99 + $100 cleaning = $298
+   before taxes"; with no fee set (zero, missing or negative), "2 nights × $150, no cleaning fee set = $300 before
+   taxes". The nightly price is `priceInfo.nightly`, the fee `priceInfo.cleaningFee`, both as admins set them; the sum
+   is the only arithmetic, and `SearchRow.stayTotal` now holds it (it excluded the fee before, while the old caption
+   said "plus the cleaning fee"; that caption is gone). **Copy** beside it puts that one line on the clipboard
+   (`navigator.clipboard.writeText`) and reads "Copied" for a moment, or "Could not copy" when the browser refuses.
+2. **K2, reads on open** (`app/api/admin/availability/route.ts`, `refreshIfStale('admin-page')`): the page's read now
+   also asks the refresh's state — one more read — and when the copy is more than three hours old starts the same
+   background refresh the Schedule and the cleaner app start (Kian's ruling R1 of 2026-10-19: the same lease, one run at
+   a time, `after()` the answer; the route carries `maxDuration = 300` so the run may finish). Its answer gains
+   `refresh`: `{ state: 'starting' | 'running', lastFinishedAt }` or null. The page then watches the run the way the
+   Schedule does (`watchCalendarRun`: the status route, two reads a look, at 1.5 s and every 3 s after), says in its
+   status line "Reading the calendars now; the results change when they are read.", and when the run ends reads the
+   copy again and says "Calendars read <time>. The results show them." — every search and ranking on the page is then
+   from the new copy, with no reload. A fresh copy starts nothing and adds only the state's read.
+3. **K3, the dated mark** (`app/lib/availability/marks.ts`, `rowMarks`): "Not on Airbnb · checked Sep 30", the day
+   from the stored page check's `checkedAt`. The listing-page check itself is not revived: the verdicts are the ones the
+   never-deployed function wrote on 2026-09-30, and a mark says so.
+4. **K4, the minimum** (`search.ts`, `judge`): a stay shorter than `minNights` adds the reason "minimum 28 nights" as a
+   miss, so the row is a near miss (one of the two misses allowed), never a fit; at or above the minimum nothing is
+   added. Without dates no minimum applies. The Near misses hint names it. The ranking already counted sellable nights
+   by the minimum and is unchanged.
+5. **K5, "Not on the site"** (`marks.ts`): the slice each property is read as carries `unlisted` (from
+   `property_visibility`, never from the document), and an unlisted property's rows carry "Not on the site" in the
+   search and in the ranking. Excluded-from-reporting is not read and not marked.
+6. **The row's own read** (`marks.ts`, `readBehindRun`): a row whose calendar's last good read is older than the copy's
+   own time, or whose last read failed, carries "calendar read Oct 18, 12:13"; a calendar the run read carries no mark;
+   a calendar never read carries none either (its own note says so). The three marks come in one order — the site,
+   Airbnb, the read — and the same function serves both tables.
+7. **The slice** (`GET /api/admin/availability/properties`, new; `app/lib/availability/property.ts`,
+   `toAvailabilityProperty`, `isAvailabilityProperty`): the page no longer reads the whole admin property list (1.66 MB,
+   of which it used a few fields). The route reads every property by a field mask (name, slug, address, location, type,
+   guests, bedrooms, bathrooms, price, priceInfo, cover image, Airbnb link, offers), the unlisted marks and the
+   cleaner-facing names, and answers the slice `AvailabilityProperty` for each — the admin's name (the address) and the
+   public title, the prices, the minimum, the names of the available offers, `unlisted`. The browser reads it strictly
+   (`isAvailabilityProperty`): another shape is a load failure, never rendered. `GET /api/admin/properties` is unchanged
+   for the pages that keep using it. A field mask does not reduce Firestore's reads — the reads are the same as the
+   whole list's — it reduces the bytes (61.4).
+8. **The tables** (`app/admin/availability/page.tsx`, `page.module.css`): the search table has six columns — Property
+   (the picture, the address, the title, "area · city · sleeps 4 · 2 bedrooms · min 2 nights"), Nightly, the nights,
+   Why it is here, For the stay, Actions — and the ranking nine (the minimum moved under the name); cells are 11 × 10 px;
+   the actions are two small square buttons, Airbnb and Edit. Both fit their box at 1440 and at 1280 with no sideways
+   scroll (61.4).
+9. **Edit** opens `/admin/property/edit?id=<id>` (prefetch off), the property's own edit page, not the admin home
+   (61.4 for its reads).
+
+### 61.2 Tests
+
+`tests/availability/round1.mjs` (availability-round1, new): the line with and without a fee, one night, a negative fee
+and 30 nights; a 2-night stay on a 28-night minimum a near miss and a 1-night stay on a 2-night minimum too, 28 nights
+a fit and 27 not, the minimum counted among the two misses allowed and a third miss putting the row out, no minimum
+without dates; the marks in every case (unlisted, gone, read before the run, read by the run, live, unknown, no feed,
+never read, no run time) on search rows and ranking rows; the slice's fields (no calendar link, no images, no
+description), the address as the name, the fallbacks, and the strict reading refusing eight other shapes.
+admin-accounts re-recorded for the new route (read, not recorded).
+
+### 61.3 The developer's choices
+
+1. **The total stays visible at a glance**, bold above the line, so an admin scanning rows reads the number first and
+   the line when they say it; the line is also the Copy button's `aria-label`.
+2. **"no cleaning fee set" sits inside the line**, before the "=": the line still reads as one sentence to say aloud,
+   and the words are Kian's.
+3. **A negative or missing fee is "none"**: a fee below zero is not a price an admin meant.
+4. **"calendar read" is about the row's own read, not the copy's age.** The status line keeps saying how old the copy
+   is; the row's mark appears only when its calendar is behind the copy — a failed read, or one the run did not repeat.
+5. **The watch's words are the Schedule's**, and the status line's "Refresh now" link hides while a run is watched, so
+   nothing invites a second run; the tag's Refresh in the navigation stays, one run at a time as before.
+6. **The slice keeps `offers` read whole and reduces it on the server**, since a field mask cannot select an array's
+   element fields; the browser receives the offer names only.
+7. **The attention table keeps its plain "minimum n nights" note** under the name (it was its Min column), so the
+   ranking's "sellable" figure can be read against it.
+8. **Nothing else moved**: the home's tiles, the Schedule and the cleaner app read the copy as before; the admin home
+   still reads `GET /api/admin/properties`.
+
+### 61.4 Measured on production (2026-10-19)
+
+A local build of this tree reading production, a `__TEST__` admin, four Unlisted `__TEST__` properties with local
+calendars, the copy and the refresh state answered from memory (the opening export's copy aged to four hours old),
+every real calendar cut off, the tag's Refresh intercepted in the page; 3,814 reads in all, two exports among them,
+nothing changed in production (the closing export identical, 686 documents). The report:
+`~/Downloads/nubnb-availability-round1-2026-10-19/REPORT.md`.
+
+- **K2 live:** the open on the aged copy answered `refresh: { state: "starting" }`; the status line read "Reading the
+  calendars now; the results change when they are read."; the run read the four test calendars (three answered, one
+  cut), wrote the copy, the day and the state into the stub, and 7 looks later the page said "Calendars read Oct 19,
+  17:46. The results show them." with the three new calendars in its results. Every write stubbed, none refused.
+- **The slice:** 69,136 bytes for 62 properties (18 fields each, no calendar link, no images, no offers' icons),
+  against 1.66 MB for 58 before; 128 reads (62 properties, 4 unlisted marks, 62 cleaner-facing names), the same
+  count as the whole list's 118 at 58 properties: a field mask cuts bytes, not reads.
+- **A page open** (no run): 198 reads here, 53 of them naming the 53 calendars that failed in this run (a test
+  artefact: every real feed was cut off) and 3 the page it was reached from; about 142 on production's data — the
+  audit's 129, plus the four test properties (12) and the refresh state's read (1).
+- **Edit:** lands on `/admin/property/edit?id=<id>` at 14 reads (the property, its cleaner-facing name, its management
+  record, the tag's status twice); the audit measured 789 for Edit → the admin home.
+- **The tables:** search 1,142 px in a 1,142 px box at 1440, 1,158 in 1,158 at 1280; the ranking the same; the page's
+  scroll width equals the window at both. The first pass had the Near misses table 34–38 px over at both widths: the
+  facts line under the name was `white-space: nowrap`; it wraps now, the chips' column is capped at 210 px and the
+  stay cell at 15 em.
+- **Copy:** in the headless browser the clipboard API refused ("Could not copy" on the first pass, the designed
+  failure); the selection copy command was added as the fallback and the second pass read "Copied", the text handed
+  to the clipboard equal to the line. A real browser on https takes the API path.
+- **The marks, live:** P "2 nights × $99 + $100 cleaning = $298 before taxes"; R "2 nights × $80, no cleaning fee set
+  = $160 before taxes" with "Not on Airbnb · checked Sep 30"; Q a near miss "minimum 28 nights" (11 of 22 rows carried
+  a minimum chip: the 28-night units the audit saw listed as fits); every test row "Not on the site" in both views;
+  S "calendar read Oct 19, 13:51" (its read was cut off), and every real row too, their reads cut off in this run.

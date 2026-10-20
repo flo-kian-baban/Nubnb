@@ -104,6 +104,8 @@ export interface AvailabilityProperty {
   airbnbUrl: string;
   /** Names of the offers marked available, for text search ("hot tub", "parking"). */
   offerNames: string[];
+  /** Unlisted (Kian's ruling of 2026-10-03): not on the public site. Marked "Not on the site" on every result (Kian's ruling K5 of 2026-10-19). */
+  unlisted: boolean;
 }
 
 export type NightState = 'open' | 'reserved' | 'blocked';
@@ -124,6 +126,7 @@ export interface SearchQuery {
 
 /** Why a property is where it is in the answer, in the caller's terms. */
 export interface Reason {
+  /** `minNights`: a stay shorter than the listed minimum, a miss (Kian's ruling K4 of 2026-10-19), never a fit. */
   kind: 'fits' | 'dates' | 'guests' | 'city' | 'bedrooms' | 'type' | 'price' | 'minNights' | 'feed';
   text: string;
   /** True when this reason is a miss (counts towards "near"), false when it is a note on a fit. */
@@ -140,7 +143,10 @@ export interface SearchRow {
   reasons: Reason[];
   /** How many conditions this property missed; 0 on a fit. */
   missed: number;
-  /** Nights × nightly for the stay asked, plus the cleaning fee, in dollars. Null without dates. */
+  /**
+   * The stay's total before taxes, in dollars: nights × nightly + the cleaning fee (Kian's ruling K1 of 2026-10-19).
+   * Each value is an admin-set price; the sum is the only arithmetic. Null without dates.
+   */
   stayTotal: number | null;
   /** Open nights in the next 30 when no dates were asked. */
   openNext30: number | null;

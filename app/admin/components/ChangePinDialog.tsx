@@ -70,6 +70,8 @@ export function ChangePinDialog({ admin, onChanged, onClose }: Props) {
       setCurrent("");
       // Another admin's PIN, or a cleaner code: the server's one line says which (Kian's ruling of 2026-10-17).
     } else if (result.code === "ADMIN_PIN_TAKEN" || result.code === "ADMIN_PIN_IS_A_CODE") setError(lastTry ? `${result.title} ${lastTry}` : result.title);
+    // On the list of codes never given out (security rule, 2026-10-19), or that list cannot be checked: nothing changed, said plainly.
+    else if (result.code === "ADMIN_PIN_PUBLIC" || result.code === "ADMIN_PIN_DENYLIST_UNKEYED") setError(result.title);
     else setError(result.unknown ? `${result.title} It may or may not have changed.` : result.title);
   };
 

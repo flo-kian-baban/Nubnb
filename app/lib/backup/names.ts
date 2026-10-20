@@ -11,7 +11,7 @@
 
 import { monthLabel, monthName } from '@/app/lib/reports/model';
 
-const REFUSED = /[\\/:*?"<>|\u0000-\u001f\u007f]/g;
+const REFUSED = /[\\/:*?"<>|\x00-\u001f\u007f]/g;
 
 /** A name a file system takes: refused characters become "-", spaces collapse, no trailing dot or space, at most `max` characters. */
 export function cleanName(value: string, max = 120): string {

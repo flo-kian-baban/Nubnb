@@ -14,7 +14,10 @@
  * included, may be set again: Kian's ruling of 2026-10-17), 409
  * ADMIN_PIN_IS_A_CODE when a cleaner code, current or retired, is those digits
  * (late night); 422 for a PIN that is not four digits, is too easy, or is the
- * shared PIN, each in one plain line that says why (2026-10-17). 404
+ * shared PIN, and 422 ADMIN_PIN_PUBLIC for a value that appeared in Nubnb's
+ * public code (security rule, 2026-10-19; 503 ADMIN_PIN_DENYLIST_UNKEYED when
+ * that list is set and cannot be checked), each in one plain line that says
+ * why (2026-10-17). 404
  * ADMIN_NOT_FOUND. 502: it may or may not have been set.
  */
 
@@ -23,6 +26,7 @@ import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiError, apiFailure, apiSuccess, apiValidationError, noStore } from '@/app/lib/api/safe-response';
 import { sharedPinMatches } from '@/app/lib/admins/pin';
 import { ACCOUNT_REFUSALS, PIN_IS_A_CODE, PIN_IS_SHARED, PIN_TAKEN } from '@/app/lib/admins/responses';
+import { pinDenied } from '@/app/lib/admins/pin-denylist';
 import { SetPinSchema } from '@/app/lib/admins/schemas';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { setAdminPin } from '@/app/lib/firebase/server-admins';
@@ -54,6 +58,9 @@ export const POST = adminRoute(
     const parsed = SetPinSchema.safeParse(body);
     if (!parsed.success) return noStore(apiValidationError(parsed.error.issues.map((i) => ({ path: i.path.map(String).join('.'), message: i.message }))));
     if (sharedPinMatches(parsed.data.pin) === true) return noStore(apiFailure(PIN_IS_SHARED));
+    // The list of codes never given out refuses a PIN too (security rule, 2026-10-19), before any read.
+    const denied = pinDenied(parsed.data.pin);
+    if (denied) return noStore(apiFailure(denied));
     try {
       const outcome = await setAdminPin(actor, id, parsed.data.pin);
       if (outcome.kind === 'pin-taken') return noStore(apiFailure(outcome.by === 'code' ? PIN_IS_A_CODE : PIN_TAKEN));

@@ -7,7 +7,7 @@
  * and answers 200 `{ cleaner, changed }` with the cleaner as now stored, new
  * code included.
  *
- * An easy code (1234, 0000 …) is accepted (Kian's ruling of 2026-10-17).
+ * An easy code (four of one digit, a straight run) is accepted (Kian's ruling of 2026-10-17).
  * Refused, with nothing written, each in one plain line that says why
  * (Kian's ruling of 2026-10-17):
  *   422 CLEANER_CODE_IS_ADMIN_PIN  an admin PIN — the shared one, or any
@@ -15,6 +15,9 @@
  *                                  night) — is never a cleaner's code: both
  *                                  are four digits, so the cleaner would open
  *                                  /admin with it
+ *   422 CLEANER_CODE_PUBLIC        a code that appeared in Nubnb's public code
+ *                                  (security rule, 2026-10-19; never drawn
+ *                                  either)
  *   409 CLEANER_CODE_TAKEN         an active account's code now; any other
  *                                  code is free (Kian's ruling of 2026-10-02),
  *                                  a deactivated holder then having none
@@ -49,6 +52,7 @@ import {
   noStore,
 } from '@/app/lib/api/safe-response';
 import { CODE_PATTERN, type Refusal } from '@/app/lib/cleaners/model';
+import { PUBLIC_CODE_REFUSAL_LINE } from '@/app/lib/cleaners/codes';
 import { connectionOf } from '@/app/lib/admins/connection';
 import { lockedResponse } from '@/app/lib/admins/responses';
 import { ADMIN_AUTH_NOT_CONFIGURED, getAdminPinKey } from '@/app/lib/admins/secrets';
@@ -70,7 +74,7 @@ const NewCodeSchema = z.union([
 
 /** What the POST answers for every outcome but `done` and `not-a-code`. */
 const CODE_REFUSALS: Record<
-  Exclude<SetCleanerCodeResult['kind'], 'done' | 'not-a-code' | 'reserved' | 'taken' | 'admin-pin' | 'locked' | 'not-configured'>,
+  Exclude<SetCleanerCodeResult['kind'], 'done' | 'not-a-code' | 'reserved' | 'taken' | 'admin-pin' | 'locked' | 'not-configured' | 'denylist-unkeyed'>,
   Refusal
 > = {
   'not-found': {
@@ -109,6 +113,21 @@ const ADMIN_PIN_REFUSAL: Refusal = {
   status: 422,
   code: 'CLEANER_CODE_IS_ADMIN_PIN',
   message: 'That is an admin PIN, and a code can never be one.',
+};
+
+/** A code that appeared in Nubnb's public code (security rule, 2026-10-19; codes.ts): never given out, in one plain line. */
+const PUBLIC_CODE_REFUSAL: Refusal = {
+  status: 422,
+  code: 'CLEANER_CODE_PUBLIC',
+  message: PUBLIC_CODE_REFUSAL_LINE,
+};
+
+/** The denylist is set but cannot be checked: issuance fails closed. */
+const DENYLIST_UNKEYED: Refusal = {
+  status: 503,
+  code: 'CLEANER_CODE_DENYLIST_UNKEYED',
+  message: 'The list of codes never given out cannot be checked on this server.',
+  hint: 'CLEANER_CODE_DENYLIST is set but CLEANER_SESSION_SECRET is not. Nothing was changed.',
 };
 
 function takenRefusal(holder: string | null): Refusal {
@@ -172,7 +191,9 @@ export const POST = adminRoute(async function POST(request: NextRequest, context
     case 'not-a-code':
       return noStore(apiValidationError([{ path: 'code', message: CODE_MESSAGE }]));
     case 'reserved':
-      return noStore(apiFailure(ADMIN_PIN_REFUSAL));
+      return noStore(apiFailure(outcome.reason === 'public-history' ? PUBLIC_CODE_REFUSAL : ADMIN_PIN_REFUSAL));
+    case 'denylist-unkeyed':
+      return noStore(apiFailure(DENYLIST_UNKEYED));
     case 'admin-pin':
       return noStore(apiFailure(ADMIN_PIN_REFUSAL));
     case 'locked':

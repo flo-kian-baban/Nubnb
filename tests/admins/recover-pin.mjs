@@ -212,3 +212,19 @@ try {
   verdict = err.message.split(' ')[0];
 }
 out(shown(`  the second (Main Two), from what it read: ${JSON.stringify(secondResult)} · its commit: ${verdict} · Main Two's document unchanged: ${JSON.stringify(live.store.get(`admins/${MAIN2}`)) === mainTwoBefore} · the entry names: ${live.store.get(`admin_pins/${NEW}`)?.adminId}`));
+
+// ─── 6. The list of codes never given out ───
+out('\n6. The list of codes never given out (security rule, 2026-10-19): the script refuses a listed PIN as the app does');
+const codes = await import(`${ROOT}/app/lib/cleaners/codes.ts`);
+const listKey = Buffer.alloc(32, 3);
+const listValue = codes.denylistValue([NEW], listKey);
+const listSecret = listKey.toString('base64url');
+out(`  the script's hash is the app's (so its label is too): ${rules.denylistHash(NEW, listKey) === codes.denylistHash(NEW, listKey)}; another key, another hash: ${rules.denylistHash(NEW, Buffer.alloc(32, 4)) !== codes.denylistHash(NEW, listKey)}`);
+out(`  read: unset ${JSON.stringify(rules.readDenylist(undefined, listSecret))}, empty ${JSON.stringify(rules.readDenylist('', listSecret))}, not hashes ${JSON.stringify(rules.readDenylist('xyz,abcd', listSecret))}, set without the key ${JSON.stringify(rules.readDenylist(listValue, ''))}, set with it: ${rules.readDenylist(listValue, listSecret).hashes.size} hash(es) · the app reads the same value: ${codes.readCodeDenylist(listValue, listKey).kind}, without the key ${codes.readCodeDenylist(listValue, null).kind}`);
+out(`  the sentence is the app's: ${rules.PUBLIC_REFUSAL_LINE === codes.PUBLIC_CODE_REFUSAL_LINE}`);
+for (const [label, denylist, pin] of [['a listed PIN', rules.readDenylist(listValue, listSecret), NEW], ['the list set, the key missing', 'unkeyed', NEW2], ['an unlisted PIN, the list set', rules.readDenylist(listValue, listSecret), NEW2]]) {
+  const w = standIn(world());
+  const t = w.transaction();
+  const result = await rules.setOwnPin(w.db, t.tx, { adminId: MAIN1, pin, sharedPin: SHARED, at: AT, write: false, denylist });
+  out(shown(`  ${label.padEnd(32)} → ${JSON.stringify(result)} · ${t.reads()} reads · writes: ${writesIn(t.ops)}`));
+}

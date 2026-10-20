@@ -9,8 +9,8 @@
   a space                    script: "A PIN is four digits." · app: "A PIN is four digits."
   empty                      script: "A PIN is four digits." · app: "A PIN is four digits."
   a number, not text         script: "A PIN is four digits." · app: "not text"
-  too easy (a run)           script: "Too easy to guess: four of one digit, or a straight run like 1234." · app: "Too easy to guess: four of one digit, or a straight run like 1234."
-  too easy (a repeat)        script: "Too easy to guess: four of one digit, or a straight run like 1234." · app: "Too easy to guess: four of one digit, or a straight run like 1234."
+  too easy (a run)           script: "Too easy to guess: four of one digit, or a straight run." · app: "Too easy to guess: four of one digit, or a straight run."
+  too easy (a repeat)        script: "Too easy to guess: four of one digit, or a straight run." · app: "Too easy to guess: four of one digit, or a straight run."
   the shared PIN: script "That is the shared PIN (ADMIN_PIN), which is never an admin’s own." · the app's sharedPinMatches: true
   another PIN, the shared one set: script null · the app's sharedPinMatches: false
   samePin gives the app's answer for 6 of 6 pairs
@@ -19,7 +19,7 @@
 
 2. Refused, with nothing written
   not four digits                              → {"kind":"refused","reason":"A PIN is four digits."} · 0 reads · writes: none · everything unchanged: true
-  too easy                                     → {"kind":"refused","reason":"Too easy to guess: four of one digit, or a straight run like 1234."} · 0 reads · writes: none · everything unchanged: true
+  too easy                                     → {"kind":"refused","reason":"Too easy to guess: four of one digit, or a straight run."} · 0 reads · writes: none · everything unchanged: true
   the shared PIN                               → {"kind":"refused","reason":"That is the shared PIN (ADMIN_PIN), which is never an admin’s own."} · 0 reads · writes: none · everything unchanged: true
   an ordinary admin's PIN                      → {"kind":"refused","reason":"Another admin has that PIN."} · 4 reads · writes: none · everything unchanged: true
   another main admin's PIN                     → {"kind":"refused","reason":"Another admin has that PIN."} · 4 reads · writes: none · everything unchanged: true
@@ -59,3 +59,11 @@
 5. Two at once: the second, which read before the first committed, is refused whole at its commit
   the first (Main): {"kind":"set","from":"own","epoch":3,"freed":false}
   the second (Main Two), from what it read: {"kind":"set","from":"readable","epoch":6,"freed":true} · its commit: ALREADY_EXISTS · Main Two's document unchanged: true · the entry names: MAIN0000000000000001
+
+6. The list of codes never given out (security rule, 2026-10-19): the script refuses a listed PIN as the app does
+  the script's hash is the app's (so its label is too): true; another key, another hash: true
+  read: unset null, empty null, not hashes null, set without the key "unkeyed", set with it: 1 hash(es) · the app reads the same value: ok, without the key unkeyed
+  the sentence is the app's: true
+  a listed PIN                     → {"kind":"refused","reason":"That code has appeared in Nubnb's public code and is never given out."} · 0 reads · writes: none
+  the list set, the key missing    → {"kind":"refused","reason":"CLEANER_CODE_DENYLIST is set but CLEANER_SESSION_SECRET is not: the list of codes never given out cannot be checked."} · 0 reads · writes: none
+  an unlisted PIN, the list set    → {"kind":"checked"} · 3 reads · writes: none

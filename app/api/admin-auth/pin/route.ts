@@ -23,8 +23,12 @@
  * ADMIN_PIN_IS_A_CODE (a cleaner code, current or retired), both counted, with
  * the warning before the try that locks as the hint; 409 ADMIN_PIN_SAME; 409
  * ADMIN_PIN_KEPT_BEFORE for a PIN set before PINs were four digits; 422 for a
- * new PIN that is not four digits, is too easy, or is the shared PIN; 429
- * ADMIN_SIGN_IN_LOCKED; 503 when the keys are not set. 502: it may or may not
+ * new PIN that is not four digits, is too easy, or is the shared PIN, and 422
+ * ADMIN_PIN_PUBLIC for a value that appeared in Nubnb's public code (security
+ * rule, 2026-10-19; not counted as a try: the value is public already); 429
+ * ADMIN_SIGN_IN_LOCKED; 503 when the keys are not set, or when the list of
+ * codes never given out is set and cannot be checked
+ * (ADMIN_PIN_DENYLIST_UNKEYED). 502: it may or may not
  * have changed.
  *
  * The body holds PINs: it is never logged or echoed. The activity log records
@@ -38,6 +42,7 @@ import { connectionOf } from '@/app/lib/admins/connection';
 import { SIGN_IN_PIN_PATTERN, lastTryWords } from '@/app/lib/admins/model';
 import { sharedPinMatches } from '@/app/lib/admins/pin';
 import { PIN_IS_A_CODE, PIN_IS_SHARED, PIN_KEPT_BEFORE, PIN_TAKEN, lockedResponse, signedInView } from '@/app/lib/admins/responses';
+import { pinDenied } from '@/app/lib/admins/pin-denylist';
 import { ChangePinSchema } from '@/app/lib/admins/schemas';
 import { ADMIN_AUTH_NOT_CONFIGURED, getAdminPinKey, getAdminSessionKey } from '@/app/lib/admins/secrets';
 import { ADMIN_SESSION_INVALID, createAdminToken, setAdminSessionCookie } from '@/app/lib/admins/session';
@@ -70,6 +75,9 @@ export const POST = adminRoute(async function POST(request: NextRequest, _contex
   const { currentPin, newPin } = parsed.data;
   if (!SIGN_IN_PIN_PATTERN.test(currentPin)) return noStore(apiFailure(WRONG(0, false)));
   if (sharedPinMatches(newPin) === true) return noStore(apiFailure(PIN_IS_SHARED));
+  // The list of codes never given out refuses a PIN too (security rule, 2026-10-19), before the current PIN is tried.
+  const denied = pinDenied(newPin);
+  if (denied) return noStore(apiFailure(denied));
 
   const outcome = await changeOwnPin(admin, currentPin, newPin, connectionOf(request, pinKey));
   switch (outcome.kind) {

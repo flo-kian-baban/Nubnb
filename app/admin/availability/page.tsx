@@ -28,6 +28,24 @@
  *
  * "Could not load" is never "nothing here": a failed read shows no results
  * and no ranking.
+ *
+ * ── Round 1 (the audit of 2026-10-19; Kian's rulings K1–K5) ──
+ * - K1: a search row's stay total is nights × nightly + the cleaning fee,
+ *   "before taxes", as one line ("2 nights × $99 + $100 cleaning = $298 before
+ *   taxes"; "no cleaning fee set" when none), with a Copy control for that
+ *   line. Each value is an admin-set price; the sum is the only arithmetic.
+ * - K2: opening the page on a copy more than three hours old starts the same
+ *   background refresh the Schedule starts (R1, the same lease); the page
+ *   watches the run and shows its result when it ends.
+ * - K3: "Not on Airbnb · checked Sep 30": each mark shows its check date.
+ * - K4: a stay shorter than the listed minimum is a near miss, "minimum n
+ *   nights", never a fit.
+ * - K5: unlisted properties carry "Not on the site" in both views.
+ * - A row whose calendar copy is older than the run, or failed, carries
+ *   "calendar read <day, time>". The tables fit beside the navigation at 1440
+ *   and 1280. Edit opens the property's edit page. The page reads the slice of
+ *   each property it needs (GET /api/admin/availability/properties), not the
+ *   whole admin list.
  */
 
 import { Suspense, useEffect, useMemo, useState } from "react";
@@ -38,6 +56,8 @@ import {
   BedDouble,
   Building2,
   CalendarSearch,
+  Check,
+  Copy,
   ExternalLink,
   MapPin,
   Pencil,
@@ -51,12 +71,11 @@ import { AdminSelect } from "../components/AdminSelect";
 import { DateRangeField } from "../components/DateRangeField";
 import { PinGate } from "../components/PinGate";
 import { NoticeBanner, useNotice } from "../components/Notice";
-import { getPropertiesResult } from "@/app/lib/firebase/properties";
-import { fetchAvailability, type AvailabilityData } from "@/app/lib/availability-client";
-import { refreshCalendarsNow, useCalendarsRefreshed, useCalendarsRefreshing } from "@/app/lib/calendar-refresh-client";
-import { toAvailabilityProperty } from "@/app/lib/availability/property";
+import { fetchAvailability, fetchAvailabilityProperties, type AvailabilityData } from "@/app/lib/availability-client";
+import { refreshCalendarsNow, useCalendarRunWatched, useCalendarsRead, useCalendarsRefreshed, useCalendarsRefreshing, watchCalendarRun } from "@/app/lib/calendar-refresh-client";
+import { rowMarks, type RowMark } from "@/app/lib/availability/marks";
 import { addDays, dayText, isDay, rangeText, torontoDay, weekendStay } from "@/app/lib/availability/days";
-import { BEDROOM_OPTIONS, isBedroomsFilter, searchProperties } from "@/app/lib/availability/search";
+import { BEDROOM_OPTIONS, isBedroomsFilter, searchProperties, stayLine } from "@/app/lib/availability/search";
 import { HORIZONS, attentionList, freshness, isHorizon, type Horizon } from "@/app/lib/availability/attention";
 import { HORIZON_DAYS, isReadable } from "@/app/lib/availability/snapshot";
 import type {
@@ -65,7 +84,6 @@ import type {
   AvailabilitySnapshot,
   BedroomsFilter,
   NightState,
-  PropertyAvailability,
   Reason,
   SearchQuery,
   SearchRow,
@@ -137,15 +155,35 @@ function Availability() {
       setLoadedAt(at);
       setNowMs(at);
       setData(result.ok ? { kind: "ready", data: result.data } : { kind: "error", title: result.title, detail: result.detail, status: result.status });
+      // Opened on a stale copy (Kian's ruling K2): the server started the refresh after its answer, or one is under way;
+      // watch it to its end and show what it read.
+      if (result.ok && result.data.refresh) void watchCalendarRun(result.data.snapshot?.refreshedAt ?? null);
     });
-    getPropertiesResult().then((result) => {
+    // The slice of each property this page needs (round 1), not the whole admin list.
+    fetchAvailabilityProperties().then((result) => {
       if (cancelled) return;
-      setProperties(result.ok ? { kind: "ready", data: result.data.properties.map((property) => toAvailabilityProperty(property, result.data.internalNames.get(property.id))) } : { kind: "error", title: result.error, status: 0 });
+      setProperties(result.ok ? { kind: "ready", data: result.data } : { kind: "error", title: result.title, detail: result.detail, status: result.status });
     });
     return () => {
       cancelled = true;
     };
   }, [attempt]);
+
+  // A watched run ended (K2): read the copy again and say so; the results then show what it read.
+  const watched = useCalendarRunWatched();
+  useCalendarsRead(async (status) => {
+    if (data.kind === "ready" && status.refreshedAt === data.data.snapshot?.refreshedAt) return;
+    const again = await fetchAvailability();
+    if (!again.ok) {
+      showNotice({ tone: "warning", title: "The calendars were read, but the new copy could not be loaded. Press Refresh to try again.", detail: again.title });
+      return;
+    }
+    const at = Date.now();
+    setLoadedAt(at);
+    setNowMs(at);
+    setData({ kind: "ready", data: again.data });
+    showNotice({ tone: "success", title: `Calendars read ${status.refreshedAt ? readText(status.refreshedAt) : "just now"}. The results show them.` });
+  });
 
   useEffect(() => {
     const timer = setInterval(() => setNowMs(Date.now()), 60_000);
@@ -301,7 +339,7 @@ function Availability() {
               </button>
             </div>
 
-            <StatusLine snapshot={snapshot} fresh={fresh} withFeed={withFeed} onRefresh={refreshNow} refreshing={refreshing} />
+            <StatusLine snapshot={snapshot} fresh={fresh} withFeed={withFeed} onRefresh={refreshNow} refreshing={refreshing} reading={watched} />
 
             {view === "search" ? (
               <SearchView
@@ -345,12 +383,15 @@ function StatusLine({
   withFeed,
   onRefresh,
   refreshing,
+  reading,
 }: {
   snapshot: AvailabilitySnapshot | null;
   fresh: ReturnType<typeof freshness> | null;
   withFeed: number;
   onRefresh: () => void;
   refreshing: boolean;
+  /** A run started on open (K2) is being watched: its result replaces what is shown when it ends. */
+  reading: boolean;
 }) {
   if (!snapshot || !fresh) {
     return (
@@ -375,13 +416,20 @@ function StatusLine({
         </>
       )}
       {snapshot.run.pagesChecked > 0 && <> · Airbnb pages checked</>}
-      {alert && (
+      {reading ? (
         <>
           {" "}
-          <button type="button" className={styles.statusLink} onClick={onRefresh} disabled={refreshing}>
-            Refresh now
-          </button>
+          · <span className={styles.statusReading}>Reading the calendars now; the results change when they are read.</span>
         </>
+      ) : (
+        alert && (
+          <>
+            {" "}
+            <button type="button" className={styles.statusLink} onClick={onRefresh} disabled={refreshing}>
+              Refresh now
+            </button>
+          </>
+        )
       )}
     </p>
   );
@@ -440,6 +488,7 @@ function SearchView({
   ]
     .filter(Boolean)
     .join(", ");
+  const runAt = snapshot?.refreshedAt ?? null;
 
   return (
     <>
@@ -556,7 +605,7 @@ function SearchView({
             {result.fits.length === 0 ? (
               <p className={styles.groupEmpty}>Nothing fits exactly{asked ? ` (${asked})` : ""}.</p>
             ) : (
-              <SearchTable rows={result.fits} hasDates={hasDates} nights={result.nights} />
+              <SearchTable rows={result.fits} hasDates={hasDates} nights={result.nights} runAt={runAt} />
             )}
           </ResultGroup>
 
@@ -564,7 +613,7 @@ function SearchView({
             <ResultGroup
               title="Near misses"
               count={result.near.length}
-              hint="at most two things off: dates within three days, up to two guests short, up to a quarter over budget, another city or type"
+              hint="at most two things off: dates within three days, up to two guests short, up to a quarter over budget, another city or type, or a stay under the listed minimum"
             >
               {result.near.length === 0 ? (
                 shown === 0 && hasDates ? (
@@ -587,7 +636,7 @@ function SearchView({
                   <p className={styles.groupEmpty}>Nothing nearly fits either.</p>
                 )
               ) : (
-                <SearchTable rows={result.near} hasDates={hasDates} nights={result.nights} />
+                <SearchTable rows={result.near} hasDates={hasDates} nights={result.nights} runAt={runAt} />
               )}
             </ResultGroup>
           )}
@@ -595,7 +644,7 @@ function SearchView({
           {result.yearBlocked.length > 0 && (
             <details className={styles.folded}>
               <summary>Blocked for the whole year ({result.yearBlocked.length})</summary>
-              <SearchTable rows={result.yearBlocked} hasDates={hasDates} nights={result.nights} />
+              <SearchTable rows={result.yearBlocked} hasDates={hasDates} nights={result.nights} runAt={runAt} />
             </details>
           )}
         </>
@@ -617,17 +666,18 @@ function ResultGroup({ title, count, fit, hint, children }: { title: string; cou
   );
 }
 
-function SearchTable({ rows, hasDates, nights }: { rows: SearchRow[]; hasDates: boolean; nights: number }) {
+/**
+ * The search table (round 1): six columns, so it fits beside the navigation at 1440 and 1280. Sleeps, bedrooms and the
+ * minimum sit under the property's name; the stay's one line and its Copy are in "For the stay".
+ */
+function SearchTable({ rows, hasDates, nights, runAt }: { rows: SearchRow[]; hasDates: boolean; nights: number; runAt: string | null }) {
   return (
-    <div className={`${shared.tableContainer} ${shared.tableScroll}`}>
+    <div className={`${shared.tableContainer} ${styles.tableBox}`}>
       <table className={`${shared.table} ${styles.compact}`}>
         <thead>
           <tr>
             <th>Property</th>
-            <th>Sleeps</th>
-            <th>Bedrooms</th>
             <th>Nightly</th>
-            <th>Min</th>
             <th>{hasDates ? "The nights asked" : "Open, next 30"}</th>
             <th>Why it is here</th>
             {hasDates && <th>For the stay</th>}
@@ -638,27 +688,16 @@ function SearchTable({ rows, hasDates, nights }: { rows: SearchRow[]; hasDates: 
           {rows.map((row) => (
             <tr key={row.property.id}>
               <td>
-                <PropertyCell property={row.property} />
+                <PropertyCell property={row.property} facts />
               </td>
-              <td className={styles.num}>{row.property.guests}</td>
-              <td className={styles.num}>{row.property.bedrooms === 0 ? "Studio" : row.property.bedrooms}</td>
               <td className={`${styles.num} ${styles.strong}`}>{dollars(row.property.nightly)}</td>
-              <td className={styles.num}>{row.property.minNights}</td>
               <td>{hasDates ? <NightStrip states={row.nights} days={row.nightDays} /> : <span className={styles.num}>{row.openNext30 ?? "—"} of 30</span>}</td>
               <td>
-                <Reasons reasons={row.reasons} feed={row.feed} />
+                <Reasons reasons={row.reasons} marks={rowMarks(row.property, row.feed, runAt)} />
               </td>
               {hasDates && (
-                <td className={styles.num}>
-                  {row.stayTotal !== null && (
-                    <>
-                      <span className={styles.strong}>{dollars(row.stayTotal)}</span>
-                      <span className={styles.sub}>
-                        {plural(nights, "night", "nights")} × {dollars(row.property.nightly)}
-                        {row.property.cleaningFee > 0 ? ` + ${dollars(row.property.cleaningFee)} cleaning` : ""}
-                      </span>
-                    </>
-                  )}
+                <td className={styles.stayCell}>
+                  <StayCell nights={nights} property={row.property} />
                 </td>
               )}
               <td className={shared.actionsCell}>
@@ -668,6 +707,57 @@ function SearchTable({ rows, hasDates, nights }: { rows: SearchRow[]; hasDates: 
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/**
+ * Puts the line on the clipboard: the clipboard API first; when it refuses (an unfocused or insecure page, no permission),
+ * the older copy command on a selection, which works in more places; "failed" only when both refuse.
+ */
+async function copyLine(line: string): Promise<"yes" | "failed"> {
+  try {
+    await navigator.clipboard.writeText(line);
+    return "yes";
+  } catch {
+    /* fall through to the selection copy */
+  }
+  try {
+    const box = document.createElement("textarea");
+    box.value = line;
+    box.setAttribute("readonly", "");
+    box.style.position = "fixed";
+    box.style.opacity = "0";
+    document.body.appendChild(box);
+    box.select();
+    const ok = document.execCommand("copy");
+    box.remove();
+    return ok ? "yes" : "failed";
+  } catch {
+    return "failed";
+  }
+}
+
+/**
+ * The stay's total before taxes (Kian's ruling K1): the total in bold, the one line under it, and Copy, which puts that
+ * line on the clipboard. Each value is an admin-set price; the sum is the only arithmetic (search.ts, stayLine).
+ */
+function StayCell({ nights, property }: { nights: number; property: AvailabilityProperty }) {
+  const [copied, setCopied] = useState<"no" | "yes" | "failed">("no");
+  const line = stayLine(nights, property);
+  const total = line.slice(line.lastIndexOf("= ") + 2);
+  const copy = async () => {
+    setCopied(await copyLine(line));
+    window.setTimeout(() => setCopied("no"), 1_800);
+  };
+  return (
+    <div className={styles.stay}>
+      <span className={`${styles.strong} ${styles.stayTotal}`}>{total}</span>
+      <span className={styles.stayLine}>{line}</span>
+      <button type="button" className={styles.copyBtn} onClick={() => void copy()} aria-label={`Copy: ${line}`} title="Copy this line">
+        {copied === "yes" ? <Check size={12} aria-hidden /> : <Copy size={12} aria-hidden />}
+        <span>{copied === "yes" ? "Copied" : copied === "failed" ? "Could not copy" : "Copy"}</span>
+      </button>
     </div>
   );
 }
@@ -696,7 +786,10 @@ function NightStrip({ states, days }: { states: NightState[]; days: string[] }) 
   );
 }
 
-function Reasons({ reasons, feed }: { reasons: Reason[]; feed: PropertyAvailability | null }) {
+const MARK_CLASS: Record<RowMark["tone"], string> = { gone: styles.reasonGone, site: styles.reasonSite, stale: styles.reasonMiss };
+
+/** The reasons, then the row's marks: "Not on the site" (K5), "Not on Airbnb · checked <day>" (K3), "calendar read <day, time>". */
+function Reasons({ reasons, marks }: { reasons: Reason[]; marks: RowMark[] }) {
   return (
     <div className={styles.reasons}>
       {reasons.map((reason, i) => (
@@ -704,18 +797,21 @@ function Reasons({ reasons, feed }: { reasons: Reason[]; feed: PropertyAvailabil
           {reason.text}
         </span>
       ))}
-      {feed?.airbnbPage?.verdict === "gone" && <span className={`${styles.reason} ${styles.reasonGone}`}>Not on Airbnb</span>}
-      {feed?.status === "failed" && feed.fetchedAt && (
-        <span className={`${styles.reason} ${styles.reasonMiss}`} title={feed.error}>
-          calendar last read {clockText(feed.fetchedAt)}
+      {marks.map((mark, i) => (
+        <span key={`m${i}`} className={`${styles.reason} ${MARK_CLASS[mark.tone]}`}>
+          {mark.text}
         </span>
-      )}
+      ))}
     </div>
   );
 }
 
-/** The picture and the name, the name a link to the property's public page; notes, when given, under it. */
-function PropertyCell({ property, notes }: { property: AvailabilityProperty; notes?: React.ReactNode }) {
+/**
+ * The picture and the name, the name a link to the property's public page; the public title under it (Kian's rulings of
+ * 2026-10-15, evening); with `facts`, "Sleeps 4 · 2 bedrooms · min 2 nights" (round 1: the columns these were); notes,
+ * when given, under that.
+ */
+function PropertyCell({ property, facts, notes }: { property: AvailabilityProperty; facts?: boolean; notes?: React.ReactNode }) {
   const name = <span className={shared.propertyName}>{property.name}</span>;
   return (
     <span className={shared.propertyCell}>
@@ -731,27 +827,28 @@ function PropertyCell({ property, notes }: { property: AvailabilityProperty; not
         ) : (
           name
         )}
-        {/* The public title renters ask about, under the address (Kian's rulings of 2026-10-15, evening). */}
         {property.publicName && property.publicName !== property.name && <span className={styles.publicTitle}>{property.publicName}</span>}
-        <span className={styles.sub}>{[property.area, property.city].filter(Boolean).join(" · ")}</span>
+        <span className={styles.sub}>
+          {[property.area, property.city].filter(Boolean).join(" · ")}
+          {facts && ` · sleeps ${property.guests} · ${property.bedrooms === 0 ? "studio" : plural(property.bedrooms, "bedroom", "bedrooms")} · min ${plural(property.minNights, "night", "nights")}`}
+        </span>
         {notes}
       </span>
     </span>
   );
 }
 
+/** Airbnb, and Edit: the property's own edit page (round 1), not the admin home. Small, so the row fits. */
 function RowActions({ property }: { property: AvailabilityProperty }) {
   return (
     <div className={styles.actions}>
       {property.airbnbUrl && (
-        <a href={property.airbnbUrl} target="_blank" rel="noopener" className={shared.rowAction} title={`Open ${property.publicName || property.name} on Airbnb`}>
-          <ExternalLink size={13} aria-hidden />
-          <span>Airbnb</span>
+        <a href={property.airbnbUrl} target="_blank" rel="noopener" className={styles.iconAction} title={`Open ${property.publicName || property.name} on Airbnb`} aria-label={`Open ${property.name} on Airbnb`}>
+          <ExternalLink size={14} aria-hidden />
         </a>
       )}
-      <Link href={`/admin?q=${encodeURIComponent(property.name)}`} prefetch={false} className={shared.rowAction} title={`Find ${property.name} in the property list to edit it`}>
-        <Pencil size={13} aria-hidden />
-        <span>Edit</span>
+      <Link href={`/admin/property/edit?id=${encodeURIComponent(property.id)}`} prefetch={false} className={styles.iconAction} title={`Edit ${property.name}`} aria-label={`Edit ${property.name}`}>
+        <Pencil size={14} aria-hidden />
       </Link>
     </div>
   );
@@ -788,6 +885,7 @@ function AttentionView({
 }) {
   const ranked = hideGone ? result.ranked.filter((row) => !row.airbnbGone) : result.ranked;
   const hidden = result.ranked.length - ranked.length;
+  const runAt = snapshot?.refreshedAt ?? null;
 
   return (
     <>
@@ -848,47 +946,25 @@ function AttentionView({
           {ranked.length === 0 ? (
             <p className={styles.groupEmpty}>Nothing has an empty night in the next {horizon}{hidden ? " once the hidden ones are set aside" : ""}.</p>
           ) : (
-            <div className={`${shared.tableContainer} ${shared.tableScroll}`}>
-              <table className={`${shared.table} ${styles.compact}`}>
-                <thead>
-                  <tr>
-                    <th className={styles.rank}>#</th>
-                    <th>Property</th>
-                    <th>Nightly</th>
-                    <th>Min</th>
-                    <th>Sellable nights</th>
-                    <th>Empty nights</th>
-                    <th>Longest run</th>
-                    <th>Booked / blocked</th>
-                    <th>Sellable × nightly</th>
-                    <th className={shared.actionsHeader}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ranked.map((row, i) => (
-                    <AttentionTr key={row.property.id} row={row} rank={i + 1} />
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <AttentionTable rows={ranked} ranked runAt={runAt} />
           )}
 
           {result.fullyBooked.length > 0 && (
             <details className={styles.folded}>
               <summary>Fully booked for the period ({result.fullyBooked.length})</summary>
-              <AttentionTable rows={result.fullyBooked} />
+              <AttentionTable rows={result.fullyBooked} runAt={runAt} />
             </details>
           )}
           {result.blockedAll.length > 0 && (
             <details className={styles.folded}>
               <summary>Blocked for the whole period ({result.blockedAll.length})</summary>
-              <AttentionTable rows={result.blockedAll} />
+              <AttentionTable rows={result.blockedAll} runAt={runAt} />
             </details>
           )}
           {result.unread.length > 0 && (
             <details className={styles.folded}>
               <summary>Calendars never read ({result.unread.length})</summary>
-              <AttentionTable rows={result.unread} />
+              <AttentionTable rows={result.unread} runAt={runAt} />
             </details>
           )}
         </>
@@ -897,18 +973,18 @@ function AttentionView({
   );
 }
 
-function AttentionTable({ rows }: { rows: AttentionRow[] }) {
+/** The ranking (round 1): nine columns, the minimum under the property's name, so it fits at 1440 and 1280. */
+function AttentionTable({ rows, ranked, runAt }: { rows: AttentionRow[]; ranked?: boolean; runAt: string | null }) {
   return (
-    <div className={`${shared.tableContainer} ${shared.tableScroll}`}>
-      <table className={`${shared.table} ${styles.compact}`}>
+    <div className={`${shared.tableContainer} ${styles.tableBox}`}>
+      <table className={`${shared.table} ${styles.compact} ${styles.ranking}`}>
         <thead>
           <tr>
-            <th className={styles.rank}></th>
+            <th className={styles.rank}>{ranked ? "#" : ""}</th>
             <th>Property</th>
             <th>Nightly</th>
-            <th>Min</th>
-            <th>Sellable nights</th>
-            <th>Empty nights</th>
+            <th>Sellable</th>
+            <th>Empty</th>
             <th>Longest run</th>
             <th>Booked / blocked</th>
             <th>Sellable × nightly</th>
@@ -916,8 +992,8 @@ function AttentionTable({ rows }: { rows: AttentionRow[] }) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
-            <AttentionTr key={row.property.id} row={row} rank={null} />
+          {rows.map((row, i) => (
+            <AttentionTr key={row.property.id} row={row} rank={ranked ? i + 1 : null} runAt={runAt} />
           ))}
         </tbody>
       </table>
@@ -925,12 +1001,12 @@ function AttentionTable({ rows }: { rows: AttentionRow[] }) {
   );
 }
 
-function AttentionTr({ row, rank }: { row: AttentionRow; rank: number | null }) {
+function AttentionTr({ row, rank, runAt }: { row: AttentionRow; rank: number | null; runAt: string | null }) {
   const readable = isReadable(row.feed);
-  const notes: { text: string; tone?: "miss" | "gone" }[] = [];
+  const notes: { text: string; tone?: "miss" | "gone" | "site" }[] = [];
   if (row.property.minNights > 1) notes.push({ text: `minimum ${plural(row.property.minNights, "night", "nights")}` });
-  if (row.airbnbGone) notes.push({ text: "Not on Airbnb", tone: "gone" });
-  if (row.feed?.status === "failed" && row.feed.fetchedAt) notes.push({ text: `calendar last read ${clockText(row.feed.fetchedAt)}`, tone: "miss" });
+  // The row's marks (K3, K5, the calendar's read), then its calendar's state and its week.
+  for (const mark of rowMarks(row.property, row.feed, runAt)) notes.push({ text: mark.text, tone: mark.tone === "stale" ? "miss" : mark.tone });
   if (row.feed && !readable) notes.push({ text: row.feed.status === "no-feed" ? "no calendar on the property" : "calendar never read", tone: "miss" });
   if (row.recentBookings !== null) notes.push({ text: row.recentBookings === 0 ? "nothing booked in 7 days" : `${plural(row.recentBookings, "booking", "bookings")} in 7 days` });
   return (
@@ -943,7 +1019,7 @@ function AttentionTr({ row, rank }: { row: AttentionRow; rank: number | null }) 
             notes.length > 0 ? (
               <span className={`${styles.reasons} ${styles.reasonsUnder}`}>
                 {notes.map((note, i) => (
-                  <span key={i} className={`${styles.reason} ${note.tone === "gone" ? styles.reasonGone : note.tone === "miss" ? styles.reasonMiss : ""}`}>
+                  <span key={i} className={`${styles.reason} ${note.tone === "gone" ? styles.reasonGone : note.tone === "site" ? styles.reasonSite : note.tone === "miss" ? styles.reasonMiss : ""}`}>
                     {note.text}
                   </span>
                 ))}
@@ -953,7 +1029,6 @@ function AttentionTr({ row, rank }: { row: AttentionRow; rank: number | null }) 
         />
       </td>
       <td className={`${styles.num} ${styles.strong}`}>{dollars(row.property.nightly)}</td>
-      <td className={styles.num}>{row.property.minNights}</td>
       <td className={`${styles.num} ${styles.strong}`}>{readable ? row.sellable : "—"}</td>
       <td className={styles.num}>{readable ? row.empty : "—"}</td>
       <td className={styles.num}>{readable ? row.longestRun : "—"}</td>

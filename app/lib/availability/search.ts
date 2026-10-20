@@ -7,8 +7,15 @@
  * at most two conditions missed, each within a tolerance: dates, free if
  * the stay moves by up to three days or at least half its nights are open;
  * guests, short by at most two; price, at most a quarter over; bedrooms, one
- * off; city and type, any other. The listed minimum stay is a note, never a
- * wall: it is the admin's own number to bend.
+ * off; city and type, any other; and a stay shorter than the listed minimum
+ * (Kian's ruling K4 of 2026-10-19: a near miss with the chip "minimum n
+ * nights", never a fit — the admin may still offer it, knowingly).
+ *
+ * The stay total (Kian's ruling K1 of 2026-10-19) is nights × nightly + the
+ * cleaning fee, labelled "before taxes": "<n> nights × $<nightly> + $<fee>
+ * cleaning = $<total> before taxes", or "…, no cleaning fee set = …" when the
+ * property has none. Each value is an admin-set price (priceInfo.nightly,
+ * priceInfo.cleaningFee); the sum is the only arithmetic.
  */
 
 import { addDays, dayText, nightsBetween } from './days';
@@ -129,8 +136,9 @@ function judge(property: AvailabilityProperty, snapshot: AvailabilitySnapshot | 
           within = false;
         }
       }
+      // A stay shorter than the listed minimum is a miss (K4): the row is a near miss, never a fit.
       if (property.minNights > nights) {
-        reasons.push({ kind: 'minNights', text: `listed minimum ${plural(property.minNights, 'night', 'nights')}`, miss: false });
+        reasons.push({ kind: 'minNights', text: `minimum ${plural(property.minNights, 'night', 'nights')}`, miss: true });
       }
     } else {
       openNext30 = count(nightStates(feed, today, addDays(today, 30)), 'open');
@@ -173,11 +181,27 @@ function judge(property: AvailabilityProperty, snapshot: AvailabilitySnapshot | 
       openNights: count(states, 'open'),
       reasons,
       missed,
-      stayTotal: hasDates ? nights * property.nightly : null,
+      stayTotal: hasDates ? stayTotalOf(nights, property) : null,
       openNext30,
       feed,
     },
   };
+}
+
+/** The stay's total before taxes (K1): nights × nightly + the cleaning fee, dollars. */
+export function stayTotalOf(nights: number, property: Pick<AvailabilityProperty, 'nightly' | 'cleaningFee'>): number {
+  return nights * property.nightly + (property.cleaningFee > 0 ? property.cleaningFee : 0);
+}
+
+const money = (n: number) => `$${Math.round(n).toLocaleString('en-CA')}`;
+
+/**
+ * The one line a caller is told, and the Copy control copies (K1): "2 nights × $99 + $100 cleaning = $298 before
+ * taxes"; with no fee set, "2 nights × $99, no cleaning fee set = $198 before taxes".
+ */
+export function stayLine(nights: number, property: Pick<AvailabilityProperty, 'nightly' | 'cleaningFee'>): string {
+  const fee = property.cleaningFee > 0 ? ` + ${money(property.cleaningFee)} cleaning` : ', no cleaning fee set';
+  return `${plural(nights, 'night', 'nights')} × ${money(property.nightly)}${fee} = ${money(stayTotalOf(nights, property))} before taxes`;
 }
 
 const byPrice = (a: SearchRow, b: SearchRow) => a.property.nightly - b.property.nightly || a.property.name.localeCompare(b.property.name);

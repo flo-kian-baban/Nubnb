@@ -21,7 +21,7 @@
  * code" takes four typed digits or draws a random code. The server refuses
  * an admin's PIN and a code an active account holds, each in one plain line
  * that says why; any other code is free (Kian's ruling of 2026-10-02), easy
- * codes such as 1234 or 0000 included (Kian's rulings of 2026-10-17), a
+ * codes (four of one digit, a straight run) included (Kian's rulings of 2026-10-17), a
  * deactivated account that held it then having none. The old code stops
  * working at once.
  *
@@ -1100,7 +1100,7 @@ function sentence(text: string): string {
  * A typed code refused for a reason its one line says (Kian's ruling of 2026-10-17: every refusal says why in one
  * plain line): an admin's PIN, an active account's code, no code free to draw, or a locked connection.
  */
-const ONE_LINE_REFUSALS: ReadonlySet<string> = new Set(['CLEANER_CODE_IS_ADMIN_PIN', 'CLEANER_CODE_TAKEN', 'CLEANER_CODE_UNAVAILABLE', 'ADMIN_SIGN_IN_LOCKED']);
+const ONE_LINE_REFUSALS: ReadonlySet<string> = new Set(['CLEANER_CODE_IS_ADMIN_PIN', 'CLEANER_CODE_PUBLIC', 'CLEANER_CODE_TAKEN', 'CLEANER_CODE_UNAVAILABLE', 'ADMIN_SIGN_IN_LOCKED']);
 
 /** A code refusal's detail: none for one whose line says why, else describeFailure's. */
 function codeRefusalDetail(failure: CleanerFailure, nothingDone: string): string | undefined {

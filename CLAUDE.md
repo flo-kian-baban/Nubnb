@@ -91,7 +91,7 @@ no checkout. Do not build toward one unless asked.
   cleaner door can be brute-forced. A guessed code can submit cost entries
   under another cleaner's name, where receipts and admin approval remain
   required, and it can mark that cleaner's jobs cleaned.
-- **Cleaner and handyman codes may be easy codes (1234, 0000) when typed; a
+- **Cleaner and handyman codes may be easy codes (all one digit, or a straight run of digits) when typed; a
   guesser tries those first.** The cleaner door's lock slows guessing, and a
   guessed code can mark that cleaner's jobs cleaned.
 - **Cleaner codes are stored readably**, by Kian's ruling (2026-09-28): any
@@ -102,6 +102,9 @@ no checkout. Do not build toward one unless asked.
 - **Admin PINs are stored readably**, by Kian's ruling (2026-10-13, night):
   any copy of the database — every `./backups/` export included — holds every
   admin PIN, and a main admin can act as any admin.
+- **"Amir and Bahareh codes should not be changed"** — Kian's ruling of
+  2026-10-19. Their current admin PINs appear in the public repository's
+  history.
 
 ## Receipt reading — Kian's decision (2026-09-30)
 
@@ -1031,3 +1034,53 @@ Build per the 2026-10-19 audit, on top of the cleaning prices per property.
 - **The Team page shows, per person, the properties they're regular cleaner
   for and their count of upcoming jobs (checkout today or later).** Each links
   to the Schedule filtered to that person.
+
+## Availability page — Kian's rulings of 2026-10-19 (round 1; the Availability audit)
+
+Build per the 2026-10-19 audit.
+
+- **K1.** "The stay total includes the cleaning fee and is labelled 'before
+  taxes': '<n> nights × $<nightly> + $<fee> cleaning = $<total> before taxes'.
+  The fee is priceInfo.cleaningFee; with none, it says 'no cleaning fee set'.
+  Each value shown is an admin-set price, never computed beyond that sum.
+  Remove the old caption. Add a 'Copy' control that copies that one line."
+- **K2.** "Opening the Availability page on a calendar copy more than 3 hours
+  old starts the same refresh as R1 (same lease), and the page shows the
+  result when it finishes."
+- **K3.** "Each 'Not on Airbnb' mark shows its check date ('Not on Airbnb ·
+  checked Sep 30'). Don't revive the listing-page check."
+- **K4.** "A stay shorter than the property's minimum nights is a near miss
+  with the chip 'minimum <n> nights', never a fit."
+- **K5.** "Unlisted properties carry a 'Not on the site' mark in search and
+  attention results; excluded-from-reporting stays unmarked."
+- **Engineering, Kian's instruction:** "Each result row whose calendar copy is
+  older than the run, or failed, carries its own 'calendar read <day, time>'
+  mark. Search and ranking tables fit at 1440 and 1280; no sideways scroll.
+  'Edit' on a result opens that property's edit page directly, not the admin
+  home. The page's GET /api/admin/properties (1.66 MB, 118 reads) is replaced
+  or narrowed to the fields the page needs, if it can be done without
+  touching other pages."
+
+## Security rules (not Kian's rulings; the developer's, 2026-10-19)
+
+The repository is public. These hold until Kian changes them.
+
+- **No code or PIN value in the tree.** Before every commit, `node
+  scripts/scan-tree-for-codes.mjs` runs over every tracked file against the
+  current cleaner codes and the admin PINs of a fresh export; a commit is
+  refused on any hit. A hit is rewritten (a literal as `1_440`, an example as
+  a description), never masked in place. Examples in documents name no digits.
+- **A code that appeared in Nubnb's public code is never given out.** Every
+  code or PIN ever issued whose four digits appear anywhere in the git history
+  is on a denylist: the random draw skips it and a typed code is refused with
+  "That code has appeared in Nubnb's public code and is never given out."
+  The list lives in the server's environment only — `CLEANER_CODE_DENYLIST`,
+  HMAC-SHA256 hashes under `CLEANER_SESSION_SECRET`, made by
+  `node scripts/code-denylist.mjs` from the history and an export — never in
+  the repository or the database. It is rebuilt after any commit that could
+  add a code to the history, and after the key is rotated. **The denylist is
+  keyed with `CLEANER_SESSION_SECRET`: rotating that secret means regenerating
+  `CLEANER_CODE_DENYLIST` before codes can be issued again** (with the list
+  set and the key missing, issuing a code fails closed). The same list refuses
+  an admin PIN: choosing or setting a PIN on it is refused with the same
+  sentence.

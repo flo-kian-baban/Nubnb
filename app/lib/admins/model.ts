@@ -134,7 +134,7 @@ export function isTooEasyPin(pin: string): boolean {
  */
 export function pinProblem(pin: string): string | null {
   if (!PIN_PATTERN.test(pin)) return 'A PIN is four digits.';
-  if (isTooEasyPin(pin)) return 'Too easy to guess: four of one digit, or a straight run like 1234.';
+  if (isTooEasyPin(pin)) return 'Too easy to guess: four of one digit, or a straight run.';
   return null;
 }
 

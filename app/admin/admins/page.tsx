@@ -484,7 +484,8 @@ function AddAdminDialog({ onClose, onAdded, onUnknown }: { onClose: () => void; 
     const result = await createAdmin(name, level, pin);
     setBusy(false);
     if (result.ok) return onAdded(result.data);
-    if (result.unknown) return onUnknown(result.title);
+    // The list of codes never given out cannot be checked (503): nothing was changed, so no "may or may not".
+    if (result.unknown && result.code !== "ADMIN_PIN_DENYLIST_UNKEYED") return onUnknown(result.title);
     setError(result.title);
   };
 
@@ -570,7 +571,8 @@ function SetPinDialog({ admin, onClose, onDone, onUnknown }: { admin: AdminSumma
     const result = await setAdminPin(admin.id, pin);
     setBusy(false);
     if (result.ok) return onDone(result.data.admin, result.data.changed);
-    if (result.unknown) return onUnknown(result.title);
+    // The list of codes never given out cannot be checked (503): nothing was changed, so no "may or may not".
+    if (result.unknown && result.code !== "ADMIN_PIN_DENYLIST_UNKEYED") return onUnknown(result.title);
     setError(result.title);
   };
 

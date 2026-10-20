@@ -35,7 +35,7 @@ const show = (job) => `${job.id} · ${job.status}${job.change ? ` (${job.change.
 
 // ═══ 1. The copy keeps a stay through its checkout day ═══
 console.log('═══ 1. The calendar copy keeps a stay through its checkout day ═══');
-const ics = ['BEGIN:VCALENDAR', 'BEGIN:VEVENT', 'DTSTART;VALUE=DATE:20261012', 'DTEND;VALUE=DATE:20261014', 'SUMMARY:Reserved', 'UID:a@airbnb.com', 'END:VEVENT', 'BEGIN:VEVENT', 'DTSTART;VALUE=DATE:20261013', 'DTEND;VALUE=DATE:20261015', 'SUMMARY:Reserved', 'UID:b@airbnb.com', 'DESCRIPTION:Reservation URL: x\\nPhone Number (Last 4 Digits): 0000', 'END:VEVENT', 'BEGIN:VEVENT', 'DTSTART;VALUE=DATE:20261015', 'DTEND;VALUE=DATE:20261016', 'SUMMARY:Airbnb (Not available)', 'UID:c@airbnb.com', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+const ics = ['BEGIN:VCALENDAR', 'BEGIN:VEVENT', 'DTSTART;VALUE=DATE:20261012', 'DTEND;VALUE=DATE:20261014', 'SUMMARY:Reserved', 'UID:a@airbnb.com', 'END:VEVENT', 'BEGIN:VEVENT', 'DTSTART;VALUE=DATE:20261013', 'DTEND;VALUE=DATE:20261015', 'SUMMARY:Reserved', 'UID:b@airbnb.com', 'DESCRIPTION:Reservation URL: x\\nPhone Number (Last 4 Digits): ••••', 'END:VEVENT', 'BEGIN:VEVENT', 'DTSTART;VALUE=DATE:20261015', 'DTEND;VALUE=DATE:20261016', 'SUMMARY:Airbnb (Not available)', 'UID:c@airbnb.com', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
 const kept = snap.eventsFromFeed(ics, TODAY);
 console.log(`  events kept: ${kept.map((e) => `${e.kind} ${e.start}→${e.end}`).join(' | ')} (the one that ended yesterday is dropped)`);
 console.log(`  tonight's state is unchanged by the stay ending today: ${snap.nightStates(feed('x', kept), TODAY, '2026-10-17').join(', ')}`);
