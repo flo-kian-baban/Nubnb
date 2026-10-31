@@ -25,7 +25,7 @@
    ok   the longest stem with the longest month word fits a reference
 
 ═══ 2. A new month on the property page: the stem and the default rate (K6) ═══
-   reference "Sept-321-John" · fee rate "20", base "" (typed, never filled)
+   reference "Nov-321-John" · fee rate "20", base "" (typed, never filled)
    ok   stem and rate start the month; the base stays empty
    ok   no stem and no rate: the previous reference, no fee (as before)
 
@@ -41,10 +41,10 @@
 
 ═══ 4. The management route ═══
    ok   the sheet's body (three keys) is taken
-   merged: {"schemaVersion":3,"propertyId":"TESTPROP0001","reportFor":{"name":"Test New Owner","address":"9 Test Ave\n\nToronto"},"owners":[{"name":"Test Owner","email":"owner@example.test"}],"statementsFrom":"2026-10","statementsUntil":"2027-03","defaultFeeRateBasisPoints":2000,"defaultFee":{"label":"Old fee","amountCents":15000},"excludedFromReporting":true,"referenceStem":"321 - John","setAt":"2026-10-17T15:00:00.000Z"}
+   merged: {"schemaVersion":3,"propertyId":"TESTPROP0001","reportFor":{"name":"Test New Owner","address":"9 Test Ave\n\nToronto"},"owners":[{"name":"Test Owner","email":"owner@example.test"}],"statementsFrom":"2026-12","statementsUntil":"2027-05","defaultFeeRateBasisPoints":2000,"defaultFee":{"label":"Old fee","amountCents":15000},"excludedFromReporting":true,"referenceStem":"321 - John","setAt":"2026-12-17T15:00:00.000Z"}
    ok   owners, months, excluded and the old fee keep what is stored
    ok   the three fields as sent, folded
-   made from nothing: {"schemaVersion":3,"propertyId":"TESTPROP0002","reportFor":null,"owners":[],"statementsFrom":"2026-09","statementsUntil":null,"defaultFeeRateBasisPoints":null,"defaultFee":null,"setAt":"2026-10-17T15:00:00.000Z"}
+   made from nothing: {"schemaVersion":3,"propertyId":"TESTPROP0002","reportFor":null,"owners":[],"statementsFrom":"2026-11","statementsUntil":null,"defaultFeeRateBasisPoints":null,"defaultFee":null,"setAt":"2026-12-17T15:00:00.000Z"}
    ok   a record made here starts where setReportFor's does, its shape unchanged
    ok   null clears the stem, leaving the rest
    ok   a stem left out keeps what is stored
@@ -59,14 +59,14 @@
    ok   a record without one: no stem
 
 ═══ 5. The edit page's Statements panel ═══
-   loaded stem "321-John" · payload {"record":{"reportFor":null,"owners":[],"statementsFrom":"2026-09","statementsUntil":null,"defaultFeeRate":null,"referenceStem":"321-John","excludedFromReporting":false}}
+   loaded stem "321-John" · payload {"record":{"reportFor":null,"owners":[],"statementsFrom":"2026-11","statementsUntil":null,"defaultFeeRate":null,"referenceStem":"321-John","excludedFromReporting":false}}
    ok   a stem alone keeps the record (it is not cleared as default)
    a stem with its month: {"problem":"Reference stem: Leave the month out: it is added for each statement.","field":"management.referenceStem"}
 
 ═══ 6. Empty months together: the reference from the stem ═══
    Test Plain: reference none
-   Test Stem: reference Sept-321-John
-   ok   stem gives Sept-321-John; no stem and no statement, none
+   Test Stem: reference Nov-321-John
+   ok   stem gives Nov-321-John; no stem and no statement, none
 
 ═══ 7. The Report For sheet ═══
    a row from its record: {"name":"Test Owner","address":"1 Test St\nToronto","stem":"321-John","rate":"12.5","short":"","long":""} · from none: {"name":"","address":"","stem":"","rate":"","short":"","long":""}
@@ -80,7 +80,7 @@
    ok   a new rate is a change
 
 ═══ 8. Next property ═══
-   a Next step on the property page keeps its month and tab: /admin/property?id=TESTPROP0001&month=2026-09&tab=details
+   a Next step on the property page keeps its month and tab: /admin/property?id=TESTPROP0001&month=2026-11&tab=details
    a Next step elsewhere (Schedule) opens the property alone: /admin/property?id=TESTPROP0001
    another property's address is not taken: /admin/property?id=TESTPROP0001
    ok   an ID that is the start of another's is not taken for it
@@ -96,9 +96,9 @@
    ok   refused: an entry off the property page
 
 ═══ 9. The month due on opening ═══
-   September due                        → opens on 2026-09
-   August past due, September due       → opens on 2026-08
-   July past due, September finished    → opens on 2026-07
-   nothing owed                         → opens on 2026-10 (the current month)
+   November due                         → opens on 2026-11
+   October past due, November due       → opens on 2026-10
+   September past due, November finished → opens on 2026-09
+   nothing owed                         → opens on 2026-12 (the current month)
 
 all checks pass

@@ -1,0 +1,66 @@
+═══ 1. The first statement month ═══
+  STATEMENTS_FROM_DEFAULT: 2026-11 (November 2026)
+  no record                                                          → from 2026-11
+  a record from 2026-09 (as the records written before the fresh start) → from 2026-11
+  a record from 2026-12                                              → from 2026-12
+  a record from 2026-09, the property added in January 2027          → from 2027-01
+  added in January 2027, money in September, October and November    → from 2026-11
+   ok   statements begin with November 2026
+   ok   no record and a record from 2026-09 both start in November 2026: a record narrows, never widens
+   ok   money in September or October never makes a month before November owed; November money is owed before the month added
+═══ 2. Months owed, August 2026 to January 2027 ═══
+                                                           2026-08  2026-09  2026-10  2026-11  2026-12  2027-01
+  no record                                                —        —        —        owed     owed     owed   
+  a record from 2026-09                                    —        —        —        owed     owed     owed   
+  a record from 2026-09, money in September and October    —        —        —        owed     owed     owed   
+  a record from 2026-12                                    —        —        —        —        owed     owed   
+  added in December 2026                                   —        —        —        —        owed     owed   
+  excluded from reporting                                  —        —        —        —        —        —      
+   ok   no case owes September or October 2026
+   ok   no record, and a record from 2026-09, owe November 2026 on
+═══ 3. The one rule (the Statement column, the property page, the home panel, the tile), day by day ═══
+  2026-10-31 · a record from 2026-09, nothing finished → none · open · 2026-11 · past due [] · previous 2026-09 notExpected
+  2026-11-01 · a record from 2026-09, nothing finished → none · open · 2026-11 · past due [] · previous 2026-10 notExpected
+  2026-11-10 · a record from 2026-09, nothing finished → none · open · 2026-11 · past due [] · previous 2026-10 notExpected
+  2026-11-30 · a record from 2026-09, nothing finished → none · open · 2026-11 · past due [] · previous 2026-10 notExpected
+  2026-12-01 · a record from 2026-09, nothing finished → warning · due · 2026-11 · past due [] · previous 2026-11 due
+  2026-12-10 · a record from 2026-09, nothing finished → warning · due · 2026-11 · past due [] · previous 2026-11 due
+  2026-12-11 · a record from 2026-09, nothing finished → warning · due · 2026-11 · past due [] · previous 2026-11 due
+  2027-01-01 · a record from 2026-09, nothing finished → problem · pastDue · 2026-11 · past due ["2026-11"] · previous 2026-12 due
+  2027-01-11 · a record from 2026-09, nothing finished → problem · pastDue · 2026-11 · past due ["2026-11"] · previous 2026-12 due
+  2026-11-01 · no record, nothing finished → none · open · 2026-11 · past due [] · previous 2026-10 notExpected
+  2026-12-01 · no record, nothing finished → warning · due · 2026-11 · past due [] · previous 2026-11 due
+  2027-01-05 · November finished → warning · due · 2026-12 · past due [] · previous 2026-12 due
+   ok   until November closes nothing is due or past due: September and October are not owed
+   ok   on 1 December, November is due
+   ok   in January, an unfinished November is past due, and nothing before it
+  the Statements tile on 2026-11-01, three properties (two records from 2026-09, one without): {"pastDue":0,"pastDueProperties":0,"due":0,"finished":0,"owed":0}
+   ok   the tile counts nothing due or past due on 1 November
+  the Statements tile on 2026-12-01: {"pastDue":0,"pastDueProperties":0,"due":3,"finished":0,"owed":3}
+   ok   on 1 December every property owes November, none past due
+═══ 4. Empty months: what can be finished together ═══
+  2026-09 as of 2026-11-03: eligible [] · left out []
+  2026-10 as of 2026-11-03: eligible [] · left out []
+  2026-11 as of 2026-12-03: eligible ["TESTPROPfresh0000001"] · left out [["TESTPROPfresh0000002","No Report For name."]]
+   ok   September and October offer nothing to finish
+   ok   November is owed by both: one can be finished empty, the other is left out only for want of a Report For name
+═══ 5. The office cost's month ═══
+  2026-09: refused · month: Statements begin with November 2026
+  2026-10: refused · month: Statements begin with November 2026
+  2026-11: accepted
+   ok   an office cost for October is refused, for November accepted
+═══ 6. The Income page: who owes no statement (I5) ═══
+  2026-10:
+    TESTPROPfresh0000004: It is excluded from reporting: no statement is asked for.
+    TESTPROPfresh0000001: Its statements start in November 2026: no statement is asked for October 2026.
+    TESTPROPfresh0000003: Its statements start in December 2026: no statement is asked for October 2026.
+    TESTPROPfresh0000002: Its statements start in November 2026: no statement is asked for October 2026.
+  2026-11:
+    TESTPROPfresh0000004: It is excluded from reporting: no statement is asked for.
+    TESTPROPfresh0000003: Its statements start in December 2026: no statement is asked for November 2026.
+  2026-12:
+    TESTPROPfresh0000004: It is excluded from reporting: no statement is asked for.
+   ok   in October, all four owe no statement: no record, a record from 2026-09, one from 2026-12, one excluded
+   ok   in November, only the record from 2026-12 and the excluded property owe none
+
+all checks passed

@@ -45,7 +45,7 @@ const view = (c, cleanerState = 'found') => {
 };
 const entries = (list, state) => list.map((c) => cl.cleaningEntryView(view(c, state)));
 const draftOf = (month, lines = [], extra = {}) => ({ reference: `${model.monthReferenceWord(month)}-TEST`, reportDate: model.monthRange(model.addMonths(month, 1)).from, lines, fee: null, carried: null, notes: null, supersedes: null, ...extra });
-const record = { id: P, schemaVersion: 3, propertyId: P, reportFor: { name: 'Test Owner', address: '' }, owners: [], statementsFrom: '2026-09', statementsUntil: null, defaultFeeRateBasisPoints: null, defaultFee: null, setAt: '2026-10-01T00:00:00.000Z' };
+const record = { id: P, schemaVersion: 3, propertyId: P, reportFor: { name: 'Test Owner', address: '' }, owners: [], statementsFrom: '2026-11', statementsUntil: null, defaultFeeRateBasisPoints: null, defaultFee: null, setAt: '2026-12-01T00:00:00.000Z' };
 function freeze(es, reports, draft, month, finishedAt) {
   const built = st.buildStatement({ propertyId: P, propertyName: 'Test Lakeview Loft', month, entries: es, reports, draft, management: record });
   if (built.kind !== 'ok') throw new Error('unreadable ' + built.entryIds);
@@ -66,55 +66,55 @@ function freeze(es, reports, draft, month, finishedAt) {
 const rows = (statement) => st.printedLines(statement).map((l) => `      ${l.description} · ${l.quantity} · ${l.rateCents === null ? '(rate empty)' : $(l.rateCents)} · ${$(l.amountCents)}`).join('\n');
 
 // ═══ 1. Equal amounts: one line ═══
-console.log('═══ 1. September: three cleanings at $60.00, and a $56.50 receipt ═══');
-const sep5 = cleaning('2026-09-05', 6000);
-const sep12 = cleaning('2026-09-12', 6000);
-const sep19 = cleaning('2026-09-19', 6000);
+console.log('═══ 1. November: three cleanings at $60.00, and a $56.50 receipt ═══');
+const nov5 = cleaning('2026-11-05', 6000);
+const nov12 = cleaning('2026-11-12', 6000);
+const nov19 = cleaning('2026-11-19', 6000);
 const receipt = {
-  id: 'TESTENTRYreceipt0001', createdAt: '2026-09-10T15:00:00.000Z', status: 'approved', statusChangedAt: null, statusReason: null, history: [{ at: '2026-09-10T15:00:00.000Z', action: 'submitted', from: null, to: 'pending', actor: { role: 'cleaner', id: C, name: NAME }, reason: null, line: null, tax: null }, { at: '2026-09-10T15:00:00.000Z', action: 'approved', from: 'pending', to: 'approved', actor: ADMIN_ACTOR, reason: null, line: null, tax: null }],
-  cleaner: { id: C, nameAtEntry: NAME, state: 'found', name: NAME, status: 'active' }, property: { id: P, nameAtEntry: 'Test Lakeview Loft', state: 'found', name: 'Test Lakeview Loft' }, purchasedOn: '2026-09-10', note: null, currency: 'CAD',
+  id: 'TESTENTRYreceipt0001', createdAt: '2026-11-10T15:00:00.000Z', status: 'approved', statusChangedAt: null, statusReason: null, history: [{ at: '2026-11-10T15:00:00.000Z', action: 'submitted', from: null, to: 'pending', actor: { role: 'cleaner', id: C, name: NAME }, reason: null, line: null, tax: null }, { at: '2026-11-10T15:00:00.000Z', action: 'approved', from: 'pending', to: 'approved', actor: ADMIN_ACTOR, reason: null, line: null, tax: null }],
+  cleaner: { id: C, nameAtEntry: NAME, state: 'found', name: NAME, status: 'active' }, property: { id: P, nameAtEntry: 'Test Lakeview Loft', state: 'found', name: 'Test Lakeview Loft' }, purchasedOn: '2026-11-10', note: null, currency: 'CAD',
   lines: [{ name: 'Supplies', quantity: 1, lineTotalCents: 5000 }], linesNow: { kind: 'ok', lines: [{ index: 0, name: 'Supplies', quantity: 1, lineTotalCents: 5000, origin: 'sent', earlier: [] }], itemsCents: 5000, taxCents: 650, taxShape: 'field', totalCents: 5650, sentTotalCents: 5650, sentTaxCents: 650, corrected: false },
   receipts: [], taxShape: 'field', kind: 'receipt', autoApproved: null, month: null,
 };
-const sepEntries = [...entries([sep5, sep12, sep19]), receipt];
-const sepBuilt = st.buildStatement({ propertyId: P, propertyName: 'Test Lakeview Loft', month: '2026-09', entries: sepEntries, reports: [], draft: draftOf('2026-09', [{ id: 'L-rev', description: 'Revenue', from: null, to: null, quantity: 1, rateCents: 200000, amountCents: 200000 }]), management: record });
-console.log(`  printed rows:\n${rows(sepBuilt.statement)}`);
-console.log(`  stored cost rows: ${sepBuilt.statement.costs.map((c) => `${c.kind} ${c.description} ${$(c.totalCents)}`).join(' | ')}`);
-const sep = freeze(sepEntries, [], draftOf('2026-09', [{ id: 'L-rev', description: 'Revenue', from: null, to: null, quantity: 1, rateCents: 200000, amountCents: 200000 }]), '2026-09', '2026-10-05T14:00:00.000Z');
-console.log(`  September finished: recorded ${$(sep.report.recordedCents)} · PDF holds "Expense - Cleaning": ${text(sep.bytes).includes('Expense - Cleaning')} · names the cleaner: ${text(sep.bytes).includes('Zelda')}`);
+const novEntries = [...entries([nov5, nov12, nov19]), receipt];
+const novBuilt = st.buildStatement({ propertyId: P, propertyName: 'Test Lakeview Loft', month: '2026-11', entries: novEntries, reports: [], draft: draftOf('2026-11', [{ id: 'L-rev', description: 'Revenue', from: null, to: null, quantity: 1, rateCents: 200000, amountCents: 200000 }]), management: record });
+console.log(`  printed rows:\n${rows(novBuilt.statement)}`);
+console.log(`  stored cost rows: ${novBuilt.statement.costs.map((c) => `${c.kind} ${c.description} ${$(c.totalCents)}`).join(' | ')}`);
+const nov = freeze(novEntries, [], draftOf('2026-11', [{ id: 'L-rev', description: 'Revenue', from: null, to: null, quantity: 1, rateCents: 200000, amountCents: 200000 }]), '2026-11', '2026-12-05T14:00:00.000Z');
+console.log(`  November finished: recorded ${$(nov.report.recordedCents)} · PDF holds "Expense - Cleaning": ${text(nov.bytes).includes('Expense - Cleaning')} · names the cleaner: ${text(nov.bytes).includes('Zelda')}`);
 
 // ═══ 2. Differing amounts, a late cleaning, a change and a removal after printing ═══
-console.log('\n═══ 2. October: cleanings at $60.00 and $80.00; a September cleaning logged after September was finished; one changed, one removed after printing ═══');
-const oct3 = cleaning('2026-10-03', 6000);
-const oct9 = cleaning('2026-10-09', 8000);
-const sep28 = cleaning('2026-09-28', 7500); // logged 12 October, after September's statement
-const sep5b = changed(sep5, '2026-10-12T15:00:00.000Z', 7000);
-const sep12b = removed(sep12, '2026-10-12T15:05:00.000Z');
-const octAll = [sep5b, sep12b, sep19, sep28, oct3, oct9];
-const octBuilt = st.buildStatement({ propertyId: P, propertyName: 'Test Lakeview Loft', month: '2026-10', entries: [...entries(octAll), receipt], reports: [sep.report], draft: draftOf('2026-10'), management: record });
-console.log(`  printed rows:\n${rows(octBuilt.statement)}`);
-console.log(`  October's statement: recorded ${$(octBuilt.statement.recordedCents)} · total ${$(octBuilt.statement.totalCents)}`);
-const octPdf = statementPdf({ ...octBuilt.statement, draft: false });
-console.log(`  October's PDF names the cleaner: ${text(octPdf).includes('Zelda')} · prints an average of $70.00: ${text(octPdf).includes('-$70.00 ')}`);
-const charges = money.costCharges({ propertyId: P, entries: [...entries(octAll), receipt], reports: [sep.report], management: record });
-for (const c of [sep5b, sep12b, sep19, sep28, oct3, oct9]) console.log(`  charges ${c.day} ${c.status} ${$(c.amountCents)}: ${(charges.get(c.id) ?? []).map((x) => `${x.month}${x.reportId ? ' finished' : ' open'} ${x.kind} ${$(x.cents)}`).join(' | ')}`);
-const sepMoney = money.monthMoney({ propertyId: P, propertyName: 'Test Lakeview Loft', month: '2026-09', entries: [...entries(octAll), receipt], reports: [sep.report], draft: null, management: record, charges });
-console.log(`  September's Costs tab: ${sepMoney.costTotals.count} costs · ${$(sepMoney.costTotals.cents)} · by statement: ${sepMoney.costTotals.byStatement.map((r) => `${r.month}${r.finished ? '' : ' (open)'} ${$(r.cents)}`).join(' · ')}`);
+console.log('\n═══ 2. December: cleanings at $60.00 and $80.00; a November cleaning logged after November was finished; one changed, one removed after printing ═══');
+const dec3 = cleaning('2026-12-03', 6000);
+const dec9 = cleaning('2026-12-09', 8000);
+const nov28 = cleaning('2026-11-28', 7500); // logged 12 December, after November's statement
+const nov5b = changed(nov5, '2026-12-12T15:00:00.000Z', 7000);
+const nov12b = removed(nov12, '2026-12-12T15:05:00.000Z');
+const decAll = [nov5b, nov12b, nov19, nov28, dec3, dec9];
+const decBuilt = st.buildStatement({ propertyId: P, propertyName: 'Test Lakeview Loft', month: '2026-12', entries: [...entries(decAll), receipt], reports: [nov.report], draft: draftOf('2026-12'), management: record });
+console.log(`  printed rows:\n${rows(decBuilt.statement)}`);
+console.log(`  December's statement: recorded ${$(decBuilt.statement.recordedCents)} · total ${$(decBuilt.statement.totalCents)}`);
+const decPdf = statementPdf({ ...decBuilt.statement, draft: false });
+console.log(`  December's PDF names the cleaner: ${text(decPdf).includes('Zelda')} · prints an average of $70.00: ${text(decPdf).includes('-$70.00 ')}`);
+const charges = money.costCharges({ propertyId: P, entries: [...entries(decAll), receipt], reports: [nov.report], management: record });
+for (const c of [nov5b, nov12b, nov19, nov28, dec3, dec9]) console.log(`  charges ${c.day} ${c.status} ${$(c.amountCents)}: ${(charges.get(c.id) ?? []).map((x) => `${x.month}${x.reportId ? ' finished' : ' open'} ${x.kind} ${$(x.cents)}`).join(' | ')}`);
+const novMoney = money.monthMoney({ propertyId: P, propertyName: 'Test Lakeview Loft', month: '2026-11', entries: [...entries(decAll), receipt], reports: [nov.report], draft: null, management: record, charges });
+console.log(`  November's Costs tab: ${novMoney.costTotals.count} costs · ${$(novMoney.costTotals.cents)} · by statement: ${novMoney.costTotals.byStatement.map((r) => `${r.month}${r.finished ? '' : ' (open)'} ${$(r.cents)}`).join(' · ')}`);
 
 // ═══ 3. A deleted cleaner's cleanings still read ═══
 console.log('\n═══ 3. The cleaner deleted ═══');
-const gone = view(oct3, 'missing');
+const gone = view(dec3, 'missing');
 console.log(`  read by: ${cl.cleanerNameOf(gone)} (state ${gone.cleaner.state}) · amount ${$(gone.amountCents)}`);
-const octGone = st.buildStatement({ propertyId: P, propertyName: 'Test Lakeview Loft', month: '2026-10', entries: [...entries(octAll, 'missing'), receipt], reports: [sep.report], draft: draftOf('2026-10'), management: record });
-console.log(`  October's statement unchanged: ${sha(statementPdf({ ...octGone.statement, draft: false })) === sha(octPdf)}`);
+const decGone = st.buildStatement({ propertyId: P, propertyName: 'Test Lakeview Loft', month: '2026-12', entries: [...entries(decAll, 'missing'), receipt], reports: [nov.report], draft: draftOf('2026-12'), management: record });
+console.log(`  December's statement unchanged: ${sha(statementPdf({ ...decGone.statement, draft: false })) === sha(decPdf)}`);
 
 // ═══ 4. What an owner receives never names the cleaner ═══
 console.log('\n═══ 4. Owners\' documents ═══');
-const ledger = buildReport([...entries(octAll), receipt], P, '2026-09-01', '2026-10-31', new Date('2026-10-13T12:00:00Z'), 'Test Lakeview Loft', charges).report;
+const ledger = buildReport([...entries(decAll), receipt], P, '2026-11-01', '2026-12-31', new Date('2026-12-13T12:00:00Z'), 'Test Lakeview Loft', charges).report;
 console.log(`  ledger: ${ledger.entries.map((e) => `${e.day} ${e.kind} ${e.cleaner} ${$(e.totalCents)}`).join(' | ')}`);
 const ledgerPdf = pdfFor(ledger);
 const ledgerXlsx = workbookFor(ledger);
-const cleaningsOnly = buildReport(entries(octAll), P, '2026-09-01', '2026-10-31', new Date('2026-10-13T12:00:00Z'), 'Test Lakeview Loft', charges).report;
+const cleaningsOnly = buildReport(entries(decAll), P, '2026-11-01', '2026-12-31', new Date('2026-12-13T12:00:00Z'), 'Test Lakeview Loft', charges).report;
 console.log(`  ledger PDF lists "Cleaning": ${text(ledgerPdf).includes('Cleaning')} · names the cleaner: ${text(ledgerPdf).includes('Zelda')}`);
 console.log(`  ledger Excel of the cleanings alone names the cleaner: ${utf8(workbookFor(cleaningsOnly)).includes('Zelda')} · with the receipt, it names who sent it (it has no "Logged by" since the Costs page, round 1): ${utf8(ledgerXlsx).includes('Zelda')}`);
 const onlyPdf = text(pdfFor(cleaningsOnly));
@@ -122,13 +122,13 @@ const pdfStrings = [...onlyPdf.matchAll(/\((.*?)\) Tj/g)].map((m) => m[1].replac
 console.log(`  ledger PDF of the cleanings alone, the changed cleaning's split, line by line: ${pdfStrings.filter((t) => /statement \$|^On /.test(t)).map((t) => JSON.stringify(t)).join(' + ')}`);
 console.log(`  its footnotes: ${pdfStrings.filter((t) => t.startsWith('* ')).map((t) => JSON.stringify(t)).join(' · ')}`);
 const stored = (list) => list.map((c) => ({ id: c.id, stored: c }));
-const receiptStored = { schemaVersion: 2, createdAt: receipt.createdAt, status: 'approved', statusChangedAt: null, statusReason: null, cleanerId: C, cleanerNameAtEntry: NAME, propertyId: P, propertyNameAtEntry: 'Test Lakeview Loft', purchasedOn: '2026-09-10', note: null, currency: 'CAD', kind: 'receipt', autoApproved: null, lines: [{ name: 'Supplies', quantity: 1, lineTotalCents: 5000 }], taxCents: 650, receipts: [], history: [{ at: receipt.createdAt, action: 'submitted', from: null, to: 'pending', actor: { role: 'cleaner', id: C, name: NAME }, reason: null }, { at: receipt.createdAt, action: 'approved', from: 'pending', to: 'approved', actor: ADMIN_ACTOR, reason: null }] };
-for (const month of ['2026-09', '2026-10']) {
+const receiptStored = { schemaVersion: 2, createdAt: receipt.createdAt, status: 'approved', statusChangedAt: null, statusReason: null, cleanerId: C, cleanerNameAtEntry: NAME, propertyId: P, propertyNameAtEntry: 'Test Lakeview Loft', purchasedOn: '2026-11-10', note: null, currency: 'CAD', kind: 'receipt', autoApproved: null, lines: [{ name: 'Supplies', quantity: 1, lineTotalCents: 5000 }], taxCents: 650, receipts: [], history: [{ at: receipt.createdAt, action: 'submitted', from: null, to: 'pending', actor: { role: 'cleaner', id: C, name: NAME }, reason: null }, { at: receipt.createdAt, action: 'approved', from: 'pending', to: 'approved', actor: ADMIN_ACTOR, reason: null }] };
+for (const month of ['2026-11', '2026-12']) {
   const selection = selectMonthPackage({
-    month, today: '2026-11-03', madeAt: '2026-11-03T16:00:00.000Z', properties: [{ id: P, name: 'Test Lakeview Loft', createdMonth: '2026-09' }],
-    entries: [{ id: receipt.id, stored: receiptStored }], cleanings: stored(octAll), reports: [{ view: sep.report, stored: sep.report }], drafts: [], downloads: [], management: [{ view: record, stored: record }],
+    month, today: '2027-01-03', madeAt: '2027-01-03T16:00:00.000Z', properties: [{ id: P, name: 'Test Lakeview Loft', createdMonth: '2026-11' }],
+    entries: [{ id: receipt.id, stored: receiptStored }], cleanings: stored(decAll), reports: [{ view: nov.report, stored: nov.report }], drafts: [], downloads: [], management: [{ view: record, stored: record }],
   });
-  const objects = new Map([[statementKey(sep.report.id), sep.bytes]]);
+  const objects = new Map([[statementKey(nov.report.id), nov.bytes]]);
   const pkg = await buildMonthPackage(selection.data, objects, async (bytes) => sha(bytes), 'download');
   const owners = pkg.files.filter((f) => f.path.startsWith('Properties/'));
   const nubnb = pkg.files.filter((f) => f.path.startsWith('Nubnb/'));
@@ -139,28 +139,28 @@ for (const month of ['2026-09', '2026-10']) {
 
 // ═══ 5. The amount a cleaning starts from ═══
 console.log('\n═══ 5. The form\'s cleaner (the amount now starts from the property\'s preset: Kian\'s ruling of 2026-10-19, tests/money/cleaning-prices.mjs) ═══');
-const all = octAll.map((c) => view(c));
+const all = decAll.map((c) => view(c));
 console.log(`  the property's last cleaner: ${cl.lastCleanerOf(all, P)}`);
 console.log(`  typed amounts: ${['60', '60.5', '60.50', '$75', '0', '-5', '10000', 'abc'].map((t) => `${t}→${cl.readAmountCents(t)}`).join(' ')}`);
 
 // ═══ 6. Finish's checks ═══
 console.log('\n═══ 6. Finish ═══');
-const keys = (statement) => finishChecks({ statement, reports: [sep.report], entries: [], income: { waiting: 0, unlinked: [], checkouts: 4 }, today: '2026-11-03' }).warnings.map((w) => w.key).join(', ');
-const bare = st.buildStatement({ propertyId: P, propertyName: 'Test Lakeview Loft', month: '2026-11', entries: [], reports: [sep.report], draft: draftOf('2026-11'), management: record }).statement;
+const keys = (statement) => finishChecks({ statement, reports: [nov.report], entries: [], income: { waiting: 0, unlinked: [], checkouts: 4 }, today: '2027-01-03' }).warnings.map((w) => w.key).join(', ');
+const bare = st.buildStatement({ propertyId: P, propertyName: 'Test Lakeview Loft', month: '2027-01', entries: [], reports: [nov.report], draft: draftOf('2027-01'), management: record }).statement;
 console.log(`  4 checkouts, nothing logged: ${keys(bare)}`);
-console.log(`  4 checkouts, October's cleanings logged: ${keys(octBuilt.statement)}`);
-const typedToo = st.buildStatement({ propertyId: P, propertyName: 'Test Lakeview Loft', month: '2026-10', entries: entries(octAll), reports: [sep.report], draft: draftOf('2026-10', [{ id: 'L-clean', description: 'Expense - Cleaning', from: null, to: null, quantity: 2, rateCents: -6000, amountCents: -12000 }]), management: record }).statement;
-console.log(`  a typed cleaning line beside logged cleanings: ${finishChecks({ statement: typedToo, reports: [sep.report], entries: [], income: { waiting: 0, unlinked: [], checkouts: 0 }, today: '2026-11-03' }).warnings.filter((w) => w.key.startsWith('cleaning')).map((w) => w.text).join(' | ')}`);
+console.log(`  4 checkouts, December's cleanings logged: ${keys(decBuilt.statement)}`);
+const typedToo = st.buildStatement({ propertyId: P, propertyName: 'Test Lakeview Loft', month: '2026-12', entries: entries(decAll), reports: [nov.report], draft: draftOf('2026-12', [{ id: 'L-clean', description: 'Expense - Cleaning', from: null, to: null, quantity: 2, rateCents: -6000, amountCents: -12000 }]), management: record }).statement;
+console.log(`  a typed cleaning line beside logged cleanings: ${finishChecks({ statement: typedToo, reports: [nov.report], entries: [], income: { waiting: 0, unlinked: [], checkouts: 0 }, today: '2027-01-03' }).warnings.filter((w) => w.key.startsWith('cleaning')).map((w) => w.text).join(' | ')}`);
 
 // ═══ 7. Owed months and empty months (M2) ═══
 console.log('\n═══ 7. A month whose only money is a logged cleaning ═══');
 const Q = 'TESTPROPonlycleaning';
-const only = { ...cleaning('2026-10-14', 6000), propertyId: Q };
+const only = { ...cleaning('2026-12-14', 6000), propertyId: Q };
 const onlyEntries = [cl.cleaningEntryView({ ...cl.readCleaning(only.id, only), cleaner: { state: 'found', name: NAME, status: 'active' }, property: { state: 'found', name: 'Test Only Cleaning' } })];
 console.log(`  months with money: ${JSON.stringify([...st.moneyMonthsByProperty([], onlyEntries)])}`);
-console.log(`  owed in October, the property added in November: ${model.inStatementScope(null, '2026-10', '2026-11', st.moneyMonthsByProperty([], onlyEntries).get(Q) ?? [])}`);
-const empty = emptyMonth({ month: '2026-10', today: '2026-11-03', properties: [{ id: Q, name: 'Test Only Cleaning', createdMonth: '2026-09' }], management: [{ ...record, id: Q, propertyId: Q }], reports: [], drafts: [], entries: onlyEntries, income: { waiting: new Map(), checkInsWithout: new Set(), unsettled: [] } });
-console.log(`  finish-empty list for October: eligible ${empty.eligible.length} · left out: ${empty.leftOut.map((r) => r.why).join(' | ')}`);
+console.log(`  owed in December, the property added in January: ${model.inStatementScope(null, '2026-12', '2027-01', st.moneyMonthsByProperty([], onlyEntries).get(Q) ?? [])}`);
+const empty = emptyMonth({ month: '2026-12', today: '2027-01-03', properties: [{ id: Q, name: 'Test Only Cleaning', createdMonth: '2026-11' }], management: [{ ...record, id: Q, propertyId: Q }], reports: [], drafts: [], entries: onlyEntries, income: { waiting: new Map(), checkInsWithout: new Set(), unsettled: [] } });
+console.log(`  finish-empty list for December: eligible ${empty.eligible.length} · left out: ${empty.leftOut.map((r) => r.why).join(' | ')}`);
 
 // ═══ 8. What the routes accept: the bodies the page sends ═══
 console.log('\n═══ 8. The routes\' schemas, given what the page sends ═══');
@@ -169,7 +169,7 @@ const parse = (schema, body) => {
   const r = schema.safeParse(body);
   return r.success ? `ok ${JSON.stringify(r.data)}` : `refused: ${r.error.issues.map((i) => `${i.path.join('.') || '(body)'} ${i.message}`).join('; ')}`;
 };
-const log = { propertyId: P, cleanerId: C, day: '2026-09-05', amount: '60.00' };
+const log = { propertyId: P, cleanerId: C, day: '2026-11-05', amount: '60.00' };
 console.log(`  log, no note typed (null): ${parse(sc.LogCleaningSchema, { ...log, note: null })}`);
 console.log(`  log, note left out: ${parse(sc.LogCleaningSchema, log)}`);
 console.log(`  log, a note: ${parse(sc.LogCleaningSchema, { ...log, note: '  Mid-stay   clean ' })}`);

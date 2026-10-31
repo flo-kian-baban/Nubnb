@@ -371,12 +371,18 @@ export interface IncomeMonth {
   unreadable: number;
 }
 
-/** Why a property owes no statement for a month (I5), or null when it owes one: excluded from reporting, or outside its record's months. */
+/**
+ * Why a property owes no statement for a month (I5), or null when it owes one: excluded from reporting, after its
+ * record's end month, or before its first statement month — the later of its record's start month and the first month
+ * any property owes (STATEMENTS_FROM_DEFAULT: November 2026 since the fresh start of 1 November 2026, Kian's rulings of
+ * 2026-10-31), so a record written with 2026-09, or no record, owes nothing for September or October. A month with
+ * lines in it is owed whenever the property was added (2026-10-04), so the created month plays no part here.
+ */
 function noStatementWhy(record: PropertyManagementView | null, month: string): string | null {
   if (isExcludedFromReporting(record)) return 'It is excluded from reporting: no statement is asked for.';
-  if (!record) return null;
-  if (record.statementsUntil !== null && month > record.statementsUntil) return `Its statements ended with ${monthLabel(record.statementsUntil)}: no statement is asked for.`;
-  if (month < record.statementsFrom) return `Its statements start in ${monthLabel(record.statementsFrom)}: no statement is asked for ${monthLabel(month)}.`;
+  if (record && record.statementsUntil !== null && month > record.statementsUntil) return `Its statements ended with ${monthLabel(record.statementsUntil)}: no statement is asked for.`;
+  const { from } = statementMonths(record);
+  if (month < from) return `Its statements start in ${monthLabel(from)}: no statement is asked for ${monthLabel(month)}.`;
   return null;
 }
 

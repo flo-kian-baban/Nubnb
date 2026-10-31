@@ -39,7 +39,7 @@ async function sendReceipt(dollars) {
   const parsed = ce.parseEntryPart(JSON.stringify({ submissionKey: key(), propertyId: P, lines: [{ name: 'Paper towels', quantity: '1', lineTotal: dollars }], tax: null }));
   if (parsed.kind !== 'ok') throw new Error(`entry not valid: ${JSON.stringify(parsed)}`);
   const ref = ce.newEntryRef();
-  const made = await ce.createCostEntry({ entryRef: ref, cleanerId: CLEANER, sessionEpoch: 1, entry: parsed.entry, propertyNameAtEntry: 'Public look', receipt: { path: `receipts/${CLEANER}/${ref.id}/0.jpg`, contentType: 'image/jpeg', bytes: 1_000, sha256: '0'.repeat(64), uploadedAt: '2026-10-18T12:00:00.000Z' }, reading: null });
+  const made = await ce.createCostEntry({ entryRef: ref, cleanerId: CLEANER, sessionEpoch: 1, entry: parsed.entry, propertyNameAtEntry: 'Public look', receipt: { path: `receipts/${CLEANER}/${ref.id}/0.jpg`, contentType: 'image/jpeg', bytes: 1_000, sha256: '0'.repeat(64), uploadedAt: '2026-12-18T12:00:00.000Z' }, reading: null });
   return { id: ref.id, status: made.status };
 }
 const view = (id) => readCostEntryFields(id, stored(id));
@@ -65,7 +65,7 @@ const workParsed = ce.parseWorkBody({ submissionKey: key(), propertyId: P, descr
 if (workParsed.kind !== 'ok') throw new Error(`work not valid: ${JSON.stringify(workParsed)}`);
 const work = await ce.createWorkEntry({ cleanerId: HANDY, sessionEpoch: 1, work: workParsed.work, propertyNameAtEntry: 'Public look' });
 check(`a handyman's work (${work.status})`, work.id, 'absent');
-const office = await ce.createOfficeEntry(ADMIN, { office: ce.OfficeInputSchema.parse({ propertyId: P, description: 'Plumber', amount: '150.00', tax: null, month: '2026-10' }), propertyNameAtEntry: 'Public look' });
+const office = await ce.createOfficeEntry(ADMIN, { office: ce.OfficeInputSchema.parse({ propertyId: P, description: 'Plumber', amount: '150.00', tax: null, month: '2026-12' }), propertyNameAtEntry: 'Public look' });
 check(`an office cost (${office.status})`, office.id, 'absent');
 
 console.log('\n═══ 2. Every way an admin looks at a receipt approved automatically ═══');
@@ -111,7 +111,7 @@ const cl = await import(`${ROOT}/app/lib/cleanings/model.ts`);
 const pendingView = entryViewOf(pending.id, { ...stored(pending.id), status: 'pending', history: stored(pending.id).history.slice(0, 1) });
 const noAmount = cl.cleaningEntryView({ ...cl.readCleaning('TESTCLEANINGlook0001', { schemaVersion: 2, propertyId: P, propertyNameAtEntry: 'Public look', cleanerId: CLEANER, cleanerNameAtEntry: 'Test Lena', day: pendingView.createdAt.slice(0, 10), amountCents: null, note: null, status: 'logged', suggested: { from: 'none', cents: null }, createdAt: pendingView.createdAt, actor: ADMIN, history: [{ at: pendingView.createdAt, action: 'logged', actor: ADMIN, reason: null }], jobId: `${P}_x` }), cleaner: { state: 'found', name: 'Test Lena', status: 'active' }, property: { state: 'found', name: 'Public look', internalName: '1 Look St' } });
 // An open period: the entries were made today, whatever day this runs.
-const built = buildReport([pendingView, noAmount, entryViewOf(a1, stored(a1))], P, '', '', new Date('2026-10-18T12:00:00Z'), '1 Look St');
+const built = buildReport([pendingView, noAmount, entryViewOf(a1, stored(a1))], P, '', '', new Date('2026-12-18T12:00:00Z'), '1 Look St');
 console.log(`  the report leaves out: ${built.pendingLeftOut} pending review, ${built.noAmountLeftOut} cleaning with no amount yet`);
 for (const [p, n] of [[built.pendingLeftOut, built.noAmountLeftOut], [1, 0], [0, 1], [0, 2], [3, 2]]) {
   console.log(`  ${p} pending, ${n} with no amount:`);

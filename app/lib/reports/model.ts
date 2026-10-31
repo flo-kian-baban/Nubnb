@@ -67,13 +67,17 @@ export const PROPERTY_MANAGEMENT_SCHEMA_VERSION = 3;
  * The first month any property owes a statement for. Kian's ruling of
  * 2026-10-02: every property owes a statement for every closed month by
  * default; a record's start month excludes earlier ones and its end month
- * later ones. Nubnb's statements begin with September 2026, the first month
- * of its costs; with no first month at all, every month before would read
- * past due. (Decision 4 had October 2026.) Since 2026-10-03 a property added
- * later owes from the month it was added, and since 2026-10-04 also any month
- * with money in it (`statementMonths`).
+ * later ones. With no first month at all, every month before would read past
+ * due. Nubnb's statements began with September 2026, the first month of its
+ * costs (Decision 4 had October 2026); since the fresh start of 1 November
+ * 2026 (Kian's rulings of 2026-10-31) they begin with November 2026, so no
+ * September or October statement is owed. A record's start month narrows this,
+ * never widens it: a record written with 2026-09 owes from November like any
+ * other. Since 2026-10-03 a property added later owes from the month it was
+ * added, and since 2026-10-04 also any month with money in it
+ * (`statementMonths`), never one before this month.
  */
-export const STATEMENTS_FROM_DEFAULT = '2026-09';
+export const STATEMENTS_FROM_DEFAULT = '2026-11';
 
 /**
  * The words an income row's `source` could be, on rows written before
@@ -984,7 +988,8 @@ export function isExcludedFromReporting(management: Pick<PropertyManagementView,
 
 /**
  * Where a property's statement months lie, months with money in them aside:
- * `floor`, the later of STATEMENTS_FROM_DEFAULT (September 2026) and a
+ * `floor`, the later of STATEMENTS_FROM_DEFAULT (November 2026 since the
+ * fresh start of 1 November 2026) and a
  * management record's start month; `added`, the later of the floor and the
  * month the property's document was created, by Firestore's own create time;
  * `until`, the record's end month.
@@ -997,7 +1002,7 @@ function statementBounds(management: PropertyManagementView | null, createdMonth
 
 /**
  * The months a property's statements run (Kian's rulings): from the later of
- * STATEMENTS_FROM_DEFAULT (September 2026) and the month the property's
+ * STATEMENTS_FROM_DEFAULT (November 2026 since the fresh start) and the month the property's
  * document was created, by Firestore's own create time (2026-10-03: a
  * property added in October owes nothing for September); a management
  * record's start month narrows that further, never widens it; its end month

@@ -14,9 +14,11 @@
  * the way the Income tab opens a line's form (Kian, 2026-10-02).
  *
  * The month (dispatch 36, Kian's ruling of 2026-10-12): an office cost
- * belongs to a month the admin picks, the month on screen first, from
- * September 2026 to the current month. A cost for a month already finished
- * goes on the next statement, and the notice names the statement it went on.
+ * belongs to a month the admin picks, the month on screen first, from the
+ * first statement month (STATEMENTS_FROM_DEFAULT: November 2026 since the
+ * fresh start of 1 November 2026) to the current month. A cost for a month
+ * already finished goes on the next statement, and the notice names the
+ * statement it went on.
  */
 
 import { useState, type FormEvent } from "react";
@@ -42,7 +44,7 @@ interface Props {
 
 export function AddCostForm({ propertyId, month, today, onAdded, onClose, show }: Props) {
   const thisMonth = monthOfDay(today);
-  /** The months a cost can belong to, newest first: September 2026 to the current month. */
+  /** The months a cost can belong to, newest first: the first statement month (STATEMENTS_FROM_DEFAULT) to the current month. */
   const months: string[] = [];
   for (let m = thisMonth; m >= STATEMENTS_FROM_DEFAULT && months.length < 240; m = addMonths(m, -1)) months.push(m);
   const [forMonth, setForMonth] = useState(() => (month > thisMonth ? thisMonth : month < STATEMENTS_FROM_DEFAULT ? STATEMENTS_FROM_DEFAULT : month));

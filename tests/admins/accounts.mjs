@@ -61,7 +61,7 @@ out(`  typed, on the list: ${DENIED.map((c) => JSON.stringify(codes.reservedReas
 const drawableDenied = ALL4.filter((c) => codes.isDrawable(c, SHARED_CODE, denylist));
 out(`  with the list, drawable: ${drawableDenied.length} (${drawable.length - drawableDenied.length} fewer); any listed code drawable: ${DENIED.some((c) => drawableDenied.includes(c))}; the same list under another key denies nothing: ${DENIED.filter((c) => codes.isPublicCode(c, { hashes: denylist.hashes, key: Buffer.alloc(32, 9) })).length}`);
 out(`  the refusal's line: ${codes.PUBLIC_CODE_REFUSAL_LINE}`);
-out(`  no list set: ${codes.readCodeDenylist(undefined, denyKey).kind}, ${codes.readCodeDenylist('', denyKey).kind}; a list set with no key: ${codes.readCodeDenylist(denyValue, null).kind} (issuance then fails closed); a value that is not hashes: ${codes.readCodeDenylist('1234,abcd', denyKey).kind}`);
+out(`  no list set: ${codes.readCodeDenylist(undefined, denyKey).kind}, ${codes.readCodeDenylist('', denyKey).kind}; a list set with no key: ${codes.readCodeDenylist(denyValue, null).kind} (issuance then fails closed); a value that is not hashes: ${codes.readCodeDenylist(`${1_234},abcd`, denyKey).kind}`);
 // The same list refuses an admin PIN (app/lib/admins/pin-denylist.ts), read from the environment as the server reads it;
 // the environment is restored after.
 const pinDeny = await import(`${ROOT}/app/lib/admins/pin-denylist.ts`);

@@ -110,7 +110,7 @@ import { isDocumentId } from './server-leads';
 import { cleanerFacingNamesOf, internalNameOf, listCleanerFacingNames } from './server-property-names';
 import type { ReadingAttachment } from '@/app/lib/cleaners/readings';
 import { byLedgerDay, inRange, ledgerDay } from '@/app/lib/costs/report';
-import { MONTHLY_REPORTS_COLLECTION, currentReports, readMonthlyReport } from '@/app/lib/reports/model';
+import { MONTHLY_REPORTS_COLLECTION, STATEMENTS_FROM_DEFAULT, currentReports, monthLabel, readMonthlyReport } from '@/app/lib/reports/model';
 import { windowStart } from '@/app/lib/costs/patterns';
 import { receiptThumbLink } from '@/app/lib/cleaners/receipts';
 import {
@@ -360,10 +360,11 @@ export const OfficeInputSchema = z.strictObject({
   tax: TaxInputSchema,
   /**
    * The month the cost belongs to (dispatch 36, Kian's ruling of 2026-10-12: a month the admin picks, the page
-   * offering the month on screen). From September 2026, the first statement month, to the current one: the route
-   * checks the upper bound against Toronto's today.
+   * offering the month on screen). From the first statement month, STATEMENTS_FROM_DEFAULT (November 2026 since the
+   * fresh start of 1 November 2026, Kian's rulings of 2026-10-31), to the current one: the route checks the upper
+   * bound against Toronto's today.
    */
-  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'A month, like 2026-09').refine((m) => m >= '2026-09', 'Statements begin with September 2026'),
+  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'A month, like 2026-09').refine((m) => m >= STATEMENTS_FROM_DEFAULT, `Statements begin with ${monthLabel(STATEMENTS_FROM_DEFAULT)}`),
 });
 
 export type OfficeInput = z.output<typeof OfficeInputSchema>;

@@ -22,11 +22,11 @@ const check = (ok, label) => {
   console.log(`   ${ok ? 'ok  ' : 'FAIL'} ${label}`);
 };
 const P = (n) => `TESTPROP${String(n).padStart(4, '0')}`;
-const AT = '2026-10-17T15:00:00.000Z';
-const record = (over = {}) => ({ id: P(1), schemaVersion: 3, propertyId: P(1), reportFor: null, owners: [], statementsFrom: '2026-09', statementsUntil: null, defaultFeeRateBasisPoints: null, defaultFee: null, setAt: AT, ...over });
+const AT = '2026-12-17T15:00:00.000Z';
+const record = (over = {}) => ({ id: P(1), schemaVersion: 3, propertyId: P(1), reportFor: null, owners: [], statementsFrom: '2026-11', statementsUntil: null, defaultFeeRateBasisPoints: null, defaultFee: null, setAt: AT, ...over });
 let seq = 0;
 const line = (description, cents) => ({ id: `L${++seq}`, description, from: null, to: null, quantity: 1, rateCents: cents, amountCents: cents });
-const draftOf = (month, lines = [], extra = {}) => ({ reference: `${model.monthReferenceWord(month)}-TEST`, reportDate: '2026-10-17', lines, fee: null, carried: null, notes: null, supersedes: null, ...extra });
+const draftOf = (month, lines = [], extra = {}) => ({ reference: `${model.monthReferenceWord(month)}-TEST`, reportDate: '2026-12-17', lines, fee: null, carried: null, notes: null, supersedes: null, ...extra });
 const previous = (month, reference) => ({ id: `TESTREPORT${++seq}`, month, reference, fee: null });
 
 // ═══ 1. K5: the reference stem ═══
@@ -43,20 +43,20 @@ check(model.STATEMENT_LIMITS.REFERENCE_STEM_MAX + 'Sept-'.length <= model.STATEM
 
 // ═══ 2. A new month, as the property page starts it (K5, K6) ═══
 console.log('\n═══ 2. A new month on the property page: the stem and the default rate (K6) ═══');
-const fresh = form.suggestedTyped(null, record({ referenceStem: '321-John', defaultFeeRateBasisPoints: 2000 }), '2026-09', '2026-10-17');
+const fresh = form.suggestedTyped(null, record({ referenceStem: '321-John', defaultFeeRateBasisPoints: 2000 }), '2026-11', '2026-12-17');
 console.log(`   reference "${fresh.reference}" · fee ${fresh.fee ? `rate "${fresh.fee.rate}", base "${fresh.fee.base}" (typed, never filled)` : 'none'}`);
-check(fresh.reference === 'Sept-321-John' && fresh.fee?.rate === '20' && fresh.fee?.base === '', 'stem and rate start the month; the base stays empty');
-const bare = form.suggestedTyped(previous('2026-08', 'Aug-19-Tannery'), record(), '2026-09', '2026-10-17');
-check(bare.reference === 'Sept-19-Tannery' && bare.fee === null, 'no stem and no rate: the previous reference, no fee (as before)');
+check(fresh.reference === 'Nov-321-John' && fresh.fee?.rate === '20' && fresh.fee?.base === '', 'stem and rate start the month; the base stays empty');
+const bare = form.suggestedTyped(previous('2026-10', 'Oct-19-Tannery'), record(), '2026-11', '2026-12-17');
+check(bare.reference === 'Nov-19-Tannery' && bare.fee === null, 'no stem and no rate: the previous reference, no fee (as before)');
 
 // ═══ 3. K3: Finish warns when the revenue share is below zero ═══
 console.log('\n═══ 3. K3: the revenue share below zero ═══');
-const built = (lines) => st.buildStatement({ propertyId: P(1), propertyName: 'Test Foxdale', month: '2026-09', entries: [], reports: [], draft: draftOf('2026-09', lines), management: record({ reportFor: { name: 'Test Owner', address: '' } }) }).statement;
-const checksOf = (s) => finishChecks({ statement: s, reports: [], entries: [], income: { waiting: 0, unlinked: [], checkouts: 0 }, today: '2026-10-17' });
+const built = (lines) => st.buildStatement({ propertyId: P(1), propertyName: 'Test Foxdale', month: '2026-11', entries: [], reports: [], draft: draftOf('2026-11', lines), management: record({ reportFor: { name: 'Test Owner', address: '' } }) }).statement;
+const checksOf = (s) => finishChecks({ statement: s, reports: [], entries: [], income: { waiting: 0, unlinked: [], checkouts: 0 }, today: '2026-12-17' });
 for (const [label, lines] of [
-  ['a claw-back alone', [line('Resolution Adjustment - Jul 22–Sep 21, 2026 (paid Sep 7)', -467645)]],
-  ['revenue and a larger expense', [line('Revenue - Sep 2–4, 2026', 42486), line('Expense - Repairs', -50000)]],
-  ['revenue only', [line('Revenue - Sep 2–4, 2026', 42486)]],
+  ['a claw-back alone', [line('Resolution Adjustment - Sep 22–Nov 21, 2026 (paid Nov 7)', -467645)]],
+  ['revenue and a larger expense', [line('Revenue - Nov 2–4, 2026', 42486), line('Expense - Repairs', -50000)]],
+  ['revenue only', [line('Revenue - Nov 2–4, 2026', 42486)]],
   ['nothing', []],
 ]) {
   const s = built(lines);
@@ -71,13 +71,13 @@ check(negative.refusals.length === 0, 'a warning only, never a refusal (only Rep
 
 // ═══ 4. The management route: whole from the edit page, in part from the sheet ═══
 console.log('\n═══ 4. The management route ═══');
-const stored = record({ reportFor: { name: 'Test Owner', address: '1 Test St' }, owners: [{ name: 'Test Owner', email: 'owner@example.test' }], statementsFrom: '2026-10', statementsUntil: '2027-03', defaultFeeRateBasisPoints: 1500, defaultFee: { label: 'Old fee', amountCents: 15000 }, excludedFromReporting: true, referenceStem: 'OLD-1' });
+const stored = record({ reportFor: { name: 'Test Owner', address: '1 Test St' }, owners: [{ name: 'Test Owner', email: 'owner@example.test' }], statementsFrom: '2026-12', statementsUntil: '2027-05', defaultFeeRateBasisPoints: 1500, defaultFee: { label: 'Old fee', amountCents: 15000 }, excludedFromReporting: true, referenceStem: 'OLD-1' });
 const parse = (body) => mgmt.ManagementInputSchema.safeParse(body);
 const partial = parse({ reportFor: { name: '  Test   New Owner ', address: '9 Test Ave\n\nToronto ' }, referenceStem: ' 321 - John ', defaultFeeRate: '20' });
 check(partial.success, 'the sheet\'s body (three keys) is taken');
 const merged = mgmt.storedManagement(P(1), partial.data, stored, AT);
 console.log(`   merged: ${JSON.stringify(merged)}`);
-check(merged.owners.length === 1 && merged.statementsFrom === '2026-10' && merged.statementsUntil === '2027-03' && merged.excludedFromReporting === true && merged.defaultFee?.amountCents === 15000, 'owners, months, excluded and the old fee keep what is stored');
+check(merged.owners.length === 1 && merged.statementsFrom === '2026-12' && merged.statementsUntil === '2027-05' && merged.excludedFromReporting === true && merged.defaultFee?.amountCents === 15000, 'owners, months, excluded and the old fee keep what is stored');
 check(merged.reportFor.name === 'Test New Owner' && merged.referenceStem === '321 - John' && merged.defaultFeeRateBasisPoints === 2000, 'the three fields as sent, folded');
 const none = mgmt.storedManagement(P(2), parse({ reportFor: null, referenceStem: null, defaultFeeRate: null }).data, null, AT);
 console.log(`   made from nothing: ${JSON.stringify(none)}`);
@@ -86,14 +86,14 @@ const cleared = mgmt.storedManagement(P(1), parse({ referenceStem: null }).data,
 check(!('referenceStem' in cleared) && cleared.reportFor.name === 'Test Owner', 'null clears the stem, leaving the rest');
 const kept = mgmt.storedManagement(P(1), parse({ defaultFeeRate: '12.5' }).data, stored, AT);
 check(kept.referenceStem === 'OLD-1' && kept.defaultFeeRateBasisPoints === 1250, 'a stem left out keeps what is stored');
-const whole = parse({ reportFor: null, owners: [], statementsFrom: '2026-09', statementsUntil: null, defaultFeeRate: null, referenceStem: null, excludedFromReporting: false });
+const whole = parse({ reportFor: null, owners: [], statementsFrom: '2026-11', statementsUntil: null, defaultFeeRate: null, referenceStem: null, excludedFromReporting: false });
 check(whole.success, 'the edit page\'s whole body is still taken');
 for (const [label, body] of [
   ['a stem with its month', { referenceStem: 'Sept-321-John' }],
   ['an empty stem string', { referenceStem: '   ' }],
   ['a rate of 101', { defaultFeeRate: '101' }],
   ['an unknown key', { stem: 'x' }],
-  ['until before from', { statementsFrom: '2026-10', statementsUntil: '2026-09' }],
+  ['until before from', { statementsFrom: '2026-12', statementsUntil: '2026-11' }],
 ]) {
   const r = parse(body);
   console.log(`   refused: ${label.padEnd(24)} → ${r.success ? 'TAKEN' : r.error.issues.map((i) => `${i.path.join('.') || '(body)'}: ${i.message}`).join('; ')}`);
@@ -114,9 +114,9 @@ console.log(`   a stem with its month: ${JSON.stringify(editor.managementPayload
 // ═══ 6. The empty months finished together take the stem too ═══
 console.log('\n═══ 6. Empty months together: the reference from the stem ═══');
 const empty = emptyMonth({
-  month: '2026-09',
-  today: '2026-10-17',
-  properties: [{ id: P(1), name: 'Test Stem', createdMonth: '2026-09' }, { id: P(2), name: 'Test Plain', createdMonth: '2026-09' }],
+  month: '2026-11',
+  today: '2026-12-17',
+  properties: [{ id: P(1), name: 'Test Stem', createdMonth: '2026-11' }, { id: P(2), name: 'Test Plain', createdMonth: '2026-11' }],
   management: [record({ reportFor: { name: 'Test Owner', address: '' }, referenceStem: '321-John' }), record({ id: P(2), propertyId: P(2), reportFor: { name: 'Test Owner Two', address: '' } })],
   reports: [],
   drafts: [],
@@ -124,7 +124,7 @@ const empty = emptyMonth({
   income: { waiting: new Map(), checkInsWithout: new Set(), unsettled: [] },
 });
 for (const c of empty.eligible) console.log(`   ${c.name}: reference ${c.reference ?? 'none'}`);
-check(empty.eligible.find((c) => c.propertyId === P(1))?.reference === 'Sept-321-John' && empty.eligible.find((c) => c.propertyId === P(2))?.reference === null, 'stem gives Sept-321-John; no stem and no statement, none');
+check(empty.eligible.find((c) => c.propertyId === P(1))?.reference === 'Nov-321-John' && empty.eligible.find((c) => c.propertyId === P(2))?.reference === null, 'stem gives Nov-321-John; no stem and no statement, none');
 
 // ═══ 7. The Report For sheet's rows ═══
 console.log('\n═══ 7. The Report For sheet ═══');
@@ -133,7 +133,7 @@ console.log(`   a row from its record: ${JSON.stringify(row)} · from none: ${JS
 for (const [label, fields] of [
   ['as loaded', row],
   ['an address with no name', { name: '', address: '1 Test St', stem: '', rate: '' }],
-  ['a stem with its month', { ...row, stem: 'Sept-321' }],
+  ['a stem with its month', { ...row, stem: 'Nov-321' }],
   ['a rate of 20.555', { ...row, rate: '20.555' }],
   ['seven address lines', { ...row, address: 'a\nb\nc\nd\ne\nf\ng' }],
   ['everything empty', { name: '', address: '', stem: '', rate: '' }],
@@ -144,12 +144,12 @@ check(!sheet.sameSheetRow(row, { ...row, rate: '12' }), 'a new rate is a change'
 // ═══ 8. Next property: the home's list, walked from the property page ═══
 console.log('\n═══ 8. Next property ═══');
 const href = (n, tail = '') => `/admin/property?id=${P(n)}${tail}`;
-console.log(`   a Next step on the property page keeps its month and tab: ${queue.entryHref(P(1), href(1, '&month=2026-09&tab=details'))}`);
+console.log(`   a Next step on the property page keeps its month and tab: ${queue.entryHref(P(1), href(1, '&month=2026-11&tab=details'))}`);
 console.log(`   a Next step elsewhere (Schedule) opens the property alone: ${queue.entryHref(P(1), `/admin/schedule?property=${P(1)}`)}`);
-console.log(`   another property's address is not taken: ${queue.entryHref(P(1), href(2, '&month=2026-09'))}`);
-check(queue.entryHref('TESTPROPab', '/admin/property?id=TESTPROPabc&month=2026-09') === '/admin/property?id=TESTPROPab', 'an ID that is the start of another\'s is not taken for it');
+console.log(`   another property's address is not taken: ${queue.entryHref(P(1), href(2, '&month=2026-11'))}`);
+check(queue.entryHref('TESTPROPab', '/admin/property?id=TESTPROPabc&month=2026-11') === '/admin/property?id=TESTPROPab', 'an ID that is the start of another\'s is not taken for it');
 console.log(`   its words: "${queue.queueLabel({ chip: 'Statements blocked', search: ' __TEST__ ', city: null, sort: 'Needs attention' })}"`);
-const list = { label: 'Statements blocked · Needs attention', listHref: '/admin?show=blocked', entries: [1, 2, 3].map((n) => ({ id: P(n), name: `Test ${n}`, href: href(n, '&month=2026-09&tab=details') })) };
+const list = { label: 'Statements blocked · Needs attention', listHref: '/admin?show=blocked', entries: [1, 2, 3].map((n) => ({ id: P(n), name: `Test ${n}`, href: href(n, '&month=2026-11&tab=details') })) };
 for (const n of [1, 2, 3, 4]) {
   const at = queue.neighbours(list, P(n));
   console.log(`   ${P(n)}: ${at ? `${at.place} of ${at.total} · previous ${at.previous?.name ?? '-'} · next ${at.next?.name ?? '-'}` : 'not on the list: no bar'}`);
@@ -160,13 +160,13 @@ for (const [label, raw] of [['not JSON', '{'], ['a list leaving the admin', JSON
 
 // ═══ 9. The month due: the oldest owed and unfinished ═══
 console.log('\n═══ 9. The month due on opening ═══');
-const statusOf = (pastDue, previousStanding) => ({ tone: pastDue.length ? 'problem' : 'warning', standing: pastDue.length ? 'pastDue' : previousStanding, month: pastDue[0] ?? '2026-09', pastDue, previous: { month: '2026-09', standing: previousStanding } });
+const statusOf = (pastDue, previousStanding) => ({ tone: pastDue.length ? 'problem' : 'warning', standing: pastDue.length ? 'pastDue' : previousStanding, month: pastDue[0] ?? '2026-11', pastDue, previous: { month: '2026-11', standing: previousStanding } });
 for (const [label, status] of [
-  ['September due', statusOf([], 'due')],
-  ['August past due, September due', statusOf(['2026-08'], 'due')],
-  ['July past due, September finished', statusOf(['2026-07'], 'finished')],
+  ['November due', statusOf([], 'due')],
+  ['October past due, November due', statusOf(['2026-10'], 'due')],
+  ['September past due, November finished', statusOf(['2026-09'], 'finished')],
   ['nothing owed', statusOf([], 'finished')],
-]) console.log(`   ${label.padEnd(36)} → opens on ${owedMonths(status)[0] ?? '2026-10 (the current month)'}`);
+]) console.log(`   ${label.padEnd(36)} → opens on ${owedMonths(status)[0] ?? '2026-12 (the current month)'}`);
 
 console.log(`\n${failures === 0 ? 'all checks pass' : `${failures} check(s) FAILED`}`);
 if (failures > 0) process.exit(1);

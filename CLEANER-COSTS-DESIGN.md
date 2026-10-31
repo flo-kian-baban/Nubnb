@@ -3474,7 +3474,7 @@ Kian's rulings are in `CLAUDE.md` under *Codes and PINs*: cleaner and handyman c
 - **Former admin PINs.** A PIN counts as held only while an admin's document holds it now (`pinHeld`, `app/lib/firebase/server-admins.ts`): the digits' `admin_pins` entry, and the admin it names, who must still exist and hold them. The app already deleted an admin's entry when their PIN changed or they were removed, so a former PIN was free unless an entry was left behind (its admin gone or on another PIN, as after a cleanup by ID). Such an entry is now free, and the PIN set next writes over it. Adding an admin, setting one's PIN, one's own Change PIN and the recovery script (`scripts/admin-pin-rules.mjs`) all read it this way, and so does a cleaner code (`adminPinHolds`). Sign-in already treated such an entry as a wrong PIN; that is unchanged.
 - **One line per refusal.** Each refusal of a code or a PIN is one line that says why, with no hint under it:
   - a code: "That is an admin PIN, and a code can never be one." · "Amir already has that code." (or "Someone else on the team already has that code.") · "Every code drawn was already in use: try again.";
-  - a PIN: "A PIN is four digits." · "Too easy to guess: four of one digit, or a straight run like 1234." · "Another admin has that PIN." · "That is a cleaner code, now or before, and an admin PIN can never be one." · "That is the shared PIN, which only the recovery script uses.";
+  - a PIN: "A PIN is four digits." · "Too easy to guess: four of one digit, or a straight run like a straight run of digits." · "Another admin has that PIN." · "That is a cleaner code, now or before, and an admin PIN can never be one." · "That is the shared PIN, which only the recovery script uses.";
   - one's own Change PIN and Set your PIN now give the same reasons, not "That PIN is taken."; the warning that one more try locks stays after it;
   - a locked connection, as the Team page shows it for a typed code: "Too many tries in a row: sign-in from this connection is locked for 12 more minutes." or "Too many tries today: … until a main admin lifts it."; Change PIN and Set your PIN say "Too many tries: sign-in from here is locked until 3:12 am."
 - **The Team page** shows a code refusal as its line alone: no hint and no error code under it.
@@ -4562,3 +4562,80 @@ nothing changed in production (the closing export identical, 686 documents). The
   = $160 before taxes" with "Not on Airbnb · checked Sep 30"; Q a near miss "minimum 28 nights" (11 of 22 rows carried
   a minimum chip: the 28-night units the audit saw listed as fits); every test row "Not on the site" in both views;
   S "calendar read Oct 19, 13:51" (its read was cut off), and every real row too, their reads cut off in this run.
+
+## 62. The fresh start of 1 November 2026: statements begin with November — Kian's rulings R1–R7 of 2026-10-31
+
+Kian's rulings of 2026-10-31 are in CLAUDE.md under *Fresh start — 2026-11-01*. This section is Step 1 of that
+dispatch, the code: the first month any property owes a statement for moves from September 2026 to November 2026, so
+no September or October statement is owed. The data reset that follows (a dry run, deletes on Kian's approval of its
+manifest, the checks) changes no code and is recorded outside the repository.
+
+### 62.1 What changed
+
+1. **The first statement month** (`app/lib/reports/model.ts`, `STATEMENTS_FROM_DEFAULT`) is `2026-11`. It is the floor
+   of the one rule (`statementMonths`, `inStatementScope`) that the property list's Statement column, the property
+   page, the home panel, the Statements tile, Finish, empty months and the backup's check all read, and the first month
+   of a statement's money in `buildStatement`: a cost, a cleaning or an Airbnb line that belongs to a month before it is
+   on no statement, as August's were before. A record's start month narrows the floor and never widens it, so the two
+   records written with `2026-09` owe from November like any other, and neither is changed; a record made from now on
+   starts at `2026-11`. A month with money in it is owed whenever the property was added, never before the floor.
+2. **The office cost's month** (`OfficeInputSchema`, `app/lib/firebase/server-cost-entries.ts`) is checked against
+   the same constant instead of its own copy of `2026-09`, and says "Statements begin with November 2026". The Add a
+   cost form offers the months from it to the current one (its code unchanged), so before 1 November it offers none.
+3. **The Income page's "owes no statement"** (`noStatementWhy`, `app/lib/firebase/server-income.ts`, I5) read only a
+   record's own start month, and gave no reason for a property without a record. It now reads the same first month as
+   the rule (`statementMonths`), so for October a property with no record, or with a record from `2026-09`, reads "Its
+   statements start in November 2026: no statement is asked for October 2026." It was the one place that decided
+   which months are owed without the floor.
+4. Comments that named September as the first month name November (`model.ts`, `AddCostForm.tsx`, the cost-entries
+   route).
+
+### 62.2 Tests
+
+- **`tests/statements/fresh-start.mjs`** (fresh-start, new): the first month with no record, a record from `2026-09`,
+  one from `2026-12`, a property added later, money in September and October; the months owed from August 2026 to
+  January 2027 in six cases; the one rule day by day from 31 October 2026 to 11 January 2027 (nothing due or past due
+  until November closes, November due on 1 December and past due in January) and the Statements tile on 1 November and
+  1 December; empty months for September, October and November; the office cost's month; and the Income page's
+  reasons for October, November and December, read by `readIncomeMonth` on the in-memory Firestore. Run against
+  `c1130a8`'s code, 12 of its 15 checks fail.
+- **Nine checks moved two months later.** office-month, month-money, cleanings, airbnb-file, direct-payments,
+  statements-round1, owner-files, costs-month and costs-look were written with September and October 2026 as statement
+  months, which are no longer owed; all nine failed on the new floor, five with an error. Their made-up dates move two
+  months — the distance the
+  floor moved, so every date keeps its place against the first statement month, a property's created month and a
+  record's months — by one function applied to the committed files: ISO days and months; the Airbnb file's US days
+  (`tests/fixtures/airbnb-december-d36.csv`, formerly `airbnb-october-d36.csv`); month words in the three forms the code
+  prints (long, short, and the statements' own "Sept", "June"), the year rolling from November and December. Dates that
+  say when a ruling or an audit was made stay. Names follow their months (`sepBuilt` is `novBuilt`, renamed through the
+  parsed syntax tree, never in strings). Eight are re-recorded; costs-look prints no date, and its recording did not
+  change.
+- **Kept as committed**, because they test a month's own words, length or year rather than the first statement month:
+  K5's reference words and stems in statements-round1 (June, July, Sept; May against Maya; Mar against Marc); the
+  direct arrangements' February 2027 (28 nights, refused) and November 2026 (30 nights, accepted); and the office
+  cost's year-crossing example in office-month (logged 5 Jan 2027 for Dec 2026).
+- **How the move was checked.** Each moved check's output against its old recording moved by the same function:
+  equal line for line except the kept lines (equal to the old recording), office-month's line that holds the
+  year-crossing example, two lines of column padding in statements-round1, and lines of hashes. The hashed files were
+  read back from both versions — 60 PDFs and workbooks: 43 equal to the old file moved two months, and 17 differing only
+  by four effects, each counted: 46 times one hour earlier (Eastern Standard Time instead of Daylight Time), 27 Excel
+  day numbers 61 days later, 3 SHA-256 and 2 byte counts of other files in a month ZIP's list. None unexplained.
+  airbnb-file's 21 hashed strings are the old ones, 18 of them moved two months.
+- `node tests/run.mjs`: 28 checks, all identical. Dispatch 36's `v3-hash.mjs`: 40 of 40 version-3 statements
+  byte-identical to `2793e84`'s.
+
+### 62.3 The developer's choices
+
+1. **The Income page's reason reads the floor** (62.1, 3): the dispatch moved the floor "everywhere"; without this the
+   Income page would have called October owed while every other page did not.
+2. **Moving the tests' dates rather than keeping a September floor for them**: the test loader runs the app's modules
+   unmodified, so a check cannot set the constant; and these checks test corrections, carried balances, late lines,
+   Airbnb files, direct payments and owners' files, which need statement months that are owed.
+3. **Two months exactly**, not a year: only the floor's own distance keeps a property without a record, and the month
+   lists counted from the first month, as they were.
+
+### 62.4 What does not move with it
+
+- **Direct arrangements keep their own months.** An arrangement from October 2026 still expects October's payment:
+  "Direct overdue" and "Record direct payment" read the arrangement's months, not the statements' first month.
+- **No stored document is changed.** The first month is code; records keep the start month they were written with.

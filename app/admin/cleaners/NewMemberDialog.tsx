@@ -7,7 +7,7 @@
  * the admin types (Kian, dispatch 23H), or fills with "Generate" and keeps or
  * changes. The page makes the call: a refusal — an admin's PIN, a code an
  * active account holds — is shown here in one plain line that says why, with
- * what was typed kept (an easy code such as 1234 is not refused: Kian's
+ * what was typed kept (an easy code such as a straight run of digits is not refused: Kian's
  * rulings of 2026-10-17); a create closes the dialog and the page's notice
  * repeats the code.
  */

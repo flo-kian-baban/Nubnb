@@ -33,7 +33,8 @@
  * entry ever; see listQueue. The page asks for the whole read above when a filter needs more.
  *
  * POST request:  JSON `{ propertyId, description, amount, tax, month }` — `month` the month the cost belongs to
- *                (dispatch 36, Kian's ruling of 2026-10-12), from 2026-09 to Toronto's current month
+ *                (dispatch 36, Kian's ruling of 2026-10-12), from STATEMENTS_FROM_DEFAULT (2026-11 since the fresh
+ *                start of 1 November 2026) to Toronto's current month
  *                  description  1–200 characters
  *                  amount       "185.00": positive, two decimals
  *                  tax          "12.50" or null

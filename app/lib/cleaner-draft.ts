@@ -332,7 +332,7 @@ export async function clearPhoto(cleanerId: string): Promise<void> {
 /**
  * A price as typed, in the form the server takes ("7.98"), with its cents;
  * or null if it is not a price. More than $0.00 and at most $999,999.99.
- *   "7,98" → 7.98   "$8" → 8.00   ".5" → 0.50   "1,234.50" → 1234.50
+ *   "7,98" → 7.98   "$8" → 8.00   ".5" → 0.50   "1,234.50" → 1,234.50
  */
 export function readPrice(typed: string): { text: string; cents: number } | null {
   let value = typed.replace(/[\s$]/g, '');
