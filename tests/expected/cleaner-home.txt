@@ -82,5 +82,9 @@
    ok   today, its mark removed by the office
     a past day, still to mark → (none)
    ok   a past day, still to mark
+    tomorrow, booking cancelled, a next guest the same day → Tomorrow
+   ok   tomorrow, booking cancelled, a next guest the same day
+    today, booking moved, a next guest the same day → Today
+   ok   today, booking moved, a next guest the same day
 
 every check passed

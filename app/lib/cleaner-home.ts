@@ -102,12 +102,14 @@ export function historyItems(jobs: readonly CleanerJobView[], entries: readonly 
 }
 
 /** A job card's badges (Kian's ruling of 2026-10-17), in this order: Today or Tomorrow by its checkout day; Same-day
- * turnover when the next guest arrives on the checkout day; Cleaned once they marked it (not a mark the office removed). */
+ * turnover when the next guest arrives on the checkout day and the booking still checks out then (a cancelled or moved
+ * booking has no turnover that day: its card says "Cancelled: don't go" or "Moved to <day>" alone); Cleaned once they
+ * marked it (not a mark the office removed). */
 export function jobBadges(job: CleanerJobView, today: string): string[] {
   const badges: string[] = [];
   if (job.checkout === today) badges.push('Today');
   if (job.checkout === addDays(today, 1)) badges.push('Tomorrow');
-  if (job.nextCheckIn !== null && job.nextCheckIn === job.checkout) badges.push('Same-day turnover');
+  if (job.status === 'open' && job.nextCheckIn !== null && job.nextCheckIn === job.checkout) badges.push('Same-day turnover');
   if (job.markedAt !== null && job.markRefusal !== 'removed') badges.push('Cleaned');
   return badges;
 }

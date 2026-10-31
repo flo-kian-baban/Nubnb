@@ -161,6 +161,8 @@ for (const [label, j, want] of [
   ['a past day, cleaned, next guest the same day', job('TESTJOB55', '2026-10-14', { nextCheckIn: '2026-10-14', ...marked('2026-10-16T13:00:00.000Z') }), 'Same-day turnover, Cleaned'],
   ['today, its mark removed by the office', job('TESTJOB56', TODAY, marked('2026-10-16T13:00:00.000Z', { canUndo: false, markRefusal: 'removed' })), 'Today'],
   ['a past day, still to mark', job('TESTJOB57', '2026-10-14'), ''],
+  ['tomorrow, booking cancelled, a next guest the same day', job('TESTJOB58', '2026-10-17', { nextCheckIn: '2026-10-17', status: 'booking-changed', change: { kind: 'gone', at: '2026-10-16T15:00:00.000Z', movedTo: null } }), 'Tomorrow'],
+  ['today, booking moved, a next guest the same day', job('TESTJOB59', TODAY, { nextCheckIn: TODAY, status: 'booking-changed', change: { kind: 'moved', at: '2026-10-16T15:00:00.000Z', movedTo: { start: '2026-10-16', end: '2026-10-18' } } }), 'Today'],
 ]) {
   const got = home.jobBadges(j, TODAY).join(', ');
   console.log(`    ${label} → ${got || '(none)'}`);

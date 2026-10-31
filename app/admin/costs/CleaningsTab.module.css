@@ -127,3 +127,11 @@
   color: rgba(255, 255, 255, 0.5);
   white-space: nowrap;
 }
+/* Why a waiting row opened empty (two cleaners, or no preset): wraps, so a long line never widens the table. */
+.waitingHint {
+  font-size: 11.5px;
+  line-height: 15px;
+  color: rgba(255, 255, 255, 0.5);
+  max-width: 240px;
+  text-align: right;
+}

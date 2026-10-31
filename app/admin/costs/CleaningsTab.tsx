@@ -509,13 +509,15 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
                               className={`${p.textInput} ${p.amountInput} ${styles.amountInline}`}
                               inputMode="decimal"
                               aria-label={`Amount for ${nameOf(c)}, ${shortDay(c.day)}, ${cleanerNameOf(c)}`}
-                              placeholder={preset && preset.cents !== null && job && job.cleaners === 1 ? amountField(preset.cents) : "60.00"}
+                              placeholder={preset && preset.cents !== null && job && job.cleaners === 1 ? amountField(preset.cents) : ""}
                               title={hint}
                               value={fieldOf(c)}
                               onChange={(e) => setTyping((was) => ({ ...was, [c.id]: e.target.value }))}
                               disabled={busy !== null}
                             />
                             {start.kind === "recommendation" && <span className={styles.recommendation}>{recommendationWords(start.tier, start.cents)}</span>}
+                            {/* Opened empty (several cleaners: the split is typed; or no preset and nothing typed before): why, in words, not a tooltip. */}
+                            {(start.kind === "split" || start.kind === "none") && <span className={styles.waitingHint}>{hint}</span>}
                           </span>
                           <button type="submit" className={`${p.btnGhost} ${p.btnSmall}`} disabled={busy !== null || fieldOf(c).trim() === ""}>
                             {busy === c.id ? "Saving…" : "Save"}
