@@ -108,7 +108,7 @@ for (const month of ['2026-09', '2026-10', '2026-11']) {
   const r = office(month);
   console.log(`  ${month}: ${r.success ? 'accepted' : `refused · ${r.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`}`);
 }
-check(!office('2026-10').success && office('2026-10').error.issues[0].message === 'Statements begin with November 2026' && office('2026-11').success, 'an office cost for October is refused, for November accepted');
+check(!office('2026-10').success && office('2026-10').error.issues[0].message === 'Statements start in November 2026' && office('2026-11').success, 'an office cost for October is refused, for November accepted');
 
 // ═══ 6. The Income page ═══
 console.log("═══ 6. The Income page: who owes no statement (I5) ═══");

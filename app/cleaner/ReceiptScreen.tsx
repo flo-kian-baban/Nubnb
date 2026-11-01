@@ -48,6 +48,7 @@ import {
   type LineProblems,
 } from "@/app/lib/cleaner-draft";
 import { LIMITS, formatCents } from "@/app/lib/cleaners/model";
+import { DATED_BEFORE_STATEMENTS } from "@/app/lib/cleaners/reading-date";
 import { fold, matchRank } from "@/app/lib/cleaners/text";
 import styles from "./cleaner.module.css";
 import { CleanerBar } from "./CleanerBar";
@@ -61,7 +62,9 @@ export type ReadingStatus =
   | { kind: "none" }
   | { kind: "reading" }
   | { kind: "read"; applied: number; leftOut: { count: number; cents: number } }
-  | { kind: "failed" };
+  | { kind: "failed" }
+  /** The reading dates the receipt before the first statement month: it cannot be sent here (Kian, 2026-11-01). */
+  | { kind: "dated-before" };
 
 interface ReceiptScreenProps {
   /** The property the receipt is for, by its name for cleaners; null until one is chosen. */
@@ -121,6 +124,13 @@ function ReadingNote({ reading }: { reading: ReadingStatus }) {
     return (
       <p className={styles.readingNote} role="status">
         The receipt couldn’t be read. Type the items.
+      </p>
+    );
+  }
+  if (reading.kind === "dated-before") {
+    return (
+      <p className={styles.problem} role="alert">
+        {DATED_BEFORE_STATEMENTS}
       </p>
     );
   }

@@ -16,7 +16,7 @@
    ok   the entry route refuses it as a 422 on purchasedOn, before any photo is stored
    ok   no purchase date at all (what the app sends) is accepted
 ═══ 2. A possible second send is flagged on the new receipt, never refused ═══
-  the same photo as an approved receipt, another amount: approved (approved automatically) · stored photoSha256 as sent · sentTotalCents 1500 · possibleDuplicates [same-photo → TESTENTRYearlierphoto]
+  the same photo as an approved receipt, another amount: pending · stored photoSha256 as sent · sentTotalCents 1500 · possibleDuplicates [same-photo → TESTENTRYearlierphoto]
    ok   the same photo is flagged, whatever the amount
   the same photo as a rejected receipt: approved (approved automatically) · stored photoSha256 as sent · sentTotalCents 1111 · possibleDuplicates (absent)
    ok   a rejected earlier receipt is not counted: no flag
@@ -26,7 +26,7 @@
    ok   the same total for another property is not flagged
   the same total, same unit, 2 days before, another photo: pending · stored photoSha256 as sent · sentTotalCents 24857 · possibleDuplicates [same-amount → TESTENTRYearlierphoto]
    ok   the same total for the same property within the window is flagged (the photo taken again)
-  the same total as a pending receipt by another cleaner, same unit: approved (approved automatically) · stored photoSha256 as sent · sentTotalCents 6050 · possibleDuplicates [same-amount → TESTENTRYpendingamt01]
+  the same total as a pending receipt by another cleaner, same unit: pending · stored photoSha256 as sent · sentTotalCents 6050 · possibleDuplicates [same-amount → TESTENTRYpendingamt01]
    ok   a pending earlier receipt counts, whoever sent it
   the same total as a removed receipt: approved (approved automatically) · stored photoSha256 as sent · sentTotalCents 7070 · possibleDuplicates (absent)
    ok   a removed earlier receipt is not counted
@@ -34,7 +34,9 @@
    ok   work is not a receipt: no flag
   both the same photo and the same total as one receipt: pending · stored photoSha256 as sent · sentTotalCents 24857 · possibleDuplicates [same-photo → the same photo as an approved receipt, another amount, same-photo → TESTENTRYearlierphoto, same-amount → the same total, same unit, 2 days before, another photo]
    ok   one hint per earlier receipt (the receipts sent above match too), the photo ones first
-   ok   a flagged receipt under $200.00 is still approved automatically (approved); one of $200.00 or more waits (pending)
+   ok   a flagged receipt waits for a decision whatever its amount: $15.00 pending, $60.50 pending, $248.57 pending
+   ok   an unflagged receipt under $200.00 is still approved automatically (2026-09-30)
+   ok   a flagged one carries no automatic approval: no marker, no record of the rule, one event (submitted)
 ═══ 3. A check that cannot be made writes the receipt, unflagged ═══
   the same photo again, the check failing: approved (approved automatically) · stored photoSha256 as sent · sentTotalCents 1500 · possibleDuplicates (absent)
   logged: ["[cost-entries] duplicate check not made: grpc code 14"]
@@ -51,5 +53,31 @@
 ═══ 5. "Mark these n seen" leaves a possible duplicate out ═══
   of U1, U2, U3 the bulk Seen sends U1, U3
    ok   the flagged one is left for an admin to open (the page filters as here: page.tsx onMarkAll)
+═══ 6. A receipt the reading dates before November 2026 is held back, with a sentence the cleaner can act on ═══
+  the sentence: "This receipt is dated before November 2026 and can’t be sent here. Give it to Nubnb directly." · the route's code: ENTRY_DATED_BEFORE_STATEMENTS
+   ok   what the cleaner reads says what to do, and is not the admin's floor line
+  read "2026-10-15" → "2026-10-15"
+  read "2026-10-31" → "2026-10-31"
+  read "2026-11-01" → null
+  read "2025-11-01" → "2025-11-01"
+  read "2025-10-31" → null
+  read "2020-09-26" → null
+  read "2014-09-26" → null
+  read "2026-02-30" → null
+  read "15/10/26" → null
+  read "" → null
+  read null → null
+  read 20261015 → null
+   ok   a real date in the twelve months before November 2026 holds the receipt back
+   ok   1 November 2026 and after: sent as usual
+   ok   a date further back is taken as a misreading of a two-digit year (measured 2026-09-30) and holds nothing back
+   ok   no date, another format, or a day that does not exist holds nothing back
+  a reading (ok) dated "2026-10-15": the route holds back "2026-10-15" · the phone holds back "2026-10-15" · after a new photo null
+  a reading (ok) dated "2028-11-20": the route holds back null · the phone holds back null · after a new photo null
+  a reading (ok) dated null: the route holds back null · the phone holds back null · after a new photo null
+  a reading (failed) dated "2026-10-15": the route holds back "reading dropped" · the phone holds back null · after a new photo null
+   ok   the route and the phone hold back the same receipt, from the same signed reading
+   ok   a later date, no date, or a reading that failed holds nothing back
+   ok   a retaken photo is judged by its own reading, not the last one
 
 all checks passed

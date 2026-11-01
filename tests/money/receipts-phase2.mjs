@@ -1,8 +1,11 @@
 // Phase 2, receipts and work (2026-11-01): a cost dated before November 2026 is refused with "Statements start in
 // November 2026" (before the 12-month window, so it reads the same on any day), and a receipt that may be a second
 // send of one already held is flagged for the admin when it is created — the same photo (any property, any time), or
-// the same total for the same property within 14 days; pending or approved earlier receipts only — and never refused.
-// The flag's words, its reading back, and the bulk "Mark these n seen" leaving a flagged entry out. The app's own
+// the same total for the same property within 14 days; pending or approved earlier receipts only — and never refused;
+// a flagged receipt waits for a decision whatever its amount (Kian's ruling of 2026-11-01). The flag's words, its
+// reading back, and the bulk "Mark these n seen" leaving a flagged entry out. A receipt whose reading dates it before
+// November 2026 is held back with a sentence the cleaner can act on, by the phone and by the route, before anything is
+// stored (Kian's instruction of 2026-11-01). The app's own
 // server code on an in-memory Firestore (tests/tools/memory-firestore.cjs): nothing is read from or written to
 // Firestore or Storage.
 //   node --import ./tests/tools/ts-hook.mjs tests/money/receipts-phase2.mjs
@@ -123,7 +126,9 @@ check(h.stored.possibleDuplicates === undefined, 'work is not a receipt: no flag
 const i = await send('both the same photo and the same total as one receipt', { photo: sha('a'), cents: 24857 });
 const ids = i.stored.possibleDuplicates.map((x) => x.entryId);
 check(new Set(ids).size === ids.length && i.hints.filter((x) => x.endsWith('TESTENTRYearlierphoto')).length === 1 && i.hints.findIndex((x) => x.startsWith('same-amount')) > i.hints.findLastIndex((x) => x.startsWith('same-photo')), 'one hint per earlier receipt (the receipts sent above match too), the photo ones first');
-check(i.created.status === 'pending' && a.created.status === 'approved', `a flagged receipt under $200.00 is still approved automatically (${a.created.status}); one of $200.00 or more waits (${i.created.status})`);
+check(a.created.status === 'pending' && a.created.autoApproved === false && f.created.status === 'pending' && i.created.status === 'pending', `a flagged receipt waits for a decision whatever its amount: $15.00 ${a.created.status}, $60.50 ${f.created.status}, $248.57 ${i.created.status}`);
+check([b, c, d, g, h].every((x) => x.created.status === 'approved' && x.created.autoApproved === true), 'an unflagged receipt under $200.00 is still approved automatically (2026-09-30)');
+check(a.stored.awaitingLook === undefined && a.stored.autoApproved === null && a.stored.history.length === 1, 'a flagged one carries no automatic approval: no marker, no record of the rule, one event (submitted)');
 
 section('3. A check that cannot be made writes the receipt, unflagged');
 const firestore = require(require.resolve('@google-cloud/firestore', { paths: [ROOT] }));
@@ -160,6 +165,36 @@ const unseen = [{ id: 'U1' }, { id: 'U2', possibleDuplicates: [{ entryId: 'U1', 
 const marked = unseen.filter((entry) => duplicateHints(entry).length === 0).map((entry) => entry.id);
 console.log(`  of ${unseen.map((x) => x.id).join(', ')} the bulk Seen sends ${marked.join(', ')}`);
 check(marked.join(',') === 'U1,U3', 'the flagged one is left for an admin to open (the page filters as here: page.tsx onMarkAll)');
+
+// ── 6. The reading's date before November 2026 ──
+section('6. A receipt the reading dates before November 2026 is held back, with a sentence the cleaner can act on');
+const rd = await import(`${ROOT}/app/lib/cleaners/reading-date.ts`);
+const { readingDatedBefore } = await import(`${ROOT}/app/lib/cleaner-draft.ts`);
+const { readingKey, signReading, parseReadingPart } = await import(`${ROOT}/app/lib/cleaners/readings.ts`);
+console.log(`  the sentence: "${rd.DATED_BEFORE_STATEMENTS}" · the route's code: ${rd.DATED_BEFORE_STATEMENTS_CODE}`);
+check(rd.DATED_BEFORE_STATEMENTS === 'This receipt is dated before November 2026 and can’t be sent here. Give it to Nubnb directly.' && !rd.DATED_BEFORE_STATEMENTS.startsWith('Statements start'), 'what the cleaner reads says what to do, and is not the admin\'s floor line');
+const days = ['2026-10-15', '2026-10-31', '2026-11-01', '2025-11-01', '2025-10-31', '2020-09-26', '2014-09-26', '2026-02-30', '15/10/26', '', null, 20261015];
+for (const day of days) console.log(`  read ${JSON.stringify(day)} → ${JSON.stringify(rd.readDateBeforeStatements(day))}`);
+check(rd.readDateBeforeStatements('2026-10-15') === '2026-10-15' && rd.readDateBeforeStatements('2026-10-31') === '2026-10-31' && rd.readDateBeforeStatements('2025-11-01') === '2025-11-01', 'a real date in the twelve months before November 2026 holds the receipt back');
+check(rd.readDateBeforeStatements('2026-11-01') === null, '1 November 2026 and after: sent as usual');
+check(['2025-10-31', '2020-09-26', '2014-09-26'].every((d) => rd.readDateBeforeStatements(d) === null), 'a date further back is taken as a misreading of a two-digit year (measured 2026-09-30) and holds nothing back');
+check(['2026-02-30', '15/10/26', '', null, 20261015].every((d) => rd.readDateBeforeStatements(d) === null), 'no date, another format, or a day that does not exist holds nothing back');
+const SECRET = Buffer.alloc(32, 7);
+const recordFor = (purchasedOn, status = 'ok') => ({ v: 1, id: '6a5b4c3d-2e1f-4a0b-8c9d-0e1f2a3b4c5d', cleanerId: ANA, requestedAt: '2028-11-21T15:00:00.000Z', model: 'gemini-3.8-flash', modelVersion: 'stand-in', thinkingLevel: 'low', ms: 7, status, reason: status === 'ok' ? null : 'http_500', usage: null, output: status === 'ok' ? { store: 'Test store', purchasedOn, lines: [{ name: 'Gloves', quantity: 1, amount: '12.00', kind: 'item' }], subtotal: '12.00', total: '12.00', unreadable: false, notes: null } : null, rawText: null });
+for (const [purchasedOn, status] of [['2026-10-15', 'ok'], ['2028-11-20', 'ok'], [null, 'ok'], ['2026-10-15', 'failed']]) {
+  const signed = signReading(recordFor(purchasedOn, status), readingKey(SECRET));
+  const attachment = parseReadingPart(JSON.stringify({ ...signed, fromReading: [0] }), SECRET, ANA, 1);
+  const routeSays = attachment ? rd.recordDatedBeforeStatements(attachment.record) : 'reading dropped';
+  const draft = { photoKey: 'p1', reading: { photoKey: 'p1', readingText: signed.readingText, signature: signed.signature, applied: 1 } };
+  const phoneSays = readingDatedBefore(draft);
+  const otherPhoto = readingDatedBefore({ ...draft, photoKey: 'p2' });
+  console.log(`  a reading (${status}) dated ${JSON.stringify(purchasedOn)}: the route holds back ${JSON.stringify(routeSays)} · the phone holds back ${JSON.stringify(phoneSays)} · after a new photo ${JSON.stringify(otherPhoto)}`);
+}
+const held = (purchasedOn, status = 'ok') => { const signed = signReading(recordFor(purchasedOn, status), readingKey(SECRET)); return [rd.recordDatedBeforeStatements(parseReadingPart(JSON.stringify({ ...signed, fromReading: [0] }), SECRET, ANA, 1)?.record), readingDatedBefore({ photoKey: 'p1', reading: { photoKey: 'p1', readingText: signed.readingText, signature: signed.signature, applied: 1 } })]; };
+check(held('2026-10-15').every((x) => x === '2026-10-15'), 'the route and the phone hold back the same receipt, from the same signed reading');
+check(held('2028-11-20').every((x) => x === null) && held(null).every((x) => x === null) && held('2026-10-15', 'failed').every((x) => x === null), 'a later date, no date, or a reading that failed holds nothing back');
+const draftNew = { photoKey: 'p2', reading: { photoKey: 'p1', readingText: signReading(recordFor('2026-10-15'), readingKey(SECRET)).readingText, signature: 'x', applied: 1 } };
+check(readingDatedBefore(draftNew) === null, 'a retaken photo is judged by its own reading, not the last one');
 
 console.log(failures === 0 ? '\nall checks passed' : `\n${failures} check(s) FAILED`);
 process.exit(failures === 0 ? 0 : 1);

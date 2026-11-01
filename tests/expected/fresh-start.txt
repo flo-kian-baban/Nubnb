@@ -45,8 +45,8 @@
    ok   September and October offer nothing to finish
    ok   November is owed by both: one can be finished empty, the other is left out only for want of a Report For name
 ═══ 5. The office cost's month ═══
-  2026-09: refused · month: Statements begin with November 2026
-  2026-10: refused · month: Statements begin with November 2026
+  2026-09: refused · month: Statements start in November 2026
+  2026-10: refused · month: Statements start in November 2026
   2026-11: accepted
    ok   an office cost for October is refused, for November accepted
 ═══ 6. The Income page: who owes no statement (I5) ═══

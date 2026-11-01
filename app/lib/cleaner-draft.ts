@@ -47,6 +47,7 @@ import {
   type ReadingRecord,
 } from '@/app/lib/cleaners/model';
 import type { EntryPayload, ReadingPart } from '@/app/lib/cleaner-client';
+import { recordDatedBeforeStatements } from '@/app/lib/cleaners/reading-date';
 
 /**
  * Where the cleaner is (Kian's rulings of 2026-10-16): the home screen, or the receipt being worked on, which needs a
@@ -458,6 +459,17 @@ export function recordOf(reading: DraftReading | null): ReadingRecord | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * The day the current photo's reading dates the receipt, when that is before the first statement month (Kian's
+ * instruction of 2026-11-01): the receipt cannot be sent here (reading-date.ts). Null otherwise, and while the photo
+ * has no answered reading of its own.
+ */
+export function readingDatedBefore(draft: Draft): string | null {
+  const { reading } = draft;
+  if (!reading || reading.photoKey !== draft.photoKey) return null;
+  return recordDatedBeforeStatements(recordOf(reading));
 }
 
 /** True on a line the reading filled in that the cleaner then changed. */

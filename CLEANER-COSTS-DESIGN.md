@@ -4808,13 +4808,13 @@ rule of 2026-11-01). It is checked after "a real day" and "not in the future" an
 before November 2026 reads the same on any day; once a year has passed, the 12 months refuse later dates as before.
 The entry route parses the entry before anything is stored, so the refusal is a 422 on `purchasedOn` with no upload and
 no write. The cleaner app does not ask for a purchase date (ruling 4 of 2026-10-16), so this is the route's rule for
-any sender. A handyman's work has no date. The office cost's month check is unchanged and still says "Statements begin
-with November 2026" (the fresh start's check records those words).
+any sender. A handyman's work has no date. The office cost's month check says the same words since step 2 (63.6): it
+said "Statements begin with November 2026" before.
 
-**63.2 The month a receipt belongs to (reported, not changed).** `entryMonth` (costs/report.ts): a receipt or a piece of
-work belongs to the month of the Toronto day it was sent; the purchase date, when one is given, is stored and never moves
-it. A purchase of 30 November sent at 23:30 on 30 November goes on November's statement; sent at 00:30 on 1 December,
-on December's.
+**63.2 The month a receipt belongs to.** `entryMonth` (costs/report.ts): a receipt or a piece of work belongs to the
+month of the Toronto day it was sent; the purchase date, when one is given, is stored and never moves it. A purchase of
+30 November sent at 23:30 on 30 November goes on November's statement; sent at 00:30 on 1 December, on December's.
+**Kian's ruling of 2026-11-01: the month rule (the Toronto day a receipt is sent) stands.**
 
 **63.3 The flag.** On a new receipt, before its write's transaction, `findPossibleDuplicates` asks two equality
 questions of `cost_entries` (single-field indexes, no composite index): the same photo bytes (`photoSha256`, any property,
@@ -4822,9 +4822,11 @@ any time) and the same total as sent (`sentTotalCents`, lines plus tax; the same
 Only an earlier receipt that is pending or approved counts: a second send of a rejected or removed one is not doubled
 money, and work never counts. What it finds is written on the new entry as `possibleDuplicates: [{ entryId, why:
 'same-photo' | 'same-amount', sentAt }]` (at most five, the photo ones first), and every new receipt now carries
-`photoSha256` and `sentTotalCents`. Nothing is refused and nothing else changes: the status follows the $200.00 rule as
-before. A question that fails is logged by its code and the receipt is written unflagged. About two reads a receipt
-when nothing matches. New entries only; no existing document is written (no receipt existed when it was built).
+`photoSha256` and `sentTotalCents`. Nothing is refused. A flagged receipt waits for a decision whatever its amount
+(**Kian's ruling of 2026-11-01**, built in step 2, 63.6): it is never approved automatically; an unflagged receipt under
+$200.00 keeps the automatic approval of 2026-09-30. A question that fails is logged by its code and the receipt is
+written unflagged. About two reads a receipt when nothing matches. New entries only; no existing document is written
+(no receipt existed when it was built).
 
 - **The admin sees it** in the queue's row ("Possible duplicate", the earlier receipt in its title), in the entry's
   pane ("Possible duplicate: Same photo as the receipt sent 20 Nov 2028. Open it", a link to that entry at any status),
@@ -4832,21 +4834,52 @@ when nothing matches. New entries only; no existing document is written (no rece
   marked.
 - **"Mark these n seen" leaves a flagged entry out**: an approved duplicate counts on the statement and in pay, so it is
   opened and decided one by one, as the Income page holds possible duplicates back from its one-pass accept (Kian's
-  ruling K1 of 2026-10-17). My decision, in the precedent's terms; reversible.
+  ruling K1 of 2026-10-17). My decision, in the precedent's terms; reversible. Since step 2 a flagged receipt is never
+  approved automatically, so neither this nor the list's count and mark can meet one: they stay as a guard.
 - **The words** live in `app/lib/costs/duplicates.ts` (client-safe, pure). The view carries `possibleDuplicates` only when
   there are some, so every other entry reads as before.
 
-**63.4 Held for Kian.**
-1. A handyman cannot attach a photo or materials: the work screen has "Work done" and "Price" only (dispatch 24), and the
-   receipt route refuses a handyman. Recommendation: a handyman adds materials through the cleaner's receipt screen
-   (photo, reading, items, tax), always waiting for approval as work does, owed to them unless paid with Nubnb's card;
-   labour stays a work entry.
-2. A flagged receipt under $200.00 is still approved automatically and counts until an admin opens it. Recommendation:
-   a receipt the server flags waits for a decision instead. The dispatch's intent ("an admin checks it before it
-   counts") and the automatic approval of 2026-09-30 differ; which holds is his.
+**63.4 Kian's rulings of 2026-11-01** (on the two items held at the report):
+1. **Handymen send no receipts.** A handyman entry is work only: a detailed description of what was done plus the price
+   charged to Nubnb, materials included. The dispatch's check 3 passes as designed; no photo or materials field is added
+   to the handyman app. The work screen's description hint asks for that detail (63.6).
+2. **A flagged receipt waits for a decision whatever the amount** (63.3, 63.6).
 
 **63.5 Verification (2026-11-01).** A local build reading production, every write through a guard that allowed only the
 test's own documents and photos, the server's clock in November and December 2028, Gemini answered by a local stand-in
 (no photo left the machine), a `__TEST__` admin, cleaners and a handyman on two Unlisted `__TEST__` properties. Phones at
 390 and 360. Opening and closing exports identical (499 documents); 58 test paths and 10 photos deleted by exact path;
 4,689 reads. Test: receipts-phase2.
+
+**63.6 Step 2 (Kian's instruction of 2026-11-01, "Receipts: flagged receipts wait; handyman rule recorded; wording").**
+- **Flagged receipts wait.** `createCostEntry` approves automatically only a receipt strictly under $200.00 that carries
+  no `possibleDuplicates`; a flagged one is written `pending` with its one `submitted` event, no `autoApproved` record
+  and no `awaitingLook` marker, and sits under "Needs a decision" with its mark. The cleaner's History says "Waiting for
+  review".
+- **The office cost's words.** Its month check now says "Statements start in November 2026", as a purchase date and a
+  direct payment do. The fresh-start check's recording changed for it (two lines).
+- **A receipt the reading dates before November 2026.** Before this the phone never used the date the model read, so
+  such a receipt was sent and charged to the month it was sent in. Now (`app/lib/cleaners/reading-date.ts`): when the
+  current photo's reading (`ok`) reads a date before the first statement month, the receipt screen shows, under the
+  photo and again above Send when Send is pressed, "This receipt is dated before November 2026 and can’t be sent here.
+  Give it to Nubnb directly." (Kian's sentence), and nothing leaves the phone; a new photo is judged by its own reading.
+  The entry route refuses the same receipt from its signed reading, before the one-time key, the upload or any write:
+  422 `ENTRY_DATED_BEFORE_STATEMENTS`, that sentence as its message, "Nothing was recorded." as its hint; the phone
+  shows the sentence for it too. The date still never fills the form (Kian's ruling of 2026-09-30). The only write is
+  the reading's own count in `receipt_reading_quota`, taken when the photo is read, before its date is known.
+  - **The window is mine:** only a read date from 1 November 2025 to 31 October 2026 holds a receipt back. The model reads
+    two-digit years badly (measured 2026-09-30: "20/09/26" read as 2020-09-26, "26/09/14" as 2014-09-26), and a date
+    read further back is taken as such a misreading. A misread day and month in the same year can still hold back a
+    November or December 2026 receipt; that cleaner gives it to Nubnb directly. A receipt sent with no reading (the
+    reader failed or was over its limit) has no date to judge and is taken by the day it was sent.
+- **The handyman's description** keeps its label, "Work done", and its hint now asks for detail: "What you did, in
+  detail. Include any parts in the price." (Kian's wording.) No other change to the handyman's app.
+- **Verification (2026-11-01).** As in 63.5, the server's clock on 21 November 2028, the reader's stand-in dating a
+  receipt 15 October 2026: at 390 and 360 the sentence under the photo and above Send, 0 entry requests from the page,
+  0 writes after the reading; the route, sent that signed reading, answered 422 with the sentence and wrote nothing.
+  A $45.20 receipt approved automatically; the same photo again written pending, flagged, under "Needs a decision"; a
+  $45.20 receipt for the other unit approved automatically; the office cost for October 2026 refused with "Statements
+  start in November 2026", nothing written; the handyman's hint at 390 and 360. Opening and closing exports identical
+  (499 documents); 26 test paths and 4 photos deleted by exact path. Tests: receipts-phase2 (sections 2 and 6) and
+  fresh-start re-recorded; costs-look's made-up receipts each given their own photo (they shared one, which is now a
+  flagged second send), its recording unchanged.

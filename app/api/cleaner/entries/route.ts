@@ -70,6 +70,10 @@
  * that is not in the shape above, is dropped and the entry is written all
  * the same, with `readingStored: false`: the reading never blocks the entry.
  *
+ * A verified reading that dates the receipt before the first statement month
+ * (reading-date.ts) refuses the entry with 422 ENTRY_DATED_BEFORE_STATEMENTS,
+ * the cleaner's sentence as its message, before anything is stored.
+ *
  * Amounts, dates and the note are validated by parseEntryPart
  * (server-cost-entries.ts); the receipt is stored by saveReceipt
  * (app/lib/cleaners/receipts.ts). Nothing here logs the body, the entry, the
@@ -88,6 +92,7 @@ import {
 } from '@/app/lib/api/safe-response';
 import { LIMITS, READING_LIMITS, isReceiptType, type ReceiptRef } from '@/app/lib/cleaners/model';
 import { parseReadingPart } from '@/app/lib/cleaners/readings';
+import { DATED_BEFORE_STATEMENTS, DATED_BEFORE_STATEMENTS_CODE, recordDatedBeforeStatements } from '@/app/lib/cleaners/reading-date';
 import { saveReceipt, sniffReceiptType } from '@/app/lib/cleaners/receipts';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { getCleanerSecrets } from '@/app/lib/cleaners/secrets';
@@ -246,6 +251,20 @@ export async function POST(request: Request) {
     const secrets = getCleanerSecrets();
     reading = secrets.kind === 'ok' ? parseReadingPart(readingText, secrets.sessionKey, cleaner.id, entry.lines.length) : null;
     if (!reading) console.error('[cost-entries] reading part dropped: not a record this server signed for this cleaner, or not in shape');
+  }
+
+  // ── 8a′. The reading dates the receipt before the first statement month: refused, and nothing is stored ──
+  // (Kian's instruction of 2026-11-01: the cleaner gets a sentence they can act on; the phone holds Send back with
+  // the same sentence, so this is reached only by a phone that did not.)
+  if (reading && recordDatedBeforeStatements(reading.record) !== null) {
+    return noStore(
+      apiFailure({
+        message: DATED_BEFORE_STATEMENTS,
+        status: 422,
+        code: DATED_BEFORE_STATEMENTS_CODE,
+        hint: 'Nothing was recorded.',
+      }),
+    );
   }
 
   // ── 8b. Sent before? Then say so, and store nothing ──

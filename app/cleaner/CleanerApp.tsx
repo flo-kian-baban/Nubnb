@@ -92,6 +92,7 @@ import {
   newDraft,
   newLine,
   newSubmissionKey,
+  readingDatedBefore,
   recordOf,
   saveDraft,
   savePhoto,
@@ -107,6 +108,7 @@ import {
 import { homeJobs, receiptProperty, type ReceiptProperty } from "@/app/lib/cleaner-home";
 import { PhotoError, preparePhoto, type PhotoProblem, type PreparedPhoto } from "@/app/lib/receipt-photo";
 import { leftOutOfReading, type CleanerProperty, type CleanerStart } from "@/app/lib/cleaners/model";
+import { DATED_BEFORE_STATEMENTS, DATED_BEFORE_STATEMENTS_CODE } from "@/app/lib/cleaners/reading-date";
 import { fold } from "@/app/lib/cleaners/text";
 import { CodeScreen } from "./CodeScreen";
 import { HomeScreen } from "./HomeScreen";
@@ -182,6 +184,8 @@ function readingStatus(draft: Draft, readingPhotoKey: string | null): ReadingSta
   const { reading } = draft;
   if (!reading || reading.photoKey !== draft.photoKey) return { kind: "none" };
   const record = recordOf(reading);
+  // Dated before the first statement month (Kian's instruction of 2026-11-01): said before anything else.
+  if (readingDatedBefore(draft) !== null) return { kind: "dated-before" };
   if (record?.status === "ok" && reading.applied > 0) {
     return { kind: "read", applied: reading.applied, leftOut: leftOutOfReading(record.output) };
   }
@@ -638,6 +642,12 @@ export function CleanerApp() {
     const current = draftRef.current;
     const id = cleanerIdRef.current;
     if (!current || !id || sending !== null) return;
+    // A receipt the reading dates before the first statement month is not sent: the sentence, and nothing leaves the
+    // phone (Kian's instruction of 2026-11-01).
+    if (readingDatedBefore(current) !== null) {
+      setSendMessage(DATED_BEFORE_STATEMENTS);
+      return;
+    }
 
     const payload = toEntryPayload(current);
     if (!payload) {
@@ -711,6 +721,9 @@ export function CleanerApp() {
           changeReceipt((d) => ({ ...d, propertyId: null, propertyName: null }));
           openView("picker");
           setNotice(PROPERTY_GONE);
+        } else if (result.code === DATED_BEFORE_STATEMENTS_CODE) {
+          // The route refused it for its date: the same sentence, never the admin's floor line.
+          setSendMessage(DATED_BEFORE_STATEMENTS);
         } else if (result.code !== null && PHOTO_CODES.has(result.code)) {
           replacePhoto(null);
           changeReceipt((d) => ({ ...d, photoKey: null }));

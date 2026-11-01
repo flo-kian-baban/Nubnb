@@ -8,7 +8,7 @@
 // question says of what the report leaves out (buildReport, leftOutLines, leftOutWords).
 //   node --import ./tests/tools/ts-hook.mjs tests/money/costs-look.mjs
 import { createRequire } from 'node:module';
-import { generateKeyPairSync } from 'node:crypto';
+import { createHash, generateKeyPairSync } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = process.env.NUBNB_ROOT || fileURLToPath(new URL('../..', import.meta.url)).replace(/\/$/, '');
@@ -34,12 +34,17 @@ seed('cleaners', HANDY, { schemaVersion: 2, name: 'Test Hal', role: 'handyman', 
 
 let keys = 0;
 const key = () => `0a1b2c3d-1e1e-4a2a-8b3b-${String(++keys).padStart(12, '0')}`;
+/**
+ * Each receipt its own photo (Phase 2, 2026-11-01): a receipt whose photo is another's is flagged as a possible second
+ * send and waits for a decision, so made-up receipts must not share one.
+ */
+const photoOf = (submissionKey) => createHash('sha256').update(submissionKey).digest('hex');
 /** A receipt sent by the cleaner's own path: under $200.00 it is approved automatically. */
 async function sendReceipt(dollars) {
   const parsed = ce.parseEntryPart(JSON.stringify({ submissionKey: key(), propertyId: P, lines: [{ name: 'Paper towels', quantity: '1', lineTotal: dollars }], tax: null }));
   if (parsed.kind !== 'ok') throw new Error(`entry not valid: ${JSON.stringify(parsed)}`);
   const ref = ce.newEntryRef();
-  const made = await ce.createCostEntry({ entryRef: ref, cleanerId: CLEANER, sessionEpoch: 1, entry: parsed.entry, propertyNameAtEntry: 'Public look', receipt: { path: `receipts/${CLEANER}/${ref.id}/0.jpg`, contentType: 'image/jpeg', bytes: 1_000, sha256: '0'.repeat(64), uploadedAt: '2026-12-18T12:00:00.000Z' }, reading: null });
+  const made = await ce.createCostEntry({ entryRef: ref, cleanerId: CLEANER, sessionEpoch: 1, entry: parsed.entry, propertyNameAtEntry: 'Public look', receipt: { path: `receipts/${CLEANER}/${ref.id}/0.jpg`, contentType: 'image/jpeg', bytes: 1_000, sha256: photoOf(parsed.entry.submissionKey), uploadedAt: '2026-12-18T12:00:00.000Z' }, reading: null });
   return { id: ref.id, status: made.status };
 }
 const view = (id) => readCostEntryFields(id, stored(id));

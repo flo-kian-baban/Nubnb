@@ -372,7 +372,7 @@ export const OfficeInputSchema = z.strictObject({
    * fresh start of 1 November 2026, Kian's rulings of 2026-10-31), to the current one: the route checks the upper
    * bound against Toronto's today.
    */
-  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'A month, like 2026-09').refine((m) => m >= STATEMENTS_FROM_DEFAULT, `Statements begin with ${monthLabel(STATEMENTS_FROM_DEFAULT)}`),
+  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'A month, like 2026-09').refine((m) => beforeStatementsLine(m) === null, `Statements start in ${monthLabel(STATEMENTS_FROM_DEFAULT)}`),
 });
 
 export type OfficeInput = z.output<typeof OfficeInputSchema>;
@@ -744,7 +744,8 @@ export async function createCostEntry(input: NewCostEntry): Promise<CostEntryCre
   let autoApprovedOut = false;
   // The rule (dispatch 24): the entry as sent, lines plus tax.
   const sentTotalCents = entry.lines.reduce((sum, line) => sum + line.lineTotalCents, 0) + (entry.tax ?? 0);
-  // Phase 2 (2026-11-01): a possible second send of a receipt already held is flagged for the admin, never refused.
+  // Phase 2 (2026-11-01): a possible second send of a receipt already held is flagged for the admin, never refused,
+  // and waits for a decision: it is not approved automatically (Kian's ruling of 2026-11-01).
   const possibleDuplicates = await findPossibleDuplicates({ propertyId: entry.propertyId, sha256: receipt.sha256, sentTotalCents, nowMs: Date.now() });
 
   try {
@@ -769,8 +770,9 @@ export async function createCostEntry(input: NewCostEntry): Promise<CostEntryCre
         reason: null,
       };
 
-      // The rule (dispatch 24): the entry as sent, lines plus tax, strictly under the threshold.
-      const autoApprove = sentTotalCents < LIMITS.AUTO_APPROVE_UNDER_CENTS;
+      // The rule (dispatch 24): the entry as sent, lines plus tax, strictly under the threshold — and never a receipt
+      // flagged as a possible second send: it waits for a decision whatever its amount (Kian's ruling of 2026-11-01).
+      const autoApprove = sentTotalCents < LIMITS.AUTO_APPROVE_UNDER_CENTS && possibleDuplicates.length === 0;
       const approved: HistoryEvent = {
         at: now,
         action: 'approved',

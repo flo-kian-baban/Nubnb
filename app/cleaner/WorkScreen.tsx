@@ -3,7 +3,9 @@
 /**
  * A handyman's one screen for a piece of work (dispatch 24): what was done, the price, and the property it is for, in
  * bold above Send, with Change (as on a cleaner's receipt, Kian's ruling 5 of 2026-10-16). No photo, no items, no
- * reading. Send goes to POST /api/cleaner/work; the entry always waits for an admin's approval.
+ * reading: handymen send no receipts, and a work entry is a detailed description of what was done plus the price
+ * charged to Nubnb, materials included (Kian's ruling of 2026-11-01), which the description's hint asks for. Send goes
+ * to POST /api/cleaner/work; the entry always waits for an admin's approval.
  */
 
 import { useEffect, useRef, type ReactNode } from "react";
@@ -76,7 +78,7 @@ export function WorkScreen({ property, draft, problems, propertyProblem, sending
             onChange={(e) => onChange({ description: e.target.value })}
           />
           <p id="work-description-hint" className={styles.fieldHint}>
-            In a few words, like “Replaced the kitchen faucet cartridge and resealed the sink drain”. {draft.description.length}/{LIMITS.WORK_DESCRIPTION_MAX}
+            What you did, in detail. Include any parts in the price. {draft.description.length}/{LIMITS.WORK_DESCRIPTION_MAX}
           </p>
           <Problem id="work-description-problem" text={problems.description} />
         </div>
