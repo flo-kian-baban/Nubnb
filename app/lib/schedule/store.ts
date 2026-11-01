@@ -133,7 +133,8 @@ export async function syncJobs(db: Firestore, snapshot: AvailabilitySnapshot, lo
     }
 
     // A property this run did not read is judged only from its own document (Kian's ruling of 2026-10-17).
-    const unread = [...new Set(jobs.filter((job) => job.status === 'open' && !readThisRun(snapshot, job.propertyId)).map((job) => job.propertyId))];
+    // A job added by hand is never judged (ruling C), so its property is not looked up for it.
+    const unread = [...new Set(jobs.filter((job) => job.status === 'open' && job.origin !== 'admin' && !readThisRun(snapshot, job.propertyId)).map((job) => job.propertyId))];
     const known = await knownProperties(db, unread);
 
     for (const job of jobs) {

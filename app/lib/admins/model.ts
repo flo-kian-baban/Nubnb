@@ -453,6 +453,9 @@ const ACTION_WORDS: [method: string, path: RegExp, words: string][] = [
   // The cleaning schedule (2026-10-14): who is on a job, a job reopened for a cleaner, and the cleaner door's lock.
   ['PATCH', new RegExp(`^/api/admin/cleaning-jobs/${ID}$`), 'Changed who is on a cleaning job'],
   ['POST', new RegExp(`^/api/admin/cleaning-jobs/${ID}/reopen$`), 'Reopened a cleaning job for a cleaner'],
+  // The cleaning flow (Kian's rulings of 2026-11-01): a job added by hand, and a job recorded cleaned by the office.
+  ['POST', new RegExp(`^/api/admin/cleaning-jobs$`), 'Added a cleaning job by hand'],
+  ['POST', new RegExp(`^/api/admin/cleaning-jobs/${ID}/record$`), 'Recorded a cleaning job as cleaned'],
   ['DELETE', new RegExp(`^/api/admin/cleaners/locks/${ID}$`), 'Lifted a cleaner sign-in lock'],
   ['POST', new RegExp(`^/api/admin/cleanings$`), 'Logged a cleaning'],
   ['PATCH', new RegExp(`^/api/admin/cleanings/${ID}$`), 'Changed or removed a cleaning'],

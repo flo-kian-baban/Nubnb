@@ -39,14 +39,28 @@
  * settled. One whose day still ends a reservation under a new UID keeps the
  * job (Kian's ruling of the evening, recommendation 1).
  *
+ * ── The cleaning flow (Kian's rulings of 2026-11-01; schema version 2) ──
+ * A job an admin added by hand (ruling C): `origin` "admin", no reservation
+ * (null), a chosen `tier` that picks its base price, any property, any date,
+ * any active cleaner; the calendar never makes, changes or settles it. A
+ * per-job `amountCents` (ruling B), set by an admin, beats the base price.
+ * Each assignment keeps the cleaner's note and whether they asked for extra
+ * on their mark (ruling F); the cleaning holds the ask and its outcome. An
+ * admin's Record as cleaned (ruling E) marks the job for its cleaner exactly
+ * as their own mark would, the history naming the admin. Changing a job's
+ * cleaner (ruling D) is one swap, logged as who came off and who went on.
+ * A version 1 job reads as a calendar job with no tier, no amount, no notes.
+ *
  * Every document keeps the shape it was written with: readers are strict, and
  * a job not in shape is reported, never guessed at.
  */
 
 import { addDays, dayText } from '../availability/days';
+import type { PresetKind } from '../cleanings/prices';
 
 export const CLEANING_JOBS_COLLECTION = 'cleaning_jobs';
-export const JOB_SCHEMA_VERSION = 1;
+/** Version 2 (2026-11-01): origin, tier, the per-job amount, each mark's note and extra ask. */
+export const JOB_SCHEMA_VERSION = 2;
 
 /** A job is made this many days before its checkout (Kian's ruling 1: two days). */
 export const CREATE_DAYS_AHEAD = 2;
@@ -64,6 +78,9 @@ export interface JobActor {
 export const CALENDAR_ACTOR: JobActor = { role: 'system', id: null, name: 'calendar' };
 
 export type JobStatus = 'open' | 'booking-changed';
+
+/** Who made the job: the calendar copy, or an admin by hand (ruling C). */
+export type JobOrigin = 'calendar' | 'admin';
 
 /**
  * Why a job's booking changed: its reservation is gone, or moved to another
@@ -102,12 +119,18 @@ export interface Assignment {
    */
   removedAt: string | null;
   removedBy: JobActor | null;
+  /** The note the cleaner typed on their mark (ruling F); null for none. Admins see it here and on the cleaning. */
+  note: string | null;
+  /** They asked for extra on their mark (ruling F): the cleaning holds the reason and the office's decision. */
+  extraAsked: boolean;
 }
 
 export type JobAction =
   | 'created'
+  | 'added'
   | 'assigned'
   | 'unassigned'
+  | 'amount-set'
   | 'marked'
   | 'unmarked'
   | 'cleaning-removed'
@@ -119,14 +142,17 @@ export type JobAction =
   | 'check-in-moved'
   | 'calendar-relinked'
   | 'next-check-in-changed';
-const JOB_ACTIONS: readonly JobAction[] = ['created', 'assigned', 'unassigned', 'marked', 'unmarked', 'cleaning-removed', 'cleaning-deleted', 'mark-reopened', 'booking-changed', 'reopened', 'reservation-replaced', 'check-in-moved', 'calendar-relinked', 'next-check-in-changed'];
+const JOB_ACTIONS: readonly JobAction[] = ['created', 'added', 'assigned', 'unassigned', 'amount-set', 'marked', 'unmarked', 'cleaning-removed', 'cleaning-deleted', 'mark-reopened', 'booking-changed', 'reopened', 'reservation-replaced', 'check-in-moved', 'calendar-relinked', 'next-check-in-changed'];
 
 /**
  * One event of a job's history, append-only. Every field is always written; null where it does not apply.
  *
  * `cleaning-removed` and `cleaning-deleted`: the office removed or deleted the cleaning a mark made, and the mark
  * stayed, removed by the office. `mark-reopened`: an admin took that mark off, so the cleaner can mark the job again.
- * `reopened` is the calendar's: a changed booking's day ends a reservation again.
+ * `reopened` is the calendar's: a changed booking's day ends a reservation again. `added`: an admin made the job by
+ * hand (ruling C). `amount-set`: an admin set, changed or cleared the job's own amount (ruling B; `amountCents` the
+ * amount after, null when cleared). A `marked` event by an admin is Record as cleaned (ruling E): `cleanerId` is the
+ * cleaner it was recorded for. A mark's `note` and `extra` (ruling F) are the cleaner's words, kept here too.
  */
 export interface JobEvent {
   at: string;
@@ -145,6 +171,9 @@ export interface JobEvent {
   /** The stay's days before and after, on the changes that move them. */
   before: StayDays | null;
   after: StayDays | null;
+  /** On `marked`: the cleaner's note, and the reason they asked for extra (ruling F); null for none. */
+  note?: string | null;
+  extra?: string | null;
 }
 
 /** `cleaning_jobs/{propertyId}_{checkout}`, as written. */
@@ -155,9 +184,15 @@ export interface CleaningJob {
   propertyNameAtCreation: string | null;
   /** The turnover day, yyyy-mm-dd (Toronto): the reservation's checkout. Never changes. */
   checkout: string;
-  /** The stay ending on `checkout`, as last read. */
-  reservation: { uid: string; start: string };
+  /** The stay ending on `checkout`, as last read; null on a job an admin added by hand (ruling C). */
+  reservation: { uid: string; start: string } | null;
   calendarKey: string;
+  /** Who made it (schema version 2): the calendar, or an admin by hand. A version 1 job is the calendar's. */
+  origin: JobOrigin;
+  /** The tier an admin chose for a job added by hand (ruling C); null on the calendar's jobs, whose stay decides. */
+  tier: PresetKind | null;
+  /** The amount an admin set on this job (ruling B): what a mark on it takes, with one cleaner; null for none. */
+  amountCents: number | null;
   /** The next stay's first night on or after `checkout`; equal to it on a same-day turnover; null when none is on the calendar. */
   nextCheckIn: string | null;
   status: JobStatus;
@@ -195,6 +230,8 @@ function readEvent(value: unknown): JobEvent | null {
   if (!isTextOrNull(cleanerId) || !isTextOrNull(cleanerName) || !isTextOrNull(cleaningId) || !(amountCents === null || isCents(amountCents)) || !isTextOrNull(reason)) return null;
   if (!(change === null || CHANGE_KINDS.includes(change as ChangeKind))) return null;
   if (!(before === null || isStayDays(before)) || !(after === null || isStayDays(after))) return null;
+  // Version 2's note and extra on a mark: absent before.
+  if (!(value.note === undefined || isTextOrNull(value.note)) || !(value.extra === undefined || isTextOrNull(value.extra))) return null;
   return {
     at: value.at,
     action: value.action as JobAction,
@@ -207,6 +244,8 @@ function readEvent(value: unknown): JobEvent | null {
     change: change as ChangeKind | null,
     before: before as StayDays | null,
     after: after as StayDays | null,
+    ...(value.note !== undefined ? { note: value.note as string | null } : {}),
+    ...(value.extra !== undefined ? { extra: value.extra as string | null } : {}),
   };
 }
 
@@ -217,7 +256,11 @@ function readAssignment(value: unknown): Assignment | null {
   if ((cleaningId === null) !== (markedAt === null)) return null;
   // Removed by the office: only ever a mark, and always with who removed it.
   if (!isTextOrNull(removedAt) || !(removedBy === null || isActor(removedBy)) || (removedAt === null) !== (removedBy === null) || (removedAt !== null && markedAt === null)) return null;
-  return { nameAtAssignment, assignedAt, assignedBy, cleaningId, markedAt, removedAt, removedBy };
+  // Version 2 (ruling F): the mark's note and extra ask; absent before, read as none.
+  const note = value.note === undefined ? null : value.note;
+  const extraAsked = value.extraAsked === undefined ? false : value.extraAsked;
+  if (!isTextOrNull(note) || typeof extraAsked !== 'boolean' || (extraAsked && markedAt === null)) return null;
+  return { nameAtAssignment, assignedAt, assignedBy, cleaningId, markedAt, removedAt, removedBy, note, extraAsked };
 }
 
 function readChange(value: unknown): JobChange | null | undefined {
@@ -233,7 +276,17 @@ export function readJob(id: string, fields: Record<string, unknown>): StoredJob 
   const { propertyId, propertyNameAtCreation, checkout, reservation, calendarKey, nextCheckIn, status, cleanerIds, assignments, createdAt, history } = fields;
   if (typeof fields.schemaVersion !== 'number') return null;
   if (!isText(propertyId) || !isTextOrNull(propertyNameAtCreation) || !isDay(checkout) || id !== jobIdOf(propertyId, checkout)) return null;
-  if (!isRecord(reservation) || !isText(reservation.uid) || !isDay(reservation.start)) return null;
+  // Version 2 (2026-11-01): origin, tier and the per-job amount; a version 1 job is the calendar's, with none of them.
+  const origin = fields.origin === undefined ? 'calendar' : fields.origin;
+  if (origin !== 'calendar' && origin !== 'admin') return null;
+  const tier = fields.tier === undefined ? null : fields.tier;
+  if (!(tier === null || tier === 'short' || tier === 'mid' || tier === 'long')) return null;
+  const amountCents = fields.amountCents === undefined ? null : fields.amountCents;
+  if (!(amountCents === null || isCents(amountCents))) return null;
+  // A calendar job has its stay; a job added by hand has none and must have its tier.
+  if (origin === 'admin') {
+    if (reservation !== null || tier === null) return null;
+  } else if (!isRecord(reservation) || !isText(reservation.uid) || !isDay(reservation.start)) return null;
   if (!isText(calendarKey) || !isDayOrNull(nextCheckIn) || (status !== 'open' && status !== 'booking-changed')) return null;
   const change = readChange(fields.change);
   if (change === undefined || (status === 'booking-changed') !== (change !== null)) return null;
@@ -254,8 +307,11 @@ export function readJob(id: string, fields: Record<string, unknown>): StoredJob 
     propertyId,
     propertyNameAtCreation,
     checkout,
-    reservation: { uid: reservation.uid, start: reservation.start },
+    reservation: reservation === null ? null : { uid: (reservation as { uid: string }).uid, start: (reservation as { start: string }).start },
     calendarKey,
+    origin,
+    tier: tier as PresetKind | null,
+    amountCents: amountCents as number | null,
     nextCheckIn,
     status,
     change,
@@ -280,7 +336,14 @@ export function jobEvent(at: string, action: JobAction, actor: JobActor, fields:
     change: fields.change ?? null,
     before: fields.before ?? null,
     after: fields.after ?? null,
+    ...(fields.note !== undefined ? { note: fields.note } : {}),
+    ...(fields.extra !== undefined ? { extra: fields.extra } : {}),
   };
+}
+
+/** An assignment as it is written when a cleaner is put on a job: nothing marked, no note, no extra. */
+export function newAssignment(nameAtAssignment: string | null, assignedAt: string, assignedBy: JobActor): Assignment {
+  return { nameAtAssignment, assignedAt, assignedBy, cleaningId: null, markedAt: null, removedAt: null, removedBy: null, note: null, extraAsked: false };
 }
 
 // ─── What a job says ───────────────────────────────────────────
@@ -348,7 +411,10 @@ export function needsCleanerNow(checkout: string, today: string): boolean {
 }
 
 /** A job's state on the Schedule, as its badge says it and the tone it is drawn in. */
-export type JobTone = 'needs' | 'needsNow' | 'notMarked' | 'assigned' | 'partial' | 'done' | 'removed' | 'changed';
+export type JobTone = 'needs' | 'needsNow' | 'notMarked' | 'assigned' | 'partial' | 'done' | 'extra' | 'removed' | 'changed';
+
+/** What a mark's cleaning the Schedule reads says of its extra ask: asked (the money waits), decided, or none. */
+export type ExtraState = 'asked' | 'approved' | 'declined' | null;
 
 /**
  * A job's state on the Schedule, once (the Schedule's round 1, 2026-10-19). Nobody on it: "Needs a cleaner", red from
@@ -369,7 +435,14 @@ export function jobState(job: Pick<JobView, 'status' | 'change' | 'checkout' | '
   if (job.assignees.some((a) => a.removedAt !== null)) return { label: 'Removed by the office', tone: 'removed' };
   if (marked === 0) return { label: 'Assigned', tone: 'assigned' };
   if (marked < job.cleanerIds.length) return { label: `${marked} of ${job.cleanerIds.length} done`, tone: 'partial' };
+  // Every cleaner marked it, and one asked for extra the office has not decided (Kian's ruling F): amber.
+  if (job.assignees.some((a) => a.cleaning?.extra === 'asked')) return { label: 'Cleaned · extra asked', tone: 'extra' };
   return { label: 'Done', tone: 'done' };
+}
+
+/** Why an admin cannot record this job cleaned for this cleaner now (ruling E), or null: the mark's own rules. */
+export function recordRefusal(job: Pick<CleaningJob, 'status' | 'checkout' | 'assignments'>, cleanerId: string, today: string): ReturnType<typeof markRefusal> {
+  return markRefusal(job, cleanerId, today);
 }
 
 /** The first day a cleaner's list holds, for a Toronto `today`. */
@@ -420,8 +493,8 @@ export interface AssigneeView extends Assignment {
   /** The account's status now; null when it no longer exists or could not be read. */
   status: string | null;
   state: JobLookup;
-  /** The cleaning their mark made, as it stands; null when not marked, or removed by the office. `amountFrom`: where its amount came from (a preset, or typed; null while it has none, or on a cleaning from before the presets). */
-  cleaning: { state: JobLookup; status: string | null; amountCents: number | null; amountFrom: 'short' | 'long' | 'typed' | null } | null;
+  /** The cleaning their mark made, as it stands; null when not marked, or removed by the office. `amountFrom`: where its amount came from (a preset, the job's amount, or typed; null while it has none, or on a cleaning from before the presets). `extra`: their ask's state (ruling F). */
+  cleaning: { state: JobLookup; status: string | null; amountCents: number | null; amountFrom: PresetKind | 'typed' | 'job' | null; extra: ExtraState; /** Its history's length, for a decision made from the row (the route's `seen`). */ seen: number } | null;
 }
 
 /** A job as the admin's Schedule reads it. */
@@ -453,6 +526,9 @@ export interface CleanerJobView {
   /** Their own mark: when, and whether Undo still holds (no finished statement prints the cleaning, and the office has not removed it). */
   markedAt: string | null;
   canUndo: boolean;
+  /** Their note on the mark, and whether they asked for extra (ruling F): the card reads "Cleaned · extra asked" and "Sent to Nubnb", never an amount or the outcome. */
+  note: string | null;
+  extraAsked: boolean;
   /** Null when they can mark it now; otherwise why not: `removed` reads "Removed by the office". */
   markRefusal: ReturnType<typeof markRefusal>;
 }

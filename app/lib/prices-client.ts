@@ -15,7 +15,7 @@ export type PricesResult<T> = { ok: true; data: T } | { ok: false; status: numbe
 const isRecord = (data: unknown): data is Record<string, unknown> => !!data && typeof data === 'object' && !Array.isArray(data);
 const isPriceOrNull = (value: unknown) => value === null || isPriceCents(value);
 /** A record in the shape the pages read: the presets and when they were set; the history is read as it comes. */
-export const isPricesRecord = (value: unknown): value is CleaningPricesRecord => isRecord(value) && typeof value.propertyId === 'string' && isPriceOrNull(value.shortTermCents) && isPriceOrNull(value.longTermCents) && typeof value.setAt === 'string' && Array.isArray(value.history);
+export const isPricesRecord = (value: unknown): value is CleaningPricesRecord => isRecord(value) && typeof value.propertyId === 'string' && isPriceOrNull(value.shortTermCents) && (value.midTermCents === undefined || isPriceOrNull(value.midTermCents)) && isPriceOrNull(value.longTermCents) && typeof value.setAt === 'string' && Array.isArray(value.history);
 
 async function call<T>(url: string, init: RequestInit, action: string, isExpected: (data: unknown) => boolean, unconfirmedCodes: readonly string[] = []): Promise<PricesResult<T>> {
   let res: Response;
@@ -34,9 +34,10 @@ async function call<T>(url: string, init: RequestInit, action: string, isExpecte
   return { ok: true, data: body.data as T };
 }
 
-/** What the routes take: each preset as "80.00", or null for none. */
+/** What the routes take: each preset as "75.00", or null for none (the three tiers, Kian's ruling A of 2026-11-01). */
 export interface PricesPayload {
   shortTerm: string | null;
+  midTerm: string | null;
   longTerm: string | null;
 }
 

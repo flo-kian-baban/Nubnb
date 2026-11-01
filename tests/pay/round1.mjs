@@ -57,10 +57,10 @@ const standing = (balanceCents, noAmount = 0, waitingReview = 0, cannotAddUp = 0
 const cases = [
   ['owed $300, paying $300, nothing waiting', standing(30_000), 30_000],
   ['owed $300, paying $300, 2 cleanings with no amount and 1 receipt under review', standing(30_000, 2, 1), 30_000],
-  ['owed $300, paying $500, nothing waiting', standing(30_000), 50_000],
-  ['owed $300, paying $500, 1 cleaning with no amount', standing(30_000, 1), 50_000],
-  ['settled, paying $80', standing(0), 8_000],
-  ['overpaid $20, paying $50', standing(-2_000), 5_000],
+  ['owed $300, paying $500, nothing waiting', standing(30_000), 50_300],
+  ['owed $300, paying $500, 1 cleaning with no amount', standing(30_000, 1), 50_300],
+  ['settled, paying $83', standing(0), 8_300],
+  ['overpaid $20, paying $53', standing(-2_000), 5_300],
   ['settled, 3 cleanings with no amount, paying $0.01', standing(0, 3), 1],
 ];
 for (const [label, pay, cents] of cases) {
@@ -70,9 +70,9 @@ for (const [label, pay, cents] of cases) {
 check(checks.recordQuestions(standing(30_000), 30_000, 'Test Ana').length === 0, 'nothing waiting and not above the balance: no question');
 check(checks.recordQuestions(standing(30_000, 2, 1), 30_000, 'Test Ana').length === 1 && /2 cleanings have no amount yet, and 1 receipt or work entry is waiting for review/.test(checks.recordQuestions(standing(30_000, 2, 1), 30_000, 'Test Ana')[0].lines[0]), 'K1 names the counts');
 check(/balance of \$300\.00 owed does not include them/.test(checks.recordQuestions(standing(30_000, 2, 1), 30_000, 'Test Ana')[0].lines[1]), 'K1 says the balance does not include them');
-check(checks.recordQuestions(standing(30_000), 50_000, 'Test Ana')[0].title === 'This pays $200.00 more than Test Ana is owed. Record it as an advance?', 'K2 in Kian\'s words, $X the amount above the balance');
-check(checks.recordQuestions(standing(30_000, 1), 50_000, 'Test Ana').map((x) => x.confirm).join(',') === 'Record anyway,Record as an advance', 'both: K1 first, then K2');
-check(checks.recordQuestions(standing(-2_000), 5_000, 'Test Ana')[0].title.startsWith('This pays $50.00 more'), 'overpaid already: the whole payment is above what is owed');
+check(checks.recordQuestions(standing(30_000), 50_300, 'Test Ana')[0].title === 'This pays $203.00 more than Test Ana is owed. Record it as an advance?', 'K2 in Kian\'s words, $X the amount above the balance');
+check(checks.recordQuestions(standing(30_000, 1), 50_300, 'Test Ana').map((x) => x.confirm).join(',') === 'Record anyway,Record as an advance', 'both: K1 first, then K2');
+check(checks.recordQuestions(standing(-2_000), 5_300, 'Test Ana')[0].title.startsWith('This pays $53.00 more'), 'overpaid already: the whole payment is above what is owed');
 
 // ═══ 2. K3: the delete refusal ═══
 console.log('\n═══ 2. Deleting a member: refused with a balance (2026-10-15), with records that cannot be read, or with anything not counted (K3) ═══');
@@ -97,32 +97,32 @@ check([standing(1_250), standing(0, 2), standing(0, 0, 1), standing(0), standing
 
 // ═══ 3. The pay view's field: preset, then the recommendation, then empty; never a share ═══
 console.log('\n═══ 3. What a missing amount\'s field opens with on the pay view (the same rule as the Cleanings tab) ═══');
-const P1 = 'TESTPROPteamr1aaaaa1'; // short $80, long $120
-const P2 = 'TESTPROPteamr1aaaaa2'; // no preset; $70 typed short-term before
+const P1 = 'TESTPROPteamr1aaaaa1'; // short $83, long $123
+const P2 = 'TESTPROPteamr1aaaaa2'; // no preset; $73 typed short-term before
 const P3 = 'TESTPROPteamr1aaaaa3'; // nothing at all
 const P4 = 'TESTPROPteamr1aaaaa4'; // long preset only
 const P5 = 'TESTPROPteamr1aaaaa5'; // Ana's too, replaced by nobody
 const ANA = { id: 'TESTCLEANERteamr1ana', name: 'Test Ana' };
-const prices = { [P1]: { shortTermCents: 8_000, longTermCents: 12_000 }, [P4]: { shortTermCents: null, longTermCents: 15_000 } };
+const prices = { [P1]: { shortTermCents: 8_300, longTermCents: 12_300 }, [P4]: { shortTermCents: null, longTermCents: 15_300 } };
 const facts = (id, propertyId, day, amountCents, amountFrom, jobId, from = 'short') => ({ id, propertyId, day, createdAt: `${day}T15:00:00.000Z`, status: 'logged', amountCents, amountFrom, suggested: { from, cents: null }, jobId });
 const jobs = { [`${P1}_2028-11-10`]: { nights: 2, cleaners: 1 }, [`${P1}_2028-11-11`]: { nights: 30, cleaners: 1 }, [`${P1}_2028-11-12`]: { nights: 2, cleaners: 2 }, [`${P2}_2028-11-10`]: { nights: 2, cleaners: 1 }, [`${P2}_2028-11-09`]: { nights: 3, cleaners: 1 }, [`${P3}_2028-11-10`]: { nights: 2, cleaners: 1 }, [`${P4}_2028-11-10`]: { nights: 2, cleaners: 1 } };
 const waiting = [
-  ['P1 short stay, preset $80', facts('c1', P1, '2028-11-10', null, null, `${P1}_2028-11-10`)],
-  ['P1 30-night stay, long preset $120', facts('c2', P1, '2028-11-11', null, null, `${P1}_2028-11-11`)],
+  ['P1 short stay, preset $83', facts('c1', P1, '2028-11-10', null, null, `${P1}_2028-11-10`)],
+  ['P1 30-night stay, long preset $123', facts('c2', P1, '2028-11-11', null, null, `${P1}_2028-11-11`)],
   ['P1 two cleaners on the job', facts('c3', P1, '2028-11-12', null, null, `${P1}_2028-11-12`)],
-  ['P2 no preset, $70 typed before (short-term)', facts('c4', P2, '2028-11-10', null, null, `${P2}_2028-11-10`)],
+  ['P2 no preset, $73 typed before (short-term)', facts('c4', P2, '2028-11-10', null, null, `${P2}_2028-11-10`)],
   ['P3 nothing', facts('c5', P3, '2028-11-10', null, null, `${P3}_2028-11-10`)],
   ['P4 long preset only, a short stay', facts('c6', P4, '2028-11-10', null, null, `${P4}_2028-11-10`)],
 ];
-const earlier = [facts('t1', P2, '2028-11-09', 7_000, 'typed', `${P2}_2028-11-09`), facts('t2', P2, '2028-11-05', 9_000, 'typed', null, 'long')];
+const earlier = [facts('t1', P2, '2028-11-09', 7_300, 'typed', `${P2}_2028-11-09`), facts('t2', P2, '2028-11-05', 9_300, 'typed', null, 'long')];
 const all = [...earlier, ...waiting.map(([, c]) => c)];
 // The pay view's rule: a preset or a recommendation is put in the field; a split or nothing leaves it empty.
 const fieldOf = (start) => (start.kind === 'preset' || start.kind === 'recommendation' ? (start.cents / 100).toFixed(2) : '');
 const starts = waiting.map(([label, c]) => [label, pr.missingAmountStart(prices[c.propertyId] ?? null, all, jobs, c)]);
 for (const [label, start] of starts) console.log(`  ${label}: ${JSON.stringify(start)} → field "${fieldOf(start)}"`);
-check(starts[0][1].kind === 'preset' && fieldOf(starts[0][1]) === '80.00' && starts[1][1].kind === 'preset' && fieldOf(starts[1][1]) === '120.00', 'a preset for the tier: the field opens with it');
+check(starts[0][1].kind === 'preset' && fieldOf(starts[0][1]) === '83.00' && starts[1][1].kind === 'preset' && fieldOf(starts[1][1]) === '123.00', 'a preset for the tier: the field opens with it');
 check(starts[2][1].kind === 'split' && fieldOf(starts[2][1]) === '', 'two cleaners on the job: never prefilled, with a preset or not');
-check(starts[3][1].kind === 'recommendation' && fieldOf(starts[3][1]) === '70.00' && pr.recommendationWords(starts[3][1].tier, starts[3][1].cents) === 'Last typed for short-term: $70.00', 'no preset: the last amount typed there in the tier, labelled');
+check(starts[3][1].kind === 'recommendation' && fieldOf(starts[3][1]) === '73.00' && pr.recommendationWords(starts[3][1].tier, starts[3][1].cents) === 'Last typed for short-term: $73.00', 'no preset: the last amount typed there in the tier, labelled');
 check(starts[4][1].kind === 'none' && fieldOf(starts[4][1]) === '', 'no preset and nothing typed: empty');
 check(starts[5][1].kind === 'none', 'a preset for the other tier only: nothing for this one');
 
@@ -258,10 +258,10 @@ console.log(`  clearing P3 by hand: ${clearedP3.kind} · reads back as ${JSON.st
 check(clearedP3.kind === 'cleared' && p3Read.regular === null && (p3Read.history ?? []).length === 1, 'a clear keeps the record naming nobody, read as none, its history kept');
 
 // What the missing amounts start from, and the whole costs read without repeated property lookups.
-seed(pr.PROPERTY_CLEANING_PRICES_COLLECTION, P1, { schemaVersion: 1, propertyId: P1, shortTermCents: 8_000, longTermCents: 12_000, setAt: RUN, setBy: ADMIN, history: [] });
+seed(pr.PROPERTY_CLEANING_PRICES_COLLECTION, P1, { schemaVersion: 1, propertyId: P1, shortTermCents: 8_300, longTermCents: 12_300, setAt: RUN, setBy: ADMIN, history: [] });
 const started = await readsOf(cl.amountStarts)([P1, P2, 'not an id'], [jobYesterday, `${P2}_2026-10-01`, 'bad job id']);
 console.log(`  amount starts for P1, P2 and the job yesterday: ${JSON.stringify(started.result)} · reads ${started.reads} (${byText(started.by)})`);
-check(started.result.prices[P1]?.shortTermCents === 8_000 && started.result.prices[P2] === undefined && started.result.jobs[jobYesterday]?.nights === 2 && started.result.jobs[jobYesterday]?.cleaners === 1 && started.reads === 4, 'presets and job facts for what exists, one read each; IDs not in shape skipped');
+check(started.result.prices[P1]?.shortTermCents === 8_300 && started.result.prices[P2] === undefined && started.result.jobs[jobYesterday]?.nights === 2 && started.result.jobs[jobYesterday]?.cleaners === 1 && started.reads === 4, 'presets and job facts for what exists, one read each; IDs not in shape skipped');
 const costs = await readsOf(ce.listCosts)();
 console.log(`  the whole costs read: ${costs.result.cleanings.length} cleaning, ${costs.result.properties.length} properties · reads ${costs.reads} (${byText(costs.by)})`);
 check(costs.by.properties === 5 && costs.result.cleanings[0].property.internalName === 'Test 1 Round St', 'the cleanings\' properties are not looked up a second time: five properties, five property reads, the address still on the cleaning');

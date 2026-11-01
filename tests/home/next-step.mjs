@@ -41,7 +41,7 @@ const rows = [
   ['direct', facts(5, { status: due, direct: overdue })],
   ['finish', facts(6, { status: pastDue, calendarRead: false })],
   ['finish', facts(7, { status: due })],
-  ['calendar', facts(8, { hasCalendarLink: false, calendarRead: false })],
+  ['none', facts(8, { hasCalendarLink: false, calendarRead: false })],
   ['calendar', facts(9, { calendarRead: false })],
   ['none', facts(10)],
   ['none', facts(11, { status: excluded, hasReportFor: false })],
@@ -61,7 +61,7 @@ check(views.get(P(3)).blocked === 2 && views.get(P(3)).ready === 0, 'with no Rep
 check(views.get(P(4)).step.label === 'Review 1 Airbnb line' && views.get(P(4)).step.href === `/admin/income?month=2026-09&property=${P(4)}`, 'one line reads "1 Airbnb line", and opens the Income page at the month, at the property (Kian\'s rulings of 2026-10-17)');
 check(views.get(P(6)).step.label === 'Finish August' && views.get(P(6)).step.href.endsWith('&month=2026-08&tab=finish'), 'Finish names the oldest month owed and opens its Finish tab');
 check(views.get(P(6)).ready === 2, 'past due and due both count as ready');
-check(views.get(P(8)).step.title.startsWith('No calendar link') && views.get(P(9)).step.title.startsWith('The last refresh'), 'Calendar not read says which: no link, or not read');
+check(views.get(P(8)).step.key === 'none' && views.get(P(9)).step.title.startsWith('The last refresh'), 'no link is not a step (ruling G); a link not read says so');
 check(views.get(P(11)).blocked === 0 && !views.get(P(11)).under.attention, 'a property excluded from reporting owes nothing, even with no Report For name');
 check(!views.get(P(12)).under.cleaner, 'assigned, booking-changed, out of the window: no cleaner needed');
 check(home.rowView(facts(13, { status: { ...due, previous: { month: '2025-12', standing: 'due' } }, today: '2026-01-05' })).step.label === 'Finish December 2025', 'a month in another year carries its year');
@@ -80,7 +80,7 @@ console.log('\n═══ 3. Needs attention, then Next checkout ═══');
 const ranked = [...views].map(([id, v]) => ({ id, step: v.step, worst: id === P(12) ? 2 : 0, name: `Test ${id.slice(-2)}` }));
 const order = [...ranked].sort(home.byAttention).map((r) => r.id.slice(-2));
 console.log(`  Needs attention: ${order.join(' ')}`);
-check(order.join(' ') === '02 01 03 04 05 06 07 08 09 12 10 11', 'by step; then the earliest day or month (Oct 5 before Oct 18, August before September); then the worst cell (12 has a red cell); then the name');
+check(order.join(' ') === '02 01 03 04 05 06 07 09 12 08 10 11', 'by step; then the earliest day or month (Oct 5 before Oct 18, August before September); then the worst cell (12 has a red cell); then the name (08, with no calendar link, is up to date since ruling G)');
 const checkouts = [
   { nextCheckout: '2026-10-20', name: 'Test B' },
   { nextCheckout: null, name: 'Test A' },
@@ -121,25 +121,24 @@ check(read.properties[P(2)].status === 'failed' && read.properties[P(2)].nextChe
 check(home.CHIPS.length === 8 && status.calendarFactsOf(null, TODAY).refreshedAt === null, 'no copy: nothing known');
 
 
-// ═══ 6. Not on Airbnb: no calendar link and the "Not on the site" mark (Kian's ruling of 2026-11-01) ═══
-console.log('\n═══ 6. Not on Airbnb: no link and "Not on the site" no longer counts as "Calendar not read" ═══');
+// ═══ 6. No calendar (Kian's ruling G of 2026-11-01, replacing the "Not on Airbnb" rule of the same day) ═══
+console.log('\n═══ 6. No calendar link reads "No calendar", grey; the chip counts only set links that fail ═══');
 const { cleaningStanding } = await import(`${ROOT}/app/lib/schedule/standing.ts`);
 const cases6 = [
-  ['no link, "Not on the site"', { hasCalendarLink: false, calendarRead: false, notOnAirbnb: true }],
-  ['no link, on the site', { hasCalendarLink: false, calendarRead: false, notOnAirbnb: false }],
-  ['no link, the mark not passed', { hasCalendarLink: false, calendarRead: false }],
-  ['a link it could not read, "Not on the site"', { hasCalendarLink: true, calendarRead: false, notOnAirbnb: false }],
-  ['a link it read, "Not on the site"', { hasCalendarLink: true, calendarRead: true, notOnAirbnb: false }],
+  ['no link', { hasCalendarLink: false, calendarRead: false }],
+  ['no link (the Unlisted mark makes no difference)', { hasCalendarLink: false, calendarRead: false }],
+  ['a link it could not read', { hasCalendarLink: true, calendarRead: false }],
+  ['a link it read', { hasCalendarLink: true, calendarRead: true }],
 ];
 const seen6 = [];
 for (const [label, f] of cases6) {
-  const cell = cleaningStanding([], { today: TODAY, hasCalendar: f.hasCalendarLink, calendarRead: f.calendarRead, notOnAirbnb: f.notOnAirbnb });
+  const cell = cleaningStanding([], { today: TODAY, hasCalendar: f.hasCalendarLink, calendarRead: f.calendarRead });
   const view = home.rowView(facts(60 + seen6.length, f));
   seen6.push({ cell, view });
-  console.log(`  ${label.padEnd(44)} → cell "${cell.label}" (${cell.tone}, ${cell.key}) · Next step "${view.step.label}" · under "Calendar not read" ${view.under.calendar}`);
+  console.log(`  ${label.padEnd(48)} → cell "${cell.label}" (${cell.tone}, ${cell.key}) · Next step "${view.step.label}" · under "Calendar not read" ${view.under.calendar}`);
 }
-check(seen6[0].cell.label === 'Not on Airbnb' && seen6[0].cell.tone === 'none' && seen6[0].view.step.key !== 'calendar' && !seen6[0].view.under.calendar, 'no link and "Not on the site": the cell reads "Not on Airbnb" in grey; no Calendar not read step; not under the chip');
-check([1, 2].every((i) => seen6[i].cell.label === 'Calendar not read' && seen6[i].cell.tone === 'warning' && seen6[i].view.step.key === 'calendar' && seen6[i].view.under.calendar), 'no link and no mark: still "Calendar not read", step and chip, as before');
-check(seen6[3].cell.label === 'Calendar not read' && seen6[3].view.under.calendar && seen6[4].cell.label === 'No turnover' && !seen6[4].view.under.calendar, 'a property with a link is read or not as before, marked or not');
+check([0, 1].every((i) => seen6[i].cell.label === 'No calendar' && seen6[i].cell.tone === 'none' && seen6[i].view.step.key === 'none' && !seen6[i].view.under.calendar), 'no link: the cell reads "No calendar" in grey; no Calendar not read step; never under the chip');
+check(seen6[2].cell.label === 'Calendar not read' && seen6[2].cell.tone === 'warning' && seen6[2].view.step.key === 'calendar' && seen6[2].view.under.calendar, 'a set link that failed: "Calendar not read", step and chip');
+check(seen6[3].cell.label === 'No turnover' && !seen6[3].view.under.calendar, 'a link read: as before');
 console.log(`\n${failures === 0 ? 'all checks passed' : `${failures} check(s) FAILED`}`);
 if (failures) process.exitCode = 1;

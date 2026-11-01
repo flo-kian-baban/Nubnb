@@ -97,14 +97,15 @@ export async function readPropertyStatus(now: Date = new Date()): Promise<Proper
 
   // The cleanings the marks made, for the ones waiting for an amount: a mark the office removed has none to read.
   const cleaningIds = [...new Set(jobs.flatMap((job) => job.cleanerIds.map((cid) => job.assignments[cid]).filter((a) => a.cleaningId !== null && a.removedAt === null).map((a) => a.cleaningId as string)))];
-  const cleaningDocs = cleaningIds.length ? await db.getAll(...cleaningIds.map((id) => db.collection(CLEANINGS_COLLECTION).doc(id)), { fieldMask: ['status', 'amountCents'] }) : [];
+  const cleaningDocs = cleaningIds.length ? await db.getAll(...cleaningIds.map((id) => db.collection(CLEANINGS_COLLECTION).doc(id)), { fieldMask: ['status', 'amountCents', 'extra'] }) : [];
   const cleanings = new Map(
     cleaningDocs
       .filter((doc) => doc.exists)
       .map((doc) => {
         const status: unknown = doc.get('status');
         const amount: unknown = doc.get('amountCents');
-        return [doc.id, { status: typeof status === 'string' ? status : null, amountCents: typeof amount === 'number' ? amount : null }];
+        const extra: unknown = doc.get('extra.status');
+        return [doc.id, { status: typeof status === 'string' ? status : null, amountCents: typeof amount === 'number' ? amount : null, extra: typeof extra === 'string' ? extra : null }];
       }),
   );
 

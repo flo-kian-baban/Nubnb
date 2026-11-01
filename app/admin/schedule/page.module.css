@@ -156,7 +156,7 @@
 
 /* ── Who is on it ── */
 .chips {
-  display: inline-flex;
+  display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
@@ -180,10 +180,21 @@
 }
 /* A mark whose cleaning the office deleted or removed: it stays, until reopened (2026-10-14, night). Reopen sits
    beside the person it is for. */
+/* One cleaner's line takes the cell's width: their pill and Reopen first, the mark's note and extra ask (with its three
+   decisions) wrapping under them (the cleaning flow, 2026-11-01); several cleaners stack, one line each. The pill itself
+   never breaks word by word: its parts (the tick, the name, its notes) stay whole, and only a pill longer than the cell
+   folds its notes under the name, inside the pill. */
 .chipLine {
-  display: inline-flex;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 4px 6px;
+  width: 100%;
+}
+.chipLine .chip {
+  max-width: 100%;
+  flex-wrap: wrap;
+  white-space: nowrap;
 }
 .chipRemoved {
   border-color: rgba(240, 166, 58, 0.4);
@@ -253,6 +264,11 @@
   color: #6ee7a0;
 }
 .state_removed {
+  background: rgba(240, 166, 58, 0.16);
+  color: #f6c069;
+}
+/* Every cleaner marked it, and one asked for extra the office has not decided (Kian's ruling F of 2026-11-01): amber. */
+.state_extra {
   background: rgba(240, 166, 58, 0.16);
   color: #f6c069;
 }
@@ -358,4 +374,66 @@
 }
 .regularLine {
   color: rgba(255, 255, 255, 0.7);
+}
+
+/* ── The cleaning flow (Kian's rulings of 2026-11-01) ── */
+/* The job's tier and nights, and the amount set on it, under the turnover time. */
+.tierNote {
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 12px;
+}
+.amountChip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(127, 176, 224, 0.14);
+  color: #9cc4ec;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+/* A cleaner's note and extra ask, under their chip. */
+.chipWords {
+  flex-basis: 100%;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.chipExtra {
+  color: #f6c069;
+}
+.chipActions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+}
+/* A dialog's fields: one per row, the label over the control. */
+.dialogField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dialogLabel {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.7);
+}
+.dialogRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+.amountInput {
+  width: 140px;
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+}
+.amountInput:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 1px;
 }

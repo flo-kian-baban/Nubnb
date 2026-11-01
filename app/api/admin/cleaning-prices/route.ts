@@ -4,7 +4,7 @@
  * POST /api/admin/cleaning-prices — the sheet's CSV import, saved on the admin's confirm: the matched rows, each a
  *      property and its two presets, in one transaction.
  *
- * Request (POST): `{ rows: [{ propertyId, shortTerm: "80.00" | null, longTerm: "120.00" | null }, …] }` (1–500 rows).
+ * Request (POST): `{ rows: [{ propertyId, shortTerm: "75.00" | null, midTerm: "75.00" | null, longTerm: "115.00" | null }, …] }` (1–500 rows).
  * Response:       200 `{ success: true, data: { saved: [{ propertyId, record, changed }] } }` — every row, `changed`
  *                 false where the record already said this and nothing was written;
  *                 404 PROPERTY_NOT_FOUND naming the IDs no property has (nothing saved);
@@ -57,7 +57,7 @@ export const POST = adminRoute(async function POST(request: NextRequest, _contex
 
   const outcome = await importCleaningPrices(
     actor,
-    parsed.data.rows.map((row) => ({ propertyId: row.propertyId, prices: { shortTermCents: row.shortTerm, longTermCents: row.longTerm } })),
+    parsed.data.rows.map((row) => ({ propertyId: row.propertyId, prices: { shortTermCents: row.shortTerm, midTermCents: row.midTerm, longTermCents: row.longTerm } })),
   );
   switch (outcome.kind) {
     case 'imported':

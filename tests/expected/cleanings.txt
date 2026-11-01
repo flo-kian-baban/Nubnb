@@ -1,36 +1,36 @@
-═══ 1. November: three cleanings at $60.00, and a $56.50 receipt ═══
+═══ 1. November: three cleanings at $63.00, and a $59.50 receipt ═══
   printed rows:
       Revenue · 1 · $2,000.00 · $2,000.00
-      Expense - Cleaning · 3 · -$60.00 · -$180.00
-      Expense - ref TESTEN · Nov 10, 2026 · 1 · -$56.50 · -$56.50
-  stored cost rows: cleaning Cleaning · Nov 5, 2026 $60.00 | receipt ref TESTEN · Nov 10, 2026 $56.50 | cleaning Cleaning · Nov 12, 2026 $60.00 | cleaning Cleaning · Nov 19, 2026 $60.00
-  November finished: recorded $236.50 · PDF holds "Expense - Cleaning": true · names the cleaner: false
+      Expense - Cleaning · 3 · -$63.00 · -$189.00
+      Expense - ref TESTEN · Nov 10, 2026 · 1 · -$59.50 · -$59.50
+  stored cost rows: cleaning Cleaning · Nov 5, 2026 $63.00 | receipt ref TESTEN · Nov 10, 2026 $59.50 | cleaning Cleaning · Nov 12, 2026 $63.00 | cleaning Cleaning · Nov 19, 2026 $63.00
+  November finished: recorded $248.50 · PDF holds "Expense - Cleaning": true · names the cleaner: false
 
-═══ 2. December: cleanings at $60.00 and $80.00; a November cleaning logged after November was finished; one changed, one removed after printing ═══
+═══ 2. December: cleanings at $63.00 and $83.00; a November cleaning logged after November was finished; one changed, one removed after printing ═══
   printed rows:
-      Expense - Cleaning · 2 · (rate empty) · -$140.00
+      Expense - Cleaning · 2 · (rate empty) · -$146.00
       Expense - Cleaning (from November 2026) · 1 · -$75.00 · -$75.00
-      Adjustment - Cleaning · Nov 5, 2026 (reported in November 2026 as -$60.00, now -$70.00) · 1 · -$10.00 · -$10.00
-      Adjustment - Cleaning · Nov 12, 2026 (reported in November 2026 as -$60.00, no longer in the ledger) · 1 · $60.00 · $60.00
-  December's statement: recorded $165.00 · total -$165.00
-  December's PDF names the cleaner: false · prints an average of $70.00: false
-  charges 2026-11-05 logged $70.00: 2026-11 finished cost $60.00 | 2026-12 open adjustment $10.00
-  charges 2026-11-12 removed $60.00: 2026-11 finished cost $60.00 | 2026-12 open adjustment -$60.00
-  charges 2026-11-19 logged $60.00: 2026-11 finished cost $60.00
+      Adjustment - Cleaning · Nov 5, 2026 (reported in November 2026 as -$63.00, now -$73.00) · 1 · -$10.00 · -$10.00
+      Adjustment - Cleaning · Nov 12, 2026 (reported in November 2026 as -$63.00, no longer in the ledger) · 1 · $63.00 · $63.00
+  December's statement: recorded $168.00 · total -$168.00
+  December's PDF names the cleaner: false · prints an average of $73.00: false
+  charges 2026-11-05 logged $73.00: 2026-11 finished cost $63.00 | 2026-12 open adjustment $10.00
+  charges 2026-11-12 removed $63.00: 2026-11 finished cost $63.00 | 2026-12 open adjustment -$63.00
+  charges 2026-11-19 logged $63.00: 2026-11 finished cost $63.00
   charges 2026-11-28 logged $75.00: 2026-12 open cost $75.00
-  charges 2026-12-03 logged $60.00: 2026-12 open cost $60.00
-  charges 2026-12-09 logged $80.00: 2026-12 open cost $80.00
-  November's Costs tab: 4 costs · $261.50 · by statement: 2026-11 $236.50 · 2026-12 (open) $25.00
+  charges 2026-12-03 logged $63.00: 2026-12 open cost $63.00
+  charges 2026-12-09 logged $83.00: 2026-12 open cost $83.00
+  November's Costs tab: 4 costs · $270.50 · by statement: 2026-11 $248.50 · 2026-12 (open) $22.00
 
 ═══ 3. The cleaner deleted ═══
-  read by: Zelda Testcleaner (state missing) · amount $60.00
+  read by: Zelda Testcleaner (state missing) · amount $63.00
   December's statement unchanged: true
 
 ═══ 4. Owners' documents ═══
-  ledger: 2026-11-05 cleaning Nubnb office $70.00 | 2026-11-10 receipt Zelda Testcleaner $56.50 | 2026-11-19 cleaning Nubnb office $60.00 | 2026-11-28 cleaning Nubnb office $75.00 | 2026-12-03 cleaning Nubnb office $60.00 | 2026-12-09 cleaning Nubnb office $80.00
+  ledger: 2026-11-05 cleaning Nubnb office $73.00 | 2026-11-10 receipt Zelda Testcleaner $59.50 | 2026-11-19 cleaning Nubnb office $63.00 | 2026-11-28 cleaning Nubnb office $75.00 | 2026-12-03 cleaning Nubnb office $63.00 | 2026-12-09 cleaning Nubnb office $83.00
   ledger PDF lists "Cleaning": true · names the cleaner: false
   ledger Excel of the cleanings alone names the cleaner: false · with the receipt, it names who sent it (it has no "Logged by" since the Costs page, round 1): false
-  ledger PDF of the cleanings alone, the changed cleaning's split, line by line: "On November 2026's statement $60.00," + "December 2026's statement $10.00" + "On December 2026's statement" + "Charged on: November 2026's statement $120.00 · December 2026's statement $225.00"
+  ledger PDF of the cleanings alone, the changed cleaning's split, line by line: "On November 2026's statement $63.00," + "December 2026's statement $10.00" + "On December 2026's statement" + "Charged on: November 2026's statement $126.00 · December 2026's statement $231.00"
   its footnotes: "* A cleaning marked so was changed by Nubnb after it was logged."
   ZIP 2026-11: owner's folder 5 files, any naming the cleaner: none · Nubnb's folder names them in: 2026-11 Cleanings.xlsx, cleanings 2026-11.json, cost_entries 2026-11.json
     owner's workbook lists the cleanings: 3 cleaning rows · says "Differs": false
@@ -39,7 +39,7 @@
 
 ═══ 5. The form's cleaner (the amount now starts from the property's preset: Kian's ruling of 2026-10-19, tests/money/cleaning-prices.mjs) ═══
   the property's last cleaner: TESTCLEANERzelda0001
-  typed amounts: 60→6000 60.5→6050 60.50→6050 $75→7500 0→null -5→null 10000→null abc→null
+  typed amounts: 63→6300 63.5→6350 63.50→6350 $75→7500 0→null -5→null 10300→null abc→null
 
 ═══ 6. Finish ═══
   4 checkouts, nothing logged: fee-none, cleaning
@@ -52,14 +52,14 @@
   finish-empty list for December: eligible 0 · left out: It has costs, an adjustment or a carried balance to settle.
 
 ═══ 8. The routes' schemas, given what the page sends ═══
-  log, no note typed (null): ok {"propertyId":"TESTPROPcleaningsaa1","cleanerId":"TESTCLEANERzelda0001","day":"2026-11-05","amount":6000,"note":null}
-  log, note left out: ok {"propertyId":"TESTPROPcleaningsaa1","cleanerId":"TESTCLEANERzelda0001","day":"2026-11-05","amount":6000,"note":null}
-  log, a note: ok {"propertyId":"TESTPROPcleaningsaa1","cleanerId":"TESTCLEANERzelda0001","day":"2026-11-05","amount":6000,"note":"Mid-stay clean"}
-  log, "60": refused: amount Write the amount as dollars and cents, like 60.00
+  log, no note typed (null): ok {"propertyId":"TESTPROPcleaningsaa1","cleanerId":"TESTCLEANERzelda0001","day":"2026-11-05","amount":6300,"note":null}
+  log, note left out: ok {"propertyId":"TESTPROPcleaningsaa1","cleanerId":"TESTCLEANERzelda0001","day":"2026-11-05","amount":6300,"note":null}
+  log, a note: ok {"propertyId":"TESTPROPcleaningsaa1","cleanerId":"TESTCLEANERzelda0001","day":"2026-11-05","amount":6300,"note":"Mid-stay clean"}
+  log, "63": refused: amount Write the amount as dollars and cents, like 75.00
   log, "0.00": refused: amount More than $0.00, at most $9,999.99
   log, an extra field: refused: (body) Unrecognized key: "rate"
-  change the amount: ok {"action":"change","seen":1,"amount":7000,"reason":null}
+  change the amount: ok {"action":"change","seen":1,"amount":7300,"reason":null}
   clear the note: ok {"action":"change","seen":2,"note":null,"reason":null}
   remove, no reason: ok {"action":"remove","seen":2,"reason":null}
   delete: ok {"seen":3}
-  a default rate: ok {"defaultRate":6000} · none: ok {"defaultRate":null}
+  a default rate: ok {"defaultRate":6300} · none: ok {"defaultRate":null}

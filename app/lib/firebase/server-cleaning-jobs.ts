@@ -28,6 +28,19 @@
  * An admin sets who is on a job: only active cleaners are added, never handymen, and never to a job whose booking
  * changed; anyone not yet marked can be taken off. Each change is a history event naming the admin.
  *
+ * ── The cleaning flow (Kian's rulings of 2026-11-01) ──
+ * - `addJob` (ruling C): a job by hand, for any property, any date, any active cleaner, a chosen tier; the calendar
+ *   never touches it.
+ * - `swapCleaner` (ruling D): one cleaner off, another on, in one transaction, both logged.
+ * - `recordCleaned` (ruling E): an admin marks the job for its assigned cleaner, through the same `markOf` as the
+ *   cleaner's own Mark cleaned, so the cleaning, its amount, the statement line and the pay are the same; the job's
+ *   history and the cleaning's name the admin.
+ * - `markCleaned` takes the cleaner's note and "Ask for extra" (ruling F): kept on the assignment, the history and the
+ *   cleaning; an asked extra holds the cleaning's money until an admin decides (server-cleanings.ts, decideExtra).
+ * - `setJobAmount` (ruling B): the job's own amount, which a mark takes instead of the base price; while a mark's
+ *   cleaning still waits (extra asked, or no amount), that cleaning follows it; once a cleaning's money counts, the
+ *   amount is locked here and the cleaning is edited on the Cleanings tab.
+ *
  * Failure contract: the reads throw when a read fails; the writes return a result naming what happened, "may or
  * may not have landed" included, and never throw.
  */
@@ -40,8 +53,8 @@ import { cleaningDayProblem, statementMonthOf, statementsPrinting } from './serv
 import { latestPaymentDay, paymentOnOrAfter } from './server-pay';
 import type { PaymentView } from '@/app/lib/pay/model';
 import { CLEANERS_COLLECTION, fieldText, roleOf, type Actor, type Refusal } from '@/app/lib/cleaners/model';
-import { CLEANINGS_COLLECTION, CLEANING_SCHEMA_VERSION, readCleaning, type Cleaning } from '@/app/lib/cleanings/model';
-import { markAmount, type AmountSource } from '@/app/lib/cleanings/prices';
+import { CLEANINGS_COLLECTION, CLEANING_SCHEMA_VERSION, readCleaning, type Cleaning, type CleaningEvent } from '@/app/lib/cleanings/model';
+import { TIER_WORDS, markAmount, type AmountSource, type PresetKind } from '@/app/lib/cleanings/prices';
 import { pricesInTx } from './server-cleaning-prices';
 import { readCurrent } from '@/app/lib/availability/store';
 import { torontoDay } from '@/app/lib/availability/days';
@@ -49,14 +62,20 @@ import { MONTHLY_REPORTS_COLLECTION, monthOfDay } from '@/app/lib/reports/model'
 import {
   CLEANER_LIST_DAYS,
   CLEANING_JOBS_COLLECTION,
+  JOB_SCHEMA_VERSION,
   cleanerListFrom,
   jobEvent,
+  jobIdOf,
   markRefusal,
+  newAssignment,
   readJob,
+  recordRefusal,
   reopenRefusal,
   type Assignment,
   type AssigneeView,
   type CleanerJobView,
+  type CleaningJob,
+  type ExtraState,
   type JobView,
   type ScheduleRead,
   type StoredJob,
@@ -114,7 +133,7 @@ export async function readSchedule(from: string, to: string): Promise<ScheduleRe
   const failedIds = copy ? Object.entries(copy.properties).filter(([, entry]) => entry.status === 'failed').map(([propertyId]) => propertyId) : [];
   const [propertyDocs, cleaningDocs, facing] = await Promise.all([
     propertyIds.length ? db.getAll(...propertyIds.map((id) => db.collection('properties').doc(id)), { fieldMask: ['name', 'details'] }) : Promise.resolve([]),
-    cleaningIds.length ? db.getAll(...cleaningIds.map((id) => db.collection(CLEANINGS_COLLECTION).doc(id)), { fieldMask: ['status', 'amountCents', 'amountFrom'] }) : Promise.resolve([]),
+    cleaningIds.length ? db.getAll(...cleaningIds.map((id) => db.collection(CLEANINGS_COLLECTION).doc(id)), { fieldMask: ['status', 'amountCents', 'amountFrom', 'extra', 'history'] }) : Promise.resolve([]),
     cleanerFacingNamesOf([...propertyIds, ...failedIds]),
   ]);
   // Each property by the name the admin shows: its cleaner-facing name, usually the address, else its public title
@@ -127,8 +146,11 @@ export async function readSchedule(from: string, to: string): Promise<ScheduleRe
   const cleanings = new Map(cleaningDocs.filter((doc) => doc.exists).map((doc) => {
     const amount: unknown = doc.get('amountCents');
     const from: unknown = doc.get('amountFrom');
-    const amountFrom: AmountSource | null = from === 'short' || from === 'long' || from === 'typed' ? from : null;
-    return [doc.id, { status: fieldText(doc.get('status')), amountCents: typeof amount === 'number' ? amount : null, amountFrom }];
+    const amountFrom: AmountSource | null = from === 'short' || from === 'mid' || from === 'long' || from === 'typed' || from === 'job' ? from : null;
+    const extraStatus: unknown = doc.get('extra.status');
+    const extra: ExtraState = extraStatus === 'asked' || extraStatus === 'approved' || extraStatus === 'declined' ? extraStatus : null;
+    const history: unknown = doc.get('history');
+    return [doc.id, { status: fieldText(doc.get('status')), amountCents: typeof amount === 'number' ? amount : null, amountFrom, extra, seen: Array.isArray(history) ? history.length : 0 }];
   }));
 
   const views: JobView[] = jobs.map((job) => {
@@ -138,7 +160,7 @@ export async function readSchedule(from: string, to: string): Promise<ScheduleRe
     const assignees: AssigneeView[] = job.cleanerIds.map((cid) => {
       const a = assignments[cid];
       const member = byCleaner.get(cid);
-      const cleaning = a.cleaningId === null || a.removedAt !== null ? null : cleanings.has(a.cleaningId) ? { state: 'found' as const, ...cleanings.get(a.cleaningId)! } : { state: 'missing' as const, status: null, amountCents: null, amountFrom: null };
+      const cleaning = a.cleaningId === null || a.removedAt !== null ? null : cleanings.has(a.cleaningId) ? { state: 'found' as const, ...cleanings.get(a.cleaningId)! } : { state: 'missing' as const, status: null, amountCents: null, amountFrom: null, extra: null, seen: 0 };
       return { ...a, cleanerId: cid, name: member?.name ?? a.nameAtAssignment, status: member?.status ?? null, state: member ? 'found' : 'missing', cleaning };
     });
     return {
@@ -227,7 +249,7 @@ export async function setAssignees(actor: Actor, jobId: string, wanted: string[]
       const events = [...job.history];
       for (const cid of removed) events.push(jobEvent(at, 'unassigned', actor, { cleanerId: cid, cleanerName: job.assignments[cid].nameAtAssignment }));
       for (const cid of added) {
-        assignments[cid] = { nameAtAssignment: names.get(cid) ?? null, assignedAt: at, assignedBy: actor, cleaningId: null, markedAt: null, removedAt: null, removedBy: null };
+        assignments[cid] = newAssignment(names.get(cid) ?? null, at, actor);
         cleanerIds.push(cid);
         events.push(jobEvent(at, 'assigned', actor, { cleanerId: cid, cleanerName: names.get(cid) ?? null }));
       }
@@ -323,6 +345,8 @@ export async function cleanerJobs(cleanerId: string, properties: ReadonlyMap<str
         markedAt: a.markedAt,
         // Never on a cleaning dated on or before a payment to them (`paidThrough`, its latest day): the office removes those.
         canUndo: a.cleaningId !== null && a.removedAt === null && !printed.has(a.cleaningId) && (paidThrough === null || job.checkout > paidThrough),
+        note: a.note,
+        extraAsked: a.extraAsked,
         markRefusal: markRefusal(job, cleanerId, today),
       };
     })
@@ -387,6 +411,8 @@ export async function oneCleanerJob(job: StoredJob, cleanerId: string, canUndo: 
     change: changeOf(job),
     markedAt: a?.markedAt ?? null,
     canUndo: canUndo && !!a?.cleaningId && a.removedAt === null,
+    note: a?.note ?? null,
+    extraAsked: a?.extraAsked ?? false,
     markRefusal: markRefusal(job, cleanerId, today),
   };
 }
@@ -422,12 +448,56 @@ export const MARK_REFUSALS: Record<Exclude<MarkResult['kind'], 'marked' | 'alrea
   failed: { status: 502, code: 'MARK_FAILED', message: 'Not confirmed.', hint: 'Tap Mark cleaned again: it won’t be counted twice.' },
 };
 
+/** What a cleaner sends with their mark (Kian's ruling F): an optional note, and the reason when they ask for extra. */
+export interface MarkInput {
+  note?: string | null;
+  extraReason?: string | null;
+}
+
+/**
+ * The cleaning one mark makes for one cleaner on a job, with the assignment and the history event that go with it:
+ * one shape for a cleaner's own Mark cleaned and an admin's Record as cleaned (ruling E), so the amount
+ * (`markAmount`: the job's own amount, else the preset its tier takes, none with two or more cleaners), the day, the
+ * statement line and the pay are the same. `actor` is who did it: the cleaner, or the admin recording for them. A
+ * mark by the office says so in its `logged` event and in the job's history.
+ */
+function markOf(db: ReturnType<typeof getAdminDb>, job: StoredJob, cleanerId: string, cleanerName: string | null, actor: Actor, prices: Awaited<ReturnType<typeof pricesInTx>>, propertyName: string | null, at: string, input: MarkInput): { ref: DocumentReference; stored: Cleaning; assignment: Assignment; event: ReturnType<typeof jobEvent> } {
+  const amount = markAmount(prices, job);
+  const suggested = { from: amount.from, cents: amount.cents };
+  const ref = db.collection(CLEANINGS_COLLECTION).doc();
+  const note = input.note ?? null;
+  const extraReason = input.extraReason ?? null;
+  const byOffice = actor.role === 'admin';
+  const stored: Cleaning = {
+    schemaVersion: CLEANING_SCHEMA_VERSION,
+    propertyId: job.propertyId,
+    propertyNameAtEntry: propertyName,
+    cleanerId,
+    cleanerNameAtEntry: cleanerName,
+    day: job.checkout,
+    amountCents: suggested.cents,
+    note,
+    status: 'logged',
+    suggested,
+    amountFrom: amount.amountFrom,
+    createdAt: at,
+    actor,
+    history: [{ at, action: 'logged', actor, reason: byOffice ? 'recorded by the office' : null }],
+    jobId: job.id,
+    extra: extraReason === null ? null : { status: 'asked', reason: extraReason, askedAt: at, decidedAt: null, decidedBy: null },
+  };
+  const assignment: Assignment = { ...job.assignments[cleanerId], cleaningId: ref.id, markedAt: at, note, extraAsked: extraReason !== null };
+  const event = jobEvent(at, 'marked', actor, { cleanerId, cleanerName, cleaningId: ref.id, amountCents: suggested.cents, reason: byOffice ? 'recorded by the office' : null, note, extra: extraReason });
+  return { ref, stored, assignment, event };
+}
+
 /**
  * Mark a job cleaned for this cleaner: one transaction makes their 37B cleaning and puts it on their assignment. The
- * amount is the property's preset by the stay behind the job when they are its one cleaner, else null (Kian's ruling
- * of 2026-10-19, `markAmount`) — never typed by them, and never shown to them.
+ * amount is the job's own amount when an admin set one (ruling B), else the property's preset by the job's tier, when
+ * they are its one cleaner, else null (`markAmount`) — never typed by them, and never shown to them. Their note and
+ * "Ask for extra" (ruling F) go on the cleaning, the assignment and the history.
  */
-export async function markCleaned(cleaner: { id: string; name: string | null }, jobId: string, now: Date = new Date()): Promise<MarkResult> {
+export async function markCleaned(cleaner: { id: string; name: string | null }, jobId: string, now: Date = new Date(), input: MarkInput = {}): Promise<MarkResult> {
   const db = getAdminDb();
   const jobRef = db.collection(CLEANING_JOBS_COLLECTION).doc(jobId);
   const today = torontoDay(now);
@@ -450,41 +520,338 @@ export async function markCleaned(cleaner: { id: string; name: string | null }, 
       const [[property, account], prices] = await Promise.all([tx.getAll(db.collection('properties').doc(job.propertyId), db.collection(CLEANERS_COLLECTION).doc(cleaner.id), { fieldMask: ['name', 'role', 'status'] }), pricesInTx(tx, job.propertyId)]);
       if (!property.exists) return { kind: 'no-such-property' };
       if (!account.exists || roleOf({ role: account.get('role') }) !== 'cleaner' || account.get('status') !== 'active') return { kind: 'not-a-cleaner' };
-      // The property's preset by the stay, with one cleaner on the job; no amount with two or more (the admin types the split).
-      const amount = markAmount(prices, job);
-      const suggested = { from: amount.from, cents: amount.cents };
       const statementMonth = await statementMonthOf(job.propertyId, monthOfDay(job.checkout), tx);
 
       const at = now.toISOString();
       const actor: Actor = { role: 'cleaner', id: cleaner.id, name: fieldText(account.get('name')) ?? cleaner.name };
-      const ref = db.collection(CLEANINGS_COLLECTION).doc();
-      const stored: Cleaning = {
-        schemaVersion: CLEANING_SCHEMA_VERSION,
-        propertyId: job.propertyId,
-        propertyNameAtEntry: fieldText(property.get('name')),
-        cleanerId: cleaner.id,
-        cleanerNameAtEntry: actor.name,
-        day: job.checkout,
-        amountCents: suggested.cents,
-        note: null,
-        status: 'logged',
-        suggested,
-        amountFrom: amount.amountFrom,
-        createdAt: at,
-        actor,
-        history: [{ at, action: 'logged', actor, reason: null }],
-        jobId: job.id,
-      };
-      const next = {
-        assignments: { ...job.assignments, [cleaner.id]: { ...job.assignments[cleaner.id], cleaningId: ref.id, markedAt: at } },
-        history: [...job.history, jobEvent(at, 'marked', actor, { cleanerId: cleaner.id, cleanerName: actor.name, cleaningId: ref.id, amountCents: suggested.cents })],
-      };
+      const { ref, stored, assignment, event } = markOf(db, job, cleaner.id, actor.name, actor, prices, fieldText(property.get('name')), at, input);
+      const next = { assignments: { ...job.assignments, [cleaner.id]: assignment }, history: [...job.history, event] };
       tx.create(ref, stored);
       tx.update(jobRef, next);
-      return { kind: 'marked', job: { ...job, ...next }, cleaningId: ref.id, amountCents: suggested.cents, statementMonth };
+      return { kind: 'marked', job: { ...job, ...next }, cleaningId: ref.id, amountCents: stored.amountCents, statementMonth };
     });
   } catch (err) {
     console.error(`[jobs] marking ${jobId} failed: grpc code ${grpcCode(err)}`);
+    return { kind: 'failed' };
+  }
+}
+
+export type RecordResult =
+  | { kind: 'recorded'; job: StoredJob; cleanings: { cleanerId: string; cleaningId: string; amountCents: number | null }[]; statementMonth: string }
+  | { kind: 'not-found' }
+  | { kind: 'changed-since' }
+  | { kind: 'unreadable' }
+  | { kind: 'nothing-to-record' }
+  | { kind: 'not-assigned'; cleanerId: string }
+  | { kind: 'removed'; name: string | null }
+  | { kind: 'booking-changed' }
+  | { kind: 'too-early'; opensOn: string }
+  | { kind: 'bad-day'; problem: string }
+  | { kind: 'no-such-property' }
+  | { kind: 'not-a-cleaner'; name: string | null }
+  | { kind: 'failed' };
+
+/**
+ * Record a job as cleaned for its assigned cleaners (Kian's ruling E of 2026-11-01): "an admin action on any job
+ * whose day has come. It counts exactly as if the assigned cleaner marked it (same amount logic, statement line and
+ * pay). The audit log notes the admin." One transaction, one cleaning per cleaner named (those already marked are
+ * left as they are), each through the same `markOf` as a cleaner's own mark, the admin as the actor of each; the
+ * mark's rules hold (on the job, not removed by the office, the booking unchanged, from the checkout day on). As
+ * the admin saw it (`seen`).
+ */
+export async function recordCleaned(actor: Actor, jobId: string, cleanerIds: readonly string[], seen: number, now: Date = new Date()): Promise<RecordResult> {
+  const db = getAdminDb();
+  const jobRef = db.collection(CLEANING_JOBS_COLLECTION).doc(jobId);
+  const today = torontoDay(now);
+  try {
+    return await db.runTransaction(async (tx): Promise<RecordResult> => {
+      const snap = await tx.get(jobRef);
+      if (!snap.exists) return { kind: 'not-found' };
+      const job = readJob(snap.id, snap.data() ?? {});
+      if (!job) return { kind: 'unreadable' };
+      if (job.history.length !== seen) return { kind: 'changed-since' };
+      const wanted = [...new Set(cleanerIds)];
+      const toMark: string[] = [];
+      for (const cid of wanted) {
+        const refusal = recordRefusal(job, cid, today);
+        if (refusal === 'already-marked') continue;
+        if (refusal === 'not-assigned') return { kind: 'not-assigned', cleanerId: cid };
+        if (refusal === 'removed') return { kind: 'removed', name: job.assignments[cid].nameAtAssignment };
+        if (refusal === 'booking-changed') return { kind: 'booking-changed' };
+        if (refusal === 'too-early') return { kind: 'too-early', opensOn: job.checkout };
+        toMark.push(cid);
+      }
+      if (toMark.length === 0) return { kind: 'nothing-to-record' };
+      const problem = cleaningDayProblem(job.checkout, now);
+      if (problem) return { kind: 'bad-day', problem };
+
+      const [[property, ...accounts], prices] = await Promise.all([tx.getAll(db.collection('properties').doc(job.propertyId), ...toMark.map((cid) => db.collection(CLEANERS_COLLECTION).doc(cid)), { fieldMask: ['name', 'role', 'status'] }), pricesInTx(tx, job.propertyId)]);
+      if (!property.exists) return { kind: 'no-such-property' };
+      const names = new Map<string, string | null>();
+      for (const account of accounts) {
+        if (!account.exists || roleOf({ role: account.get('role') }) !== 'cleaner' || account.get('status') !== 'active') return { kind: 'not-a-cleaner', name: account.exists ? fieldText(account.get('name')) : (job.assignments[account.id]?.nameAtAssignment ?? null) };
+        names.set(account.id, fieldText(account.get('name')) ?? job.assignments[account.id].nameAtAssignment);
+      }
+      const statementMonth = await statementMonthOf(job.propertyId, monthOfDay(job.checkout), tx);
+
+      const at = now.toISOString();
+      const assignments = { ...job.assignments };
+      const events = [...job.history];
+      const made: { cleanerId: string; cleaningId: string; amountCents: number | null }[] = [];
+      for (const cid of toMark) {
+        const { ref, stored, assignment, event } = markOf(db, job, cid, names.get(cid) ?? null, actor, prices, fieldText(property.get('name')), at, {});
+        tx.create(ref, stored);
+        assignments[cid] = assignment;
+        events.push(event);
+        made.push({ cleanerId: cid, cleaningId: ref.id, amountCents: stored.amountCents });
+      }
+      const next = { assignments, history: events };
+      tx.update(jobRef, next);
+      return { kind: 'recorded', job: { ...job, ...next }, cleanings: made, statementMonth };
+    });
+  } catch (err) {
+    console.error(`[jobs] recording ${jobId} cleaned failed: grpc code ${grpcCode(err)}`);
+    return { kind: 'failed' };
+  }
+}
+
+export const RECORD_REFUSALS: Record<'not-found' | 'changed-since' | 'unreadable' | 'nothing-to-record' | 'booking-changed' | 'no-such-property' | 'failed', Refusal> = {
+  'not-found': ASSIGN_REFUSALS['not-found'],
+  'changed-since': ASSIGN_REFUSALS['changed-since'],
+  unreadable: ASSIGN_REFUSALS.unreadable,
+  'nothing-to-record': { status: 409, code: 'JOB_NOTHING_TO_RECORD', message: 'Everyone named has marked this job already.', hint: 'Nothing was recorded.' },
+  'booking-changed': { status: 409, code: 'JOB_BOOKING_CHANGED', message: 'This job’s booking changed: it cannot be recorded as cleaned.', hint: 'Nothing was recorded.' },
+  'no-such-property': { status: 404, code: 'PROPERTY_NOT_FOUND', message: 'This job’s property no longer exists.', hint: 'Nothing was recorded.' },
+  failed: { status: 502, code: 'RECORD_FAILED', message: 'Not confirmed.', hint: 'It may or may not have been recorded. Reload the Schedule to see; recording again never counts a cleaning twice.' },
+};
+
+// ─── A job added by hand (ruling C) ────────────────────────────
+
+export interface AddJobInput {
+  propertyId: string;
+  /** The day it is cleaned: any day. */
+  checkout: string;
+  /** An active cleaner to put on it, or nobody yet. */
+  cleanerId: string | null;
+  tier: PresetKind;
+  /** The job's own amount (ruling B), or none. */
+  amountCents: number | null;
+}
+
+export type AddJobResult =
+  | { kind: 'added'; job: StoredJob; propertyName: string | null }
+  /** A job for that property and day exists already (one property has at most one job a day). */
+  | { kind: 'exists'; job: StoredJob | null }
+  | { kind: 'no-such-property' }
+  | { kind: 'not-assignable'; name: string | null; why: 'missing' | 'not-a-cleaner' | 'inactive' }
+  | { kind: 'failed' };
+
+export const ADD_JOB_REFUSALS: Record<'exists' | 'no-such-property' | 'failed', Refusal> = {
+  exists: { status: 409, code: 'JOB_EXISTS', message: 'A job for this property on that day exists already.', hint: 'Nothing was added. Assign or change it on the Schedule.' },
+  'no-such-property': { status: 404, code: 'PROPERTY_NOT_FOUND', message: 'That property does not exist.', hint: 'Nothing was added.' },
+  failed: { status: 502, code: 'JOB_SAVE_FAILED', message: 'Could not add the job.', hint: 'It may or may not have been added. Reload the Schedule to see.' },
+};
+
+/**
+ * Add a job by hand (Kian's ruling C of 2026-11-01): for any property, with or without a calendar, any date, any
+ * active cleaner, and a chosen tier (short by default), with the job's own amount when the admin typed one (ruling
+ * B). The job's ID is the property and the day, as the calendar's, so it reaches the cleaner's app like any job and
+ * is marked the same way; the calendar never changes or settles it (origin "admin"). One transaction: the property
+ * and the cleaner read, the job created.
+ */
+export async function addJob(actor: Actor, input: AddJobInput, now: Date = new Date()): Promise<AddJobResult> {
+  const db = getAdminDb();
+  if (!isDocumentId(input.propertyId)) return { kind: 'no-such-property' };
+  const id = jobIdOf(input.propertyId, input.checkout);
+  const ref = db.collection(CLEANING_JOBS_COLLECTION).doc(id);
+  try {
+    return await db.runTransaction(async (tx): Promise<AddJobResult> => {
+      const [existing, property] = await Promise.all([tx.get(ref), tx.getAll(db.collection('properties').doc(input.propertyId), { fieldMask: ['name'] }).then(([doc]) => doc)]);
+      if (!property.exists) return { kind: 'no-such-property' };
+      if (existing.exists) return { kind: 'exists', job: readJob(existing.id, existing.data() ?? {}) };
+      let cleaner: { id: string; name: string | null } | null = null;
+      if (input.cleanerId !== null) {
+        const [account] = await tx.getAll(db.collection(CLEANERS_COLLECTION).doc(input.cleanerId), { fieldMask: ['name', 'role', 'status'] });
+        if (!account.exists) return { kind: 'not-assignable', name: null, why: 'missing' };
+        const name = fieldText(account.get('name'));
+        if (roleOf({ role: account.get('role') }) !== 'cleaner') return { kind: 'not-assignable', name, why: 'not-a-cleaner' };
+        if (account.get('status') !== 'active') return { kind: 'not-assignable', name, why: 'inactive' };
+        cleaner = { id: account.id, name };
+      }
+      const at = now.toISOString();
+      const propertyName = fieldText(property.get('name'));
+      const history = [jobEvent(at, 'added', actor, { reason: `${TIER_WORDS[input.tier]} job`, after: { start: null, end: input.checkout } })];
+      if (input.amountCents !== null) history.push(jobEvent(at, 'amount-set', actor, { amountCents: input.amountCents }));
+      if (cleaner) history.push(jobEvent(at, 'assigned', actor, { cleanerId: cleaner.id, cleanerName: cleaner.name }));
+      const job: CleaningJob = {
+        schemaVersion: JOB_SCHEMA_VERSION,
+        propertyId: input.propertyId,
+        propertyNameAtCreation: propertyName,
+        checkout: input.checkout,
+        reservation: null,
+        calendarKey: '',
+        origin: 'admin',
+        tier: input.tier,
+        amountCents: input.amountCents,
+        nextCheckIn: null,
+        status: 'open',
+        change: null,
+        cleanerIds: cleaner ? [cleaner.id] : [],
+        assignments: cleaner ? { [cleaner.id]: newAssignment(cleaner.name, at, actor) } : {},
+        createdAt: at,
+        history,
+      };
+      tx.create(ref, job);
+      return { kind: 'added', job: { id, ...job }, propertyName };
+    });
+  } catch (err) {
+    console.error(`[jobs] adding ${id} failed: grpc code ${grpcCode(err)}`);
+    return { kind: 'failed' };
+  }
+}
+
+// ─── The job's own amount (ruling B) ───────────────────────────
+
+export type SetJobAmountResult =
+  | { kind: 'set'; job: StoredJob; changed: boolean; cleaningsChanged: number }
+  | { kind: 'not-found' }
+  | { kind: 'changed-since' }
+  | { kind: 'unreadable' }
+  /** A mark's cleaning already counts its money (not waiting on an extra ask, not without an amount): edited on the Cleanings tab. */
+  | { kind: 'locked' }
+  | { kind: 'failed' };
+
+export const JOB_AMOUNT_REFUSALS: Record<'not-found' | 'changed-since' | 'unreadable' | 'locked' | 'failed', Refusal> = {
+  'not-found': ASSIGN_REFUSALS['not-found'],
+  'changed-since': ASSIGN_REFUSALS['changed-since'],
+  unreadable: ASSIGN_REFUSALS.unreadable,
+  locked: { status: 409, code: 'JOB_AMOUNT_LOCKED', message: 'A cleaning of this job already counts its money.', hint: 'Nothing was saved. Change that cleaning’s amount on the Cleanings tab.' },
+  failed: { status: 502, code: 'JOB_SAVE_FAILED', message: 'Could not save the job’s amount.', hint: 'It may or may not have been saved. Reload the Schedule to see.' },
+};
+
+/**
+ * Set, change or clear a job's own amount (Kian's ruling B of 2026-11-01): "before assignment or at any time before
+ * the cleaning's money is approved. It beats the base price." As the admin saw it (`seen`). A mark's cleaning that
+ * still waits — its cleaner asked for extra and no admin has decided, or it has no amount yet — follows the new
+ * amount when it is the job's one cleaner (its history says so); one whose money already counts locks the amount
+ * here. Two or more cleaners on the job: the amount is kept on the job and gives no cleaning an amount (the admin
+ * types the split).
+ */
+export async function setJobAmount(actor: Actor, jobId: string, amountCents: number | null, seen: number, now: Date = new Date()): Promise<SetJobAmountResult> {
+  const db = getAdminDb();
+  const ref = db.collection(CLEANING_JOBS_COLLECTION).doc(jobId);
+  try {
+    return await db.runTransaction(async (tx): Promise<SetJobAmountResult> => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) return { kind: 'not-found' };
+      const job = readJob(snap.id, snap.data() ?? {});
+      if (!job) return { kind: 'unreadable' };
+      if (job.history.length !== seen) return { kind: 'changed-since' };
+      if (job.amountCents === amountCents) return { kind: 'set', job, changed: false, cleaningsChanged: 0 };
+      const marked = job.cleanerIds.map((cid) => job.assignments[cid]).filter((a) => a.cleaningId !== null && a.removedAt === null);
+      const docs = marked.length ? await tx.getAll(...marked.map((a) => db.collection(CLEANINGS_COLLECTION).doc(a.cleaningId as string))) : [];
+      const waiting: { ref: DocumentReference; cleaning: Cleaning & { id: string } }[] = [];
+      for (const doc of docs) {
+        if (!doc.exists) continue;
+        const cleaning = readCleaning(doc.id, doc.data() ?? {});
+        if (!cleaning || cleaning.status !== 'logged') continue;
+        const counts = cleaning.amountCents !== null && cleaning.extra?.status !== 'asked';
+        if (counts) return { kind: 'locked' };
+        waiting.push({ ref: doc.ref, cleaning });
+      }
+      const at = now.toISOString();
+      tx.update(ref, { amountCents, history: [...job.history, jobEvent(at, 'amount-set', actor, { amountCents })] });
+      let cleaningsChanged = 0;
+      // A waiting cleaning of the job's one cleaner follows the job's amount; a share of several never does.
+      if (job.cleanerIds.length === 1 && amountCents !== null) {
+        for (const { ref: cleaningRef, cleaning } of waiting) {
+          if (cleaning.amountCents === amountCents) continue;
+          const event: CleaningEvent = { at, action: 'changed', actor, reason: 'amount set on the job', before: { amountCents: cleaning.amountCents }, after: { amountCents } };
+          tx.update(cleaningRef, { amountCents, amountFrom: 'job', history: [...cleaning.history, event] });
+          cleaningsChanged += 1;
+        }
+      }
+      return { kind: 'set', job: { ...job, amountCents, history: [...job.history, jobEvent(at, 'amount-set', actor, { amountCents })] }, changed: true, cleaningsChanged };
+    });
+  } catch (err) {
+    console.error(`[jobs] setting the amount on ${jobId} failed: grpc code ${grpcCode(err)}`);
+    return { kind: 'failed' };
+  }
+}
+
+// ─── Change cleaner (ruling D) ─────────────────────────────────
+
+export type SwapResult =
+  | { kind: 'swapped'; job: StoredJob; from: string | null; to: string | null }
+  | { kind: 'not-found' }
+  | { kind: 'changed-since' }
+  | { kind: 'unreadable' }
+  | { kind: 'booking-changed' }
+  | { kind: 'not-on-job' }
+  /** The cleaner coming off marked it: their mark and cleaning stay; the office changes the cleaning under 37B. */
+  | { kind: 'marked'; name: string | null }
+  | { kind: 'already-on'; name: string | null }
+  | { kind: 'not-assignable'; name: string | null; why: 'missing' | 'not-a-cleaner' | 'inactive' }
+  | { kind: 'failed' };
+
+export const SWAP_REFUSALS: Record<'not-found' | 'changed-since' | 'unreadable' | 'booking-changed' | 'not-on-job' | 'failed', Refusal> = {
+  'not-found': ASSIGN_REFUSALS['not-found'],
+  'changed-since': ASSIGN_REFUSALS['changed-since'],
+  unreadable: ASSIGN_REFUSALS.unreadable,
+  'booking-changed': ASSIGN_REFUSALS['booking-changed'],
+  'not-on-job': { status: 409, code: 'JOB_CLEANER_NOT_ON_IT', message: 'That cleaner is not on this job.', hint: 'Nothing was saved. Reload the Schedule.' },
+  failed: ASSIGN_REFUSALS.failed,
+};
+
+/**
+ * Change a job's cleaner (Kian's ruling D of 2026-11-01): "a one-step swap on an assigned job, logged. The old
+ * cleaner's app drops it and the new one's shows it." One transaction: `from` comes off (never once they marked it),
+ * `to`, an active cleaner not already on it, goes on in their place; the history says who was replaced by whom. As
+ * the admin saw it (`seen`).
+ */
+export async function swapCleaner(actor: Actor, jobId: string, from: string, to: string, seen: number, now: Date = new Date()): Promise<SwapResult> {
+  const db = getAdminDb();
+  const ref = db.collection(CLEANING_JOBS_COLLECTION).doc(jobId);
+  try {
+    return await db.runTransaction(async (tx): Promise<SwapResult> => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) return { kind: 'not-found' };
+      const job = readJob(snap.id, snap.data() ?? {});
+      if (!job) return { kind: 'unreadable' };
+      if (job.history.length !== seen) return { kind: 'changed-since' };
+      if (job.status !== 'open') return { kind: 'booking-changed' };
+      const leaving = job.assignments[from];
+      if (!leaving) return { kind: 'not-on-job' };
+      if (leaving.cleaningId !== null) return { kind: 'marked', name: leaving.nameAtAssignment };
+      if (to === from || job.cleanerIds.includes(to)) return { kind: 'already-on', name: job.assignments[to]?.nameAtAssignment ?? leaving.nameAtAssignment };
+      const [account] = await tx.getAll(db.collection(CLEANERS_COLLECTION).doc(to), { fieldMask: ['name', 'role', 'status'] });
+      if (!account.exists) return { kind: 'not-assignable', name: null, why: 'missing' };
+      const toName = fieldText(account.get('name'));
+      if (roleOf({ role: account.get('role') }) !== 'cleaner') return { kind: 'not-assignable', name: toName, why: 'not-a-cleaner' };
+      if (account.get('status') !== 'active') return { kind: 'not-assignable', name: toName, why: 'inactive' };
+
+      const at = now.toISOString();
+      const assignments: Record<string, Assignment> = {};
+      const cleanerIds: string[] = [];
+      for (const cid of job.cleanerIds) {
+        if (cid === from) {
+          assignments[to] = newAssignment(toName, at, actor);
+          cleanerIds.push(to);
+        } else {
+          assignments[cid] = job.assignments[cid];
+          cleanerIds.push(cid);
+        }
+      }
+      const history = [
+        ...job.history,
+        jobEvent(at, 'unassigned', actor, { cleanerId: from, cleanerName: leaving.nameAtAssignment, reason: `replaced by ${toName ?? 'another cleaner'}` }),
+        jobEvent(at, 'assigned', actor, { cleanerId: to, cleanerName: toName, reason: `in place of ${leaving.nameAtAssignment ?? 'another cleaner'}` }),
+      ];
+      tx.update(ref, { cleanerIds, assignments, history });
+      return { kind: 'swapped', job: { ...job, cleanerIds, assignments, history }, from: leaving.nameAtAssignment, to: toName };
+    });
+  } catch (err) {
+    console.error(`[jobs] changing the cleaner on ${jobId} failed: grpc code ${grpcCode(err)}`);
     return { kind: 'failed' };
   }
 }
@@ -547,7 +914,7 @@ export async function undoMark(cleaner: { id: string; name: string | null }, job
       const at = now.toISOString();
       const actor: Actor = { role: 'cleaner', id: cleaner.id, name: cleaner.name };
       const next = {
-        assignments: { ...job.assignments, [cleaner.id]: { ...mine, cleaningId: null, markedAt: null } },
+        assignments: { ...job.assignments, [cleaner.id]: { ...mine, cleaningId: null, markedAt: null, note: null, extraAsked: false } },
         history: [...job.history, jobEvent(at, 'unmarked', actor, { cleanerId: cleaner.id, cleanerName: mine.nameAtAssignment, cleaningId: cleaning.id, amountCents: cleaning.amountCents })],
       };
       tx.delete(cleaningRef);
@@ -614,7 +981,7 @@ export async function reopenMark(actor: Actor, jobId: string, cleanerId: string,
 
       const at = now.toISOString();
       const next = {
-        assignments: { ...job.assignments, [cleanerId]: { ...mine, cleaningId: null, markedAt: null, removedAt: null, removedBy: null } },
+        assignments: { ...job.assignments, [cleanerId]: { ...mine, cleaningId: null, markedAt: null, removedAt: null, removedBy: null, note: null, extraAsked: false } },
         history: [...job.history, jobEvent(at, 'mark-reopened', actor, { cleanerId, cleanerName: name, cleaningId: mine.cleaningId })],
       };
       tx.update(ref, next);

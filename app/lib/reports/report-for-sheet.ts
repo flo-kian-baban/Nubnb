@@ -18,14 +18,15 @@ export interface SheetFields {
   stem: string;
   /** "20" or "12.5"; '' for none. */
   rate: string;
-  /** The cleaning prices, "80.00"; '' for none (Kian's ruling of 2026-10-19). */
+  /** The cleaning prices, "75.00"; '' for none (Kian's ruling of 2026-10-19; the mid tier, ruling A of 2026-11-01). */
   short: string;
+  mid: string;
   long: string;
 }
 
 /** The fields the management route holds, and the fields the prices route holds. */
 export const MANAGEMENT_FIELDS = ['name', 'address', 'stem', 'rate'] as const;
-export const PRICE_FIELDS = ['short', 'long'] as const;
+export const PRICE_FIELDS = ['short', 'mid', 'long'] as const;
 
 /** A rate as typed: "20" or "12.5", at most two decimals, 0–100 (the management route's rule). */
 const RATE = /^(100(\.0{1,2})?|[0-9]{1,2}(\.[0-9]{1,2})?)$/;
@@ -38,6 +39,7 @@ export function sheetFieldsOf(record: Pick<PropertyManagementView, 'reportFor' |
     stem: record?.referenceStem ?? '',
     rate: record?.defaultFeeRateBasisPoints == null ? '' : rateText(record.defaultFeeRateBasisPoints).replace('%', ''),
     short: priceField(prices?.shortTermCents ?? null),
+    mid: priceField(prices?.midTermCents ?? null),
     long: priceField(prices?.longTermCents ?? null),
   };
 }
@@ -53,7 +55,7 @@ const lines = (text: string) =>
     .filter((line, i, all) => line !== '' || (i > 0 && i < all.length - 1))
     .join('\n')
     .trim();
-/** A price as the route will store it ("80.00"), '' for none, or the text itself when it is not a price (so it never reads as equal to a stored one). A row from before the prices (no field) is none. */
+/** A price as the route will store it ("75.00"), '' for none, or the text itself when it is not a price (so it never reads as equal to a stored one). A row from before the prices (no field) is none. */
 const price = (text: string | undefined) => {
   const read = readPriceText(text ?? '');
   return read.kind === 'none' ? '' : read.kind === 'cents' ? priceField(read.cents) : `?${text}`;
@@ -61,7 +63,7 @@ const price = (text: string | undefined) => {
 
 /** The row as the routes will store it: what two rows are compared by, so a change that stores nothing new sends nothing. */
 export function sheetNormal(fields: SheetFields): SheetFields {
-  return { name: oneLine(fields.name), address: lines(fields.address), stem: oneLine(fields.stem), rate: fields.rate.trim(), short: price(fields.short), long: price(fields.long) };
+  return { name: oneLine(fields.name), address: lines(fields.address), stem: oneLine(fields.stem), rate: fields.rate.trim(), short: price(fields.short), mid: price(fields.mid), long: price(fields.long) };
 }
 
 /** Why the row cannot be saved as typed, in one line; null when it can. */
@@ -74,8 +76,9 @@ export function sheetProblem(fields: SheetFields): string | null {
   const stem = stemProblem(row.stem);
   if (stem) return `The stem: ${stem}`;
   if (row.rate !== '' && !RATE.test(row.rate)) return 'The fee rate is a percent, like 20 or 12.5.';
-  if (readPriceText(fields.short ?? '').kind === 'bad') return 'The short-term cleaning price is dollars and cents, like 80 or 80.00, up to 9,999.99.';
-  if (readPriceText(fields.long ?? '').kind === 'bad') return 'The long-term cleaning price is dollars and cents, like 120 or 120.00, up to 9,999.99.';
+  if (readPriceText(fields.short ?? '').kind === 'bad') return 'The short-term cleaning price is dollars and cents, like 75 or 75.00, up to 9,999.99.';
+  if (readPriceText(fields.mid ?? '').kind === 'bad') return 'The mid-term cleaning price is dollars and cents, like 75 or 75.00, up to 9,999.99.';
+  if (readPriceText(fields.long ?? '').kind === 'bad') return 'The long-term cleaning price is dollars and cents, like 115 or 115.00, up to 9,999.99.';
   return null;
 }
 
@@ -85,9 +88,9 @@ export function sheetPayload(fields: SheetFields): { reportFor: { name: string; 
   return { reportFor: row.name === '' ? null : { name: row.name, address: row.address }, referenceStem: row.stem || null, defaultFeeRate: row.rate || null };
 }
 
-/** What the row sends to the prices route: both presets, "80.00" or null (Kian's ruling of 2026-10-19). Only for a row sheetProblem accepts. */
-export function pricesPayload(fields: SheetFields): { shortTerm: string | null; longTerm: string | null } {
-  return { shortTerm: priceTextForRoute(fields.short) ?? null, longTerm: priceTextForRoute(fields.long) ?? null };
+/** What the row sends to the prices route: the three presets, "75.00" or null (Kian's rulings of 2026-10-19 and A of 2026-11-01). Only for a row sheetProblem accepts. */
+export function pricesPayload(fields: SheetFields): { shortTerm: string | null; midTerm: string | null; longTerm: string | null } {
+  return { shortTerm: priceTextForRoute(fields.short) ?? null, midTerm: priceTextForRoute(fields.mid) ?? null, longTerm: priceTextForRoute(fields.long) ?? null };
 }
 
 /** Two rows whose management fields store the same thing. */

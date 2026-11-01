@@ -1,0 +1,74 @@
+═══ 1. Three tiers by the booking's nights: short 1–6, mid 7–27, long 28+ (ruling A) ═══
+   1 nights → short (short-term, 1–6 nights): $83.00
+   6 nights → short (short-term, 1–6 nights): $83.00
+   7 nights → mid (mid-term, 7–27 nights): $95.00
+  27 nights → mid (mid-term, 7–27 nights): $95.00
+  28 nights → long (long-term, 28+ nights): $133.00
+  45 nights → long (long-term, 28+ nights): $133.00
+   ok   the boundaries: 6 short, 7 mid, 27 mid, 28 long
+  a version 1 record (two tiers) reads mid as: $83.00 (its short is $83.00) · history before/after mid: none / $83.00
+   ok   a record from before the mid tier reads its mid price as its short one (mid starts equal to short)
+  a CSV with no mid column: mid = $83.00; with one: $95.00
+   ok   the import without a mid column gives mid = short
+  mark on P, 3 nights, one cleaner: marked · $83.00 · from short · amountFrom short · schema 4 · extra null
+  mark on P, 10 nights, one cleaner: marked · $95.00 · from mid · amountFrom mid · schema 4 · extra null
+  mark on P, 30 nights, one cleaner: marked · $133.00 · from long · amountFrom long · schema 4 · extra null
+   ok   3 nights → short, 10 → mid, 30 → long
+  two cleaners on one job: Ana none (split) · Ben none (split)
+   ok   two cleaners on a job still give no amount
+  the short price raised: the earlier 3-night cleaning still $83.00 (short); the next mark takes $87.00
+   ok   a base change never alters an existing cleaning; the next mark takes the new base
+
+═══ 2. The job's own amount beats the base price (ruling B) ═══
+  set $111.11 on a 33-night job before the mark: set, changed true, history created,assigned,amount-set
+  the mark: $111.11 · from job · amountFrom job (the long-term base is $133.00)
+   ok   a per-job amount beats all three tiers
+  changing it after the mark counted its money: locked
+   ok   the amount is locked once a mark's cleaning counts its money
+  $103.00 on a two-cleaner job: Ana's mark none (split)
+   ok   two cleaners: the job's amount gives no cleaning an amount; the admin types the split
+  a cleaning by hand on the job's day starts from: {"from":"job","cents":11111,"nights":33,"tier":"long"}
+   ok   logging by hand on that day starts from the job's amount
+  a job added by hand on Q (no prices), mid tier, Ana on it: added · origin admin · tier mid · reservation null · history added,assigned · reads back true
+   ok   Add a job (ruling C): by hand, a chosen tier, a cleaner on it, read back strictly
+   ok   one job a day per property: a second add is refused
+  the calendar sync's plan for the job added by hand, its property read with no reservation: nothing (left as it is)
+   ok   the calendar never changes a job added by hand
+  Ana's mark on it (Q has no prices): marked · none · from mid
+   ok   marked like any job; no mid preset on Q, so no amount
+  Change cleaner (ruling D): swapped · on it TESTCLEANERflowaben1 · last events unassigned(Test Ana: replaced by Test Ben) assigned(Test Ben: in place of Test Ana)
+   ok   one swap: Ana off, Ben on, both logged
+
+═══ 3. Record as cleaned by an admin equals the cleaner's own mark (ruling E) ═══
+  recorded: recorded · $87.00 · from short · amountFrom short · actor admin · logged by admin (recorded by the office) · the job's marked event by admin for Test Ana
+   ok   the stored cleaning is the same as the cleaner's own mark, but for who made it and when
+   ok   the audit trail names the admin, and the cleaner it was recorded for
+  the statement's cost rows: own mark → Cleaning · Nov 14, 2028 $87.00 kind cleaning; recorded → Cleaning · Nov 15, 2028 $87.00 kind cleaning
+   ok   the statement charges the same cleaning line either way
+  pay: own $87.00 · recorded $87.00
+   ok   the cleaner is owed the same either way
+  a job whose day has not come: too-early (opens 2028-11-20)
+   ok   only a job whose day has come
+   ok   recording again counts nothing twice
+
+═══ 4. "Ask for extra" holds the money until an admin decides (ruling F) ═══
+  the mark with a note and an extra: marked · $87.00 (short) · extra asked "Deep clean after a party" · note "Left the keys in the box" · the job's assignment: extraAsked true, note "Left the keys in the box" · its marked event carries note/extra: true/true
+   ok   the cleaning arrives with the base amount, its extra asked, the job flagged
+  while asked: entry status pending (Extra asked by the cleaner: the amount waits for an admin’s decision in the Cleanings tab.) · statement cost rows 0 · pay earned $0.00, extraAsked 1, row state extra-asked "Extra asked: Deep clean after a party"
+   ok   the money is absent from the statement and the pay
+  the Schedule says "Cleaned · extra asked" (extra); the home's cell "Extra asked" (warning)
+   ok   the Schedule reads "Cleaned · extra asked" in amber; the home's cell "Extra asked"
+  approved at $123.00: decided · $123.00 (typed) · extra approved by Test admin · last event extra-approved $87.00 → $123.00
+  then: statement row Cleaning · Nov 16, 2028 $123.00 kind cleaning · pay earned $123.00 · changes Extra approved: $87.00 → $123.00
+   ok   approved with a new amount: it appears at that amount, on the statement and in pay
+  declined: decided · $87.00 (short) · extra declined · statement row Cleaning · Nov 17, 2028 $87.00 kind cleaning · pay earned $87.00
+   ok   declined: the base amount counts
+   ok   a decided extra cannot be decided again
+  the route's body: {"action":"mark","note":null,"extraReason":"x"} · undo true · an amount in a mark body: refused
+   ok   a mark carries a note and a reason, never an amount (ruling H)
+  what the cleaner's app is sent per job: canUndo, change, checkInTime, checkOutTime, checkout, city, extraAsked, id, markRefusal, markedAt, nextCheckIn, note, propertyId, propertyName, status
+   ok   no amount, price or rate reaches the cleaner; the extra flag does
+  a property with no calendar link (ruling G): "No calendar" (none, no-calendar)
+   ok   no link reads "No calendar", grey
+
+all checks passed

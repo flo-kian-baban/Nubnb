@@ -20,7 +20,7 @@
 import { describeErrorBody, readErrorBody } from '@/app/lib/api/http-failure';
 import type { CostEntryView, CostsView, HistoryEventView, LinesNow, QueueView, ReportExportView, ReviewStatus } from '@/app/lib/cleaners/model';
 import type { CleaningView, TeamChoice } from '@/app/lib/cleanings/model';
-import { isPriceCents, type CleaningPrices, type PresetKind } from '@/app/lib/cleanings/prices';
+import { isPriceCents, type CleaningPrices, type JobFacts, type PresetKind } from '@/app/lib/cleanings/prices';
 import type { CostsMonth } from '@/app/lib/costs/month-view';
 
 export type CostResult<T> =
@@ -293,7 +293,7 @@ export interface CleaningsRead {
   /** Each property's two presets, by property ID (Kian's ruling of 2026-10-19); a property with none is absent. */
   prices: Record<string, CleaningPrices>;
   /** For the cleanings waiting for an amount: their job's stay in nights and how many cleaners were on it, by job ID. */
-  jobs: Record<string, { nights: number; cleaners: number }>;
+  jobs: Record<string, JobFacts>;
 }
 
 /** The Cleanings tab's own read (the Costs page, round 1): every cleaning, the team, the presets and the waiting jobs. */
@@ -316,7 +316,7 @@ export function fetchCleanings(): Promise<CostResult<CleaningsRead>> {
 }
 
 /** What missing amounts start from (the Team page's pay view, 2026-10-19): the named properties' presets and the named jobs' stay and cleaner count, for prices.ts `missingAmountStart`. */
-export function fetchAmountStarts(propertyIds: readonly string[], jobIds: readonly string[]): Promise<CostResult<{ prices: Record<string, CleaningPrices>; jobs: Record<string, { nights: number; cleaners: number }> }>> {
+export function fetchAmountStarts(propertyIds: readonly string[], jobIds: readonly string[]): Promise<CostResult<{ prices: Record<string, CleaningPrices>; jobs: Record<string, JobFacts> }>> {
   const query = new URLSearchParams({ properties: propertyIds.join(','), jobs: jobIds.join(',') });
   return call(
     `/api/admin/cleanings/starts?${query.toString()}`,
@@ -332,12 +332,12 @@ export function fetchAmountStarts(propertyIds: readonly string[], jobIds: readon
 }
 
 /** What a cleaning logged by hand for this property and day starts from (Kian's ruling of 2026-10-19): the preset by the stay of its job that day, else the short-term preset. */
-export function fetchCleaningSuggestion(propertyId: string, day: string): Promise<CostResult<{ from: PresetKind; cents: number | null; nights: number; job: boolean }>> {
+export function fetchCleaningSuggestion(propertyId: string, day: string): Promise<CostResult<{ from: PresetKind | 'job'; cents: number | null; nights: number; tier: PresetKind; job: boolean }>> {
   return call(
     `/api/admin/cleanings/suggest?propertyId=${encodeURIComponent(propertyId)}&day=${encodeURIComponent(day)}`,
     {},
     'Reading what the amount starts from failed',
-    (data) => isRecord(data) && (data.from === 'short' || data.from === 'long') && (data.cents === null || typeof data.cents === 'number') && typeof data.nights === 'number' && typeof data.job === 'boolean',
+    (data) => isRecord(data) && (data.from === 'short' || data.from === 'mid' || data.from === 'long' || data.from === 'job') && (data.cents === null || typeof data.cents === 'number') && typeof data.nights === 'number' && typeof data.job === 'boolean',
   );
 }
 
@@ -598,7 +598,7 @@ export interface CleaningSaved {
 }
 
 /**
- * Log one cleaning (Kian's rulings of 2026-10-13: by hand; the amount as the admin left it, "60.00"). The answer
+ * Log one cleaning (Kian's rulings of 2026-10-13: by hand; the amount as the admin left it, "65.00"). The answer
  * names the statement it goes on. CLEANING_LOG_FAILED may or may not have landed: the page says so and offers
  * Refresh rather than sending it again.
  */
@@ -624,6 +624,17 @@ export function changeCleaning(id: string, request: { seen: number; day?: string
 }
 
 /** Remove a cleaning: it stays, marked, and counts nowhere; a statement that printed it is given it back. */
+/** Decide the extra a cleaner asked for (PATCH, action "extra"; Kian's ruling F of 2026-11-01): approve at its amount or at `amount`, or decline. */
+export function decideCleaningExtra(id: string, request: { seen: number; decision: 'approve' | 'decline'; amount?: string; reason?: string | null }): Promise<CostResult<{ cleaning: CleaningView; statementMonth: string }>> {
+  return call(
+    `/api/admin/cleanings/${encodeURIComponent(id)}`,
+    { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'extra', ...request, reason: request.reason ?? null }) },
+    'Deciding the extra failed',
+    (data) => isRecord(data) && isCleaningView(data.cleaning) && typeof data.statementMonth === 'string',
+    ['CLEANING_SAVE_FAILED'],
+  );
+}
+
 export function removeCleaning(id: string, request: { seen: number; reason?: string | null }): Promise<CostResult<{ cleaning: CleaningView }>> {
   return call(
     `/api/admin/cleanings/${encodeURIComponent(id)}`,

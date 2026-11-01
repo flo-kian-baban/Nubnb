@@ -9,6 +9,7 @@
 
 import { describeErrorBody, readErrorBody } from '@/app/lib/api/http-failure';
 import type { AssigneeView, JobView, ScheduleRead, StoredJob, TeamMember } from '@/app/lib/schedule/model';
+import type { PresetKind } from '@/app/lib/cleanings/prices';
 
 export type ScheduleResult<T> =
   | { ok: true; data: T }
@@ -124,6 +125,61 @@ export function reopenJobFor(jobId: string, cleanerId: string, seen: number): Pr
   );
 }
 
+/** Add a job by hand (POST /api/admin/cleaning-jobs; Kian's ruling C of 2026-11-01). JOB_SAVE_FAILED: it may or may not have landed. */
+export function addJobByHand(input: { propertyId: string; checkout: string; cleanerId: string | null; tier: PresetKind; amount: string | null }): Promise<ScheduleResult<{ job: StoredJob; propertyName: string | null }>> {
+  return call(
+    '/api/admin/cleaning-jobs',
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) },
+    'Adding the job failed',
+    (data) => isRecord(data) && isJobLike(data.job),
+    ['JOB_SAVE_FAILED'],
+  );
+}
+
+/** Change a job's cleaner in one step (ruling D): `from` off, `to` on, as the page saw it (`seen`). JOB_SAVE_FAILED: unknown whether it landed. */
+export function swapJobCleaner(jobId: string, from: string, to: string, seen: number): Promise<ScheduleResult<{ job: StoredJob; changed: boolean; from: string | null; to: string | null }>> {
+  return call(
+    `/api/admin/cleaning-jobs/${encodeURIComponent(jobId)}`,
+    { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'swap', from, to, seen }) },
+    'Changing the cleaner failed',
+    (data) => isRecord(data) && isJobLike(data.job) && (data.job as Record<string, unknown>).id === jobId,
+    ['JOB_SAVE_FAILED'],
+  );
+}
+
+/** Set, change or clear a job's own amount (ruling B), "75.00" or null, as the page saw it (`seen`). */
+export function setJobAmountOf(jobId: string, amount: string | null, seen: number): Promise<ScheduleResult<{ job: StoredJob; changed: boolean; cleaningsChanged: number }>> {
+  return call(
+    `/api/admin/cleaning-jobs/${encodeURIComponent(jobId)}`,
+    { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'amount', amount, seen }) },
+    'Saving the job’s amount failed',
+    (data) => isRecord(data) && isJobLike(data.job) && (data.job as Record<string, unknown>).id === jobId && typeof data.changed === 'boolean',
+    ['JOB_SAVE_FAILED'],
+  );
+}
+
+/** Record a job cleaned for its assigned cleaners (ruling E), as the page saw it (`seen`). RECORD_FAILED: unknown whether it landed. */
+export function recordJobCleaned(jobId: string, cleanerIds: string[], seen: number): Promise<ScheduleResult<{ job: StoredJob; cleanings: { cleanerId: string; cleaningId: string; amountCents: number | null }[]; statementMonth: string }>> {
+  return call(
+    `/api/admin/cleaning-jobs/${encodeURIComponent(jobId)}/record`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cleanerIds, seen }) },
+    'Recording the job cleaned failed',
+    (data) => isRecord(data) && isJobLike(data.job) && (data.job as Record<string, unknown>).id === jobId && Array.isArray(data.cleanings) && typeof data.statementMonth === 'string',
+    ['RECORD_FAILED'],
+  );
+}
+
+/** Decide the extra a cleaner asked for on a job's cleaning (ruling F), from the Schedule row: approve at its amount or a new one, or decline. */
+export function decideJobExtra(cleaningId: string, decision: 'approve' | 'decline', amount: string | undefined, seen: number): Promise<ScheduleResult<{ cleaning: { id: string; amountCents: number | null; history: unknown[] }; statementMonth: string }>> {
+  return call(
+    `/api/admin/cleanings/${encodeURIComponent(cleaningId)}`,
+    { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'extra', decision, ...(amount !== undefined ? { amount } : {}), seen, reason: null }) },
+    'Deciding the extra failed',
+    (data) => isRecord(data) && isRecord(data.cleaning) && typeof (data.cleaning as Record<string, unknown>).id === 'string' && typeof data.statementMonth === 'string',
+    ['CLEANING_SAVE_FAILED'],
+  );
+}
+
 /** What Refresh calendars made and changed: the job sync's outcome, after the copy was written. */
 export interface RefreshAnswer {
   jobs: { created: number; changed: number; watched: number; unreadable: number; failed: string | null };
@@ -154,7 +210,12 @@ export function mergeJob(previous: JobView, stored: StoredJob, team: readonly Te
     const a = assignments[cid];
     const member = byId.get(cid);
     const had = before.get(cid);
-    return { ...a, cleanerId: cid, name: member?.name ?? a.nameAtAssignment, status: member?.status ?? null, state: member ? 'found' : 'missing', cleaning: a.cleaningId === null || a.removedAt !== null ? null : had?.cleaningId === a.cleaningId ? had.cleaning : { state: 'found', status: 'logged', amountCents: null, amountFrom: null } };
+    return { ...a, cleanerId: cid, name: member?.name ?? a.nameAtAssignment, status: member?.status ?? null, state: member ? 'found' : 'missing', cleaning: a.cleaningId === null || a.removedAt !== null ? null : had?.cleaningId === a.cleaningId ? had.cleaning : { state: 'found', status: 'logged', amountCents: null, amountFrom: null, extra: a.extraAsked ? 'asked' : null, seen: 1 } };
   });
   return { ...rest, property: previous.property, calendar: previous.calendar, assignees };
+}
+
+/** A job as the page holds it with one mark's cleaning changed: the amount recorded, or the extra decided (the page reads no more). */
+export function withCleaning(job: JobView, cleanerId: string, cleaning: Partial<NonNullable<AssigneeView['cleaning']>>): JobView {
+  return { ...job, assignees: job.assignees.map((a) => (a.cleanerId === cleanerId && a.cleaning ? { ...a, cleaning: { ...a.cleaning, ...cleaning } } : a)) };
 }

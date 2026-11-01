@@ -156,6 +156,9 @@ function isCleanerJob(data: unknown): data is CleanerJobView {
     (data.change === undefined || data.change === null || (isRecord(data.change) && typeof data.change.kind === 'string' && (data.change.movedTo === null || (isRecord(data.change.movedTo) && typeof data.change.movedTo.end === 'string')))) &&
     isTextOrNull(data.markedAt) &&
     typeof data.canUndo === 'boolean' &&
+    // Their note and extra ask on the mark (Kian's ruling F of 2026-11-01): words only, never an amount or the outcome.
+    (data.note === undefined || isTextOrNull(data.note)) &&
+    (data.extraAsked === undefined || typeof data.extraAsked === 'boolean') &&
     isTextOrNull(data.markRefusal)
   );
 }
@@ -285,14 +288,20 @@ export async function signIn(code: string): Promise<SignInResult> {
   return { kind: 'failed' };
 }
 
-/** Mark a job cleaned, or undo one's own mark (POST /api/cleaner/jobs/[id]). Never throws. */
-export async function jobAction(jobId: string, action: 'mark' | 'undo'): Promise<JobActionResult> {
+/** What goes with a mark (Kian's ruling F): an optional note, and the reason when the cleaner asks for extra. No amount, ever. */
+export interface MarkDetails {
+  note: string | null;
+  extraReason: string | null;
+}
+
+/** Mark a job cleaned (with its note and extra ask), or undo one's own mark (POST /api/cleaner/jobs/[id]). Never throws. */
+export async function jobAction(jobId: string, action: 'mark' | 'undo', details: MarkDetails = { note: null, extraReason: null }): Promise<JobActionResult> {
   let res: Response;
   try {
     res = await fetch(`/api/cleaner/jobs/${encodeURIComponent(jobId)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action }),
+      body: JSON.stringify(action === 'mark' ? { action, note: details.note, extraReason: details.extraReason } : { action }),
       cache: 'no-store',
     });
   } catch {

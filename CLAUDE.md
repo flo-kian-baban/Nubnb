@@ -954,7 +954,9 @@ Kian's review of 2026-10-19:
 - **"Cleaning prices are presets per property, not per cleaner: a short-term
   price for an ordinary turnover and a long-term price after a stay of 28
   nights or more. They are the base for each house; the admin can change any
-  cleaning's amount, because it may vary by unit, day or booking."**
+  cleaning's amount, because it may vary by unit, day or booking."** The two
+  tiers became three by Kian's ruling A of 2026-11-01 (Cleaning flow, below):
+  short 1–6 nights, mid 7–27, long 28+.
 - The presets live in a server-only record per property
   (`property_cleaning_prices/{propertyId}`), never on the property document,
   never sent to the cleaner app, owners' files or public pages. They are set
@@ -1057,6 +1059,46 @@ Build per the 2026-10-19 audit.
   home. The page's GET /api/admin/properties (1.66 MB, 118 reads) is replaced
   or narrowed to the fields the page needs, if it can be done without
   touching other pages."
+
+## Cleaning flow — Kian's rulings of 2026-11-01 (prices, jobs and marks)
+
+These replace what they change: the two tiers of *Cleaning prices* (2026-10-19) become three, and the rule of
+2026-11-01 that a property with no link and the "Not on the site" mark reads "Not on Airbnb" (65fc2ad) is replaced
+by G.
+
+- **A. "Three tiers per property, chosen by the booking's nights: short 1–6, mid 7–27, long 28+. Each property holds
+  a base price per tier in the existing server-only price record. Mid starts equal to that property's short price.
+  Admins change base prices on the property, as now. A base change never alters existing cleanings. Two cleaners on
+  a job still give no amount."**
+- **B. "Per-job amount: an admin can set an amount on any job, before assignment or at any time before the cleaning's
+  money is approved. It beats the base price. The admin also sees and can edit it from the Cleanings tab."**
+- **C. "Add a job: on the Schedule, for any property (with or without a calendar), any date, any active cleaner, and
+  a chosen tier (short by default). It reaches the cleaner's app like any job and is marked the same way."**
+- **D. "Change cleaner: a one-step swap on an assigned job, logged. The old cleaner's app drops it and the new one's
+  shows it."**
+- **E. "Record as cleaned: an admin action on any job whose day has come. It counts exactly as if the assigned
+  cleaner marked it (same amount logic, statement line and pay). The audit log notes the admin."**
+- **F. "When marking cleaned, the cleaner gets an optional note and an optional 'Ask for extra', which needs a reason
+  and has no amount field. With 'Ask for extra', the job reads 'Cleaned · extra asked' in amber. The unit counts as
+  ready, but the cleaning's money waits: not on the statement, not in pay. An admin approves it, sets a new amount or
+  declines it, from the Cleanings tab and from the Schedule row. The cleaner's app then shows 'Sent to Nubnb', never
+  an amount or the outcome. Notes are visible to admins on the job and the cleaning, never on owner statements."**
+- **G. "A property with no calendar link reads grey 'No calendar' on the home, and the 'Calendar not read' chip never
+  counts it, with or without the Unlisted mark. This replaces the 65fc2ad rule; the chip counts only set links that
+  fail."**
+- **H. "Cleaners never see an amount anywhere in their app."**
+- **The pay schedule itself stays confidential (Kian, 2026-11-01): "Never commit it and never print a rate anywhere:
+  reports use property names and counts only."** The prefill of the price records is written only after Kian confirms
+  the unsure rows (the manifest is kept outside the repository).
+
+Kian's review of 2026-11-01 (after the report):
+- **"Cleaning flow approved. Kian's rulings on the held items: H keeps receipt totals (2026-10-17 stands); B's lock
+  after a mark, and E requiring an active cleaner, accepted as built."**
+- **The prefill: "The 8 UNSURE rows: at each address the two schedule rows […] carry identical short and long prices.
+  Write both basement units at each address with that address's values; no unit-to-row mapping needed. Verify the pairs
+  are identical from the PDF before writing; if any pair differs, stop that address and report." The six units with no
+  row: "no write; admins set them." "Mid = short everywhere."** The addresses in his words are left out of this file:
+  the repository is public.
 
 ## Security rules (not Kian's rulings; the developer's, 2026-10-19)
 

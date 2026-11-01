@@ -21,8 +21,9 @@
  *   Review n Airbnb lines        the month due's lines waiting on the Income page
  *   Record direct payment        a direct payment overdue
  *   Finish <month>               the oldest statement owed
- *   Calendar not read            no calendar link, or the last refresh could not read it; never a property with no
- *                                link marked "Not on the site" (not on Airbnb, Kian's ruling of 2026-11-01)
+ *   Calendar not read            a calendar link the last refresh could not read; never a property with no link
+ *                                (Kian's ruling G of 2026-11-01: it reads "No calendar", grey, and the chip never
+ *                                counts it, with or without the Unlisted mark)
  *   Up to date                   none of these
  * A turnover cannot wait; a turnover that passed unmarked is the next thing to check (no cleaning is recorded for it,
  * so its cleaner is not paid and its owner not charged); what a statement holds comes before finishing it; a calendar
@@ -85,11 +86,6 @@ export interface RowFacts {
   hasCalendarLink: boolean;
   /** The last refresh read its calendar. */
   calendarRead: boolean;
-  /**
-   * No calendar link, and the "Not on the site" mark (unlisted): not on Airbnb (Kian's ruling of 2026-11-01). It no
-   * longer counts as "Calendar not read": no such step, not under that chip. Absent: false.
-   */
-  notOnAirbnb?: boolean;
 }
 
 export interface RowView {
@@ -161,8 +157,9 @@ export function rowView(f: RowFacts): RowView {
     step = { key: 'direct', label: 'Record direct payment', href: propertyMonth(f.propertyId, overdue.month, null), title: `${overdue.wording}, ${monthLabel(overdue.month)}: overdue${overdue.overdueMonths > 1 ? ` · ${overdue.overdueMonths} months overdue` : ''}`, when: overdue.month };
   } else if (ready > 0) {
     step = { key: 'finish', label: `Finish ${monthWords(owed[0], f.today)}`, href: propertyMonth(f.propertyId, owed[0], 'finish'), title: `${plural(owed.length, 'statement', 'statements')} owed: ${owedText}`, when: owed[0] };
-  } else if (!f.calendarRead && f.notOnAirbnb !== true) {
-    step = { key: 'calendar', label: 'Calendar not read', href: `/admin/property/edit?id=${enc(f.propertyId)}&section=calendar`, title: f.hasCalendarLink ? 'The last refresh could not read its calendar: check its link' : 'No calendar link: no turnover is known', when: null };
+  } else if (f.hasCalendarLink && !f.calendarRead) {
+    // Only a set link that failed (ruling G): a property with no link is "No calendar", and never counted here.
+    step = { key: 'calendar', label: 'Calendar not read', href: `/admin/property/edit?id=${enc(f.propertyId)}&section=calendar`, title: 'The last refresh could not read its calendar: check its link', when: null };
   } else {
     step = { key: 'none', label: 'Up to date', href: null, title: 'Nothing to do', when: null };
   }
@@ -179,7 +176,7 @@ export function rowView(f: RowFacts): RowView {
       review: f.review > 0,
       cleaner: unstaffed.length > 0,
       'not-marked': notMarked.length > 0,
-      calendar: !f.calendarRead && f.notOnAirbnb !== true,
+      calendar: f.hasCalendarLink && !f.calendarRead,
       direct: overdue !== null,
     },
   };

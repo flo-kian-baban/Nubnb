@@ -12,9 +12,15 @@
  * more than three hours old (or from another day), so the page shows the run's result when it ends; null otherwise.
  *
  * Reads: the jobs in the range, their properties (name and times), the team (name, role, status), the cleanings marked
- * on them (status and amount), the copy (one document), and the refresh's state (one document, beside the rest). Nothing
- * here fetches a calendar: a refresh on open runs after the response (app/lib/availability/daily.ts), and Refresh
- * calendars is POST /api/admin/availability/refresh; each makes and watches the jobs after writing the copy.
+ * on them (status, amount and the extra's state), the copy (one document), and the refresh's state (one document, beside
+ * the rest). Nothing here fetches a calendar: a refresh on open runs after the response (app/lib/availability/daily.ts),
+ * and Refresh calendars is POST /api/admin/availability/refresh; each makes and watches the jobs after writing the copy.
+ *
+ * POST /api/admin/cleaning-jobs — add a job by hand (Kian's ruling C of 2026-11-01): for any property, with or without
+ * a calendar, any date, any active cleaner or nobody yet, a chosen tier (short by default) and, when typed, the job's
+ * own amount (ruling B). Body: `{ propertyId, checkout, cleanerId: string | null, tier: 'short' | 'mid' | 'long',
+ * amount?: "75.00" | null }`. Response: 201 `{ job }` (as stored); 404 PROPERTY_NOT_FOUND; 409 JOB_EXISTS (one job a
+ * day per property); 422 CLEANER_NOT_ASSIGNABLE; 502 when the outcome is unknown. Recorded in the activity log.
  */
 
 import { NextRequest } from 'next/server';
@@ -22,8 +28,11 @@ import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiError, apiFailure, apiSuccess, noStore } from '@/app/lib/api/safe-response';
 import { addDays, isDay, nightsBetween, torontoDay } from '@/app/lib/availability/days';
 import { CREATE_DAYS_AHEAD } from '@/app/lib/schedule/model';
-import { readSchedule } from '@/app/lib/firebase/server-cleaning-jobs';
+import { ADD_JOB_REFUSALS, addJob, readSchedule } from '@/app/lib/firebase/server-cleaning-jobs';
 import { refreshIfStale } from '@/app/lib/availability/daily';
+import { apiValidationError } from '@/app/lib/api/safe-response';
+import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
+import { AddJobSchema } from '@/app/lib/cleanings/schemas';
 
 /** A refresh on open may run after the answer (Kian's ruling R1): it has this long, as the first-visit routes do. */
 export const maxDuration = 300;
@@ -45,5 +54,32 @@ export const GET = adminRoute(async function GET(request: NextRequest) {
     const code = (err as { code?: unknown } | null)?.code;
     console.error(`[jobs] the schedule could not be read: grpc code ${typeof code === 'number' ? code : 'unknown'}`);
     return noStore(apiFailure({ message: 'Could not load the schedule.', status: 500, code: 'SCHEDULE_READ_FAILED' }));
+  }
+});
+
+const NOT_ASSIGNABLE = { missing: 'no longer exists', 'not-a-cleaner': 'is a handyman, not a cleaner', inactive: 'is deactivated' } as const;
+
+export const POST = adminRoute(async function POST(request: NextRequest, _context: unknown, { actor }) {
+  const crossSite = refuseCrossSite(request);
+  if (crossSite) return crossSite;
+  const wrongType = requireMediaType(request, 'application/json');
+  if (wrongType) return wrongType;
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return noStore(apiError('Invalid JSON body', 400));
+  }
+  const parsed = AddJobSchema.safeParse(body);
+  if (!parsed.success) return noStore(apiValidationError(parsed.error.issues.map((i) => ({ path: i.path.map(String).join('.'), message: i.message }))));
+  const { propertyId, checkout, cleanerId, tier, amount } = parsed.data;
+  const outcome = await addJob(actor, { propertyId, checkout, cleanerId, tier, amountCents: amount });
+  switch (outcome.kind) {
+    case 'added':
+      return noStore(apiSuccess({ job: outcome.job, propertyName: outcome.propertyName }, 201));
+    case 'not-assignable':
+      return noStore(apiFailure({ status: 422, code: 'CLEANER_NOT_ASSIGNABLE', message: `${outcome.name ?? 'That team member'} ${NOT_ASSIGNABLE[outcome.why]}.`, hint: 'Nothing was added. Only an active cleaner is put on a job.' }));
+    default:
+      return noStore(apiFailure(ADD_JOB_REFUSALS[outcome.kind]));
   }
 });

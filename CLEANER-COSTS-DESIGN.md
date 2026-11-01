@@ -1051,10 +1051,10 @@ Against the repo's build reading production data (`next start` on 4620, and on 4
 
 Opening export `backups/2026-09-30T14-59-05Z`, local build with throwaway secrets, one `__TEST__` cleaner.
 
-- **The route:** no cookie 401 on GET and PUT; cross-site PUT 403; an unknown property 404 `PROPERTY_NOT_FOUND`; 121 characters 422 "At most 120 characters"; an extra key 400. `PUT { name: "  __TEST__ 53  Woodward main " }` answered `{ name: "__TEST__ 53 Woodward main", changed: true }`, the same again `changed: false`, and `property_cleaner_names/3dIaEHZuFzzgvy6Mbaq0` held `{ schemaVersion 1, propertyId, name, setAt }`.
+- **The route:** no cookie 401 on GET and PUT; cross-site PUT 403; an unknown property 404 `PROPERTY_NOT_FOUND`; 121 characters 422 "At most 120 characters"; an extra key 400. `PUT { name: "  __TEST__ 53  Teststreet main " }` answered `{ name: "__TEST__ 53 Teststreet main", changed: true }`, the same again `changed: false`, and `property_cleaner_names/3dIaEHZuFzzgvy6Mbaq0` held `{ schemaVersion 1, propertyId, name, setAt }`.
 - **The property document never takes it:** `PUT /api/properties/[id]` with `{ cleanerName }` answered 422 "Not a property field…", and the property document contained neither `cleanerName` nor the name.
 - **Denied to browsers:** with the site's public web key and no sign-in, Firestore's REST API answered 403 `PERMISSION_DENIED` for the document and for listing the collection, while the same caller read `properties/3dIa…` with 200, and that document held no such name. (Production's deployed rules deny it through their catch-all; the explicit block in `firestore.rules` takes effect when the rules are next deployed.)
-- **Cleaners:** `GET /api/cleaner/start` returned `{ id, name: "__TEST__ 53 Woodward main", city: "Toronto" }` for that property, the other 45 under their real names, and the renamed property's real name nowhere in the payload. On a 390×844 screen the property list, its search for "53 wood" and "My receipts" showed the cleaner-facing name and the real one 0 times.
+- **Cleaners:** `GET /api/cleaner/start` returned `{ id, name: "__TEST__ 53 Teststreet main", city: "Toronto" }` for that property, the other 45 under their real names, and the renamed property's real name nowhere in the payload. On a 390×844 screen the property list, its search for "53 wood" and "My receipts" showed the cleaner-facing name and the real one 0 times.
 - **Admins:** the property list showed the real name. The property form loaded the name from its own route into "Name for cleaners"; changing it and saving sent `PUT …/cleaner-name` after the property save and the stored name changed; emptying it and saving deleted the document, the route answered `{ name: null }`, and the cleaner's route fell back to "3 Bedroom 2 Bath Main Floor House". (In that browser the property PUT and the image mirroring were stubbed, so the real property document was never written.)
 - **Only three places read the collection:** the admin route, `server-cleaner-start.ts`, and `server-property-names.ts` itself.
 - **Cleanup:** the test cleaner, its code, one entry, its submission and its receipt deleted by exact ID and path; the name document was already gone. Closing export `backups/2026-09-30T15-02-26Z`: all eight files byte-identical to the opening one, no `property_cleaner_names` collection left behind, Storage 4,641 before and after.
@@ -1442,7 +1442,7 @@ Against a local production build of this tree reading production data (`next sta
 
 ## 19. The Payment Summary: the statement rebuilt to match the reports NuBNB sends (dispatch 23E, 2026-10-01)
 
-Kian's rulings of 2026-10-01 (dispatch 23E), built on `e81aafa` plus the uncommitted dispatch 23D: the monthly statement is rebuilt to match NuBNB's existing Payment Summary reports in substance and wording — six real ones were read: August, July and June of 321 John, July and June of 19 Tannery, July of 3289 Flemming — and never says "co-owner" where a user can see it; a line is a description, a quantity, a rate and an amount, and **the code multiplies quantity by rate** (Kian's ruling: the one place code computes money); an amount may be negative; an income line may carry a date range; recorded cost entries appear as lines like any other, still not editable in the statement; the management fee is a rate the admin picks, the code computes the amount from the sum of the revenue lines and shows it, the admin can overwrite the amount and writes the label, and the rate, the final amount and whether it was overwritten are stored; the carried balance is an optional typed amount with its own label, suggested from the previous month's closing figure and never written automatically; "Report For" (the name and postal address printed) lives on the per-property record, editable in the unit's info and while writing a report, server-only, never on the property document; notes are free text at the foot; statements and drafts written before this still display and print, with no backfill. Nothing in `CLAUDE.md` is changed: the rulings are quoted here from the dispatch.
+Kian's rulings of 2026-10-01 (dispatch 23E), built on `e81aafa` plus the uncommitted dispatch 23D: the monthly statement is rebuilt to match NuBNB's existing Payment Summary reports in substance and wording — six real ones were read: August, July and June of <unit> Street-A, July and June of <unit> Street-B, July of <unit> Street-C — and never says "co-owner" where a user can see it; a line is a description, a quantity, a rate and an amount, and **the code multiplies quantity by rate** (Kian's ruling: the one place code computes money); an amount may be negative; an income line may carry a date range; recorded cost entries appear as lines like any other, still not editable in the statement; the management fee is a rate the admin picks, the code computes the amount from the sum of the revenue lines and shows it, the admin can overwrite the amount and writes the label, and the rate, the final amount and whether it was overwritten are stored; the carried balance is an optional typed amount with its own label, suggested from the previous month's closing figure and never written automatically; "Report For" (the name and postal address printed) lives on the per-property record, editable in the unit's info and while writing a report, server-only, never on the property document; notes are free text at the foot; statements and drafts written before this still display and print, with no backfill. Nothing in `CLAUDE.md` is changed: the rulings are quoted here from the dispatch.
 
 ### 19.1 The stored shapes (reported before building)
 
@@ -1472,16 +1472,16 @@ The fee's base is editable and prefilled from the revenue lines (§19.1; no defa
 
 ### 19.5 Verification (2026-10-01, early morning)
 
-Against a local production build of this tree reading production data (`next start` on 127.0.0.1:4500, throwaway admin secret, no `.env.local` in the build copy; build `qLIYBYhOXaxkrxEDMRX4P`), through the real routes and in a real browser, with the six reports NuBNB sent read from Kian's Downloads. **Storage counted before the first write: 4,642 objects.** Opening export `backups/2026-10-01T05-13-01Z` (71 documents, 12 collections; no `property_management`, `monthly_reports` or `report_downloads` existed). Test properties, none with an entry, a draft or a record: Corner Penthouse l Tall Ceiling (`1VpX0wMpaUkbFwkULD8P`, as 321 John), Family Home in the Heart of Thornhill (`2uOz2IFFHZO6StZRBBTG`, as 19 Tannery), Private Basement Near Yonge St (`37L8ri0iao2pIjkeKcQR`, as 3289 Flemming). The Report For name carried the `__TEST__` mark; everything else was typed as printed.
+Against a local production build of this tree reading production data (`next start` on 127.0.0.1:4500, throwaway admin secret, no `.env.local` in the build copy; build `qLIYBYhOXaxkrxEDMRX4P`), through the real routes and in a real browser, with the six reports NuBNB sent read from Kian's Downloads. **Storage counted before the first write: 4,642 objects.** Opening export `backups/2026-10-01T05-13-01Z` (71 documents, 12 collections; no `property_management`, `monthly_reports` or `report_downloads` existed). Test properties, none with an entry, a draft or a record: Corner Penthouse l Tall Ceiling (`1VpX0wMpaUkbFwkULD8P`, as <unit> Street-A), Family Home in the Heart of Thornhill (`2uOz2IFFHZO6StZRBBTG`, as <unit> Street-B), Private Basement Near Yonge St (`37L8ri0iao2pIjkeKcQR`, as <unit> Street-C). The Report For name carried the `__TEST__` mark; everything else was typed as printed.
 
-- **The acceptance test: each of the six rebuilt from its own figures, through `PUT …/report-for`, `PUT …/draft` and `POST /api/admin/monthly-reports`, the stored PDF fetched through its 60-second link and read back with `pdftotext`, every text line of the original looked for in it and the reverse.** Every Total and every Your Revenue Share equal to the original's: June-321-John $1,974.59 / $1,974.59; July-321-John $4,650.61 / $4,650.61; Aug-321-John $8,232.17 / $8,232.17; June-19-Tannery $4,055.59 / −$359.96; July-19-Tannery $5,465.02 / $5,105.06; July-3289-Flemming $6,348.33 / $6,348.33. Every stored PDF byte-identical to the writer's output on the returned frozen object (26,257; 30,093; 31,111; 27,345; 28,063; 28,002 bytes), its SHA-256 equal to the record's. **Every difference found:** (1) the Report For name carries `__TEST__`; (2) the three 321 John originals print "Your Revenue Share :" with a space before the colon and June-19-Tannery "Debt Balance from May :", ours "…Share:" and "…May:" throughout; (3) the katakana middle dot in "Resolution Payout・Jul 28–29" prints as the middle dot "·" (three lines, July-321-John and July-3289-Flemming); (4) two long descriptions wrap at a different word than the originals ("Revenue - Resolution Adjustment・Jul 23–24, 2026 ($267.85-$213.0)" and "Revenue - July PTT Difference …"); (5) every page carries a foot "NuBNB Suites · www.nubnb.ca … # ref · Page n of m" and a later page the running head, which the originals lack; (6) **row order:** the fee prints last, where July-321-John places it before "Expense - Cleaning", Aug-321-John before "Revenue - July PTT Difference" and July-19-Tannery before "Expense - Costco" and the valve repair; every other row in the originals' order; (7) in July-321-John the fee's amount was typed over the computed one (see below), so its base is the revenue sum rather than the printed "Net of $5,471.31" — the label, typed, still reads as the original. Nothing else differs: the reference, the date, the company lines, the address lines, every row's description, quantity, rate and amount, Total, the balance lines and every Notes line are found verbatim. The same six through the pure writer alone (`tools/rebuild.mjs`, the exact names) differ from the originals only in (2)–(6).
-- **Quantity × rate, negative lines:** the stored Aug-321-John cleaning line `quantity 19 × rateCents -6000 = amountCents -114000`, printed "Expense - Cleaning 19 -$60.00 -$1,140.00"; June-321-John `5 × -6000 = -30000`; July-19-Tannery `9 × -15000 = -135000`; July-3289-Flemming `7 × -20000 = -140000`. A line sent with an amount is refused by the schema, which computes it; a stored line whose amount is not quantity × rate is not read (pure check 35).
-- **The fee computed from the rate, then overwritten, both stored:** July-321-John sent rate 15, base 7,523.70 (the revenue sum) and amount 820.70: stored `{ rateBasisPoints: 1500, baseCents: 752370, computedCents: 112856, amountCents: 82070, overwritten: true }`, frozen the same on the report, printed −$820.70. The other five sent the base as printed and no amount: `computedCents` equals `amountCents`, `overwritten: false` (Aug-321-John `2000` on `953978` → `190796`). The editor showed "fee-rate 20 · fee-base 7206.28 · fee-amount 1441.26 · computed from the rate" on July-19-Tannery, and "overwritten · computed $1,128.56 · Use it" is the editor's word for the other case.
-- **The carried balance:** June-19-Tannery typed by hand: stored `{ label: "Debt Balance from May", amountCents: 441555, fromReportId: null }`, printed "Debt Balance from May: $4,415.55", the share −$359.96. July-19-Tannery saved without one; the editor then read "June 2026 closed at -$359.96. Carry it: Balance From June $359.96 · Type a balance"; the button pressed, "Draft · saved 1:19:45 a.m.", the stored draft at revision 2 with `{ label: "Balance From June", amountCents: 35996, fromReportId: "bbMjIwHQ8GLAAAMQwsAP" }` (June's report), frozen the same, printed "Balance From June: $359.96", the share $5,105.06. The 321 John months closed above zero and offered nothing.
-- **Report For, both ways:** typed in the August editor of Private Basement ("…L9S 2Y9\nCanada"): `GET …/management` read the record with that address; the property form, opened from the admin list with Edit, showed "Report For name=__TEST__ Essy Adloo address=…Canada · Default fee rate= · labels: Report For | Address | Statements from | until (optional) | Default fee rate (%)". The address changed there to "3289 Flemming Blvd, Unit 2…" and Save Property pressed: the record read back with it, and the editor reloaded with it. The property document was not written: its `updateTime` is 2026-09-21T05:03:04Z and its 31 fields equal the opening export's.
+- **The acceptance test: each of the six rebuilt from its own figures, through `PUT …/report-for`, `PUT …/draft` and `POST /api/admin/monthly-reports`, the stored PDF fetched through its 60-second link and read back with `pdftotext`, every text line of the original looked for in it and the reverse.** Every Total and every Your Revenue Share equal to the original's: June-<unit>-Street-A $… / $…; July-<unit>-Street-A $… / $…; Aug-<unit>-Street-A $… / $…; June-<unit>-Street-B $… / $…; July-<unit>-Street-B $… / $…; July-<unit>-Street-C $… / $…. Every stored PDF byte-identical to the writer's output on the returned frozen object (26,257; 30,093; 31,111; 27,345; 28,063; 28,002 bytes), its SHA-256 equal to the record's. **Every difference found:** (1) the Report For name carries `__TEST__`; (2) the three <unit> Street-A originals print "Your Revenue Share :" with a space before the colon and June-<unit>-Street-B "Debt Balance from May :", ours "…Share:" and "…May:" throughout; (3) the katakana middle dot in "Resolution Payout・Jul 28–29" prints as the middle dot "·" (three lines, July-<unit>-Street-A and July-<unit>-Street-C); (4) two long descriptions wrap at a different word than the originals ("Revenue - Resolution Adjustment・Jul 23–24, … ($…-$213.0)" and "Revenue - July PTT Difference …"); (5) every page carries a foot "NuBNB Suites · www.nubnb.ca … # ref · Page n of m" and a later page the running head, which the originals lack; (6) **row order:** the fee prints last, where July-<unit>-Street-A places it before "Expense - Cleaning", Aug-<unit>-Street-A before "Revenue - July PTT Difference" and July-<unit>-Street-B before "Expense - Costco" and the valve repair; every other row in the originals' order; (7) in July-<unit>-Street-A the fee's amount was typed over the computed one (see below), so its base is the revenue sum rather than the printed "Net of $…" — the label, typed, still reads as the original. Nothing else differs: the reference, the date, the company lines, the address lines, every row's description, quantity, rate and amount, Total, the balance lines and every Notes line are found verbatim. The same six through the pure writer alone (`tools/rebuild.mjs`, the exact names) differ from the originals only in (2)–(6).
+- **Quantity × rate, negative lines:** the stored Aug-<unit>-Street-A cleaning line `quantity 19 × rateCents … = amountCents …`, printed "Expense - Cleaning 19 $… $…"; June-<unit>-Street-A `5 × … = …`; July-<unit>-Street-B `9 × … = …`; July-<unit>-Street-C `7 × … = …`. A line sent with an amount is refused by the schema, which computes it; a stored line whose amount is not quantity × rate is not read (pure check 35).
+- **The fee computed from the rate, then overwritten, both stored:** July-<unit>-Street-A sent rate 15, base 7,… (the revenue sum) and amount …: stored `{ rateBasisPoints: …, baseCents: …, computedCents: …, amountCents: …, overwritten: true }`, frozen the same on the report, printed $…. The other five sent the base as printed and no amount: `computedCents` equals `amountCents`, `overwritten: false` (Aug-<unit>-Street-A `…` on `…` → `…`). The editor showed "fee-rate 20 · fee-base ….28 · fee-amount ….26 · computed from the rate" on July-<unit>-Street-B, and "overwritten · computed $… · Use it" is the editor's word for the other case.
+- **The carried balance:** June-<unit>-Street-B typed by hand: stored `{ label: "Debt Balance from May", amountCents: …, fromReportId: null }`, printed "Debt Balance from May: $…", the share $…. July-<unit>-Street-B saved without one; the editor then read "June … closed at $…. Carry it: Balance From June $… · Type a balance"; the button pressed, "Draft · saved 1:19:45 a.m.", the stored draft at revision 2 with `{ label: "Balance From June", amountCents: …, fromReportId: "bbMjIwHQ8GLAAAMQwsAP" }` (June's report), frozen the same, printed "Balance From June: $…", the share $…. The <unit> Street-A months closed above zero and offered nothing.
+- **Report For, both ways:** typed in the August editor of Private Basement ("…L9S 2Y9\nCanada"): `GET …/management` read the record with that address; the property form, opened from the admin list with Edit, showed "Report For name=__TEST__ Essy Adloo address=…Canada · Default fee rate= · labels: Report For | Address | Statements from | until (optional) | Default fee rate (%)". The address changed there to "<address>…" and Save Property pressed: the record read back with it, and the editor reloaded with it. The property document was not written: its `updateTime` is 2026-09-21T05:03:04Z and its 31 fields equal the opening export's.
 - **A statement written before this still displays and prints:** a report written exactly as dispatch 23D wrote it (`schemaVersion 2`, income rows with `source`/`reference`/stay, a fee that is an amount, `ownersAtFinish`), its PDF from the legacy writer (4,150 bytes, sha256 `533a4317…`), stored for Corner Penthouse, May 2026. The editor opened it read-only ("Finished … · ref p1NFFV", the rows as lines "__TEST__ Airbnb payout, stay 2–6 May 1 × 980.00", the fee "120.00" with no rate, Download PDF, Correct this statement…), and the live preview's blob hashed in the page to **4,150 bytes, sha256 `533a4317…`: the stored bytes.** The property page and tracker name it "ref p1NFFV". A draft written as dispatch 23B wrote it (`schemaVersion 1`, three rows) for Family Home, May 2026, opened as three lines with "Airbnb · ref HMTEST01 · recorded before || Private · recorded before || Other · ref DEP-7 · recorded before", its fee "100.00" with no rate; a note typed there saved it: the stored document is `schemaVersion 3`, revision 2, no `income` field, `lines` carrying `source` and `reference` exactly as the rows had them, the fee `{ rateBasisPoints: null, baseCents: 0, computedCents: null, amountCents: 10000, overwritten: true }`. **Kian's own October draft** (`VAVoKTjCpg5YDS22eSw6_2026-10`, version 2) opened as "bye 1 × 10.00 · Airbnb · recorded before", "hi 1 × 20.00", nothing typed, its `updateTime` still 2026-10-01T03:16:47Z.
-- **A recorded cost as a line:** an office cost (`__TEST__ Furnace filter, Home Depot`, $42.50 + $5.53 tax) added for Private Basement; October's editor listed it under Recorded costs as "Expense - __TEST__ Furnace filter, Home Depot | 1 | -$48.03 | -$48.03 | Open entry" with no input in the block; one revenue line typed (500.00); Finish refused with "Give the report a reference, like Aug-321-John" until "Oct-3289-Flemming" was typed; then the confirm "Finish and issue # Oct-3289-Flemming … Your Revenue Share: $451.97" accepted, "✓ Stored PDF verified: SHA-256 matches"; the frozen report `costs [[8eTA4LbTlRopATn4vDc8, office, …, 4803, month]]`, `recordedCents 4803`, `payableCents 45197`; the stored PDF (25,084 bytes, equal to the writer) read "Revenue 1 $500.00 $500.00 / Expense - __TEST__ Furnace filter, Home Depot 1 -$48.03 -$48.03 / Total: $451.97". The August editor of the same property, a new month, opened with the reference "Aug-3289-Flemming" and the rate 15 offered from July's statement.
-- **The screens:** the tracker for July 2026 read "3 of 3 statements finished · 0 outstanding · 0 drafts in progress" with the column "Revenue share" and each row "Finished … · # July-321-John / # July-19-Tannery / # July-3289-Flemming" and its four figures; the property page's Statement block "ALL STATEMENTS · July 2026 # July-19-Tannery · $5,105.06 · June 2026 # June-19-Tannery · -$359.96". The editor's head after finishing showed the live rebuild's figure rather than the frozen statement's ($500.00 for $451.97) and now shows the frozen one; the final build carries that fix and a tighter line grid.
+- **A recorded cost as a line:** an office cost (`__TEST__ Furnace filter, Home Depot`, $… + $… tax) added for Private Basement; October's editor listed it under Recorded costs as "Expense - __TEST__ Furnace filter, Home Depot | 1 | $… | $… | Open entry" with no input in the block; one revenue line typed (…); Finish refused with "Give the report a reference, like Aug-<unit>-Street-A" until "Oct-<unit>-Street-C" was typed; then the confirm "Finish and issue # Oct-<unit>-Street-C … Your Revenue Share: $…" accepted, "✓ Stored PDF verified: SHA-256 matches"; the frozen report `costs [[8eTA4LbTlRopATn4vDc8, office, …, …, month]]`, `recordedCents …`, `payableCents …`; the stored PDF (25,084 bytes, equal to the writer) read "Revenue 1 $… $… / Expense - __TEST__ Furnace filter, Home Depot 1 $… $… / Total: $…". The August editor of the same property, a new month, opened with the reference "Aug-<unit>-Street-C" and the rate 15 offered from July's statement.
+- **The screens:** the tracker for July … read "3 of 3 statements finished · 0 outstanding · 0 drafts in progress" with the column "Revenue share" and each row "Finished … · # July-<unit>-Street-A / # July-<unit>-Street-B / # July-<unit>-Street-C" and its four figures; the property page's Statement block "ALL STATEMENTS · July … # July-<unit>-Street-B · $… · June … # June-<unit>-Street-B · $…". The editor's head after finishing showed the live rebuild's figure rather than the frozen statement's ($… for $…) and now shows the frozen one; the final build carries that fix and a tighter line grid.
 - **Pure** (`pure/check-23e.mjs`, 71 checks, 0 failed): the six fee computations and rounding half up; the range and date words; the readers for every version and their refusals; the printed lines' order and words; the sums; the suggestions; `buildStatement` with a cost row and an adjustment carrying its description and printed month; the writer deterministic, the draft line, no Report For, nothing to report, pagination with the header bar repeated and the Total on the last page; one image XObject; **the legacy writer byte for byte the 23D writer** on a legacy statement (the transpiled module of session f8cb36d9 against this tree's); **the ledger PDF byte for byte before and after the core's image support.** `tsc` and `eslint` clean on every changed file.
 - **Cleanup** by exact ID and path: 28 documents (three records, nine drafts, eight reports, seven downloads, one entry) and eight statement PDFs, each confirmed gone, none refused; no `__TEST__` in any collection touched; `monthly-reports/` empty; Kian's two October drafts untouched. Closing export `backups/2026-10-01T05-29-02Z`: all 12 files byte-identical to the opening one, 71 documents. **Storage 4,642 before the first write and after cleanup.** The final build (`-tvuQSAb_MCd5Eq3S-0K6`, then rebuilt with the read-only dates) was checked on 4500 with the throwaway secret: the head of a finished statement reads the frozen figure, a legacy statement's Report block is blank.
 
@@ -4142,7 +4142,7 @@ stays out of the repo.
    so the stored `suggested` is what the form offered.
 4. **The import saves only the rows that change**, and says how many matched rows already held what the file gives.
    Clearing both presets keeps the record, so its history says who cleared them.
-5. **A CSV price may be "80", "$80", "80.50" or "1,200.00"; empty (or "none") is no preset; "$60 per room" is not a
+5. **A CSV price may be "75", "$75", "75.50" or "1,234.00"; empty (or "none") is no preset; "$… per room" is not a
    price** and keeps the row out of the import (listed as "a price is not dollars and cents"). Kian's one such row is
    typed per cleaning, so its CSV long value is empty.
 6. **Matching uses the sheet's name for the property**: the cleaner-facing name, else the public title. A property with
@@ -4152,7 +4152,7 @@ stays out of the repo.
 ### 58.3 The CSV from the pay schedule
 
 `~/Backups/Nubnb/cleaning-prices-2026-10-19.csv` (never committed), made by `cleaning-prices-1019/csv/convert.mjs`
-from the PDF's Short Term and Long Term columns, Old Price ignored: 62 rows, the one "$60 per room" long-term value
+from the PDF's Short Term and Long Term columns, Old Price ignored: 62 rows, the one "$… per room" long-term value
 left empty. The sums of its columns equal the PDF's, column by column. Its match against production's addresses is in
 the dispatch report (counts only).
 
@@ -4883,3 +4883,173 @@ test's own documents and photos, the server's clock in November and December 202
   (499 documents); 26 test paths and 4 photos deleted by exact path. Tests: receipts-phase2 (sections 2 and 6) and
   fresh-start re-recorded; costs-look's made-up receipts each given their own photo (they shared one, which is now a
   flagged second send), its recording unchanged.
+
+## 64. The cleaning flow: prices, jobs and marks — Kian's rulings A–H of 2026-11-01
+
+Kian's rulings are in CLAUDE.md under *Cleaning flow*. The pay schedule PDF he attached is kept outside the repository
+(`~/Backups/Nubnb/`), and no rate from it appears here or in any report.
+
+### 64.1 What was built
+
+1. **Three tiers (A).** `CleaningPrices` holds `shortTermCents`, `midTermCents` and `longTermCents`; the record is
+   schema version 2 (prices.ts), and a version 1 record reads its mid price as its short one, so nothing is backfilled.
+   `presetKind(nights)` is long from 28 nights, mid from 7, short below (`MID_STAY_NIGHTS`, `LONG_STAY_NIGHTS`); the
+   words are `TIER_WORDS` and `TIER_NIGHTS`. The Report For sheet has three price columns and its import takes an
+   optional mid column (absent or empty: mid = short); the edit page's tile has three fields. The routes take
+   `shortTerm`, `midTerm`, `longTerm`. A cleaning's `amountFrom` and `suggested.from` may be "mid".
+2. **The job's own amount (B).** `CleaningJob.amountCents` (job schema version 2) and the event `amount-set`; PATCH
+   `/api/admin/cleaning-jobs/[id]` with `{ action: 'amount', amount, seen }` (`setJobAmount`). `markAmount` takes it
+   before any preset, with one cleaner on the job (`amountFrom` "job"); two or more cleaners still give no amount. A
+   mark's cleaning that still waits (an extra asked, or no amount) follows a new job amount, with a `changed` event
+   "amount set on the job"; once a cleaning counts its money the amount is locked on the Schedule (409
+   `JOB_AMOUNT_LOCKED`) and the cleaning is edited on the Cleanings tab, where its source reads "set on the job".
+   A cleaning logged by hand on that job's day starts from the job's amount.
+3. **Add a job (C).** POST `/api/admin/cleaning-jobs` (`addJob`): any property, any day, an active cleaner or nobody
+   yet, a tier, an optional amount. The job is `origin` "admin" with no reservation and its chosen `tier`; its ID is
+   the property and the day, so one job a day per property holds (409 `JOB_EXISTS`). `planJob` never touches an
+   admin job, and the sync never looks its property up. The Schedule's "Add a job" button opens Nubnb's own dialog
+   (the property list from the Availability page's slice, read when the dialog opens); the page reads its days
+   again, widened to the new day when it lies outside them. The row reads "added by hand" and "<tier> job".
+4. **Change cleaner (D).** PATCH with `{ action: 'swap', from, to, seen }` (`swapCleaner`): one transaction, `from`
+   off (never once marked), `to` on in their place, two history events naming each other ("replaced by", "in place
+   of"). The old cleaner's app drops the job because the query is by `cleanerIds`.
+5. **Record as cleaned (E).** POST `/api/admin/cleaning-jobs/[id]/record` (`recordCleaned`): for the assigned
+   cleaners named, each cleaning made through the same `markOf` as a cleaner's own `markCleaned`, so the stored
+   cleaning, its amount, the statement line and the pay are the same; the cleaning's `actor` and its `logged` event
+   ("recorded by the office"), and the job's `marked` event, name the admin; the route is in the activity log. The
+   mark's rules hold (on the job, not removed, the booking unchanged, from the checkout day on). The Cleanings tab
+   reads such a cleaning as "recorded" instead of "marked".
+6. **Note and Ask for extra (F).** The mark's body is `{ action: 'mark', note?, extraReason? }` (`JobActionSchema`,
+   no amount field). The cleaning (schema version 4) keeps `note` and `extra` (`status` asked | approved | declined,
+   `reason`, `askedAt`, `decidedAt`, `decidedBy`); the assignment keeps `note` and `extraAsked`; the `marked` event
+   keeps both. While asked, `cleaningEntryView` reads the cleaning as pending with the reason `EXTRA_ASKED`, so the
+   statement does not charge it and Finish names it apart ("n cleanings wait for a decision on extra asked"); pay
+   lists it as `extra-asked`, not counted (`memberPay.extraAsked`, named in K1's and K3's words). The decision is
+   PATCH `/api/admin/cleanings/[id]` with `{ action: 'extra', decision, amount?, seen }` (`decideExtra`): approve at
+   the amount it arrived with or at a new one (then "typed"), or decline (the base amount counts); one history event,
+   `extra-approved` or `extra-declined`. The Cleanings tab has an "Extra asked" list with Approve, Approve at this
+   amount and Decline; the Schedule row shows the note and the reason under the cleaner's chip with Approve, Amount…
+   and Decline; the job's state reads "Cleaned · extra asked" in amber; the home's cell "Extra asked". The cleaner
+   app's card reads "Cleaned · extra asked" in amber with "Sent to Nubnb", never an amount or the outcome.
+7. **No calendar (G).** `cleaningStanding` reads a property with no link as "No calendar", grey, whatever its
+   Unlisted mark; the Next step and the chip count only a set link the last refresh could not read (`rowView`). The
+   `notOnAirbnb` fact of 2026-11-01 is gone.
+8. **No amount in the cleaner app (H).** `CleanerJobView` gains `note` and `extraAsked` only; the test lists every key
+   the app is sent per job and refuses any amount, price or rate; the mark body refuses an amount.
+
+### 64.2 The developer's choices (for Kian)
+
+1. **A waiting cleaning follows the job's amount** (64.1.2): while its extra is asked or it has no amount, a new
+   amount set on the job becomes its amount (history "amount set on the job"); once its money counts, the amount is
+   locked on the Schedule. Reversible: the lock could be dropped, or the follow.
+2. **Record as cleaned names the cleaner** on the cleaning (`cleanerId`) and the admin as its actor; the activity log
+   records the route. A cleaner already marked is left as they are, never counted twice.
+3. **Add a job takes nobody yet** as well as an active cleaner, and any day, past or future; a job dated ahead opens
+   for marking on its day, as the calendar's do. The dialog reads the property list through the Availability slice
+   (one read per property) only when it opens.
+4. **An approve with no amount typed keeps the amount the cleaning arrived with;** a cleaning that arrived with no
+   amount (no preset) cannot be declined, only approved at an amount.
+5. **The cleaner's note goes on the cleaning's `note`**, which owner files never print (`entryView` keeps a cleaning's
+   note null, as before).
+6. **The Cleanings tab's "Earned in these dates" and totals leave an asked extra out**, as the statement and pay do,
+   and count it beside "waiting for an amount".
+
+### 64.3 The admin override rule from the pay schedule
+
+One house in the schedule is priced per room, with a cap "in all": its four basement units are prefilled with the
+per-room price for every tier (Kian's instruction), and the cap is an **admin override rule**, applied by hand: when
+all four units are cleaned at once after long stays, the admin sets each cleaning's amount (or the jobs' amounts) so
+the four together come to no more than the cap. Nothing in code applies the cap.
+
+### 64.4 The prefill (dry run)
+
+The schedule's 62 priced rows were mapped to the 58 properties from October's mapping, with Kian's instructions of
+2026-11-01 applied: 41 rows CONFIDENT (one of them the per-room row, written to four units: 44 writes), 8 UNSURE
+(two basements or a studio the schedule names by a suffix Nubnb has no unit for), 13 rows naming no Nubnb property,
+and 14 properties with no row. The manifest, its SHA-256 and the UNSURE table are outside the repository
+(`~/Backups/Nubnb/prices-2026-11-01/`); the write waits for Kian's confirmation and the deploy.
+
+### 64.5 Verification (2026-11-01)
+
+- **Tests:** `node tests/run.mjs`, 30 checks, identical but for recordings changed on purpose — admin-accounts (the two
+  new routes and their activity words), property-columns and home-next-step (ruling G: "No calendar", no step, no
+  chip), statements-round1 (the sheet's mid field), team-round1 (the mid price and a job's tier and amount in the
+  amount starts), cleaning-prices (three tiers: 27 nights is mid-term) — and one new: cleaning-flow (A, B, C, D, E and
+  F on the in-memory Firestore: the boundaries at 6/7 and 27/28 nights; a version 1 record reading mid as short; an
+  import with no mid column; marks at 3, 10 and 30 nights; two cleaners; a base change leaving a cleaning as it was;
+  the job's amount beating the base and locked once counted; a job added by hand, marked, never touched by the
+  sync; a swap; Record as cleaned producing the same stored cleaning, statement row and pay as the cleaner's own mark;
+  an extra asked holding the money, approved at a new amount, declined; the route's body refusing an amount; the keys
+  the cleaner's app is sent). tsc is clean outside the stale `.next` validators; eslint is clean on every changed
+  file (the tree's pre-existing problems are in files this round did not touch).
+- **On production** (build `XnT-Aalr8HZk3EnYdFHcC` of this tree, built at 0 reads, on 127.0.0.1:4500 behind the write
+  guard, the server's clock on 18 November 2028, every real calendar cut off, the refresh's lease stubbed; a `__TEST__`
+  admin, two `__TEST__` cleaners, two Unlisted `__TEST__` properties — P with a calendar link the run could not read
+  and prices for all three tiers, Q with no link and its own prices — and eleven jobs on P in the stored shape): Ana's
+  marks at 3, 10 and 30 nights took the short-, mid- and long-term base (made-up figures); two cleaners on one
+  job both arrived with no amount; $77.77 set on a job before the mark beat its short base ("set on the job"), and
+  changing it after the mark was refused (409 JOB_AMOUNT_LOCKED); raising the short base left the earlier
+  cleaning at its amount and the next mark took the new base. A job added by hand on Q (no calendar) for today, mid tier,
+  reached Ana's app, was marked there and took Q's mid base; the same day again was refused (409 JOB_EXISTS). Change
+  cleaner on tomorrow's job took Ana off and put Ben on in one PATCH, logged as "replaced by" and "in place of"; Ana's
+  app dropped it and Ben's showed it. Record as cleaned by the admin made a short-tier cleaning with the admin as its
+  actor and "recorded by the office" in its history, on the statement and in pay like Ana's own marks. Ana's mark
+  with a note and "Ask for extra" (the phone's own form at 390, refusing a tick with no reason) arrived with the base
+  amount and the ask; the Schedule read "Cleaned · extra asked" in amber with the note, the reason and Approve,
+  Amount… and Decline; the home's cell "Extra asked"; the statement built from the stored cleanings left it out
+  ("Expense - Cleaning" 7 cleanings, then 8 after a decline) and Finish warned "2 cleanings wait for a decision on
+  extra asked; they will go on December 2028's statement once decided"; the Team pay view said the same and left it
+  out of Earned ($572.77). Approved at $95.00 through the route, the cleaning counted at $95.00 ("typed"); declined
+  through the Cleanings tab's own button, the base $65.00 counted; the phone at 390 and 360 showed "Cleaned · extra
+  asked · Undo" and "Sent to Nubnb", never an amount, and every card's text and History carried no figure. The home
+  at 1440 read "No calendar" in grey on the six real properties with no link and "Calendar not read" only on P, the
+  chip counting 1. Exports `2026-11-01T20-02-16Z` and `20-09-51Z` are identical (499 documents); 45 test paths were
+  deleted by exact ID with no reads; 6,443 of the 7,000 reads were used (two exports at 1,000, the server 4,443); no
+  write was refused. The Schedule's cleaner chip wrapped word by word beside the extra's words in the shot; its CSS was
+  fixed after the run (a line per cleaner, the words under the pill) and not re-shot on production.
+- **Harness:** `~/Backups/Nubnb/cleaning-flow-1101` (guard, seed, server preload, checks c1–c4 and b1–b5, shots);
+  secrets, sessions and browser audit logs removed; the read log masked.
+
+### 64.6 Kian's review of 2026-11-01, and the prefill as resolved
+
+- **Approved as built**, with his rulings on the held items: H keeps receipt totals (the acceptance of 2026-10-17 stands);
+  B's lock once a cleaning's money counts, and E taking the cleaner's active status, are accepted as built.
+- **The eight unsure rows, resolved by Kian:** at each of the four addresses the schedule's two rows carry identical
+  short and long prices, so both basement units at that address take that address's values, with no unit-to-row
+  mapping. Checked before anything is written, twice: from `rows.json` and again from the raw PDF text (`map.mjs` in
+  `~/Backups/Nubnb/prices-2026-11-01`, outside the repository). All four pairs are identical in short and long; one pair
+  differs only in the Old Price column, which is not written. A pair that differed would have stopped its address.
+- **The six units with no row** (three basements at one address, one basement at another, and two whole units) get no
+  write: admins set them. Mid = short everywhere.
+- **The manifest, regenerated:** 52 records over 52 properties (44 as before, plus the eight basement units), 13 rows
+  naming no Nubnb property, 0 unsure, SHA-256 `aa939dfadf6c3ce79c1c5dcffb053624759c014c139dadee53f122c09ace2af5`. It is
+  written to production only after the deploy is verified (Step 3 of his dispatch), through the server's own
+  `importCleaningPrices` in one transaction, with one `admin_actions` line per property as the system actor "price prefill".
+
+### 64.7 Step 1 before the commit (2026-11-01): the scans, and the chip re-shot
+
+- **The figure scan.** Every dollar figure of the pay schedule (twelve distinct, all whole multiples of ten) was searched
+  in CLAUDE.md, this document and every changed or new file, as money (`$N`, `N.00`), as cents (`N00`, `N_000`) and bare.
+  Being round numbers, they coincided with made-up test amounts, example strings and older notes, none of them a rate of
+  the schedule. What was done: every made-up amount in the tests and recordings that this work touches moved off those
+  figures (tests `cleaning-prices`, `cleaning-flow`, `cleanings`, `columns`, `pay/round1`, `statements/round1`, each
+  re-recorded; the suite stays identical), the example amounts in UI hints, placeholders and route comments moved to
+  figures outside the schedule's set, the two mentions of the per-room value in §58 became "$…", and §19.5's statement
+  evidence of 2026-10-01 — which had named three real units beside their statement figures — now reads with placeholders
+  and "…" for the figures. In the lines this commit adds, no money or cents form of a schedule figure remains; the bare
+  numbers left are a cents divisor, an HTTP status and nights counts. Left in place, on purpose: the threshold of Kian's
+  auto-approval rule of 2026-09-30 (three sentences on the Costs page), a timer, and 91 older lines of this document
+  (verification notes of made-up amounts from 2026-09-30 to 2026-10-19) that predate the schedule; Kian decides whether
+  those are rewritten.
+- **The address scan.** Every schedule row name and every property's cleaner-facing name and public title, whole, and
+  every distinctive street word, searched in the same files: no row name and no cleaner-facing name appears anywhere; the
+  whole-name hits are public Airbnb titles in older notes (and one in Kian's dispatch-27 ruling), and the street-word
+  hits were the three units of §19.5 above (replaced) and a test cleaner's first name that is also a street's. Still in
+  the tree, reported rather than changed here: the example reference stem the admin sees ("like Aug-…-…", a real unit's
+  stem) in a dozen files untouched by this work; a separate change if Kian wants it.
+- **The chip, re-shot.** On the build of this tree served from an in-memory Firestore (0 production reads; the state
+  played with the app's own `markCleaned`: a one-cleaner job marked with a note and an extra, a two-cleaner job with one
+  extra and one note), at 1440 and 1280: one line per cleaner, each pill 25 px tall and whole, the note and the extra's
+  words under it, the three decisions on their own line. A pill longer than the cell (the `__TEST__` prefix made one)
+  no longer runs into the State column: it folds its notes under the name inside the pill (`.chipLine .chip` takes
+  `max-width: 100%; flex-wrap: wrap`), the parts staying whole. Shots `b6-*` in the harness.

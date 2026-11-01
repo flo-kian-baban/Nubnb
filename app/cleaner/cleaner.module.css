@@ -1678,3 +1678,68 @@
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
+
+/* ── Mark cleaned's form (Kian's ruling F of 2026-11-01): a note, "Ask for extra" with its reason, no amount ── */
+.markForm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+}
+.markLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.markText {
+  height: auto;
+  min-height: 72px;
+  padding: 12px 14px;
+  resize: vertical;
+  line-height: 1.35;
+}
+.markToggle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 0 4px;
+  border: none;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 18px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+.markToggleBox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--field-border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: #ffffff;
+  flex-shrink: 0;
+}
+.markToggleBox svg {
+  width: 20px;
+  height: 20px;
+}
+.markToggleOn .markToggleBox {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+/* "Cleaned · extra asked": amber, so the cleaner sees it went to the office for a decision. */
+.jobStateExtra {
+  color: #9a6400;
+}
+.jobSent {
+  margin: -4px 0 0;
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 600;
+}

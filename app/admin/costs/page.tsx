@@ -181,7 +181,7 @@ import { EntryStatusBadge, KindBadge, SentAt, quantityText, whenText } from "./c
 import { EntryPane, type PropertyStatementsState } from "./EntryPane";
 import { costCharges, chargesByMonth, chargedElsewhere, type Charge } from "@/app/lib/money/month";
 import { cleaningEntryView, type CleaningView, type TeamChoice } from "@/app/lib/cleanings/model";
-import type { CleaningPrices } from "@/app/lib/cleanings/prices";
+import type { CleaningPrices, JobFacts } from "@/app/lib/cleanings/prices";
 import { CleaningsTab } from "./CleaningsTab";
 import { AutoApprovals } from "./AutoApprovals";
 import { MonthTab } from "./MonthTab";
@@ -215,7 +215,7 @@ type CleaningsState =
   | { kind: "idle" }
   | { kind: "loading" }
   /** The presets and the waiting jobs come with the tab's own read (GET /api/admin/cleanings); the whole read keeps what it had. */
-  | { kind: "ready"; cleanings: CleaningView[]; team: TeamChoice[]; prices: Record<string, CleaningPrices>; jobs: Record<string, { nights: number; cleaners: number }> }
+  | { kind: "ready"; cleanings: CleaningView[]; team: TeamChoice[]; prices: Record<string, CleaningPrices>; jobs: Record<string, JobFacts> }
   | { kind: "error"; title: string; detail?: string; status: number };
 
 type View = "entries" | "items";

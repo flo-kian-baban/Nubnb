@@ -1,18 +1,18 @@
 ═══ 1. K5: a new statement's reference is suggested as <Mon>-<stem> ═══
-   2026-09 + "321-John" → Sept-321-John
-   2026-06 + "321-John" → June-321-John
-   2026-07 + "321-John" → July-321-John
-   2026-08 + "321-John" → Aug-321-John
-   2027-01 + "321-John" → Jan-321-John
+   2026-09 + "12-Test" → Sept-12-Test
+   2026-06 + "12-Test" → June-12-Test
+   2026-07 + "12-Test" → July-12-Test
+   2026-08 + "12-Test" → Aug-12-Test
+   2027-01 + "12-Test" → Jan-12-Test
    "  321   John " folded → Sept-321 John
    ok   no stem, or no month: no suggestion
    ok   the stem comes before the previous reference
    ok   no stem: the previous reference, its month word swapped (as before)
    ok   neither: nothing suggested
    stems as typed:
-     "321-John"           → fine
+     "12-Test"            → fine
      ""                   → fine
-     "Sept-321-John"      → Leave the month out: it is added for each statement.
+     "Sept-12-Test"       → Leave the month out: it is added for each statement.
      "sep-321-john"       → Leave the month out: it is added for each statement.
      "September-321"      → Leave the month out: it is added for each statement.
      "Mar-12"             → Leave the month out: it is added for each statement.
@@ -25,7 +25,7 @@
    ok   the longest stem with the longest month word fits a reference
 
 ═══ 2. A new month on the property page: the stem and the default rate (K6) ═══
-   reference "Nov-321-John" · fee rate "20", base "" (typed, never filled)
+   reference "Nov-12-Test" · fee rate "20", base "" (typed, never filled)
    ok   stem and rate start the month; the base stays empty
    ok   no stem and no rate: the previous reference, no fee (as before)
 
@@ -41,7 +41,7 @@
 
 ═══ 4. The management route ═══
    ok   the sheet's body (three keys) is taken
-   merged: {"schemaVersion":3,"propertyId":"TESTPROP0001","reportFor":{"name":"Test New Owner","address":"9 Test Ave\n\nToronto"},"owners":[{"name":"Test Owner","email":"owner@example.test"}],"statementsFrom":"2026-12","statementsUntil":"2027-05","defaultFeeRateBasisPoints":2000,"defaultFee":{"label":"Old fee","amountCents":15000},"excludedFromReporting":true,"referenceStem":"321 - John","setAt":"2026-12-17T15:00:00.000Z"}
+   merged: {"schemaVersion":3,"propertyId":"TESTPROP0001","reportFor":{"name":"Test New Owner","address":"9 Test Ave\n\nToronto"},"owners":[{"name":"Test Owner","email":"owner@example.test"}],"statementsFrom":"2026-12","statementsUntil":"2027-05","defaultFeeRateBasisPoints":2000,"defaultFee":{"label":"Old fee","amountCents":15300},"excludedFromReporting":true,"referenceStem":"321 - John","setAt":"2026-12-17T15:00:00.000Z"}
    ok   owners, months, excluded and the old fee keep what is stored
    ok   the three fields as sent, folded
    made from nothing: {"schemaVersion":3,"propertyId":"TESTPROP0002","reportFor":null,"owners":[],"statementsFrom":"2026-11","statementsUntil":null,"defaultFeeRateBasisPoints":null,"defaultFee":null,"setAt":"2026-12-17T15:00:00.000Z"}
@@ -59,18 +59,18 @@
    ok   a record without one: no stem
 
 ═══ 5. The edit page's Statements panel ═══
-   loaded stem "321-John" · payload {"record":{"reportFor":null,"owners":[],"statementsFrom":"2026-11","statementsUntil":null,"defaultFeeRate":null,"referenceStem":"321-John","excludedFromReporting":false}}
+   loaded stem "12-Test" · payload {"record":{"reportFor":null,"owners":[],"statementsFrom":"2026-11","statementsUntil":null,"defaultFeeRate":null,"referenceStem":"12-Test","excludedFromReporting":false}}
    ok   a stem alone keeps the record (it is not cleared as default)
    a stem with its month: {"problem":"Reference stem: Leave the month out: it is added for each statement.","field":"management.referenceStem"}
 
 ═══ 6. Empty months together: the reference from the stem ═══
    Test Plain: reference none
-   Test Stem: reference Nov-321-John
-   ok   stem gives Nov-321-John; no stem and no statement, none
+   Test Stem: reference Nov-12-Test
+   ok   stem gives Nov-12-Test; no stem and no statement, none
 
 ═══ 7. The Report For sheet ═══
-   a row from its record: {"name":"Test Owner","address":"1 Test St\nToronto","stem":"321-John","rate":"12.5","short":"","long":""} · from none: {"name":"","address":"","stem":"","rate":"","short":"","long":""}
-   as loaded                → saves {"reportFor":{"name":"Test Owner","address":"1 Test St\nToronto"},"referenceStem":"321-John","defaultFeeRate":"12.5"}
+   a row from its record: {"name":"Test Owner","address":"1 Test St\nToronto","stem":"12-Test","rate":"12.5","short":"","mid":"","long":""} · from none: {"name":"","address":"","stem":"","rate":"","short":"","mid":"","long":""}
+   as loaded                → saves {"reportFor":{"name":"Test Owner","address":"1 Test St\nToronto"},"referenceStem":"12-Test","defaultFeeRate":"12.5"}
    an address with no name  → Type a name above the address.
    a stem with its month    → The stem: Leave the month out: it is added for each statement.
    a rate of 20.555         → The fee rate is a percent, like 20 or 12.5.

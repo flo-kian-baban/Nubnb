@@ -77,6 +77,7 @@ import {
   readReceipt,
   sendEntry,
   signIn,
+  type MarkDetails,
   type SignInResult,
   type StartResult,
 } from "@/app/lib/cleaner-client";
@@ -411,11 +412,11 @@ export function CleanerApp() {
    * Mark a job cleaned, or undo one's own mark (the cleaning schedule). Sending again after a lost answer is safe: a
    * mark is never made twice. The job then reads as the server answered.
    */
-  const actOnJob = async (job: CleanerJobView, action: "mark" | "undo") => {
+  const actOnJob = async (job: CleanerJobView, action: "mark" | "undo", details: MarkDetails = { note: null, extraReason: null }) => {
     if (jobBusy) return;
     setJobBusy(job.id);
     setJobMessages((prev) => ({ ...prev, [job.id]: "" }));
-    const result = await jobAction(job.id, action);
+    const result = await jobAction(job.id, action, details);
     setJobBusy(null);
     if (result.kind === "signed-out") {
       setPhase({ kind: "code" });
@@ -900,7 +901,7 @@ export function CleanerApp() {
             today={start.today}
             busyId={jobBusy}
             messages={jobMessages}
-            onMark={(job) => actOnJob(job, "mark")}
+            onMark={(job, details) => actOnJob(job, "mark", details)}
             onUndo={(job) => actOnJob(job, "undo")}
             onAddReceipt={(job) => startReceipt({ id: job.propertyId, name: job.propertyName }, true)}
             photoOf={(id) => photos.get(id) ?? null}

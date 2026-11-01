@@ -21,7 +21,7 @@
  * Pure and dependency-free, like model.ts: nothing here imports Next, Firebase or anything under `@/`.
  */
 
-import { jobEvent, type CleaningJob, type JobActor } from './model';
+import { jobEvent, newAssignment, type CleaningJob, type JobActor } from './model';
 
 export const PROPERTY_REGULAR_CLEANERS_COLLECTION = 'property_regular_cleaners';
 export const REGULAR_CLEANER_SCHEMA_VERSION = 2;
@@ -164,7 +164,7 @@ export function withRegularCleaner(job: CleaningJob, regular: RegularCandidate |
     ...job,
     cleanerIds: [regular.id],
     assignments: {
-      [regular.id]: { nameAtAssignment: regular.name, assignedAt: nowIso, assignedBy: REGULAR_CLEANER_ACTOR, cleaningId: null, markedAt: null, removedAt: null, removedBy: null },
+      [regular.id]: newAssignment(regular.name, nowIso, REGULAR_CLEANER_ACTOR),
     },
     history: [...job.history, jobEvent(nowIso, 'assigned', REGULAR_CLEANER_ACTOR, { cleanerId: regular.id, cleanerName: regular.name })],
   };

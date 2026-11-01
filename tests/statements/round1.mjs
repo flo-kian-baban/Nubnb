@@ -31,21 +31,21 @@ const previous = (month, reference) => ({ id: `TESTREPORT${++seq}`, month, refer
 
 // ═══ 1. K5: the reference stem ═══
 console.log('═══ 1. K5: a new statement\'s reference is suggested as <Mon>-<stem> ═══');
-for (const month of ['2026-09', '2026-06', '2026-07', '2026-08', '2027-01']) console.log(`   ${month} + "321-John" → ${model.referenceFromStem('321-John', month)}`);
+for (const month of ['2026-09', '2026-06', '2026-07', '2026-08', '2027-01']) console.log(`   ${month} + "12-Test" → ${model.referenceFromStem('12-Test', month)}`);
 console.log(`   "  321   John " folded → ${model.referenceFromStem('  321   John ', '2026-09')}`);
 check(model.referenceFromStem('', '2026-09') === null && model.referenceFromStem(null, '2026-09') === null && model.referenceFromStem('x', 'nope') === null, 'no stem, or no month: no suggestion');
-check(st.suggestedReference(previous('2026-08', 'Aug-19-Tannery'), '321-John', '2026-09') === 'Sept-321-John', 'the stem comes before the previous reference');
+check(st.suggestedReference(previous('2026-08', 'Aug-19-Tannery'), '12-Test', '2026-09') === 'Sept-12-Test', 'the stem comes before the previous reference');
 check(st.suggestedReference(previous('2026-08', 'Aug-19-Tannery'), null, '2026-09') === 'Sept-19-Tannery', 'no stem: the previous reference, its month word swapped (as before)');
 check(st.suggestedReference(null, null, '2026-09') === null, 'neither: nothing suggested');
 console.log('   stems as typed:');
-for (const stem of ['321-John', '', 'Sept-321-John', 'sep-321-john', 'September-321', 'Mar-12', 'Marc-12', 'May-1', 'Maya-1', 'x'.repeat(55), 'x'.repeat(56), 'a\u0007b']) console.log(`     ${JSON.stringify(stem.length > 20 ? `${stem.slice(0, 6)}…(${stem.length})` : stem).padEnd(20)} → ${model.stemProblem(stem) ?? 'fine'}`);
+for (const stem of ['12-Test', '', 'Sept-12-Test', 'sep-321-john', 'September-321', 'Mar-12', 'Marc-12', 'May-1', 'Maya-1', 'x'.repeat(55), 'x'.repeat(56), 'a\u0007b']) console.log(`     ${JSON.stringify(stem.length > 20 ? `${stem.slice(0, 6)}…(${stem.length})` : stem).padEnd(20)} → ${model.stemProblem(stem) ?? 'fine'}`);
 check(model.STATEMENT_LIMITS.REFERENCE_STEM_MAX + 'Sept-'.length <= model.STATEMENT_LIMITS.REFERENCE_MAX, 'the longest stem with the longest month word fits a reference');
 
 // ═══ 2. A new month, as the property page starts it (K5, K6) ═══
 console.log('\n═══ 2. A new month on the property page: the stem and the default rate (K6) ═══');
-const fresh = form.suggestedTyped(null, record({ referenceStem: '321-John', defaultFeeRateBasisPoints: 2000 }), '2026-11', '2026-12-17');
+const fresh = form.suggestedTyped(null, record({ referenceStem: '12-Test', defaultFeeRateBasisPoints: 2000 }), '2026-11', '2026-12-17');
 console.log(`   reference "${fresh.reference}" · fee ${fresh.fee ? `rate "${fresh.fee.rate}", base "${fresh.fee.base}" (typed, never filled)` : 'none'}`);
-check(fresh.reference === 'Nov-321-John' && fresh.fee?.rate === '20' && fresh.fee?.base === '', 'stem and rate start the month; the base stays empty');
+check(fresh.reference === 'Nov-12-Test' && fresh.fee?.rate === '20' && fresh.fee?.base === '', 'stem and rate start the month; the base stays empty');
 const bare = form.suggestedTyped(previous('2026-10', 'Oct-19-Tannery'), record(), '2026-11', '2026-12-17');
 check(bare.reference === 'Nov-19-Tannery' && bare.fee === null, 'no stem and no rate: the previous reference, no fee (as before)');
 
@@ -71,13 +71,13 @@ check(negative.refusals.length === 0, 'a warning only, never a refusal (only Rep
 
 // ═══ 4. The management route: whole from the edit page, in part from the sheet ═══
 console.log('\n═══ 4. The management route ═══');
-const stored = record({ reportFor: { name: 'Test Owner', address: '1 Test St' }, owners: [{ name: 'Test Owner', email: 'owner@example.test' }], statementsFrom: '2026-12', statementsUntil: '2027-05', defaultFeeRateBasisPoints: 1500, defaultFee: { label: 'Old fee', amountCents: 15000 }, excludedFromReporting: true, referenceStem: 'OLD-1' });
+const stored = record({ reportFor: { name: 'Test Owner', address: '1 Test St' }, owners: [{ name: 'Test Owner', email: 'owner@example.test' }], statementsFrom: '2026-12', statementsUntil: '2027-05', defaultFeeRateBasisPoints: 1500, defaultFee: { label: 'Old fee', amountCents: 15_300 }, excludedFromReporting: true, referenceStem: 'OLD-1' });
 const parse = (body) => mgmt.ManagementInputSchema.safeParse(body);
 const partial = parse({ reportFor: { name: '  Test   New Owner ', address: '9 Test Ave\n\nToronto ' }, referenceStem: ' 321 - John ', defaultFeeRate: '20' });
 check(partial.success, 'the sheet\'s body (three keys) is taken');
 const merged = mgmt.storedManagement(P(1), partial.data, stored, AT);
 console.log(`   merged: ${JSON.stringify(merged)}`);
-check(merged.owners.length === 1 && merged.statementsFrom === '2026-12' && merged.statementsUntil === '2027-05' && merged.excludedFromReporting === true && merged.defaultFee?.amountCents === 15000, 'owners, months, excluded and the old fee keep what is stored');
+check(merged.owners.length === 1 && merged.statementsFrom === '2026-12' && merged.statementsUntil === '2027-05' && merged.excludedFromReporting === true && merged.defaultFee?.amountCents === 15_300, 'owners, months, excluded and the old fee keep what is stored');
 check(merged.reportFor.name === 'Test New Owner' && merged.referenceStem === '321 - John' && merged.defaultFeeRateBasisPoints === 2000, 'the three fields as sent, folded');
 const none = mgmt.storedManagement(P(2), parse({ reportFor: null, referenceStem: null, defaultFeeRate: null }).data, null, AT);
 console.log(`   made from nothing: ${JSON.stringify(none)}`);
@@ -89,7 +89,7 @@ check(kept.referenceStem === 'OLD-1' && kept.defaultFeeRateBasisPoints === 1250,
 const whole = parse({ reportFor: null, owners: [], statementsFrom: '2026-11', statementsUntil: null, defaultFeeRate: null, referenceStem: null, excludedFromReporting: false });
 check(whole.success, 'the edit page\'s whole body is still taken');
 for (const [label, body] of [
-  ['a stem with its month', { referenceStem: 'Sept-321-John' }],
+  ['a stem with its month', { referenceStem: 'Sept-12-Test' }],
   ['an empty stem string', { referenceStem: '   ' }],
   ['a rate of 101', { defaultFeeRate: '101' }],
   ['an unknown key', { stem: 'x' }],
@@ -106,9 +106,9 @@ check(model.readPropertyManagement(P(1), { ...record() })?.referenceStem === und
 
 // ═══ 5. The edit page's Statements panel (K5) ═══
 console.log('\n═══ 5. The edit page\'s Statements panel ═══');
-const draft = editor.managementFromRecord(record({ referenceStem: '321-John' }));
+const draft = editor.managementFromRecord(record({ referenceStem: '12-Test' }));
 console.log(`   loaded stem "${draft.referenceStem}" · payload ${JSON.stringify(editor.managementPayload(draft))}`);
-check(JSON.stringify(editor.managementPayload({ ...editor.emptyManagement(), referenceStem: '321-John' })).includes('"referenceStem":"321-John"'), 'a stem alone keeps the record (it is not cleared as default)');
+check(JSON.stringify(editor.managementPayload({ ...editor.emptyManagement(), referenceStem: '12-Test' })).includes('"referenceStem":"12-Test"'), 'a stem alone keeps the record (it is not cleared as default)');
 console.log(`   a stem with its month: ${JSON.stringify(editor.managementPayload({ ...editor.emptyManagement(), referenceStem: 'Aug-321' }))}`);
 
 // ═══ 6. The empty months finished together take the stem too ═══
@@ -117,18 +117,18 @@ const empty = emptyMonth({
   month: '2026-11',
   today: '2026-12-17',
   properties: [{ id: P(1), name: 'Test Stem', createdMonth: '2026-11' }, { id: P(2), name: 'Test Plain', createdMonth: '2026-11' }],
-  management: [record({ reportFor: { name: 'Test Owner', address: '' }, referenceStem: '321-John' }), record({ id: P(2), propertyId: P(2), reportFor: { name: 'Test Owner Two', address: '' } })],
+  management: [record({ reportFor: { name: 'Test Owner', address: '' }, referenceStem: '12-Test' }), record({ id: P(2), propertyId: P(2), reportFor: { name: 'Test Owner Two', address: '' } })],
   reports: [],
   drafts: [],
   entries: [],
   income: { waiting: new Map(), checkInsWithout: new Set(), unsettled: [] },
 });
 for (const c of empty.eligible) console.log(`   ${c.name}: reference ${c.reference ?? 'none'}`);
-check(empty.eligible.find((c) => c.propertyId === P(1))?.reference === 'Nov-321-John' && empty.eligible.find((c) => c.propertyId === P(2))?.reference === null, 'stem gives Nov-321-John; no stem and no statement, none');
+check(empty.eligible.find((c) => c.propertyId === P(1))?.reference === 'Nov-12-Test' && empty.eligible.find((c) => c.propertyId === P(2))?.reference === null, 'stem gives Nov-12-Test; no stem and no statement, none');
 
 // ═══ 7. The Report For sheet's rows ═══
 console.log('\n═══ 7. The Report For sheet ═══');
-const row = sheet.sheetFieldsOf(record({ reportFor: { name: 'Test Owner', address: '1 Test St\nToronto' }, referenceStem: '321-John', defaultFeeRateBasisPoints: 1250 }));
+const row = sheet.sheetFieldsOf(record({ reportFor: { name: 'Test Owner', address: '1 Test St\nToronto' }, referenceStem: '12-Test', defaultFeeRateBasisPoints: 1250 }));
 console.log(`   a row from its record: ${JSON.stringify(row)} · from none: ${JSON.stringify(sheet.sheetFieldsOf(null))}`);
 for (const [label, fields] of [
   ['as loaded', row],
@@ -138,7 +138,7 @@ for (const [label, fields] of [
   ['seven address lines', { ...row, address: 'a\nb\nc\nd\ne\nf\ng' }],
   ['everything empty', { name: '', address: '', stem: '', rate: '' }],
 ]) console.log(`   ${label.padEnd(24)} → ${sheet.sheetProblem(fields) ?? 'saves'}${sheet.sheetProblem(fields) ? '' : ` ${JSON.stringify(sheet.sheetPayload(fields))}`}`);
-check(sheet.sameSheetRow(row, { name: ' Test  Owner', address: '1 Test St  \nToronto\n', stem: '321-John ', rate: ' 12.5' }), 'spacing that stores the same is no change: nothing is sent');
+check(sheet.sameSheetRow(row, { name: ' Test  Owner', address: '1 Test St  \nToronto\n', stem: '12-Test ', rate: ' 12.5' }), 'spacing that stores the same is no change: nothing is sent');
 check(!sheet.sameSheetRow(row, { ...row, rate: '12' }), 'a new rate is a change');
 
 // ═══ 8. Next property: the home's list, walked from the property page ═══

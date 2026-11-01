@@ -42,6 +42,7 @@
  * the same function.
  */
 
+import { EXTRA_ASKED } from '@/app/lib/cleanings/model';
 import { awaitingLook, formatCents, type CostEntryView } from '@/app/lib/cleaners/model';
 import { currentReports, dateText, feeComputed, isDayText, monthLabel, monthName, monthRange, rangeText, type Fee, type MonthlyReportView } from './model';
 import { isStayType, type IncomeChannel } from '@/app/lib/income/model';
@@ -120,7 +121,7 @@ export function hasCleaningLine(statement: Pick<Statement, 'lines'> & Partial<Pi
 
 /**
  * The amount a fee's label works out to, when the label names a rate and a base ("NuBNB 20% Net of $9,539.78"),
- * and it is not the fee's amount (S7: "NuBNB 25% Net of $1,000.00 … −$180.00"). null when the label names no
+ * and it is not the fee's amount (S7: "NuBNB 25% Net of $1,000.00 … −$312.50"). null when the label names no
  * rate and base, or works out to the amount.
  */
 export function feeLabelMismatch(fee: Pick<Fee, 'label' | 'amountCents'> | null): { labelCents: number } | null {
@@ -232,12 +233,18 @@ export function finishChecks(input: CheckInputs): FinishChecks {
   // Cleanings with no amount (pending, as the cleaning schedule made them) are named apart, with the statement they go on
   // once their amount is typed; the pending warning counts the rest (Kian's ruling K2 of 2026-10-18). Finish still never
   // refuses on either.
-  const noAmount = input.entries.filter((entry) => entry.kind === 'cleaning' && entry.status === 'pending' && entryMonth(entry) === s.month).length;
-  const stillPending = Math.max(0, s.pendingLeftOut - noAmount);
+  const waitingCleanings = input.entries.filter((entry) => entry.kind === 'cleaning' && entry.status === 'pending' && entryMonth(entry) === s.month);
+  // A cleaning whose cleaner asked for extra waits for the office's decision (Kian's ruling F of 2026-11-01): named apart from one with no amount.
+  const extraAsked = waitingCleanings.filter((entry) => entry.linesNow.kind === 'unreadable' && entry.linesNow.reason === EXTRA_ASKED).length;
+  const noAmount = waitingCleanings.length - extraAsked;
+  const stillPending = Math.max(0, s.pendingLeftOut - waitingCleanings.length);
   if (stillPending > 0) warnings.push({ key: 'pending', text: `${plural(stillPending, 'entry', 'entries')} sent in ${month} ${stillPending === 1 ? 'is' : 'are'} still pending and not in it.`, tab: 'costs' });
+  const next = statementMonthFor(s.month, new Set([...currentReports(input.reports).map((report) => report.month), s.month]));
   if (noAmount > 0) {
-    const next = statementMonthFor(s.month, new Set([...currentReports(input.reports).map((report) => report.month), s.month]));
     warnings.push({ key: 'no-amount', text: noAmount === 1 ? `1 cleaning has no amount yet; it will go on ${monthLabel(next)}'s statement once typed.` : `${noAmount} cleanings have no amount yet; they will go on ${monthLabel(next)}'s statement once typed.`, tab: 'costs' });
+  }
+  if (extraAsked > 0) {
+    warnings.push({ key: 'extra-asked', text: extraAsked === 1 ? `1 cleaning waits for a decision on extra asked; it will go on ${monthLabel(next)}'s statement once decided.` : `${extraAsked} cleanings wait for a decision on extra asked; they will go on ${monthLabel(next)}'s statement once decided.`, tab: 'costs' });
   }
 
   // ── The PDF (S25) and the date (S13) ──

@@ -14,10 +14,16 @@
  * "Cleaned · Undo" — Undo while no finished statement prints its cleaning and no payment covers its day — with "Add a
  * receipt for this unit" (ruling 6). A mark whose cleaning the office deleted or removed reads "Removed by the office",
  * with no Undo, until the office reopens it; then the job reads Mark cleaned again.
+ *
+ * Mark cleaned opens a short form on the card (Kian's ruling F of 2026-11-01): an optional note, and "Ask for extra",
+ * which needs a reason and has no amount field. With it, the card reads "Cleaned · extra asked" in amber and "Sent to
+ * Nubnb": never an amount, never the outcome. No amount is shown anywhere in this app (ruling H).
  */
 
+import { useState } from "react";
 import { Camera, Check, X } from "lucide-react";
 import type { CleanerJobView } from "@/app/lib/schedule/model";
+import type { MarkDetails } from "@/app/lib/cleaner-client";
 import type { CleanerProperty } from "@/app/lib/cleaners/model";
 import { dayText } from "@/app/lib/availability/days";
 import { changedWords, jobBadges } from "@/app/lib/cleaner-home";
@@ -32,7 +38,7 @@ interface JobsSectionProps {
   busyId: string | null;
   /** A refusal or a lost answer, under the job it is about. */
   messages: Record<string, string>;
-  onMark: (job: CleanerJobView) => void;
+  onMark: (job: CleanerJobView, details: MarkDetails) => void;
   onUndo: (job: CleanerJobView) => void;
   /** "Add a receipt for this unit": a receipt starting on this job's property. */
   onAddReceipt: (job: CleanerJobView) => void;
@@ -57,7 +63,7 @@ function guestLine(job: CleanerJobView, today: string): string | null {
   return `Next guest ${dayText(job.nextCheckIn)}`;
 }
 
-/** What a marked job says: "Cleaned · Undo" (ruling 6), or the office's removal. Shared with History. */
+/** What a marked job says: "Cleaned · Undo" (ruling 6), "Cleaned · extra asked" in amber with "Sent to Nubnb" (ruling F), or the office's removal. Shared with History. */
 export function CleanedLine({ job, busy, disabled, onUndo }: { job: CleanerJobView; busy: boolean; disabled: boolean; onUndo: () => void }) {
   if (job.markRefusal === "removed") {
     return (
@@ -67,23 +73,99 @@ export function CleanedLine({ job, busy, disabled, onUndo }: { job: CleanerJobVi
       </p>
     );
   }
+  const extra = job.extraAsked === true;
   return (
-    <p className={styles.jobState}>
-      <Check aria-hidden />
-      <span>Cleaned</span>
-      {job.canUndo && (
-        <>
-          <span aria-hidden> · </span>
-          <button type="button" className={styles.inlineButton} onClick={onUndo} disabled={disabled}>
-            {busy ? "Undoing…" : "Undo"}
-          </button>
-        </>
+    <>
+      <p className={`${styles.jobState} ${extra ? styles.jobStateExtra : ""}`}>
+        <Check aria-hidden />
+        <span>{extra ? "Cleaned · extra asked" : "Cleaned"}</span>
+        {job.canUndo && (
+          <>
+            <span aria-hidden> · </span>
+            <button type="button" className={styles.inlineButton} onClick={onUndo} disabled={disabled}>
+              {busy ? "Undoing…" : "Undo"}
+            </button>
+          </>
+        )}
+      </p>
+      {extra && <p className={styles.jobSent}>Sent to Nubnb</p>}
+    </>
+  );
+}
+
+/**
+ * The short form Mark cleaned opens (Kian's ruling F): a note, optional; "Ask for extra", with its reason, required
+ * when asked; then Mark cleaned. No amount field, and no amount anywhere (ruling H).
+ */
+function MarkForm({ busy, onMark, onCancel }: { busy: boolean; onMark: (details: MarkDetails) => void; onCancel: () => void }) {
+  const [note, setNote] = useState("");
+  const [extra, setExtra] = useState(false);
+  const [reason, setReason] = useState("");
+  const [problem, setProblem] = useState<string | null>(null);
+  const submit = () => {
+    if (extra && reason.trim() === "") {
+      setProblem("Say why you are asking for extra.");
+      return;
+    }
+    onMark({ note: note.trim() === "" ? null : note.trim(), extraReason: extra ? reason.trim() : null });
+  };
+  return (
+    <div className={styles.markForm} role="group" aria-label="Mark cleaned">
+      <label className={styles.markLabel}>
+        <span className={styles.fieldLabel}>Note for the office (optional)</span>
+        <textarea className={`${styles.field} ${styles.markText}`} value={note} maxLength={300} rows={2} placeholder="Anything the office should know" onChange={(e) => setNote(e.target.value)} disabled={busy} />
+      </label>
+      <button
+        type="button"
+        className={`${styles.markToggle} ${extra ? styles.markToggleOn : ""}`}
+        aria-pressed={extra}
+        onClick={() => {
+          setExtra((on) => !on);
+          setProblem(null);
+        }}
+        disabled={busy}
+      >
+        <span className={styles.markToggleBox} aria-hidden>
+          {extra && <Check />}
+        </span>
+        <span>Ask for extra</span>
+      </button>
+      {extra && (
+        <label className={styles.markLabel}>
+          <span className={styles.fieldLabel}>Why?</span>
+          <textarea
+            className={`${styles.field} ${styles.markText} ${problem ? styles.fieldInvalid : ""}`}
+            value={reason}
+            maxLength={300}
+            rows={2}
+            placeholder="What needed extra work"
+            aria-invalid={problem ? true : undefined}
+            onChange={(e) => {
+              setReason(e.target.value);
+              setProblem(null);
+            }}
+            disabled={busy}
+          />
+        </label>
       )}
-    </p>
+      {problem && (
+        <p className={styles.fieldProblem} role="alert">
+          {problem}
+        </p>
+      )}
+      <button type="button" className={styles.primary} onClick={submit} disabled={busy} aria-busy={busy || undefined}>
+        {busy ? "Saving…" : "Mark cleaned"}
+      </button>
+      <button type="button" className={styles.textButton} onClick={onCancel} disabled={busy}>
+        Cancel
+      </button>
+    </div>
   );
 }
 
 export function JobsSection({ jobs, today, busyId, messages, onMark, onUndo, onAddReceipt, photoOf }: JobsSectionProps) {
+  /** The job whose mark form is open; one at a time. */
+  const [marking, setMarking] = useState<string | null>(null);
   return (
     <section aria-labelledby="jobs-heading" className={styles.jobs}>
       <h2 id="jobs-heading" className={styles.sectionLabel}>
@@ -144,9 +226,20 @@ export function JobsSection({ jobs, today, busyId, messages, onMark, onUndo, onA
                   ) : job.markRefusal === "too-early" ? (
                     <p className={styles.jobNote}>Mark cleaned opens {weekday(job.checkout)}</p>
                   ) : job.markRefusal === null ? (
-                    <button type="button" className={styles.primary} onClick={() => onMark(job)} disabled={busyId !== null} aria-busy={busyId === job.id || undefined}>
-                      {busyId === job.id ? "Saving…" : "Mark cleaned"}
-                    </button>
+                    marking === job.id ? (
+                      <MarkForm
+                        busy={busyId === job.id}
+                        onMark={(details) => {
+                          onMark(job, details);
+                          setMarking(null);
+                        }}
+                        onCancel={() => setMarking(null)}
+                      />
+                    ) : (
+                      <button type="button" className={styles.primary} onClick={() => setMarking(job.id)} disabled={busyId !== null} aria-busy={busyId === job.id || undefined}>
+                        {busyId === job.id ? "Saving…" : "Mark cleaned"}
+                      </button>
+                    )
                   ) : null}
                   {messages[job.id] && (
                     <p className={styles.jobMessage} role="alert">

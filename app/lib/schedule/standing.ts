@@ -14,9 +14,11 @@
  *   green   the latest job done, nothing ahead
  *   words   no job in the days looked at
  *
- * With no job to show, a property whose calendar has no link, or could not be read in the last refresh, reads
- * "Calendar not read" in amber, never "No turnover" (Kian's ruling of 2026-10-17, admin home): no turnover is known
- * there. A job already made from an earlier read still shows as itself.
+ * With no job to show, a property whose calendar link could not be read in the last refresh reads "Calendar not
+ * read" in amber, never "No turnover" (Kian's ruling of 2026-10-17, admin home): no turnover is known there. A
+ * property with no calendar link reads "No calendar" in grey (Kian's ruling G of 2026-11-01, replacing the rule of
+ * 2026-11-01 that marked an unlisted one "Not on Airbnb"): with or without the Unlisted mark, it never counts as
+ * "Calendar not read". A job already made from an earlier read, or added by hand, still shows as itself.
  *
  * A booking that changed before anyone marked it is not shown: it is not a problem.
  */
@@ -46,11 +48,13 @@ export interface HomeJob {
     removed: boolean;
     /** Their mark's cleaning is logged and waits for an admin to type its amount (37B). */
     pending: boolean;
+    /** They asked for extra on their mark and the office has not decided (Kian's ruling F of 2026-11-01). */
+    extra: boolean;
   }[];
 }
 
-/** The cleanings marks made, as read: whether each is logged and has an amount. */
-export type CleaningLookup = ReadonlyMap<string, { status: string | null; amountCents: number | null }>;
+/** The cleanings marks made, as read: whether each is logged, has an amount, and waits on an extra ask. */
+export type CleaningLookup = ReadonlyMap<string, { status: string | null; amountCents: number | null; extra?: string | null }>;
 
 /** A stored job, made small for the column. */
 export function homeJobOf(job: StoredJob, cleanings: CleaningLookup): HomeJob {
@@ -64,7 +68,7 @@ export function homeJobOf(job: StoredJob, cleanings: CleaningLookup): HomeJob {
       const a = job.assignments[cid];
       const removed = a.removedAt !== null;
       const cleaning = a.cleaningId !== null && !removed ? cleanings.get(a.cleaningId) : undefined;
-      return { name: a.nameAtAssignment, marked: a.cleaningId !== null, removed, pending: cleaning?.status === 'logged' && cleaning.amountCents === null };
+      return { name: a.nameAtAssignment, marked: a.cleaningId !== null, removed, pending: cleaning?.status === 'logged' && cleaning.amountCents === null, extra: cleaning?.status === 'logged' && cleaning.extra === 'asked' };
     }),
   };
 }
@@ -72,7 +76,7 @@ export function homeJobOf(job: StoredJob, cleanings: CleaningLookup): HomeJob {
 export type CleaningTone = 'problem' | 'warning' | 'assigned' | 'done' | 'none';
 
 export interface CleaningStanding {
-  key: 'needs-now' | 'not-marked' | 'needs' | 'removed' | 'changed' | 'amount' | 'assigned' | 'done' | 'no-turnover' | 'not-read' | 'not-on-airbnb';
+  key: 'needs-now' | 'not-marked' | 'needs' | 'removed' | 'changed' | 'extra' | 'amount' | 'assigned' | 'done' | 'no-turnover' | 'not-read' | 'no-calendar';
   label: string;
   tone: CleaningTone;
   /** The job's checkout; null for the quiet words. */
@@ -82,7 +86,7 @@ export interface CleaningStanding {
 }
 
 /** Most pressing first: the order the column picks in. */
-const ORDER: CleaningStanding['key'][] = ['needs-now', 'not-marked', 'needs', 'removed', 'changed', 'amount', 'assigned', 'done'];
+const ORDER: CleaningStanding['key'][] = ['needs-now', 'not-marked', 'needs', 'removed', 'changed', 'extra', 'amount', 'assigned', 'done'];
 
 function standingOf(job: HomeJob, today: string): Omit<CleaningStanding, 'title'> | null {
   const day = job.checkout;
@@ -93,6 +97,7 @@ function standingOf(job: HomeJob, today: string): Omit<CleaningStanding, 'title'
   if (marked < on && day < today) return { key: 'not-marked', label: 'Not marked', tone: 'problem', day };
   if (job.cleaners.some((c) => c.removed)) return { key: 'removed', label: 'Removed by the office', tone: 'warning', day };
   if (marked < on) return { key: 'assigned', label: marked === 0 ? 'Assigned' : `${marked} of ${on} done`, tone: 'assigned', day };
+  if (job.cleaners.some((c) => c.extra)) return { key: 'extra', label: 'Extra asked', tone: 'warning', day };
   if (job.cleaners.some((c) => c.pending)) return { key: 'amount', label: 'Amount needed', tone: 'warning', day };
   return { key: 'done', label: 'Done', tone: 'done', day };
 }
@@ -103,12 +108,13 @@ const DETAIL: Record<CleaningStanding['key'], string> = {
   needs: 'nobody is on it yet',
   removed: 'the office removed a mark; reopen it for them from the Schedule, or leave it',
   changed: 'the booking changed after it was marked: its cleaning stays, charged as usual, for an admin to decide',
+  extra: 'cleaned; the cleaner asked for extra, and the money waits for an admin to approve or decline it',
   amount: 'cleaned; its cleaning waits for an admin to type its amount',
   assigned: 'someone is on it',
   done: 'cleaned',
   'no-turnover': '',
   'not-read': '',
-  'not-on-airbnb': '',
+  'no-calendar': '',
 };
 
 /**
@@ -117,11 +123,10 @@ const DETAIL: Record<CleaningStanding['key'], string> = {
  * when the last refresh could not read the property's calendar (absent: read).
  */
 /**
- * `notOnAirbnb`: the property has no calendar link and carries the "Not on the site" mark (unlisted). Kian's ruling of
- * 2026-11-01: it no longer counts as "Calendar not read"; its cell reads "Not on Airbnb", in grey. A property with no
- * link and no mark still reads "Calendar not read", as before.
+ * A property with no calendar link reads "No calendar" in grey (Kian's ruling G of 2026-11-01), with or without the
+ * Unlisted mark; only a set link that could not be read is "Calendar not read".
  */
-export function cleaningStanding(jobs: readonly HomeJob[], input: { today: string; hasCalendar: boolean; calendarRead?: boolean; notOnAirbnb?: boolean }): CleaningStanding {
+export function cleaningStanding(jobs: readonly HomeJob[], input: { today: string; hasCalendar: boolean; calendarRead?: boolean }): CleaningStanding {
   const from = addDays(input.today, -COLUMN_DAYS_BACK);
   const to = addDays(input.today, COLUMN_DAYS_AHEAD);
   const seen = jobs
@@ -129,8 +134,7 @@ export function cleaningStanding(jobs: readonly HomeJob[], input: { today: strin
     .map((job) => ({ job, state: standingOf(job, input.today) }))
     .filter((x): x is { job: HomeJob; state: Omit<CleaningStanding, 'title'> } => x.state !== null);
   if (seen.length === 0) {
-    if (!input.hasCalendar && input.notOnAirbnb === true) return { key: 'not-on-airbnb', label: 'Not on Airbnb', tone: 'none', day: null, title: 'Not on the site and no calendar link: no cleaning jobs are made for it' };
-    if (!input.hasCalendar) return { key: 'not-read', label: 'Calendar not read', tone: 'warning', day: null, title: 'No calendar link, so no cleaning jobs' };
+    if (!input.hasCalendar) return { key: 'no-calendar', label: 'No calendar', tone: 'none', day: null, title: 'No calendar link: the calendar makes no jobs for it; add one on the Schedule when it needs cleaning' };
     if (input.calendarRead === false) return { key: 'not-read', label: 'Calendar not read', tone: 'warning', day: null, title: 'The last refresh could not read its calendar, so its turnovers are not known' };
     return { key: 'no-turnover', label: 'No turnover', tone: 'none', day: null, title: `No checkout from ${dayText(from)} to ${dayText(to)}` };
   }

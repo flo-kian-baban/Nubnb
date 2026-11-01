@@ -24,14 +24,15 @@ export interface PayQuestion {
 }
 
 /** What the pay checks need of a member's pay. */
-export type PayStanding = Pick<MemberPay, 'balanceCents' | 'noAmount' | 'waitingReview' | 'cannotAddUp'>;
+export type PayStanding = Pick<MemberPay, 'balanceCents' | 'noAmount' | 'waitingReview' | 'cannotAddUp'> & { extraAsked?: number };
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /** "2 cleanings have no amount yet", "1 receipt or work entry is waiting for review": the parts of what is not counted, in order. */
-export function notCountedWords(pay: Pick<PayStanding, 'noAmount' | 'waitingReview'>): string[] {
+export function notCountedWords(pay: Pick<PayStanding, 'noAmount' | 'waitingReview' | 'extraAsked'>): string[] {
   const parts: string[] = [];
   if (pay.noAmount > 0) parts.push(`${plural(pay.noAmount, 'cleaning has', 'cleanings have')} no amount yet`);
+  if ((pay.extraAsked ?? 0) > 0) parts.push(`${plural(pay.extraAsked ?? 0, 'cleaning waits', 'cleanings wait')} for a decision on extra asked`);
   if (pay.waitingReview > 0) parts.push(`${plural(pay.waitingReview, 'receipt or work entry is', 'receipts or work entries are')} waiting for review`);
   return parts;
 }

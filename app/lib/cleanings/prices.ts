@@ -4,8 +4,20 @@
  * stay of 28 nights or more. They are the base for each house; the admin can change any cleaning's amount, because it
  * may vary by unit, day or booking."
  *
+ * ── Three tiers (Kian's ruling A of 2026-11-01, the cleaning flow) ──
+ * "Three tiers per property, chosen by the booking's nights: short 1–6, mid 7–27, long 28+. Each property holds a base
+ * price per tier in the existing server-only price record. Mid starts equal to that property's short price. Admins
+ * change base prices on the property, as now. A base change never alters existing cleanings. Two cleaners on a job
+ * still give no amount." A record written before the mid tier (schema version 1) reads its mid price as its short one.
+ *
+ * ── The per-job amount (ruling B) ──
+ * "An admin can set an amount on any job, before assignment or at any time before the cleaning's money is approved. It
+ * beats the base price." A job's `amountCents` (schedule/model.ts) is what a mark on it takes, with one cleaner on it;
+ * the cleaning records `amountFrom` "job". A job an admin added by hand (ruling C) carries a chosen tier instead of a
+ * stay: that tier picks its base price.
+ *
  * ── The record ──
- * `property_cleaning_prices/{propertyId}`, one per property that has prices: the short-term and long-term presets in
+ * `property_cleaning_prices/{propertyId}`, one per property that has prices: the short-, mid- and long-term presets in
  * integer cents, each a number or null, and a history of changes (who, when, before, after). Server-only: reached
  * through the Admin SDK by the admin routes (firestore.rules' catch-all denies every browser), never on the
  * world-readable property document (the property save refuses it, as it refuses the name cleaners see), never sent to
@@ -27,24 +39,36 @@
  */
 
 export const PROPERTY_CLEANING_PRICES_COLLECTION = 'property_cleaning_prices';
-export const CLEANING_PRICES_SCHEMA_VERSION = 1;
+/** Version 2 (2026-11-01): the mid-term preset. A version 1 record reads its mid price as its short one. */
+export const CLEANING_PRICES_SCHEMA_VERSION = 2;
 
 /** A stay of this many nights or more is a long-term stay (Kian's ruling: 28 nights or more). */
 export const LONG_STAY_NIGHTS = 28;
+/** A stay of this many nights or more, below LONG_STAY_NIGHTS, is a mid-term stay (Kian's ruling A of 2026-11-01: 7–27). */
+export const MID_STAY_NIGHTS = 7;
 
 /** A preset: $0.01 to $9,999.99, as a cleaning's amount. */
 export const PRICE_MAX_CENTS = 999_999;
 
 /** Names a cleaning price could be sent under on a property body: none is ever a property field. */
-export const CLEANING_PRICE_FIELDS = ['cleaningPrices', 'cleaningPrice', 'shortTermCents', 'longTermCents', 'shortTermPrice', 'longTermPrice', 'cleaningPriceShort', 'cleaningPriceLong'] as const;
+export const CLEANING_PRICE_FIELDS = ['cleaningPrices', 'cleaningPrice', 'shortTermCents', 'midTermCents', 'longTermCents', 'shortTermPrice', 'midTermPrice', 'longTermPrice', 'cleaningPriceShort', 'cleaningPriceMid', 'cleaningPriceLong'] as const;
 
-/** The two presets, in cents; null where none is set. */
+/** The three presets, in cents; null where none is set. */
 export interface CleaningPrices {
   shortTermCents: number | null;
+  midTermCents: number | null;
   longTermCents: number | null;
 }
 
-export const NO_PRICES: CleaningPrices = { shortTermCents: null, longTermCents: null };
+export const NO_PRICES: CleaningPrices = { shortTermCents: null, midTermCents: null, longTermCents: null };
+
+/** The tiers, in order (Kian's ruling A of 2026-11-01). */
+export type PresetKind = 'short' | 'mid' | 'long';
+export const PRESET_KINDS: readonly PresetKind[] = ['short', 'mid', 'long'];
+/** Each tier's word: "short-term", "mid-term", "long-term". */
+export const TIER_WORDS: Record<PresetKind, string> = { short: 'short-term', mid: 'mid-term', long: 'long-term' };
+/** Each tier's nights, in words: "1–6 nights", "7–27 nights", "28+ nights". */
+export const TIER_NIGHTS: Record<PresetKind, string> = { short: `1–${MID_STAY_NIGHTS - 1} nights`, mid: `${MID_STAY_NIGHTS}–${LONG_STAY_NIGHTS - 1} nights`, long: `${LONG_STAY_NIGHTS}+ nights` };
 
 /** Who changed the prices: the admins' actor shape, written out so this file needs no app import. */
 export interface PriceActor {
@@ -81,7 +105,13 @@ const isActor = (value: unknown): value is PriceActor => isRecord(value) && ['ad
 /** A preset as stored: null, or a whole number of cents above zero and at most PRICE_MAX_CENTS. */
 export const isPriceCents = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value > 0 && value <= PRICE_MAX_CENTS;
 const isPriceOrNull = (value: unknown): value is number | null => value === null || isPriceCents(value);
-const readPrices = (value: unknown): CleaningPrices | null => (isRecord(value) && isPriceOrNull(value.shortTermCents) && isPriceOrNull(value.longTermCents) ? { shortTermCents: value.shortTermCents, longTermCents: value.longTermCents } : null);
+/** The presets as stored; a record or event from before the mid tier (no `midTermCents` key) reads its mid price as its short one (Kian's ruling A: mid starts equal to short). */
+const readPrices = (value: unknown): CleaningPrices | null => {
+  if (!isRecord(value) || !isPriceOrNull(value.shortTermCents) || !isPriceOrNull(value.longTermCents)) return null;
+  const mid = value.midTermCents === undefined ? value.shortTermCents : value.midTermCents;
+  if (!isPriceOrNull(mid)) return null;
+  return { shortTermCents: value.shortTermCents, midTermCents: mid, longTermCents: value.longTermCents };
+};
 
 /** A stored record, read strictly: null when any field is not in the written shape, or it names another property. */
 export function readCleaningPrices(id: string, fields: Record<string, unknown>): CleaningPricesRecord | null {
@@ -101,12 +131,10 @@ export function readCleaningPrices(id: string, fields: Record<string, unknown>):
 
 /** Two prices that are the same. */
 export function samePrices(a: CleaningPrices, b: CleaningPrices): boolean {
-  return a.shortTermCents === b.shortTermCents && a.longTermCents === b.longTermCents;
+  return a.shortTermCents === b.shortTermCents && a.midTermCents === b.midTermCents && a.longTermCents === b.longTermCents;
 }
 
 // ─── The amount rule ───────────────────────────────────────────
-
-export type PresetKind = 'short' | 'long';
 
 /** The nights of a stay from its first night to its checkout day (yyyy-mm-dd both); 0 when either is not a day or the checkout is not after the start. */
 export function stayNights(start: string, checkout: string): number {
@@ -116,51 +144,84 @@ export function stayNights(start: string, checkout: string): number {
   return Number.isFinite(nights) && nights > 0 ? nights : 0;
 }
 
-/** Which preset a stay of `nights` nights takes: long-term from 28 nights (Kian's ruling), short-term below. */
+/** Which tier a stay of `nights` nights takes (Kian's ruling A of 2026-11-01): long-term from 28, mid-term from 7, short-term below. */
 export function presetKind(nights: number): PresetKind {
-  return nights >= LONG_STAY_NIGHTS ? 'long' : 'short';
+  return nights >= LONG_STAY_NIGHTS ? 'long' : nights >= MID_STAY_NIGHTS ? 'mid' : 'short';
+}
+
+/** The preset a tier takes: null when the property has none for it. */
+export function presetCents(prices: CleaningPrices | null, tier: PresetKind): number | null {
+  if (prices === null) return null;
+  return tier === 'long' ? prices.longTermCents : tier === 'mid' ? prices.midTermCents : prices.shortTermCents;
 }
 
 /** The preset a stay takes, and its amount: null when the property has no such preset. */
 export function presetAmount(prices: CleaningPrices | null, nights: number): { from: PresetKind; cents: number | null } {
   const from = presetKind(nights);
-  const cents = prices === null ? null : from === 'long' ? prices.longTermCents : prices.shortTermCents;
-  return { from, cents };
-}
-
-/** Where a cleaning's amount came from: a preset, or typed by an admin. */
-export type AmountSource = 'short' | 'long' | 'typed';
-
-/** The words of each source (Kian's ruling: "short-term preset", "long-term preset", "typed"). */
-export const AMOUNT_SOURCE_WORDS: Record<AmountSource, string> = { short: 'short-term preset', long: 'long-term preset', typed: 'typed' };
-
-/** What a Mark cleaned's amount started from: a preset, or a split between several cleaners (no amount; the admin types each share). */
-export type MarkSuggestedFrom = PresetKind | 'split';
-
-/**
- * The amount a cleaner's Mark cleaned gives the cleaning (Kian's ruling of 2026-10-19). Exactly one cleaner on the
- * job: the long-term preset when the stay behind it is 28 nights or more, else the short-term preset; with no matching
- * preset, no amount. Two or more cleaners: no amount, whatever the presets; the admin types the split. Never typed by
- * the cleaner, and never shown to them.
- */
-export function markAmount(prices: CleaningPrices | null, job: { cleanerIds: readonly string[]; reservation: { start: string }; checkout: string }): { from: MarkSuggestedFrom; cents: number | null; amountFrom: AmountSource | null; nights: number } {
-  const nights = stayNights(job.reservation.start, job.checkout);
-  if (job.cleanerIds.length >= 2) return { from: 'split', cents: null, amountFrom: null, nights };
-  const preset = presetAmount(prices, nights);
-  return { from: preset.from, cents: preset.cents, amountFrom: preset.cents === null ? null : preset.from, nights };
+  return { from, cents: presetCents(prices, from) };
 }
 
 /**
- * What a cleaning logged by hand starts from (Kian's ruling): the stay's length when the property has a job that day
- * (`job`: its stay and checkout), else the short-term preset. The admin can change it.
+ * What the rule needs of a job: who is on it, the stay behind it (null on a job an admin added by hand, ruling C),
+ * the tier an admin chose for it (null on a job the calendar made), and the amount set on it (ruling B; null for none).
  */
-export function handLogSuggestion(prices: CleaningPrices | null, job: { reservation: { start: string }; checkout: string } | null): { from: PresetKind; cents: number | null; nights: number } {
-  const nights = job ? stayNights(job.reservation.start, job.checkout) : 0;
-  return { ...presetAmount(prices, nights), nights };
+export interface JobForAmount {
+  cleanerIds: readonly string[];
+  reservation: { start: string } | null;
+  checkout: string;
+  tier?: PresetKind | null;
+  amountCents?: number | null;
 }
 
-/** Where a hand-logged amount came from: the preset it started from when the admin left it, else typed. */
-export function amountSourceOf(suggestion: { from: PresetKind; cents: number | null }, amountCents: number): AmountSource {
+/** The nights of the stay behind a job: 0 on a job added by hand. */
+export function jobNights(job: Pick<JobForAmount, 'reservation' | 'checkout'>): number {
+  return job.reservation ? stayNights(job.reservation.start, job.checkout) : 0;
+}
+
+/** A job's tier: the one an admin chose for it, else the tier its stay's nights take. */
+export function jobTier(job: Pick<JobForAmount, 'reservation' | 'checkout' | 'tier'>): PresetKind {
+  return job.tier ?? presetKind(jobNights(job));
+}
+
+/** Where a cleaning's amount came from: a preset, the amount set on its job (ruling B), or typed by an admin. */
+export type AmountSource = PresetKind | 'typed' | 'job';
+
+/** The words of each source (Kian's ruling: "short-term preset", "long-term preset", "typed"; ruling B: "set on the job"). */
+export const AMOUNT_SOURCE_WORDS: Record<AmountSource, string> = { short: 'short-term preset', mid: 'mid-term preset', long: 'long-term preset', typed: 'typed', job: 'set on the job' };
+
+/** What a Mark cleaned's amount started from: a preset, the job's own amount, or a split between several cleaners (no amount; the admin types each share). */
+export type MarkSuggestedFrom = PresetKind | 'split' | 'job';
+
+/**
+ * The amount a cleaner's Mark cleaned gives the cleaning (Kian's ruling of 2026-10-19, with rulings A and B of
+ * 2026-11-01). Exactly one cleaner on the job: the amount set on the job when it has one, else the preset its tier
+ * takes — long-term from 28 nights, mid-term from 7, short-term below, or the tier an admin chose for a job added by
+ * hand — and no amount when the property has no such preset. Two or more cleaners: no amount, whatever is set; the
+ * admin types the split. Never typed by the cleaner, and never shown to them. An admin's Record as cleaned (ruling E)
+ * takes exactly this.
+ */
+export function markAmount(prices: CleaningPrices | null, job: JobForAmount): { from: MarkSuggestedFrom; cents: number | null; amountFrom: AmountSource | null; nights: number; tier: PresetKind } {
+  const nights = jobNights(job);
+  const tier = jobTier(job);
+  if (job.cleanerIds.length >= 2) return { from: 'split', cents: null, amountFrom: null, nights, tier };
+  if (typeof job.amountCents === 'number') return { from: 'job', cents: job.amountCents, amountFrom: 'job', nights, tier };
+  const cents = presetCents(prices, tier);
+  return { from: tier, cents, amountFrom: cents === null ? null : tier, nights, tier };
+}
+
+/**
+ * What a cleaning logged by hand starts from (Kian's ruling): the amount set on the property's job that day when it
+ * has one (ruling B), else the preset that job's tier takes, else the short-term preset. The admin can change it.
+ */
+export function handLogSuggestion(prices: CleaningPrices | null, job: Pick<JobForAmount, 'reservation' | 'checkout' | 'tier' | 'amountCents'> | null): { from: PresetKind | 'job'; cents: number | null; nights: number; tier: PresetKind } {
+  const nights = job ? jobNights(job) : 0;
+  const tier = job ? jobTier(job) : 'short';
+  if (job && typeof job.amountCents === 'number') return { from: 'job', cents: job.amountCents, nights, tier };
+  return { from: tier, cents: presetCents(prices, tier), nights, tier };
+}
+
+/** Where a hand-logged amount came from: what it started from when the admin left it (a preset, or the job's amount), else typed. */
+export function amountSourceOf(suggestion: { from: PresetKind | 'job'; cents: number | null }, amountCents: number): AmountSource {
   return suggestion.cents === amountCents ? suggestion.from : 'typed';
 }
 
@@ -178,23 +239,36 @@ export function amountSourceWords(cleaning: { amountCents: number | null; amount
   return 'typed';
 }
 
-/** The hint under an amount field while a cleaning waits for one: the presets a cleaner's share could start from. */
-export function waitingHint(prices: CleaningPrices | null, job: { nights: number; cleaners: number } | null): string {
+/** What the hints need of a cleaning's job: its stay's nights, how many cleaners were on it, its tier, and the amount set on it. */
+export interface JobFacts {
+  nights: number;
+  cleaners: number;
+  /** The job's tier (jobTier). Absent on facts read before the tiers: the nights decide. */
+  tier?: PresetKind;
+  /** The amount set on the job (ruling B); null or absent for none. */
+  amountCents?: number | null;
+}
+
+const tierOfFacts = (job: JobFacts): PresetKind => job.tier ?? presetKind(job.nights);
+
+/** The hint under an amount field while a cleaning waits for one: the amount its job or its presets could start from. */
+export function waitingHint(prices: CleaningPrices | null, job: JobFacts | null): string {
   const words = (cents: number | null) => (cents === null ? 'none' : `$${(cents / 100).toFixed(2)}`);
-  if (!job) return prices && (prices.shortTermCents !== null || prices.longTermCents !== null) ? `Presets: short ${words(prices.shortTermCents)}, long ${words(prices.longTermCents)}` : 'No preset for this property';
-  const preset = presetAmount(prices, job.nights);
-  const stay = `${job.nights === 1 ? '1 night' : `${job.nights} nights`}: ${preset.from === 'long' ? 'long-term' : 'short-term'} preset ${words(preset.cents)}`;
+  if (!job) return prices && (prices.shortTermCents !== null || prices.midTermCents !== null || prices.longTermCents !== null) ? `Presets: short ${words(prices.shortTermCents)}, mid ${words(prices.midTermCents)}, long ${words(prices.longTermCents)}` : 'No preset for this property';
+  const tier = tierOfFacts(job);
+  const base = typeof job.amountCents === 'number' ? `set on the job ${words(job.amountCents)}` : `${TIER_WORDS[tier]} preset ${words(presetCents(prices, tier))}`;
+  const stay = `${job.nights === 0 ? `${TIER_WORDS[tier]} job` : job.nights === 1 ? '1 night' : `${job.nights} nights`}: ${base}`;
   return job.cleaners >= 2 ? `${job.cleaners} cleaners on this job · ${stay} in all` : stay;
 }
 
 // ─── Typed prices ──────────────────────────────────────────────
 
-/** A preset as an input field holds it, "80.00"; '' for none. */
+/** A preset as an input field holds it, "75.00"; '' for none. */
 export function priceField(cents: number | null): string {
   return cents === null ? '' : (cents / 100).toFixed(2);
 }
 
-/** A typed price: '' (or "none") is no preset; "80", "$80", "80.5", "80.50", "1,200.00" are cents; anything else is not a price. */
+/** A typed price: '' (or "none") is no preset; "75", "$75", "75.5", "75.50", "1,234.00" are cents; anything else is not a price. */
 export function readPriceText(text: string): { kind: 'none' } | { kind: 'cents'; cents: number } | { kind: 'bad' } {
   const clean = text.replace(/\s+/g, '').replace(/^\$/, '').replace(/,/g, '');
   if (clean === '' || /^none$/i.test(clean) || clean === '-' || clean === '—') return { kind: 'none' };
@@ -204,7 +278,7 @@ export function readPriceText(text: string): { kind: 'none' } | { kind: 'cents';
   return isPriceCents(cents) ? { kind: 'cents', cents } : { kind: 'bad' };
 }
 
-/** "80.00" as the routes take it, or null for none; undefined when the text is not a price. */
+/** "75.00" as the routes take it, or null for none; undefined when the text is not a price. */
 export function priceTextForRoute(text: string): string | null | undefined {
   const read = readPriceText(text);
   return read.kind === 'none' ? null : read.kind === 'cents' ? priceField(read.cents) : undefined;
@@ -212,19 +286,21 @@ export function priceTextForRoute(text: string): string | null | undefined {
 
 // ─── The CSV import ────────────────────────────────────────────
 
-/** One row of the import file, as typed. */
+/** One row of the import file, as typed. `mid` is null when the file has no mid column: the mid price is then the short one (ruling A). */
 export interface CsvPriceRow {
   /** Its line in the file, 1-based, the header being line 1. */
   line: number;
   address: string;
   short: string;
+  mid: string | null;
   long: string;
 }
 
 /** The file's columns, by the names they may carry (case and spaces set aside). */
-const COLUMN_NAMES: Record<keyof Omit<CsvPriceRow, 'line'>, string[]> = {
+const COLUMN_NAMES: Record<'address' | 'short' | 'mid' | 'long', string[]> = {
   address: ['address', 'property', 'suite', 'suite/property', 'suiteproperty', 'name', 'unit'],
   short: ['short', 'shortterm', 'shorttermprice', 'shorttermprice$'],
+  mid: ['mid', 'midterm', 'midtermprice', 'mid(7-27nights)', 'mid7-27'],
   long: ['long', 'longterm', 'longtermprice', 'long(28+nights)', 'longtermprice(28+days)', 'long28+'],
 };
 
@@ -262,16 +338,16 @@ export function parsePricesCsv(text: string): { kind: 'ok'; rows: CsvPriceRow[] 
   if (headerAt === -1) return { kind: 'bad', problem: 'The file is empty.' };
   const header = splitCsvLine(lines[headerAt]).map((h) => h.toLowerCase().replace(/[\s_-]+/g, ''));
   const at = (key: keyof typeof COLUMN_NAMES) => header.findIndex((h) => COLUMN_NAMES[key].includes(h));
-  const columns = { address: at('address'), short: at('short'), long: at('long') };
-  const missing = (Object.keys(columns) as (keyof typeof columns)[]).filter((k) => columns[k] === -1);
-  if (missing.length > 0) return { kind: 'bad', problem: `The first line must name the columns address, short and long; missing: ${missing.join(', ')}.` };
+  const columns = { address: at('address'), short: at('short'), mid: at('mid'), long: at('long') };
+  const missing = (['address', 'short', 'long'] as const).filter((k) => columns[k] === -1);
+  if (missing.length > 0) return { kind: 'bad', problem: `The first line must name the columns address, short and long (mid is optional); missing: ${missing.join(', ')}.` };
   const rows: CsvPriceRow[] = [];
   for (let i = headerAt + 1; i < lines.length; i += 1) {
     if (lines[i].trim() === '') continue;
     const fields = splitCsvLine(lines[i]);
     const address = (fields[columns.address] ?? '').normalize('NFC').replace(/\s+/g, ' ').trim();
     if (address === '') continue;
-    rows.push({ line: i + 1, address, short: fields[columns.short] ?? '', long: fields[columns.long] ?? '' });
+    rows.push({ line: i + 1, address, short: fields[columns.short] ?? '', mid: columns.mid === -1 ? null : (fields[columns.mid] ?? ''), long: fields[columns.long] ?? '' });
   }
   if (rows.length === 0) return { kind: 'bad', problem: 'The file has a header and no rows.' };
   return { kind: 'ok', rows };
@@ -336,14 +412,17 @@ export function matchPriceRows(rows: readonly CsvPriceRow[], properties: readonl
       continue;
     }
     const short = readPriceText(row.short);
+    // No mid column, or an empty mid cell: the mid price starts equal to the short one (Kian's ruling A of 2026-11-01).
+    const midText = readPriceText(row.mid ?? '');
+    const mid = midText.kind === 'none' ? short : midText;
     const long = readPriceText(row.long);
-    if (short.kind === 'bad' || long.kind === 'bad') {
+    if (short.kind === 'bad' || mid.kind === 'bad' || long.kind === 'bad') {
       unmatched.push({ row, why: 'a price is not readable' });
       continue;
     }
     taken.add(property.id);
     const before = current.get(property.id) ?? NO_PRICES;
-    const after: CleaningPrices = { shortTermCents: short.kind === 'cents' ? short.cents : null, longTermCents: long.kind === 'cents' ? long.cents : null };
+    const after: CleaningPrices = { shortTermCents: short.kind === 'cents' ? short.cents : null, midTermCents: mid.kind === 'cents' ? mid.cents : null, longTermCents: long.kind === 'cents' ? long.cents : null };
     matched.push({ row, propertyId: property.id, name: property.name, before, after, changes: !samePrices(before, after) });
   }
   return { matched, unmatched };
@@ -397,12 +476,6 @@ export function secondCleanerQuestion(job: { cleanerIds: readonly string[]; assi
 // "For unsure rows, we just keep it open as input by admin, and we keep that input item as a recommendation for next
 // time (based on if it's short term or long term)."
 
-/** What the rule needs of a cleaning's job: the stay's nights and how many cleaners were on it. */
-export interface JobFacts {
-  nights: number;
-  cleaners: number;
-}
-
 /** A cleaning as the recommendation reads it. */
 export interface CleaningFacts {
   id: string;
@@ -416,11 +489,11 @@ export interface CleaningFacts {
   jobId: string | null;
 }
 
-/** The tier a cleaning belongs to: by its job's stay when its job is known, else by what its form started from; null when neither says. */
+/** The tier a cleaning belongs to: its job's when its job is known, else by what its form started from; null when neither says. */
 export function cleaningTier(cleaning: Pick<CleaningFacts, 'jobId' | 'suggested'>, jobs: Readonly<Record<string, JobFacts>>): PresetKind | null {
   const job = cleaning.jobId !== null ? jobs[cleaning.jobId] : undefined;
-  if (job) return presetKind(job.nights);
-  return cleaning.suggested.from === 'long' ? 'long' : cleaning.suggested.from === 'short' ? 'short' : null;
+  if (job) return tierOfFacts(job);
+  return (PRESET_KINDS as readonly string[]).includes(cleaning.suggested.from) ? (cleaning.suggested.from as PresetKind) : null;
 }
 
 /**
@@ -439,9 +512,9 @@ export function recommendedAmount(cleanings: readonly CleaningFacts[], jobs: Rea
   return latest ? { cents: latest.amountCents as number, day: latest.day, cleaningId: latest.id } : null;
 }
 
-/** The words over a prefilled recommendation: "Last typed for short-term: $70.00". */
+/** The words over a prefilled recommendation: "Last typed for short-term: $73.00". */
 export function recommendationWords(tier: PresetKind, cents: number): string {
-  return `Last typed for ${tier === 'long' ? 'long-term' : 'short-term'}: $${(cents / 100).toFixed(2)}`;
+  return `Last typed for ${TIER_WORDS[tier]}: $${(cents / 100).toFixed(2)}`;
 }
 
 /**
@@ -450,12 +523,14 @@ export function recommendationWords(tier: PresetKind, cents: number): string {
  * prefilled and labelled, confirmed by Enter or Save; else nothing. A share of a job with several cleaners is never
  * prefilled: its hint says the preset for them all. The tier is the job's stay, else short-term.
  */
-export function missingAmountStart(prices: CleaningPrices | null, cleanings: readonly CleaningFacts[], jobs: Readonly<Record<string, JobFacts>>, cleaning: CleaningFacts): { kind: 'preset'; tier: PresetKind; cents: number } | { kind: 'split'; tier: PresetKind; cleaners: number } | { kind: 'recommendation'; tier: PresetKind; cents: number; day: string } | { kind: 'none'; tier: PresetKind } {
+export function missingAmountStart(prices: CleaningPrices | null, cleanings: readonly CleaningFacts[], jobs: Readonly<Record<string, JobFacts>>, cleaning: CleaningFacts): { kind: 'preset'; tier: PresetKind; cents: number } | { kind: 'job'; tier: PresetKind; cents: number } | { kind: 'split'; tier: PresetKind; cleaners: number } | { kind: 'recommendation'; tier: PresetKind; cents: number; day: string } | { kind: 'none'; tier: PresetKind } {
   const job = cleaning.jobId !== null ? jobs[cleaning.jobId] : undefined;
-  const tier: PresetKind = job ? presetKind(job.nights) : 'short';
+  const tier: PresetKind = job ? tierOfFacts(job) : 'short';
   if (job && job.cleaners >= 2) return { kind: 'split', tier, cleaners: job.cleaners };
-  const preset = presetAmount(prices, job?.nights ?? 0);
-  if (preset.cents !== null) return { kind: 'preset', tier, cents: preset.cents };
+  // The amount set on the job beats the base price (ruling B).
+  if (job && typeof job.amountCents === 'number') return { kind: 'job', tier, cents: job.amountCents };
+  const preset = presetCents(prices, tier);
+  if (preset !== null) return { kind: 'preset', tier, cents: preset };
   const recommended = recommendedAmount(cleanings, jobs, cleaning.propertyId, tier);
   return recommended ? { kind: 'recommendation', tier, cents: recommended.cents, day: recommended.day } : { kind: 'none', tier };
 }

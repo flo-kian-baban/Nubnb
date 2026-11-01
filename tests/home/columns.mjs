@@ -22,7 +22,7 @@ const show = (s) => `${s.key} · "${s.label}" · ${s.tone} · ${s.month ?? s.day
 console.log('═══ 1. Income: the month due (September 2026), worst first ═══');
 const MONTH = '2026-09';
 let row = 0;
-function line(title, { status = 'proposed', property = null, type = 'Reservation', cents = 10_000, month = MONTH } = {}) {
+function line(title, { status = 'proposed', property = null, type = 'Reservation', cents = 10_300, month = MONTH } = {}) {
   row += 1;
   const at = '2026-10-14T16:00:00.000Z';
   return {
@@ -34,7 +34,7 @@ function line(title, { status = 'proposed', property = null, type = 'Reservation
   };
 }
 const link = (title, propertyId, { active = true, linkedAt = '2026-08-20T12:00:00.000Z' } = {}) => ({ id: `TESTLINK-${title}`, schemaVersion: 1, platform: 'airbnb', title, propertyId, linkedAt, actor: ADMIN, history: [], active });
-const upload = (titles, month = MONTH) => ({ platform: 'airbnb', month, titles: titles.map((title) => ({ title, rows: 1, amountCents: 10_000 })) });
+const upload = (titles, month = MONTH) => ({ platform: 'airbnb', month, titles: titles.map((title) => ({ title, rows: 1, amountCents: 10_300 })) });
 
 const P = (n) => `TESTPROP${String(n).padStart(4, '0')}`;
 const links = [
@@ -50,8 +50,8 @@ const links = [
 const lines = [
   line('Test Review Loft'),
   line('Test Review Loft', { type: 'Unknown Thing' }),
-  line('Test Received Condo', { status: 'accepted', property: P(3), cents: 45_000 }),
-  line('Test Received Condo', { status: 'accepted', property: P(3), cents: -5_000, type: 'Adjustment' }),
+  line('Test Received Condo', { status: 'accepted', property: P(3), cents: 45_300 }),
+  line('Test Received Condo', { status: 'accepted', property: P(3), cents: -5_300, type: 'Adjustment' }),
   line('Test Both Studio'),
   line('Test Both Studio', { status: 'accepted', property: P(4) }),
   line('Test Quiet House', { status: 'rejected' }),
@@ -111,7 +111,7 @@ const cases = [
   ['assigned', [job(P(8), '2026-10-16', [c(ANA, { marked: true }), c(BEN)])], true],
   ['done', [job(P(9), '2026-10-05', [c(ANA, { marked: true })]), job(P(9), '2026-10-12', [c(BEN, { marked: true })])], true],
   ['no-turnover', [job(P(10), '2026-09-30'), job(P(10), '2026-10-12', [], { status: 'booking-changed', change: 'Cancelled' })], true],
-  ['not-read', [], false],
+  ['no-calendar', [], false],
   // Kian's rulings of 2026-10-17 (admin home): a calendar the last refresh could not read is "Calendar not read", never "No turnover".
   ['not-read', [], true, false],
   ['needs', [job(P(13), '2026-10-16')], true, false],
@@ -141,7 +141,7 @@ const stored = {
   assignments: { TESTCLEANERa: assignment(ANA, 'TESTCLEANING1'), TESTCLEANERb: assignment(BEN, 'TESTCLEANING2', '2026-10-14T20:00:00.000Z'), TESTCLEANERc: assignment(null, null) },
   createdAt: '2026-10-12T12:00:00.000Z', history: [],
 };
-const small = cleaning.homeJobOf(stored, new Map([['TESTCLEANING1', { status: 'logged', amountCents: null }], ['TESTCLEANING2', { status: 'removed', amountCents: 9_000 }]]));
+const small = cleaning.homeJobOf(stored, new Map([['TESTCLEANING1', { status: 'logged', amountCents: null }], ['TESTCLEANING2', { status: 'removed', amountCents: 9_300 }]]));
 console.log(`  ${JSON.stringify(small)}`);
 check(small.cleaners[0].pending && small.cleaners[0].marked, 'a logged cleaning with no amount is pending');
 check(small.cleaners[1].removed && small.cleaners[1].marked && !small.cleaners[1].pending, 'a mark the office removed stays a mark, removed, never pending');

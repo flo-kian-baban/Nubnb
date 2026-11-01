@@ -54,7 +54,7 @@ export async function listCleaningPrices(): Promise<Map<string, CleaningPricesRe
 
 /** The two presets alone, for the pages: null where a property has no record. */
 export function pricesOf(record: CleaningPricesRecord | null | undefined): CleaningPrices | null {
-  return record ? { shortTermCents: record.shortTermCents, longTermCents: record.longTermCents } : null;
+  return record ? { shortTermCents: record.shortTermCents, midTermCents: record.midTermCents, longTermCents: record.longTermCents } : null;
 }
 
 /**
@@ -78,11 +78,12 @@ export type SetCleaningPricesResult = { kind: 'set'; record: CleaningPricesRecor
 
 /** The record as written after a change: the presets, when and who, the history one event longer (or the first record, with its first event). */
 function nextRecord(propertyId: string, stored: CleaningPricesRecord | null, prices: CleaningPrices, actor: Actor, at: string): CleaningPricesRecord {
-  const before: CleaningPrices = stored ? { shortTermCents: stored.shortTermCents, longTermCents: stored.longTermCents } : { shortTermCents: null, longTermCents: null };
+  const before: CleaningPrices = stored ? { shortTermCents: stored.shortTermCents, midTermCents: stored.midTermCents, longTermCents: stored.longTermCents } : { shortTermCents: null, midTermCents: null, longTermCents: null };
   return {
     schemaVersion: CLEANING_PRICES_SCHEMA_VERSION,
     propertyId,
     shortTermCents: prices.shortTermCents,
+    midTermCents: prices.midTermCents,
     longTermCents: prices.longTermCents,
     setAt: at,
     setBy: actor,

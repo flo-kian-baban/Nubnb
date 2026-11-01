@@ -103,6 +103,9 @@ export function planCreates(input: { snapshot: AvailabilitySnapshot; existing: R
           checkout: stay.end,
           reservation: { uid: stay.uid, start: stay.start },
           calendarKey: keys.get(propertyId) ?? '',
+          origin: 'calendar',
+          tier: null,
+          amountCents: null,
           nextCheckIn: nextCheckInOf(reserved, stay.end, stay.uid),
           status: 'open',
           change: null,
@@ -126,7 +129,7 @@ export interface JobPatch {
 function bookingChanged(job: StoredJob, kind: ChangeKind, movedTo: { start: string; end: string } | null, nowIso: string): JobPatch {
   return {
     fields: { status: 'booking-changed', change: { kind, at: nowIso, movedTo } },
-    events: [jobEvent(nowIso, 'booking-changed', CALENDAR_ACTOR, { change: kind, before: { start: job.reservation.start, end: job.checkout }, after: movedTo })],
+    events: [jobEvent(nowIso, 'booking-changed', CALENDAR_ACTOR, { change: kind, before: { start: job.reservation?.start ?? null, end: job.checkout }, after: movedTo })],
   };
 }
 
@@ -137,6 +140,8 @@ function bookingChanged(job: StoredJob, kind: ChangeKind, movedTo: { start: stri
  * document says, looked up for a property this run did not read.
  */
 export function planJob(job: StoredJob, snapshot: AvailabilitySnapshot, key: string | null, nowIso: string, known: KnownProperty = 'unknown'): JobPatch | null {
+  // A job an admin added by hand (Kian's ruling C of 2026-11-01) is never the calendar's to change or settle.
+  if (job.origin === 'admin' || job.reservation === null) return null;
   // Settled from the day after checkout.
   if (job.checkout < snapshot.today) return null;
   if (!readThisRun(snapshot, job.propertyId)) {
@@ -147,6 +152,7 @@ export function planJob(job: StoredJob, snapshot: AvailabilitySnapshot, key: str
     return null;
   }
   const feed = snapshot.properties[job.propertyId];
+  const current = job.reservation;
 
   const reserved = reservationsOf(feed.events);
   const ending = reserved.find((stay) => stay.end === job.checkout) ?? null;
@@ -162,22 +168,22 @@ export function planJob(job: StoredJob, snapshot: AvailabilitySnapshot, key: str
 
   if (!ending) {
     if (linkNow !== job.calendarKey) return bookingChanged(job, 'calendar-changed', null, nowIso);
-    const same = reserved.find((stay) => stay.uid === job.reservation.uid);
+    const same = reserved.find((stay) => stay.uid === job.reservation?.uid);
     if (same) return bookingChanged(job, 'moved', { start: same.start, end: same.end }, nowIso);
     return bookingChanged(job, 'gone', null, nowIso);
   }
 
   const fields: JobPatch['fields'] = {};
   const events: JobEvent[] = [];
-  if (ending.uid !== job.reservation.uid) {
+  if (ending.uid !== current.uid) {
     // Same day, another reservation: the turnover stands (recommendation 1).
     fields.reservation = { uid: ending.uid, start: ending.start };
     if (linkNow !== job.calendarKey) fields.calendarKey = linkNow;
-    events.push(jobEvent(nowIso, 'reservation-replaced', CALENDAR_ACTOR, { reason: linkNow !== job.calendarKey ? 'the calendar link changed' : null, before: { start: job.reservation.start, end: job.checkout }, after: { start: ending.start, end: ending.end } }));
+    events.push(jobEvent(nowIso, 'reservation-replaced', CALENDAR_ACTOR, { reason: linkNow !== job.calendarKey ? 'the calendar link changed' : null, before: { start: current.start, end: job.checkout }, after: { start: ending.start, end: ending.end } }));
   } else {
-    if (ending.start !== job.reservation.start) {
+    if (ending.start !== current.start) {
       fields.reservation = { uid: ending.uid, start: ending.start };
-      events.push(jobEvent(nowIso, 'check-in-moved', CALENDAR_ACTOR, { before: { start: job.reservation.start, end: job.checkout }, after: { start: ending.start, end: ending.end } }));
+      events.push(jobEvent(nowIso, 'check-in-moved', CALENDAR_ACTOR, { before: { start: current.start, end: job.checkout }, after: { start: ending.start, end: ending.end } }));
     }
     if (linkNow !== job.calendarKey) {
       fields.calendarKey = linkNow;

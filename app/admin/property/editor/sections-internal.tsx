@@ -20,7 +20,7 @@ import { useAsk } from "../../components/AskDialog";
 import { fetchRegularCleaner, setRegularCleanerOf, type RegularCleanerAnswer } from "@/app/lib/schedule-client";
 import { regularCleanerQuestion } from "@/app/lib/schedule/regular";
 import { fetchCleaningPrices, setCleaningPricesOf } from "@/app/lib/prices-client";
-import { LONG_STAY_NIGHTS, priceField, priceTextForRoute, readPriceText, type CleaningPrices } from "@/app/lib/cleanings/prices";
+import { TIER_NIGHTS, priceField, priceTextForRoute, readPriceText, type CleaningPrices } from "@/app/lib/cleanings/prices";
 import { STATEMENT_LIMITS, monthLabel, monthOfDay, referenceFromStem } from "@/app/lib/reports/model";
 import { torontoDayOf } from "@/app/lib/costs/report";
 import { Field, Switch, TextArea, TextInput } from "./controls";
@@ -93,27 +93,31 @@ export function CleanersSection({ ctx }: { ctx: SectionContext }) {
 type PricesRead = { kind: "loading" } | { kind: "ready"; prices: CleaningPrices; unreadable: boolean } | { kind: "error"; title: string };
 type PricesState = { kind: "idle" } | { kind: "unsaved" } | { kind: "saving" } | { kind: "saved" } | { kind: "invalid"; problem: string } | { kind: "failed"; reason: string };
 
-/** A typed price as the field compares it: "80.00", '' for none, or the text itself when it is not a price. */
+/** A typed price as the field compares it: "75.00", '' for none, or the text itself when it is not a price. */
 const priceKey = (text: string) => {
   const read = readPriceText(text);
   return read.kind === "none" ? "" : read.kind === "cents" ? priceField(read.cents) : `?${text}`;
 };
 
+type Typed = { short: string; mid: string; long: string };
+const same = (a: Typed, b: Typed) => priceKey(a.short) === priceKey(b.short) && priceKey(a.mid) === priceKey(b.mid) && priceKey(a.long) === priceKey(b.long);
+const problemOf = (fields: Typed) => (readPriceText(fields.short).kind === "bad" ? "The short-term price is dollars and cents, like 75 or 75.00." : readPriceText(fields.mid).kind === "bad" ? "The mid-term price is dollars and cents, like 75 or 75.00." : readPriceText(fields.long).kind === "bad" ? "The long-term price is dollars and cents, like 115 or 115.00." : null);
+
 /**
- * Cleaning prices (Kian's ruling of 2026-10-19): the property's short-term preset, for an ordinary turnover, and its
- * long-term preset, after a stay of 28 nights or more. A Mark cleaned takes the one the stay calls for; the admin can
- * change any cleaning's amount. Saved on their own through their own route into a server-only record, 800 ms after the
- * last change and when the cursor leaves the tile, as the Report For sheet saves; a change never touches an existing
- * cleaning.
+ * Cleaning prices (Kian's ruling of 2026-10-19; three tiers by Kian's ruling A of 2026-11-01): the property's base
+ * price per tier — short-term for a stay of 1–6 nights, mid-term for 7–27, long-term for 28 or more. A Mark cleaned
+ * takes the one the job's tier calls for, unless an amount was set on the job; the admin can change any cleaning's
+ * amount. Saved on their own through their own route into a server-only record, 800 ms after the last change and when
+ * the cursor leaves the tile, as the Report For sheet saves; a change never touches an existing cleaning.
  */
 function CleaningPricesTile({ ctx }: { ctx: SectionContext }) {
   const id = ctx.propertyId;
   const [read, setRead] = useState<PricesRead>({ kind: "loading" });
-  const [typed, setTyped] = useState({ short: "", long: "" });
+  const [typed, setTyped] = useState({ short: "", mid: "", long: "" });
   const [state, setState] = useState<PricesState>({ kind: "idle" });
   const typedRef = useRef(typed);
   typedRef.current = typed;
-  const storedRef = useRef({ short: "", long: "" });
+  const storedRef = useRef({ short: "", mid: "", long: "" });
   const timer = useRef<number | null>(null);
   const sending = useRef(false);
   const again = useRef(false);
@@ -127,8 +131,8 @@ function CleaningPricesTile({ ctx }: { ctx: SectionContext }) {
         setRead({ kind: "error", title: result.title });
         return;
       }
-      const prices: CleaningPrices = { shortTermCents: result.data.record?.shortTermCents ?? null, longTermCents: result.data.record?.longTermCents ?? null };
-      const fields = { short: priceField(prices.shortTermCents), long: priceField(prices.longTermCents) };
+      const prices: CleaningPrices = { shortTermCents: result.data.record?.shortTermCents ?? null, midTermCents: result.data.record?.midTermCents ?? null, longTermCents: result.data.record?.longTermCents ?? null };
+      const fields = { short: priceField(prices.shortTermCents), mid: priceField(prices.midTermCents), long: priceField(prices.longTermCents) };
       storedRef.current = fields;
       setTyped(fields);
       setRead({ kind: "ready", prices, unreadable: result.data.unreadable });
@@ -138,8 +142,6 @@ function CleaningPricesTile({ ctx }: { ctx: SectionContext }) {
     };
   }, [id]);
 
-  const same = (a: { short: string; long: string }, b: { short: string; long: string }) => priceKey(a.short) === priceKey(b.short) && priceKey(a.long) === priceKey(b.long);
-  const problemOf = (fields: { short: string; long: string }) => (readPriceText(fields.short).kind === "bad" ? "The short-term price is dollars and cents, like 80 or 80.00." : readPriceText(fields.long).kind === "bad" ? "The long-term price is dollars and cents, like 120 or 120.00." : null);
 
   /** Send what is typed until what is stored matches it: one save at a time; a change made while one is out is sent after it. */
   const save = useCallback(async () => {
@@ -162,9 +164,9 @@ function CleaningPricesTile({ ctx }: { ctx: SectionContext }) {
           continue;
         }
         setState({ kind: "saving" });
-        const result = await setCleaningPricesOf(id, { shortTerm: priceTextForRoute(current.short) ?? null, longTerm: priceTextForRoute(current.long) ?? null });
+        const result = await setCleaningPricesOf(id, { shortTerm: priceTextForRoute(current.short) ?? null, midTerm: priceTextForRoute(current.mid) ?? null, longTerm: priceTextForRoute(current.long) ?? null });
         if (result.ok) {
-          storedRef.current = { short: priceField(result.data.record.shortTermCents), long: priceField(result.data.record.longTermCents) };
+          storedRef.current = { short: priceField(result.data.record.shortTermCents), mid: priceField(result.data.record.midTermCents), long: priceField(result.data.record.longTermCents) };
           setState(same(typedRef.current, storedRef.current) ? { kind: "saved" } : { kind: "unsaved" });
         } else {
           setState({ kind: "failed", reason: result.unknown ? `${result.title} It may or may not have been saved: reload to see.` : result.title });
@@ -184,7 +186,7 @@ function CleaningPricesTile({ ctx }: { ctx: SectionContext }) {
   }, [save]);
   useEffect(() => () => flush(), [flush]);
 
-  const change = (patch: Partial<{ short: string; long: string }>) => {
+  const change = (patch: Partial<Typed>) => {
     setTyped((was) => ({ ...was, ...patch }));
     setState({ kind: "unsaved" });
     if (timer.current !== null) window.clearTimeout(timer.current);
@@ -205,12 +207,15 @@ function CleaningPricesTile({ ctx }: { ctx: SectionContext }) {
   const words = state.kind === "saving" ? "Saving…" : state.kind === "saved" ? "Saved" : state.kind === "unsaved" ? "Saving shortly" : state.kind === "failed" ? `Not saved: ${state.reason}` : state.kind === "invalid" ? `Not saved: ${state.problem}` : "";
   return (
     <Tile title="Cleaning prices" span={12} aside={words || undefined}>
-      <div className={`${styles.fields} ${styles.cols2}`} onBlur={(event) => !event.currentTarget.contains(event.relatedTarget as Node | null) && flush()}>
-        <Field label="Short-term (an ordinary turnover), $">
-          <TextInput field="cleaningPrices.short" inputMode="decimal" value={typed.short} onChange={(value) => change({ short: value })} placeholder={read.kind === "loading" ? "Loading…" : "e.g. 80.00"} disabled={locked} invalid={state.kind === "invalid" && state.problem.startsWith("The short")} aria-label="Short-term cleaning price" />
+      <div className={`${styles.fields} ${styles.cols3}`} onBlur={(event) => !event.currentTarget.contains(event.relatedTarget as Node | null) && flush()}>
+        <Field label={`Short-term (${TIER_NIGHTS.short}), $`}>
+          <TextInput field="cleaningPrices.short" inputMode="decimal" value={typed.short} onChange={(value) => change({ short: value })} placeholder={read.kind === "loading" ? "Loading…" : "e.g. 75.00"} disabled={locked} invalid={state.kind === "invalid" && state.problem.startsWith("The short")} aria-label="Short-term cleaning price" />
         </Field>
-        <Field label={`Long-term (after ${LONG_STAY_NIGHTS}+ nights), $`}>
-          <TextInput field="cleaningPrices.long" inputMode="decimal" value={typed.long} onChange={(value) => change({ long: value })} placeholder={read.kind === "loading" ? "Loading…" : "e.g. 120.00"} disabled={locked} invalid={state.kind === "invalid" && state.problem.startsWith("The long")} aria-label="Long-term cleaning price" />
+        <Field label={`Mid-term (${TIER_NIGHTS.mid}), $`}>
+          <TextInput field="cleaningPrices.mid" inputMode="decimal" value={typed.mid} onChange={(value) => change({ mid: value })} placeholder={read.kind === "loading" ? "Loading…" : "e.g. 75.00"} disabled={locked} invalid={state.kind === "invalid" && state.problem.startsWith("The mid")} aria-label="Mid-term cleaning price" />
+        </Field>
+        <Field label={`Long-term (${TIER_NIGHTS.long}), $`}>
+          <TextInput field="cleaningPrices.long" inputMode="decimal" value={typed.long} onChange={(value) => change({ long: value })} placeholder={read.kind === "loading" ? "Loading…" : "e.g. 115.00"} disabled={locked} invalid={state.kind === "invalid" && state.problem.startsWith("The long")} aria-label="Long-term cleaning price" />
         </Field>
       </div>
       {read.kind === "error" ? (
@@ -226,7 +231,7 @@ function CleaningPricesTile({ ctx }: { ctx: SectionContext }) {
           {words}
         </span>
       ) : (
-        <span className={styles.hint}>What a cleaning here starts from: a Mark cleaned takes the price the stay calls for; with several cleaners on a job, or no price, it waits for an amount. Any cleaning&rsquo;s amount can be changed. Saved on their own, shortly after typing; cleanings already made keep their amounts.</span>
+        <span className={styles.hint}>The base price per tier, by the booking&rsquo;s nights: a Mark cleaned takes the one its job calls for, unless an amount was set on the job; with several cleaners on a job, or no price, it waits for an amount. Any cleaning&rsquo;s amount can be changed. Saved on their own, shortly after typing; cleanings already made keep their amounts.</span>
       )}
     </Tile>
   );

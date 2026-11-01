@@ -46,6 +46,17 @@
  * `amountFrom`; their `suggested.from` is 37B's ("last", "default", "none").
  * Changing a preset never changes an existing cleaning.
  *
+ * ── Schema version 4: the cleaning flow (Kian's rulings of 2026-11-01) ──
+ * Three tiers (ruling A): `amountFrom` and `suggested.from` may be "mid". The
+ * amount set on a job (ruling B): "job". The cleaner's note and "Ask for
+ * extra" (ruling F): `note` holds what they typed; `extra` holds the ask —
+ * its reason, and whether an admin has approved it (with a new amount or
+ * not) or declined it. While it is asked, the cleaning's money waits: not on
+ * the statement, not in pay (`cleaningEntryView` reads it as pending). The
+ * decision is a history event, `extra-approved` or `extra-declined`. Versions
+ * 1–3 have no `extra`: read as none. A note is for admins: it never reaches
+ * an owner's statement or ledger.
+ *
  * ── How a cleaning reaches a statement ──
  * As a cost: `cleaningEntryView` reads a cleaning as an entry of kind
  * `cleaning`, dated the day it was cleaned and belonging to that day's
@@ -64,7 +75,7 @@ import type { Actor, CostEntryView, HistoryEventView, LookupState } from '@/app/
 import type { AmountSource } from './prices';
 
 export const CLEANINGS_COLLECTION = 'cleanings';
-export const CLEANING_SCHEMA_VERSION = 3;
+export const CLEANING_SCHEMA_VERSION = 4;
 
 export const CLEANING_LIMITS = {
   /** An amount: $0.01 to $9,999.99. */
@@ -82,20 +93,36 @@ export type CleaningStatus = 'logged' | 'removed';
  * between several cleaners on one job (no amount), or nothing; `last` and `default` are 37B's, on cleanings written
  * before the presets (the cleaner's last amount for the property, their default rate).
  */
-export type SuggestedFrom = 'short' | 'long' | 'split' | 'none' | 'last' | 'default';
-const SUGGESTED_FROM: readonly SuggestedFrom[] = ['short', 'long', 'split', 'none', 'last', 'default'];
-const AMOUNT_SOURCES: readonly AmountSource[] = ['short', 'long', 'typed'];
+export type SuggestedFrom = 'short' | 'mid' | 'long' | 'split' | 'job' | 'none' | 'last' | 'default';
+const SUGGESTED_FROM: readonly SuggestedFrom[] = ['short', 'mid', 'long', 'split', 'job', 'none', 'last', 'default'];
+const AMOUNT_SOURCES: readonly AmountSource[] = ['short', 'mid', 'long', 'typed', 'job'];
+
+export type CleaningAction = 'logged' | 'changed' | 'removed' | 'extra-approved' | 'extra-declined';
+const CLEANING_ACTIONS: readonly CleaningAction[] = ['logged', 'changed', 'removed', 'extra-approved', 'extra-declined'];
 
 /** One event of a cleaning's history, append-only. */
 export interface CleaningEvent {
   /** ISO-8601 UTC. */
   at: string;
-  action: 'logged' | 'changed' | 'removed';
+  action: CleaningAction;
   actor: Actor;
   reason: string | null;
-  /** On `changed`: the fields before and after, only those that changed. */
+  /** On `changed` and `extra-approved`: the fields before and after, only those that changed. */
   before?: CleaningFieldsChanged;
   after?: CleaningFieldsChanged;
+}
+
+/**
+ * The cleaner's "Ask for extra" on their mark (Kian's ruling F of 2026-11-01): their reason, and the office's decision.
+ * While `asked`, the cleaning's money waits. `approved` with a new amount changes the cleaning's amount (typed);
+ * `declined` leaves the base amount to count.
+ */
+export interface CleaningExtra {
+  status: 'asked' | 'approved' | 'declined';
+  reason: string;
+  askedAt: string;
+  decidedAt: string | null;
+  decidedBy: Actor | null;
 }
 
 export interface CleaningFieldsChanged {
@@ -133,6 +160,8 @@ export interface Cleaning {
   history: CleaningEvent[];
   /** The job whose Mark cleaned made it (schema version 2); null when an admin logged it by hand, and on every version 1 cleaning. */
   jobId: string | null;
+  /** The cleaner's "Ask for extra" (schema version 4, Kian's ruling F); null when none was asked, and on every earlier version. */
+  extra: CleaningExtra | null;
 }
 
 /** A cleaning as the admin reads it, with the current names of its cleaner and property. */
@@ -194,11 +223,20 @@ function readChanged(value: unknown): CleaningFieldsChanged | undefined | null {
 
 function readEvent(value: unknown): CleaningEvent | null {
   if (!isRecord(value) || !isText(value.at) || !isActor(value.actor) || !isTextOrNull(value.reason)) return null;
-  if (value.action !== 'logged' && value.action !== 'changed' && value.action !== 'removed') return null;
+  if (!CLEANING_ACTIONS.includes(value.action as CleaningAction)) return null;
   const before = readChanged(value.before);
   const after = readChanged(value.after);
   if (before === null || after === null) return null;
-  return { at: value.at, action: value.action, actor: value.actor, reason: value.reason, ...(before ? { before } : {}), ...(after ? { after } : {}) };
+  return { at: value.at, action: value.action as CleaningAction, actor: value.actor, reason: value.reason, ...(before ? { before } : {}), ...(after ? { after } : {}) };
+}
+
+/** The extra as stored: null, or asked with its reason, decided or not. Undefined when it is not in shape. */
+function readExtra(value: unknown): CleaningExtra | null | undefined {
+  if (value === undefined || value === null) return null;
+  if (!isRecord(value) || !['asked', 'approved', 'declined'].includes(value.status as string) || !isText(value.reason) || !isText(value.askedAt)) return undefined;
+  const { decidedAt, decidedBy } = value;
+  if (!isTextOrNull(decidedAt) || !(decidedBy === null || isActor(decidedBy)) || (decidedAt === null) !== (decidedBy === null) || (value.status === 'asked') !== (decidedAt === null)) return undefined;
+  return { status: value.status as CleaningExtra['status'], reason: value.reason, askedAt: value.askedAt, decidedAt: decidedAt as string | null, decidedBy: decidedBy as Actor | null };
 }
 
 /**
@@ -220,6 +258,9 @@ export function readCleaning(id: string, fields: Record<string, unknown>): (Clea
   const amountFrom = fields.amountFrom === undefined ? null : fields.amountFrom;
   if (!(amountFrom === null || AMOUNT_SOURCES.includes(amountFrom as AmountSource))) return null;
   if (amountCents === null && amountFrom !== null) return null;
+  // Version 4's `extra` (Kian's ruling F): absent before it; only a job's cleaning can carry one.
+  const extra = readExtra(fields.extra);
+  if (extra === undefined || (extra !== null && jobId === null)) return null;
   if (!isText(createdAt) || !isActor(actor) || !Array.isArray(history)) return null;
   const events = history.map(readEvent);
   if (events.some((event) => event === null)) return null;
@@ -240,7 +281,13 @@ export function readCleaning(id: string, fields: Record<string, unknown>): (Clea
     actor,
     history: events as CleaningEvent[],
     jobId,
+    extra,
   };
+}
+
+/** Whether a cleaning's money waits for the office's decision on the extra its cleaner asked for (ruling F). */
+export function extraAsked(cleaning: Pick<Cleaning, 'extra' | 'status'>): boolean {
+  return cleaning.status === 'logged' && cleaning.extra?.status === 'asked';
 }
 
 // ─── The amount a cleaning starts from ─────────────────────────
@@ -281,6 +328,9 @@ export function cleaningEntryView(c: CleaningView): CostEntryView {
   // A job's cleaning with no amount yet (schema version 2) reads as a pending cost: nothing to charge, counted by
   // Finish's pending warning (Kian's answer of 2026-10-14, evening), and no lines to add up.
   if (c.amountCents === null) return entryView(c, c.status === 'logged' ? 'pending' : 'removed', [], { kind: 'unreadable', reason: c.suggested.from === 'split' ? NO_AMOUNT_SPLIT : NO_AMOUNT_YET });
+  // Its cleaner asked for extra and the office has not decided (Kian's ruling F of 2026-11-01): the money waits, as a
+  // pending cost — not on the statement, not in pay — whatever amount it arrived with.
+  if (extraAsked(c)) return entryView(c, 'pending', [], { kind: 'unreadable', reason: EXTRA_ASKED });
   const amount = c.amountCents;
   const typed = c.history.find((event) => event.action === 'changed' && event.before?.amountCents !== undefined)?.before?.amountCents;
   // The first amount it had: the one logged, or the one an admin typed into a cleaning that waited for it.
@@ -302,6 +352,8 @@ export function cleaningEntryView(c: CleaningView): CostEntryView {
 export const NO_AMOUNT_YET = 'No amount yet: an admin types it in the Cleanings tab.';
 /** The same, for a job several cleaners were on (Kian's ruling of 2026-10-19: the admin types the split). */
 export const NO_AMOUNT_SPLIT = 'No amount yet: several cleaners were on the job, so an admin types each share in the Cleanings tab.';
+/** What a cleaning's amount column says while its cleaner's "Ask for extra" waits for the office (Kian's ruling F of 2026-11-01). */
+export const EXTRA_ASKED = 'Extra asked by the cleaner: the amount waits for an admin’s decision in the Cleanings tab.';
 
 /** A cleaning as an entry, its fields in the order 37B wrote them. */
 function entryView(c: CleaningView, status: string, lines: CostEntryView['lines'], linesNow: CostEntryView['linesNow']): CostEntryView {
@@ -340,12 +392,19 @@ function entryView(c: CleaningView, status: string, lines: CostEntryView['lines'
   };
 }
 
+/** The extra's state in words, for admins: "Extra asked: <reason>", "Extra approved by Kian, Nov 20", "Extra declined by Kian, Nov 20". */
+export function extraWords(extra: CleaningExtra): string {
+  const by = extra.decidedBy?.name ? ` by ${extra.decidedBy.name}` : '';
+  if (extra.status === 'asked') return `Extra asked: ${extra.reason}`;
+  return `Extra ${extra.status}${by}`;
+}
+
 /** Whether an entry the statements read is a cleaning. */
 export function isCleaning(entry: { kind: string }): boolean {
   return entry.kind === 'cleaning';
 }
 
-/** "$60.00": a cents amount as an input field holds it, no sign or comma ("60.00"). */
+/** "$65.00": a cents amount as an input field holds it, no sign or comma ("65.00"). */
 export function amountField(cents: number): string {
   return (cents / 100).toFixed(2);
 }

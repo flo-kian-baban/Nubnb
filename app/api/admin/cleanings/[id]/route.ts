@@ -12,8 +12,12 @@
  * Kian's ruling of 2026-10-15: a cleaning dated on or before a payment to its cleaner cannot be deleted (409
  * CLEANING_BEFORE_PAYMENT, naming the payment); it can be removed.
  *
- * PATCH request:  `{ action: "change", seen, day?, amount?: "75.00", cleanerId?, note?, reason? }` or
- *                 `{ action: "remove", seen, reason? }` — `seen` is the length of its history as the page showed it
+ * PATCH request:  `{ action: "change", seen, day?, amount?: "75.00", cleanerId?, note?, reason? }`,
+ *                 `{ action: "remove", seen, reason? }`, or
+ *                 `{ action: "extra", seen, decision: "approve" | "decline", amount?: "95.00", reason? }` — the extra the
+ *                 cleaner asked for on their mark (Kian's ruling F of 2026-11-01): approved at the amount it arrived
+ *                 with or at `amount`, or declined (the base amount counts); 409 CLEANING_EXTRA_NOT_ASKED when none
+ *                 waits. `seen` is the length of its history as the page showed it
  * PATCH response: 200 `{ cleaning, changed, statementMonth }` or `{ cleaning }` for a removal
  * DELETE request:  `{ seen }`; response 200 `{ deleted: { id } }`
  *
@@ -28,7 +32,7 @@ import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiError, apiFailure, apiSuccess, apiValidationError, noStore } from '@/app/lib/api/safe-response';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { ChangeCleaningSchema, DeleteCleaningSchema } from '@/app/lib/cleanings/schemas';
-import { CHANGE_REFUSALS, DELETE_REFUSALS, REMOVE_REFUSALS, changeCleaning, deleteCleaning, removeCleaning } from '@/app/lib/firebase/server-cleanings';
+import { CHANGE_REFUSALS, DELETE_REFUSALS, EXTRA_REFUSALS, REMOVE_REFUSALS, changeCleaning, decideExtra, deleteCleaning, removeCleaning } from '@/app/lib/firebase/server-cleanings';
 import { paymentWords } from '@/app/lib/pay/model';
 import { isDocumentId } from '@/app/lib/firebase/server-leads';
 import { monthLabel, reportRef } from '@/app/lib/reports/model';
@@ -63,6 +67,10 @@ export const PATCH = adminRoute(async function PATCH(request: NextRequest, conte
   if (parsed.data.action === 'remove') {
     const outcome = await removeCleaning(actor, id, parsed.data.seen, parsed.data.reason);
     return outcome.kind === 'removed' ? noStore(apiSuccess({ cleaning: outcome.cleaning })) : noStore(apiFailure(REMOVE_REFUSALS[outcome.kind]));
+  }
+  if (parsed.data.action === 'extra') {
+    const outcome = await decideExtra(actor, id, parsed.data.decision, parsed.data.amount, parsed.data.seen, parsed.data.reason);
+    return outcome.kind === 'decided' ? noStore(apiSuccess({ cleaning: outcome.cleaning, statementMonth: outcome.statementMonth })) : noStore(apiFailure(EXTRA_REFUSALS[outcome.kind]));
   }
   const { seen, day, amount, cleanerId, note, reason } = parsed.data;
   const outcome = await changeCleaning(actor, id, { day, amountCents: amount, cleanerId, ...(note !== undefined ? { note } : {}) }, seen, reason);

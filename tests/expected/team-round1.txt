@@ -1,10 +1,10 @@
 ═══ 1. Before a payment: K1 (not all counted) and K2 (more than is owed), in that order ═══
   owed $300, paying $300, nothing waiting: no question
   owed $300, paying $300, 2 cleanings with no amount and 1 receipt under review: "Record this payment while Test Ana's pay is not all counted?" / 2 cleanings have no amount yet, and 1 receipt or work entry is waiting for review. / The balance of $300.00 owed does not include them. / [Record anyway]
-  owed $300, paying $500, nothing waiting: "This pays $200.00 more than Test Ana is owed. Record it as an advance?" / Test Ana is owed $300.00; this payment is $500.00. / [Record as an advance]
-  owed $300, paying $500, 1 cleaning with no amount: "Record this payment while Test Ana's pay is not all counted?" / 1 cleaning has no amount yet. / The balance of $300.00 owed does not include them. / [Record anyway] THEN "This pays $200.00 more than Test Ana is owed. Record it as an advance?" / Test Ana is owed $300.00; this payment is $500.00. / [Record as an advance]
-  settled, paying $80: "This pays $80.00 more than Test Ana is owed. Record it as an advance?" / Test Ana is owed nothing; this payment is $80.00. / [Record as an advance]
-  overpaid $20, paying $50: "This pays $50.00 more than Test Ana is owed. Record it as an advance?" / Test Ana is already overpaid by $20.00; this payment is $50.00. / [Record as an advance]
+  owed $300, paying $500, nothing waiting: "This pays $203.00 more than Test Ana is owed. Record it as an advance?" / Test Ana is owed $300.00; this payment is $503.00. / [Record as an advance]
+  owed $300, paying $500, 1 cleaning with no amount: "Record this payment while Test Ana's pay is not all counted?" / 1 cleaning has no amount yet. / The balance of $300.00 owed does not include them. / [Record anyway] THEN "This pays $203.00 more than Test Ana is owed. Record it as an advance?" / Test Ana is owed $300.00; this payment is $503.00. / [Record as an advance]
+  settled, paying $83: "This pays $83.00 more than Test Ana is owed. Record it as an advance?" / Test Ana is owed nothing; this payment is $83.00. / [Record as an advance]
+  overpaid $20, paying $53: "This pays $53.00 more than Test Ana is owed. Record it as an advance?" / Test Ana is already overpaid by $20.00; this payment is $53.00. / [Record as an advance]
   settled, 3 cleanings with no amount, paying $0.01: "Record this payment while Test Ana's pay is not all counted?" / 3 cleanings have no amount yet. / The balance of $0.00, settled, does not include them. / [Record anyway] THEN "This pays $0.01 more than Test Ana is owed. Record it as an advance?" / Test Ana is owed nothing; this payment is $0.01. / [Record as an advance]
    ok   nothing waiting and not above the balance: no question
    ok   K1 names the counts
@@ -29,10 +29,10 @@
    ok   every refusal points to Deactivate
 
 ═══ 3. What a missing amount's field opens with on the pay view (the same rule as the Cleanings tab) ═══
-  P1 short stay, preset $80: {"kind":"preset","tier":"short","cents":8000} → field "80.00"
-  P1 30-night stay, long preset $120: {"kind":"preset","tier":"long","cents":12000} → field "120.00"
+  P1 short stay, preset $83: {"kind":"preset","tier":"short","cents":8300} → field "83.00"
+  P1 30-night stay, long preset $123: {"kind":"preset","tier":"long","cents":12300} → field "123.00"
   P1 two cleaners on the job: {"kind":"split","tier":"short","cleaners":2} → field ""
-  P2 no preset, $70 typed before (short-term): {"kind":"recommendation","tier":"short","cents":7000,"day":"2028-11-09"} → field "70.00"
+  P2 no preset, $73 typed before (short-term): {"kind":"recommendation","tier":"short","cents":7300,"day":"2028-11-09"} → field "73.00"
   P3 nothing: {"kind":"none","tier":"short"} → field ""
   P4 long preset only, a short stay: {"kind":"none","tier":"short"} → field ""
    ok   a preset for the tier: the field opens with it
@@ -87,7 +87,7 @@
    ok   K4 with a delete: the account is gone, P4 names Ben, "replaced (deleted)" recorded
   clearing P3 by hand: cleared · reads back as null with history cleared Test Ben → nobody by Test admin
    ok   a clear keeps the record naming nobody, read as none, its history kept
-  amount starts for P1, P2 and the job yesterday: {"prices":{"TESTPROPteamr1aaaaa1":{"shortTermCents":8000,"longTermCents":12000}},"jobs":{"TESTPROPteamr1aaaaa1_2026-10-18":{"nights":2,"cleaners":1}}} · reads 4 (cleaning_jobs 2, property_cleaning_prices 2)
+  amount starts for P1, P2 and the job yesterday: {"prices":{"TESTPROPteamr1aaaaa1":{"shortTermCents":8300,"midTermCents":8300,"longTermCents":12300}},"jobs":{"TESTPROPteamr1aaaaa1_2026-10-18":{"nights":2,"cleaners":1,"tier":"short","amountCents":null}}} · reads 4 (cleaning_jobs 2, property_cleaning_prices 2)
    ok   presets and job facts for what exists, one read each; IDs not in shape skipped
   the whole costs read: 1 cleaning, 5 properties · reads 13 (cleaners 4, cleanings 1, cost_entries 1, cost_report_exports 1, properties 5, property_cleaner_names 1)
    ok   the cleanings' properties are not looked up a second time: five properties, five property reads, the address still on the cleaning

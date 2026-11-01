@@ -44,7 +44,7 @@ import type { Notice } from "../components/Notice";
 import type { Question } from "../components/AskDialog";
 import { CLEANER_ROLE_LABELS, CLEANER_STATUS_LABELS, accountEventWords, formatCents, isCleanerRole, isCleanerStatus, type CleanerSummary, type CostEntryView } from "@/app/lib/cleaners/model";
 import { amountField, readAmountCents, type CleaningView } from "@/app/lib/cleanings/model";
-import { missingAmountStart, recommendationWords, waitingHint, type CleaningPrices } from "@/app/lib/cleanings/prices";
+import { TIER_WORDS, missingAmountStart, recommendationWords, waitingHint, type CleaningPrices } from "@/app/lib/cleanings/prices";
 import { changeCleaning, fetchAmountStarts } from "@/app/lib/costs-client";
 import { inRange, presetRange, shortDay } from "@/app/lib/costs/report";
 import { balanceWords, changeWords, dayWords, memberPay, rowItemWords, type PayChange, type PayRow } from "@/app/lib/pay/balance";
@@ -85,7 +85,7 @@ const STRUCK: readonly PayRow["state"][] = ["removed", "rejected", "nubnb-card",
 /** The change a row's note already tells, by its first words: it is not told twice. */
 const NOTE_TELLS: Partial<Record<PayRow["state"], string>> = { removed: "Removed", rejected: "Rejected", "nubnb-card": "Marked paid with Nubnb's card", moved: "Given to " };
 
-/** A balance inside a sentence: "$60.00 owed", "$40.00 overpaid", "settled". */
+/** A balance inside a sentence: "$65.00 owed", "$45.00 overpaid", "settled". */
 const balanceInline = (cents: number) => (cents === 0 ? "settled" : balanceWords(cents).words);
 
 /** `day` moved back `days` days. */
@@ -168,7 +168,7 @@ export function PayView({ member, cleanings, entries, payments, unreadablePaymen
   const fieldOf = (c: CleaningView) => {
     if (typing[c.id] !== undefined) return typing[c.id];
     const start = startOf(c);
-    return start && (start.kind === "preset" || start.kind === "recommendation") ? amountField(start.cents) : "";
+    return start && (start.kind === "preset" || start.kind === "job" || start.kind === "recommendation") ? amountField(start.cents) : "";
   };
   const fieldWords = (c: CleaningView): string => {
     if (starts.kind === "loading") return "Reading what it starts from…";
@@ -176,7 +176,8 @@ export function PayView({ member, cleanings, entries, payments, unreadablePaymen
     const start = startOf(c);
     if (!start) return "";
     const job = c.jobId !== null ? (starts.kind === "ready" ? starts.jobs[c.jobId] ?? null : null) : null;
-    if (start.kind === "preset") return `${start.tier === "long" ? "Long-term" : "Short-term"} preset: ${formatCents(start.cents)}`;
+    if (start.kind === "preset") return `${TIER_WORDS[start.tier][0].toUpperCase()}${TIER_WORDS[start.tier].slice(1)} preset: ${formatCents(start.cents)}`;
+    if (start.kind === "job") return `Set on the job: ${formatCents(start.cents)}`;
     if (start.kind === "recommendation") return recommendationWords(start.tier, start.cents);
     if (start.kind === "split") return waitingHint(starts.kind === "ready" ? starts.prices[c.propertyId] ?? null : null, job);
     return "No preset and nothing typed for this property yet: type the amount.";
@@ -189,7 +190,7 @@ export function PayView({ member, cleanings, entries, payments, unreadablePaymen
   const saveOne = async (c: CleaningView): Promise<boolean> => {
     const cents = readAmountCents(fieldOf(c));
     if (cents === null) {
-      show({ tone: "error", title: `Type the amount for ${propertyWords(c)}, ${shortDay(c.day)}: dollars and cents above $0.00, like 60.00.` });
+      show({ tone: "error", title: `Type the amount for ${propertyWords(c)}, ${shortDay(c.day)}: dollars and cents above $0.00, like 65.00.` });
       return false;
     }
     const result = await changeCleaning(c.id, { seen: c.history.length, amount: amountField(cents), reason: null });
@@ -446,7 +447,7 @@ export function PayView({ member, cleanings, entries, payments, unreadablePaymen
                                   inputMode="decimal"
                                   autoComplete="off"
                                   aria-label={`Amount for ${propertyWords(c)}, ${shortDay(c.day)}, ${name}`}
-                                  placeholder="60.00"
+                                  placeholder="65.00"
                                   title={fieldWords(c)}
                                   value={fieldOf(c)}
                                   onChange={(e) => setTyping((was) => ({ ...was, [c.id]: e.target.value }))}

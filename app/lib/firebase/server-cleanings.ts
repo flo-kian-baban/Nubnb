@@ -48,7 +48,7 @@ import {
   type CleaningView,
   type TeamChoice,
 } from '@/app/lib/cleanings/model';
-import { PROPERTY_CLEANING_PRICES_COLLECTION, amountSourceOf, handLogSuggestion, readCleaningPrices, stayNights, type CleaningPrices } from '@/app/lib/cleanings/prices';
+import { PROPERTY_CLEANING_PRICES_COLLECTION, amountSourceOf, handLogSuggestion, jobNights, jobTier, readCleaningPrices, type CleaningPrices, type JobFacts, type PresetKind } from '@/app/lib/cleanings/prices';
 import { pricesInTx } from './server-cleaning-prices';
 import { torontoDayOf } from '@/app/lib/costs/report';
 import { CLEANING_JOBS_COLLECTION, jobEvent, jobIdOf, readJob, type StoredJob } from '@/app/lib/schedule/model';
@@ -158,25 +158,41 @@ export async function amountStarts(propertyIds: readonly string[], jobIds: reado
   const jobs = [...new Set(jobIds.filter((id) => /^[A-Za-z0-9]{1,64}_\d{4}-\d{2}-\d{2}$/.test(id)))];
   const [priceDocs, jobDocs] = await Promise.all([
     properties.length ? db.getAll(...properties.map((id) => db.collection(PROPERTY_CLEANING_PRICES_COLLECTION).doc(id))) : Promise.resolve([]),
-    jobs.length ? db.getAll(...jobs.map((id) => db.collection(CLEANING_JOBS_COLLECTION).doc(id)), { fieldMask: ['reservation', 'checkout', 'cleanerIds'] }) : Promise.resolve([]),
+    jobs.length ? db.getAll(...jobs.map((id) => db.collection(CLEANING_JOBS_COLLECTION).doc(id)), { fieldMask: [...JOB_FACTS_FIELDS] }) : Promise.resolve([]),
   ]);
   const prices: Record<string, CleaningPrices> = {};
   for (const doc of priceDocs) {
     if (!doc.exists) continue;
     const record = readCleaningPrices(doc.id, doc.data() ?? {});
-    if (record) prices[doc.id] = { shortTermCents: record.shortTermCents, longTermCents: record.longTermCents };
+    if (record) prices[doc.id] = { shortTermCents: record.shortTermCents, midTermCents: record.midTermCents, longTermCents: record.longTermCents };
   }
-  const out: Record<string, { nights: number; cleaners: number }> = {};
+  const out: Record<string, JobFacts> = {};
   for (const doc of jobDocs) {
-    if (!doc.exists) continue;
-    const reservation: unknown = doc.get('reservation');
-    const checkout: unknown = doc.get('checkout');
-    const cleanerIds: unknown = doc.get('cleanerIds');
-    const start = reservation && typeof reservation === 'object' ? (reservation as { start?: unknown }).start : undefined;
-    if (typeof start !== 'string' || typeof checkout !== 'string' || !Array.isArray(cleanerIds)) continue;
-    out[doc.id] = { nights: stayNights(start, checkout), cleaners: cleanerIds.length };
+    const facts = jobFactsOf(doc);
+    if (facts) out[doc.id] = facts;
   }
   return { prices, jobs: out };
+}
+
+/** The fields the hints and the recommendation need of a job, read by a field mask. */
+export const JOB_FACTS_FIELDS = ['reservation', 'checkout', 'cleanerIds', 'origin', 'tier', 'amountCents'] as const;
+
+/**
+ * What the hints need of a job (prices.ts JobFacts): its stay's nights (0 on a job added by hand), how many cleaners
+ * are on it, its tier (chosen, else by the nights) and the amount set on it (Kian's rulings A–C of 2026-11-01). Null
+ * when the document is missing or not in the shape these fields need.
+ */
+function jobFactsOf(doc: { exists: boolean; get: (field: string) => unknown }): JobFacts | null {
+  if (!doc.exists) return null;
+  const reservation: unknown = doc.get('reservation');
+  const checkout: unknown = doc.get('checkout');
+  const cleanerIds: unknown = doc.get('cleanerIds');
+  const tier: unknown = doc.get('tier');
+  const amount: unknown = doc.get('amountCents');
+  const start = reservation && typeof reservation === 'object' ? (reservation as { start?: unknown }).start : undefined;
+  if (typeof checkout !== 'string' || !Array.isArray(cleanerIds)) return null;
+  const job = { reservation: typeof start === 'string' ? { start } : null, checkout, tier: tier === 'short' || tier === 'mid' || tier === 'long' ? (tier as PresetKind) : null };
+  return { nights: jobNights(job), cleaners: cleanerIds.length, tier: jobTier(job), amountCents: typeof amount === 'number' ? amount : null };
 }
 
 /** One property's cleanings, for its statements; inside a transaction when one is given (names then unknown: display only). @throws if the read fails. */
@@ -211,20 +227,16 @@ export async function listTeamChoices(): Promise<TeamChoice[]> {
  *
  * @throws if the read fails.
  */
-export async function waitingJobsOf(cleanings: readonly Pick<Cleaning, 'amountCents' | 'amountFrom' | 'status' | 'jobId'>[]): Promise<Record<string, { nights: number; cleaners: number }>> {
-  const ids = [...new Set(cleanings.filter((c) => c.status === 'logged' && c.jobId !== null && (c.amountCents === null || c.amountFrom === 'typed')).map((c) => c.jobId as string))].filter((id) => /^[A-Za-z0-9]{1,64}_\d{4}-\d{2}-\d{2}$/.test(id));
+export async function waitingJobsOf(cleanings: readonly Pick<Cleaning, 'amountCents' | 'amountFrom' | 'status' | 'jobId' | 'extra'>[]): Promise<Record<string, JobFacts>> {
+  // The waiting ones, the typed ones (the recommendation), and those whose extra ask waits for a decision (ruling F).
+  const ids = [...new Set(cleanings.filter((c) => c.status === 'logged' && c.jobId !== null && (c.amountCents === null || c.amountFrom === 'typed' || c.extra?.status === 'asked')).map((c) => c.jobId as string))].filter((id) => /^[A-Za-z0-9]{1,64}_\d{4}-\d{2}-\d{2}$/.test(id));
   if (ids.length === 0) return {};
   const db = getAdminDb();
-  const docs = await db.getAll(...ids.map((id) => db.collection(CLEANING_JOBS_COLLECTION).doc(id)), { fieldMask: ['reservation', 'checkout', 'cleanerIds'] });
-  const out: Record<string, { nights: number; cleaners: number }> = {};
+  const docs = await db.getAll(...ids.map((id) => db.collection(CLEANING_JOBS_COLLECTION).doc(id)), { fieldMask: [...JOB_FACTS_FIELDS] });
+  const out: Record<string, JobFacts> = {};
   for (const doc of docs) {
-    if (!doc.exists) continue;
-    const reservation: unknown = doc.get('reservation');
-    const checkout: unknown = doc.get('checkout');
-    const cleanerIds: unknown = doc.get('cleanerIds');
-    const start = reservation && typeof reservation === 'object' ? (reservation as { start?: unknown }).start : undefined;
-    if (typeof start !== 'string' || typeof checkout !== 'string' || !Array.isArray(cleanerIds)) continue;
-    out[doc.id] = { nights: stayNights(start, checkout), cleaners: cleanerIds.length };
+    const facts = jobFactsOf(doc);
+    if (facts) out[doc.id] = facts;
   }
   return out;
 }
@@ -352,8 +364,9 @@ export async function logCleaning(actor: Actor, input: CleaningInput): Promise<L
         createdAt: now,
         actor,
         history: [{ at: now, action: 'logged', actor, reason: null }],
-        // Logged by hand: no job (schema version 2).
+        // Logged by hand: no job (schema version 2), and no extra ask (version 4).
         jobId: null,
+        extra: null,
       };
       tx.create(ref, stored);
       return {
@@ -475,6 +488,71 @@ export async function changeCleaning(actor: Actor, id: string, change: CleaningC
     });
   } catch (err) {
     console.error(`[cleanings] changing ${id} failed: grpc code ${grpcCode(err)}`);
+    return { kind: 'failed' };
+  }
+}
+
+// ─── The extra a cleaner asked for (Kian's ruling F of 2026-11-01) ──
+
+export type DecideExtraResult =
+  | { kind: 'decided'; cleaning: CleaningView; statementMonth: string }
+  | { kind: 'not-found' }
+  | { kind: 'changed-since' }
+  | { kind: 'removed' }
+  /** No extra is asked on it, or it was decided already. */
+  | { kind: 'not-asked' }
+  | { kind: 'unreadable' }
+  | { kind: 'failed' };
+
+export const EXTRA_REFUSALS: Record<Exclude<DecideExtraResult['kind'], 'decided'>, Refusal> = {
+  'not-found': CHANGE_REFUSALS['not-found'],
+  'changed-since': CHANGE_REFUSALS['changed-since'],
+  removed: CHANGE_REFUSALS.removed,
+  'not-asked': { status: 409, code: 'CLEANING_EXTRA_NOT_ASKED', message: 'No extra is waiting on this cleaning.', hint: 'Nothing was saved. Reload to see what is on record.' },
+  unreadable: CHANGE_REFUSALS.unreadable,
+  failed: { status: 502, code: 'CLEANING_SAVE_FAILED', message: 'Could not save the decision.', hint: 'It may or may not have been saved. Reload to see what is on record.' },
+};
+
+/**
+ * Decide the extra a cleaner asked for on their mark (Kian's ruling F): approve it — at the amount the cleaning
+ * arrived with, or at a new amount the admin types — or decline it, after which the base amount counts. As the admin
+ * saw it (`seen`). The cleaning's money then counts: on its month's statement, or the next open one's once that is
+ * finished, and in the cleaner's pay. The decision is a history event; the cleaner's app says only "Sent to Nubnb".
+ */
+export async function decideExtra(actor: Actor, id: string, decision: 'approve' | 'decline', amountCents: number | undefined, seen: number, reason: string | null): Promise<DecideExtraResult> {
+  if (!isDocumentId(id)) return { kind: 'not-found' };
+  const db = getAdminDb();
+  const ref = db.collection(CLEANINGS_COLLECTION).doc(id);
+  try {
+    return await db.runTransaction(async (tx): Promise<DecideExtraResult> => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) return { kind: 'not-found' };
+      const stored = readCleaning(snap.id, snap.data() ?? {});
+      if (!stored) return { kind: 'unreadable' };
+      if (stored.history.length !== seen) return { kind: 'changed-since' };
+      if (stored.status === 'removed') return { kind: 'removed' };
+      if (!stored.extra || stored.extra.status !== 'asked') return { kind: 'not-asked' };
+      const statementMonth = await statementMonthOf(stored.propertyId, monthOfDay(stored.day), tx);
+      const at = new Date().toISOString();
+      const newAmount = decision === 'approve' && amountCents !== undefined && amountCents !== stored.amountCents ? amountCents : null;
+      const event: CleaningEvent = {
+        at,
+        action: decision === 'approve' ? 'extra-approved' : 'extra-declined',
+        actor,
+        reason,
+        ...(newAmount !== null ? { before: { amountCents: stored.amountCents }, after: { amountCents: newAmount } } : {}),
+      };
+      const next = {
+        amountCents: newAmount ?? stored.amountCents,
+        amountFrom: newAmount !== null ? ('typed' as const) : stored.amountFrom,
+        extra: { ...stored.extra, status: decision === 'approve' ? ('approved' as const) : ('declined' as const), decidedAt: at, decidedBy: actor },
+        history: [...stored.history, event],
+      };
+      tx.update(ref, next);
+      return { kind: 'decided', cleaning: { ...stored, ...next, cleaner: { state: 'found', name: stored.cleanerNameAtEntry, status: null }, property: { state: 'found', name: stored.propertyNameAtEntry } }, statementMonth };
+    });
+  } catch (err) {
+    console.error(`[cleanings] deciding the extra on ${id} failed: grpc code ${grpcCode(err)}`);
     return { kind: 'failed' };
   }
 }

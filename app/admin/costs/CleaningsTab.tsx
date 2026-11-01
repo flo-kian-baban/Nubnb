@@ -44,11 +44,11 @@ import { AdminSelect } from "../components/AdminSelect";
 import { DateRangeField } from "../components/DateRangeField";
 import { useAsk } from "../components/AskDialog";
 import type { Notice } from "../components/Notice";
-import { changeCleaning, deleteCleaning, fetchCleaningSuggestion, logCleaning, removeCleaning } from "@/app/lib/costs-client";
+import { changeCleaning, decideCleaningExtra, deleteCleaning, fetchCleaningSuggestion, logCleaning, removeCleaning } from "@/app/lib/costs-client";
 import { formatCents, type PropertyNameView } from "@/app/lib/cleaners/model";
 import { internalLabel } from "@/app/lib/property-names";
-import { amountField, cleanerNameOf, lastCleanerOf, readAmountCents, type CleaningView, type TeamChoice } from "@/app/lib/cleanings/model";
-import { AMOUNT_SOURCE_WORDS, LONG_STAY_NIGHTS, missingAmountStart, presetAmount, recommendationWords, waitingHint, type CleaningPrices, type PresetKind } from "@/app/lib/cleanings/prices";
+import { amountField, cleanerNameOf, extraAsked, extraWords, lastCleanerOf, readAmountCents, type CleaningView, type TeamChoice } from "@/app/lib/cleanings/model";
+import { AMOUNT_SOURCE_WORDS, TIER_NIGHTS, TIER_WORDS, missingAmountStart, presetAmount, recommendationWords, waitingHint, type CleaningPrices, type JobFacts, type PresetKind } from "@/app/lib/cleanings/prices";
 import { RANGE_PRESETS, presetRange, shortDay } from "@/app/lib/costs/report";
 import { chargesByMonth, type Charge } from "@/app/lib/money/month";
 import { addMonths, monthLabel } from "@/app/lib/reports/model";
@@ -60,8 +60,8 @@ interface Props {
   team: TeamChoice[];
   /** Each property's cleaning prices, by property ID (Kian's ruling of 2026-10-19); a property with none is absent. */
   prices: Record<string, CleaningPrices>;
-  /** For the cleanings waiting for an amount: their job's stay in nights and how many cleaners were on it, by job ID. */
-  jobs: Record<string, { nights: number; cleaners: number }>;
+  /** For the cleanings waiting for an amount or a decision: their job's stay, cleaner count, tier and own amount, by job ID. */
+  jobs: Record<string, JobFacts>;
   properties: PropertyNameView[] | null;
   /** The Costs page's filters, shared: a property, a cleaner, and dates. */
   filters: { propertyId: string; cleanerId: string; from: string; to: string };
@@ -76,20 +76,21 @@ interface Props {
   show: (notice: Notice) => void;
 }
 
-/** "$60.00", or, for a job's cleaning still waiting for one, "no amount yet". */
+/** "$65.00", or, for a job's cleaning still waiting for one, "no amount yet". */
 const amountWords = (cents: number | null) => (cents === null ? "no amount yet" : formatCents(cents));
 
 /** What removing or deleting a job's cleaning does to the job (Kian's ruling of 2026-10-14, night). */
 const JOB_MARK_KEPT = "Its job keeps the cleaner's mark as removed by the office: they cannot mark it again until it is reopened on the Schedule.";
 
 /** What the form's amount started from (Kian's ruling of 2026-10-19), under the field. */
-type FormStart = { kind: "reading" } | { kind: "none" } | { kind: "preset"; from: PresetKind; cents: number | null; nights: number; job: boolean } | { kind: "unknown"; title: string };
+type FormStart = { kind: "reading" } | { kind: "none" } | { kind: "preset"; from: PresetKind | "job"; cents: number | null; nights: number; tier: PresetKind; job: boolean } | { kind: "unknown"; title: string };
 const startWords = (start: FormStart): string => {
   if (start.kind === "reading") return "Reading the property’s price…";
   if (start.kind === "none") return "";
   if (start.kind === "unknown") return `${start.title} Type the amount.`;
-  const which = start.from === "long" ? "long-term preset" : "short-term preset";
-  const stay = start.job ? ` (a stay of ${start.nights === 1 ? "1 night" : `${start.nights} nights`} ends that day)` : "";
+  if (start.from === "job") return "The amount set on the job that day.";
+  const which = `${TIER_WORDS[start.from]} preset`;
+  const stay = start.job ? ` (${start.nights === 0 ? `a ${TIER_WORDS[start.tier]} job that day` : `a stay of ${start.nights === 1 ? "1 night" : `${start.nights} nights`} ends that day`})` : "";
   return start.cents === null ? `No ${which} for this property${stay}: type the amount.` : `The ${which}${stay}.`;
 };
 
@@ -147,10 +148,10 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
         setStart({ kind: "unknown", title: result.title });
         return;
       }
-      const { from, cents, nights, job } = result.data;
+      const { from, cents, nights, tier, job } = result.data;
       // Replaces the amount only while it is still the one offered: an amount typed meanwhile is kept.
       setAmount((current) => (current === offered ? (cents === null ? "" : amountField(cents)) : current));
-      setStart({ kind: "preset", from, cents, nights, job });
+      setStart({ kind: "preset", from, cents, nights, tier, job });
     });
   };
   const pickProperty = (id: string) => {
@@ -175,7 +176,7 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
       day === "" ? "Pick the day it was cleaned." : null,
       propertyId === "" ? "Pick the property." : null,
       cleanerId === "" ? "Pick the cleaner." : null,
-      cents === null ? "Type the amount: dollars and cents above $0.00, like 60.00." : null,
+      cents === null ? "Type the amount: dollars and cents above $0.00, like 75.00." : null,
     ].filter((problem): problem is string => problem !== null);
     if (problems.length > 0 || cents === null) {
       show({ tone: "error", title: "The cleaning was not logged.", items: problems });
@@ -217,9 +218,13 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
     [cleanings, filters],
   );
   const logged = useMemo(() => shown.filter((c) => c.status === "logged"), [shown]);
-  const total = useMemo(() => logged.reduce((sum, c) => sum + (c.amountCents ?? 0), 0), [logged]);
+  /** What counts now: a logged cleaning with an amount whose extra ask, if any, is decided (Kian's ruling F). */
+  const counts = (c: CleaningView) => c.amountCents !== null && !extraAsked(c);
+  const total = useMemo(() => logged.reduce((sum, c) => sum + (counts(c) ? (c.amountCents ?? 0) : 0), 0), [logged]);
   /** Cleanings marked on a job with no amount to start from (the cleaning schedule): each waits for an admin to type one. */
   const waiting = useMemo(() => logged.filter((c) => c.amountCents === null).length, [logged]);
+  /** Cleanings whose cleaner asked for extra, waiting for a decision (ruling F). */
+  const askedCount = useMemo(() => logged.filter((c) => extraAsked(c)).length, [logged]);
   /**
    * What each cleaner earned in these dates (Kian's ruling: a cleaning is also the cleaner's earnings record), and
    * beside the total, how many of their cleanings are still waiting for an amount (Kian, 2026-10-14, night).
@@ -228,7 +233,7 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
     const byCleaner = new Map<string, { name: string; count: number; cents: number; waiting: number }>();
     for (const c of logged) {
       const was = byCleaner.get(c.cleanerId) ?? { name: cleanerNameOf(c) + (c.cleaner.state === "missing" ? " (deleted)" : ""), count: 0, cents: 0, waiting: 0 };
-      byCleaner.set(c.cleanerId, { ...was, count: was.count + 1, cents: was.cents + (c.amountCents ?? 0), waiting: was.waiting + (c.amountCents === null ? 1 : 0) });
+      byCleaner.set(c.cleanerId, { ...was, count: was.count + 1, cents: was.cents + (counts(c) ? (c.amountCents ?? 0) : 0), waiting: was.waiting + (c.amountCents === null || extraAsked(c) ? 1 : 0) });
     }
     return [...byCleaner.values()].sort((a, b) => a.name.localeCompare(b.name, "en-CA"));
   }, [logged]);
@@ -260,13 +265,51 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
     [cleanings, filters.propertyId, filters.cleanerId],
   );
   const [onlyWaiting, setOnlyWaiting] = useState(() => cleanings.some((c) => c.status === "logged" && c.amountCents === null));
+  // ── Extra asked (Kian's ruling F of 2026-11-01): approve, approve at a new amount, or decline, from here ──
+  const askedAll = useMemo(() => cleanings.filter((c) => extraAsked(c) && (filters.propertyId === "" || c.propertyId === filters.propertyId) && (filters.cleanerId === "" || c.cleanerId === filters.cleanerId)), [cleanings, filters.propertyId, filters.cleanerId]);
+  const [onlyAsked, setOnlyAsked] = useState(() => !cleanings.some((c) => c.status === "logged" && c.amountCents === null) && cleanings.some((c) => extraAsked(c)));
+  /** Decided here: kept in the list with the outcome until the filter changes. */
+  const [decidedHere, setDecidedHere] = useState<Map<string, { decision: "approve" | "decline"; cents: number | null; statementMonth: string }>>(new Map());
+  const [approveAt, setApproveAt] = useState<Record<string, string>>({});
+  const askedRows = useMemo(() => {
+    const ids = new Set(askedAll.map((c) => c.id));
+    return [...askedAll, ...cleanings.filter((c) => decidedHere.has(c.id) && !ids.has(c.id))].sort((a, b) => b.day.localeCompare(a.day) || b.createdAt.localeCompare(a.createdAt));
+  }, [askedAll, cleanings, decidedHere]);
+  const decide = async (c: CleaningView, decision: "approve" | "decline", at: string | null) => {
+    if (busy) return;
+    let amount: string | undefined;
+    if (at !== null) {
+      const cents = readAmountCents(at);
+      if (cents === null) {
+        show({ tone: "error", title: "Type the amount: dollars and cents above $0.00, like 75.00." });
+        return;
+      }
+      amount = amountField(cents);
+    }
+    setBusy(c.id);
+    const result = await decideCleaningExtra(c.id, { seen: c.history.length, decision, ...(amount !== undefined ? { amount } : {}), reason: null });
+    setBusy(null);
+    if (!result.ok) {
+      failed(result, "saved");
+      return;
+    }
+    onSaved({ ...result.data.cleaning, cleaner: c.cleaner, property: c.property });
+    setDecidedHere((was) => new Map(was).set(c.id, { decision, cents: result.data.cleaning.amountCents, statementMonth: result.data.statementMonth }));
+  };
   /** Typed in the waiting list: kept there, with what was saved and its statement, until the filter changes. */
   const [typedHere, setTypedHere] = useState<Map<string, { cents: number; statementMonth: string }>>(new Map());
   const [typing, setTyping] = useState<Record<string, string>>({});
   const showWaiting = (yes: boolean) => {
     setOnlyWaiting(yes);
+    setOnlyAsked(false);
     setTypedHere(new Map());
     setTyping({});
+  };
+  const showAsked = () => {
+    setOnlyWaiting(false);
+    setOnlyAsked(true);
+    setDecidedHere(new Map());
+    setApproveAt({});
   };
   const waitingRows = useMemo(() => {
     const ids = new Set(waitingAll.map((c) => c.id));
@@ -276,13 +319,13 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
   const fieldOf = (c: CleaningView) => {
     if (typing[c.id] !== undefined) return typing[c.id];
     const start = missingAmountStart(pricesOf(c.propertyId), cleanings, jobs, c);
-    return start.kind === "recommendation" || start.kind === "preset" ? amountField(start.cents) : "";
+    return start.kind === "recommendation" || start.kind === "preset" || start.kind === "job" ? amountField(start.cents) : "";
   };
   const saveAmount = async (c: CleaningView) => {
     if (busy) return;
     const cents = readAmountCents(fieldOf(c));
     if (cents === null) {
-      show({ tone: "error", title: "Type the amount: dollars and cents above $0.00, like 60.00." });
+      show({ tone: "error", title: "Type the amount: dollars and cents above $0.00, like 75.00." });
       return;
     }
     setBusy(c.id);
@@ -300,7 +343,7 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
     if (!editing || busy) return;
     const cents = readAmountCents(editing.amount);
     if (cents === null) {
-      show({ tone: "error", title: "Type the amount: dollars and cents above $0.00, like 60.00." });
+      show({ tone: "error", title: "Type the amount: dollars and cents above $0.00, like 75.00." });
       return;
     }
     setBusy(c.id);
@@ -400,7 +443,7 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
           </div>
           <label className={`${p.field} ${styles.fieldAmountShort}`}>
             <span className={p.fieldLabel}>Amount ($)</span>
-            <input className={`${p.textInput} ${p.amountInput}`} inputMode="decimal" placeholder="60.00" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={saving} />
+            <input className={`${p.textInput} ${p.amountInput}`} inputMode="decimal" placeholder="65.00" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={saving} />
             {propertyId !== "" && start.kind !== "none" && <span className={p.note}>{startWords(start)}</span>}
           </label>
           <label className={`${p.field} ${p.fieldGrow}`}>
@@ -428,23 +471,24 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
       {/* ── The cleanings in these dates ── */}
       <div className={`${p.blockHead} ${styles.listHead}`}>
         <h3 className={p.blockTitle}>Cleanings</h3>
-        <span className={p.blockTotal}>{logged.length === 0 ? "None" : `${logged.length === 1 ? "1 cleaning" : `${logged.length} cleanings`} · ${formatCents(total)}${waiting > 0 ? ` · ${waiting} waiting for an amount` : ""}`}</span>
+        <span className={p.blockTotal}>{logged.length === 0 ? "None" : `${logged.length === 1 ? "1 cleaning" : `${logged.length} cleanings`} · ${formatCents(total)}${waiting > 0 ? ` · ${waiting} waiting for an amount` : ""}${askedCount > 0 ? ` · ${askedCount} extra asked` : ""}`}</span>
       </div>
       {/* Waiting for an amount first while any waits (the Costs page, round 1). */}
       <div className={styles.chips} role="tablist" aria-label="Which cleanings">
         {[
-          { key: "waiting", label: `Waiting for an amount · ${waitingAll.length}`, on: onlyWaiting, pick: () => showWaiting(true) },
-          { key: "all", label: "All cleanings", on: !onlyWaiting, pick: () => showWaiting(false) },
+          { key: "waiting", label: `Waiting for an amount · ${waitingAll.length}`, on: onlyWaiting, warn: waitingAll.length > 0, pick: () => showWaiting(true) },
+          { key: "asked", label: `Extra asked · ${askedAll.length}`, on: onlyAsked, warn: askedAll.length > 0, pick: showAsked },
+          { key: "all", label: "All cleanings", on: !onlyWaiting && !onlyAsked, warn: false, pick: () => showWaiting(false) },
         ]
-          .sort((a, b) => (waitingAll.length > 0 ? 0 : a.key === "all" ? -1 : b.key === "all" ? 1 : 0))
+          .sort((a, b) => (waitingAll.length > 0 || askedAll.length > 0 ? 0 : a.key === "all" ? -1 : b.key === "all" ? 1 : 0))
           .map((chip) => (
-            <button key={chip.key} type="button" role="tab" aria-selected={chip.on} className={`${styles.chip} ${chip.on ? styles.chipOn : ""} ${chip.key === "waiting" && waitingAll.length > 0 ? styles.chipWarn : ""}`} onClick={chip.pick}>
+            <button key={chip.key} type="button" role="tab" aria-selected={chip.on} className={`${styles.chip} ${chip.on ? styles.chipOn : ""} ${chip.warn ? styles.chipWarn : ""}`} onClick={chip.pick}>
               {chip.label}
             </button>
           ))}
       </div>
       <div className={`${p.fields} ${styles.filters}`}>
-        {!onlyWaiting && (
+        {!onlyWaiting && !onlyAsked && (
           <div className={`${p.field} ${p.fieldDates}`}>
             <DateRangeField label="Dates" from={filters.from} to={filters.to} max={today} onChange={(range) => setFilter(range)} presets={RANGE_PRESETS.map((preset) => ({ ...preset, ...presetRange(preset.key, today) }))} note="By the day cleaned." />
           </div>
@@ -476,7 +520,6 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
                 // The property's preset for the job's stay (Kian's ruling of 2026-10-19); with several cleaners on the job, the preset for them all;
                 // with no preset for the tier, the admin-typed recommendation, prefilled (the second round).
                 const job = c.jobId !== null ? (jobs[c.jobId] ?? null) : null;
-                const preset = job ? presetAmount(pricesOf(c.propertyId), job.nights) : null;
                 const start = missingAmountStart(pricesOf(c.propertyId), cleanings, jobs, c);
                 const hint = start.kind === "recommendation" ? `${recommendationWords(start.tier, start.cents)} (${shortDay(start.day)})` : waitingHint(pricesOf(c.propertyId), job);
                 return (
@@ -509,7 +552,7 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
                               className={`${p.textInput} ${p.amountInput} ${styles.amountInline}`}
                               inputMode="decimal"
                               aria-label={`Amount for ${nameOf(c)}, ${shortDay(c.day)}, ${cleanerNameOf(c)}`}
-                              placeholder={preset && preset.cents !== null && job && job.cleaners === 1 ? amountField(preset.cents) : ""}
+                              placeholder={(start.kind === "preset" || start.kind === "job") && job && job.cleaners === 1 ? amountField(start.cents) : ""}
                               title={hint}
                               value={fieldOf(c)}
                               onChange={(e) => setTyping((was) => ({ ...was, [c.id]: e.target.value }))}
@@ -521,6 +564,85 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
                           </span>
                           <button type="submit" className={`${p.btnGhost} ${p.btnSmall}`} disabled={busy !== null || fieldOf(c).trim() === ""}>
                             {busy === c.id ? "Saving…" : "Save"}
+                          </button>
+                        </form>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )
+      ) : onlyAsked ? (
+        askedRows.length === 0 ? (
+          <p className={p.note}>No cleaning waits for a decision on extra asked{filters.propertyId || filters.cleanerId ? " for this choice" : ""}.</p>
+        ) : (
+          <table className={p.listTable} aria-label="Extra asked">
+            <thead>
+              <tr>
+                <th>Day</th>
+                <th>Property</th>
+                <th>Cleaner</th>
+                <th>Asked for</th>
+                <th className={p.num}>Amount</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {askedRows.map((c) => {
+                const decided = decidedHere.get(c.id);
+                const reason = c.extra?.reason ?? "";
+                return (
+                  <tr key={c.id} id={`cleaning-${c.id}`} className={c.id === focusId ? styles.focused : undefined}>
+                    <td className={styles.nowrap}>{shortDay(c.day)}</td>
+                    <td>
+                      <Link href={`/admin/property?id=${encodeURIComponent(c.propertyId)}&month=${c.day.slice(0, 7)}&tab=costs`} prefetch={false} className={p.linkButton}>
+                        {nameOf(c)}
+                      </Link>
+                    </td>
+                    <td>
+                      {cleanerNameOf(c)}
+                      {c.cleaner.state === "missing" && <span className={p.note}> (deleted)</span>}
+                    </td>
+                    <td className={styles.noteCell}>
+                      {reason}
+                      {c.note && <span className={p.note}> · note: {c.note}</span>}
+                    </td>
+                    <td className={p.num}>
+                      {amountWords(c.amountCents)}
+                      {c.amountFrom !== null && c.amountCents !== null && <span className={p.note}> · {AMOUNT_SOURCE_WORDS[c.amountFrom]}</span>}
+                    </td>
+                    <td>
+                      {decided ? (
+                        <span className={styles.saved}>
+                          {decided.decision === "approve" ? `Approved ${decided.cents === null ? "" : formatCents(decided.cents)}` : `Declined: ${amountWords(c.amountCents)} counts`} · goes on {monthLabel(decided.statementMonth)}&apos;s statement
+                        </span>
+                      ) : (
+                        <form
+                          className={styles.amountForm}
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            void decide(c, "approve", approveAt[c.id] ?? null);
+                          }}
+                        >
+                          <span className={styles.amountField}>
+                            <input
+                              className={`${p.textInput} ${p.amountInput} ${styles.amountInline}`}
+                              inputMode="decimal"
+                              aria-label={`New amount for ${nameOf(c)}, ${shortDay(c.day)}, ${cleanerNameOf(c)}`}
+                              placeholder={c.amountCents === null ? "" : amountField(c.amountCents)}
+                              title="Approve at this amount; leave it empty to approve at the amount it arrived with"
+                              value={approveAt[c.id] ?? ""}
+                              onChange={(e) => setApproveAt((was) => ({ ...was, [c.id]: e.target.value }))}
+                              disabled={busy !== null}
+                            />
+                          </span>
+                          <button type="submit" className={`${p.btnPrimary} ${p.btnSmall}`} disabled={busy !== null || (c.amountCents === null && (approveAt[c.id] ?? "").trim() === "")}>
+                            {busy === c.id ? "Saving…" : (approveAt[c.id] ?? "").trim() === "" ? "Approve" : "Approve at this amount"}
+                          </button>
+                          <button type="button" className={`${p.btnGhost} ${p.btnSmall}`} disabled={busy !== null || c.amountCents === null} onClick={() => void decide(c, "decline", null)} title={c.amountCents === null ? "No base amount to fall back on: approve at an amount" : "The base amount counts"}>
+                            Decline
                           </button>
                         </form>
                       )}
@@ -606,11 +728,16 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
                       formatCents(c.amountCents)
                     )}
                     {c.status === "removed" && <span className={`${p.costMark} ${p.costMarkWarn}`}>removed</span>}
-                    {c.jobId !== null && <span className={p.note} title="Made by the cleaner's Mark cleaned on a job, dated its checkout day"> · marked</span>}
-                    {/* Where the amount came from (Kian's ruling of 2026-10-19): a preset, or typed; cleanings from before the presets say nothing here. */}
-                    {c.amountFrom !== null && c.amountCents !== null && <span className={p.note} title={c.amountFrom === "typed" ? "Typed or changed by an admin" : `The property’s ${AMOUNT_SOURCE_WORDS[c.amountFrom]} when it was made (${c.amountFrom === "long" ? `a stay of ${LONG_STAY_NIGHTS}+ nights` : "an ordinary turnover"})`}> · {AMOUNT_SOURCE_WORDS[c.amountFrom]}</span>}
+                    {extraAsked(c) && <span className={`${p.costMark} ${p.costMarkWarn}`} title={extraWords(c.extra!)}>extra asked</span>}
+                    {c.jobId !== null && <span className={p.note} title={c.actor.role === "admin" && c.history[0]?.reason === "recorded by the office" ? "Recorded as cleaned by the office on its job, dated its checkout day" : "Made by the cleaner's Mark cleaned on a job, dated its checkout day"}> · {c.actor.role === "admin" && c.history[0]?.reason === "recorded by the office" ? "recorded" : "marked"}</span>}
+                    {/* Where the amount came from (Kian's ruling of 2026-10-19): a preset, the job's own amount, or typed; cleanings from before the presets say nothing here. */}
+                    {c.amountFrom !== null && c.amountCents !== null && <span className={p.note} title={c.amountFrom === "typed" ? "Typed or changed by an admin" : c.amountFrom === "job" ? "The amount an admin set on its job" : `The property’s ${AMOUNT_SOURCE_WORDS[c.amountFrom]} when it was made (${TIER_NIGHTS[c.amountFrom]})`}> · {AMOUNT_SOURCE_WORDS[c.amountFrom]}</span>}
+                    {c.extra && c.extra.status !== "asked" && <span className={p.note} title={`Asked for: ${c.extra.reason}`}> · {extraWords(c.extra).toLowerCase()}</span>}
                   </td>
-                  <td className={styles.noteCell}>{c.note ?? ""}</td>
+                  <td className={styles.noteCell}>
+                    {c.note ?? ""}
+                    {c.extra && <span className={p.note}>{c.note ? " · " : ""}extra: {c.extra.reason}</span>}
+                  </td>
                   {charges !== null && <td className={styles.chargedCell}>{chargedWords(c)}</td>}
                   <td>
                     {/* A removed cleaning can still be deleted outright, as a removed cost entry can (dispatch 23H). */}

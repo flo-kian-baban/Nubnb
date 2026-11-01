@@ -41,7 +41,7 @@ import { Dialog } from "../property/editor/controls";
 import { fetchTracker, type TrackerData } from "@/app/lib/reports-client";
 import { setManagementFields } from "@/app/lib/firebase/properties";
 import { fetchAllCleaningPrices, importCleaningPricesRows, setCleaningPricesOf } from "@/app/lib/prices-client";
-import { LONG_STAY_NIGHTS, matchPriceRows, parsePricesCsv, priceField, type CleaningPrices, type MatchedPriceRow, type UnmatchedPriceRow } from "@/app/lib/cleanings/prices";
+import { TIER_NIGHTS, matchPriceRows, parsePricesCsv, priceField, type CleaningPrices, type MatchedPriceRow, type UnmatchedPriceRow } from "@/app/lib/cleanings/prices";
 import { torontoDayOf } from "@/app/lib/costs/report";
 import { monthLabel, monthOfDay, referenceFromStem, stemProblem, STATEMENT_LIMITS, type PropertyManagementView } from "@/app/lib/reports/model";
 import { reportingStatuses, type ReportingStatus } from "@/app/lib/reports/statement";
@@ -111,7 +111,7 @@ function Sheet() {
     fetchAllCleaningPrices().then((result) => {
       if (cancelled) return;
       if (result.ok) {
-        setPrices(new Map(Object.values(result.data.prices).map((record) => [record.propertyId, { shortTermCents: record.shortTermCents, longTermCents: record.longTermCents }])));
+        setPrices(new Map(Object.values(result.data.prices).map((record) => [record.propertyId, { shortTermCents: record.shortTermCents, midTermCents: record.midTermCents, longTermCents: record.longTermCents }])));
         setPricesRead({ kind: "ready" });
       } else {
         setPricesRead({ kind: "error", title: result.title });
@@ -157,7 +157,7 @@ function Sheet() {
   const owing = rows.filter((row) => row.owed.length > 0);
   const blockedCount = owing.filter((row) => (records.get(row.id)?.reportFor?.name ?? "").trim() === "").length;
   const shown = rows.filter((row) => (!owesOnly || row.owed.length > 0) && (query.trim() === "" || fold(`${row.name} ${row.publicName ?? ""}`).includes(fold(query.trim()))));
-  const priced = rows.filter((row) => prices.has(row.id) && (prices.get(row.id)!.shortTermCents !== null || prices.get(row.id)!.longTermCents !== null)).length;
+  const priced = rows.filter((row) => prices.has(row.id) && (prices.get(row.id)!.shortTermCents !== null || prices.get(row.id)!.midTermCents !== null || prices.get(row.id)!.longTermCents !== null)).length;
 
   const onSaved = useCallback((record: PropertyManagementView) => {
     setRecords((prev) => new Map(prev).set(record.propertyId, record));
@@ -199,7 +199,7 @@ function Sheet() {
       return;
     }
     setImporting(true);
-    const result = await importCleaningPricesRows(changing.map((row) => ({ propertyId: row.propertyId, shortTerm: row.after.shortTermCents === null ? null : priceField(row.after.shortTermCents), longTerm: row.after.longTermCents === null ? null : priceField(row.after.longTermCents) })));
+    const result = await importCleaningPricesRows(changing.map((row) => ({ propertyId: row.propertyId, shortTerm: row.after.shortTermCents === null ? null : priceField(row.after.shortTermCents), midTerm: row.after.midTermCents === null ? null : priceField(row.after.midTermCents), longTerm: row.after.longTermCents === null ? null : priceField(row.after.longTermCents) })));
     setImporting(false);
     if (!result.ok) {
       show(result.unknown ? { tone: "warning", title: "The prices may or may not have been saved. Refresh to see what is stored.", detail: result.title } : { tone: "error", title: result.title, detail: result.detail });
@@ -207,7 +207,7 @@ function Sheet() {
     }
     setPrices((prev) => {
       const next = new Map(prev);
-      for (const saved of result.data.saved) next.set(saved.propertyId, { shortTermCents: saved.record.shortTermCents, longTermCents: saved.record.longTermCents });
+      for (const saved of result.data.saved) next.set(saved.propertyId, { shortTermCents: saved.record.shortTermCents, midTermCents: saved.record.midTermCents, longTermCents: saved.record.longTermCents });
       return next;
     });
     setImported((n) => n + 1);
@@ -238,7 +238,7 @@ function Sheet() {
               if (file) void readFile(file);
             }}
           />
-          <button type="button" className={shared.btnGhost} onClick={() => fileRef.current?.click()} disabled={tracker.kind !== "ready" || pricesRead.kind !== "ready"} title="A CSV with the columns address, short and long: rows are matched to properties by exact address, shown, and saved only when you confirm">
+          <button type="button" className={shared.btnGhost} onClick={() => fileRef.current?.click()} disabled={tracker.kind !== "ready" || pricesRead.kind !== "ready"} title="A CSV with the columns address, short, mid and long (mid optional: it then equals short): rows are matched to properties by exact address, shown, and saved only when you confirm">
             <Upload size={15} aria-hidden />
             <span>Import prices</span>
           </button>
@@ -249,7 +249,7 @@ function Sheet() {
         </PageHead>
 
         {notice && <NoticeBanner className={shared.pageNotice} notice={notice} onDismiss={clear} />}
-        {pricesRead.kind === "error" && <NoticeBanner className={shared.pageNotice} notice={{ tone: "warning", title: "The cleaning prices could not be read.", detail: `${pricesRead.title} The two price columns cannot be changed until the page is refreshed.` }} />}
+        {pricesRead.kind === "error" && <NoticeBanner className={shared.pageNotice} notice={{ tone: "warning", title: "The cleaning prices could not be read.", detail: `${pricesRead.title} The price columns cannot be changed until the page is refreshed.` }} />}
 
         {tracker.kind === "error" ? (
           <div className={`${shared.empty} ${shared.loadError}`} role="alert">
@@ -324,8 +324,9 @@ function Sheet() {
                       <th>Address</th>
                       <th title="The reference less its month: a new statement starts as <Mon>-<stem>">Reference stem</th>
                       <th title="What a new statement's fee starts from">Fee rate (%)</th>
-                      <th title="What a cleaning after an ordinary turnover starts from, in dollars">Cleaning: short</th>
-                      <th title={`What a cleaning after a stay of ${LONG_STAY_NIGHTS} nights or more starts from, in dollars`}>Cleaning: long ({LONG_STAY_NIGHTS}+ nights)</th>
+                      <th title={`The base price of a cleaning after a stay of ${TIER_NIGHTS.short}, in dollars`}>Cleaning: short ({TIER_NIGHTS.short})</th>
+                      <th title={`The base price of a cleaning after a stay of ${TIER_NIGHTS.mid}, in dollars`}>Cleaning: mid ({TIER_NIGHTS.mid})</th>
+                      <th title={`The base price of a cleaning after a stay of ${TIER_NIGHTS.long}, in dollars`}>Cleaning: long ({TIER_NIGHTS.long})</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -387,7 +388,8 @@ function ImportDialog({ preview, importing, onConfirm, onClose }: { preview: Imp
               <tr>
                 <th>Property</th>
                 <th>Short</th>
-                <th>Long ({LONG_STAY_NIGHTS}+ nights)</th>
+                <th>Mid</th>
+                <th>Long</th>
               </tr>
             </thead>
             <tbody>
@@ -396,6 +398,9 @@ function ImportDialog({ preview, importing, onConfirm, onClose }: { preview: Imp
                   <td>{row.name}</td>
                   <td>
                     <Change before={row.before.shortTermCents} after={row.after.shortTermCents} />
+                  </td>
+                  <td>
+                    <Change before={row.before.midTermCents} after={row.after.midTermCents} />
                   </td>
                   <td>
                     <Change before={row.before.longTermCents} after={row.after.longTermCents} />
@@ -427,7 +432,7 @@ function ImportDialog({ preview, importing, onConfirm, onClose }: { preview: Imp
   );
 }
 
-/** "$80.00 → $100.00", or the one value when it does not change. */
+/** "$75.00 → $105.00", or the one value when it does not change. */
 function Change({ before, after }: { before: number | null; after: number | null }) {
   if (before === after) return <span className={styles.unchanged}>{money(after)}</span>;
   return (
@@ -456,7 +461,7 @@ interface RowProps {
   onPricesSaved: (propertyId: string, prices: CleaningPrices) => void;
 }
 
-/** One property: its six fields, typed in place, saved 800 ms after the last change and when the cursor leaves the row; each route sent only what differs. */
+/** One property: its seven fields, typed in place, saved 800 ms after the last change and when the cursor leaves the row; each route sent only what differs. */
 function SheetRow({ propertyId, name, publicName, status, owed, record, prices, pricesLocked, today, onSaved, onPricesSaved }: RowProps) {
   const [typed, setTyped] = useState<SheetFields>(() => sheetFieldsOf(record, prices));
   const [state, setState] = useState<RowState>({ kind: "idle" });
@@ -506,8 +511,8 @@ function SheetRow({ propertyId, name, publicName, status, owed, record, prices, 
         if (pricesDiffer && failed === null) {
           const result = await setCleaningPricesOf(propertyId, pricesPayload(current));
           if (result.ok) {
-            const saved: CleaningPrices = { shortTermCents: result.data.record.shortTermCents, longTermCents: result.data.record.longTermCents };
-            storedRef.current = { ...storedRef.current, short: priceField(saved.shortTermCents), long: priceField(saved.longTermCents) };
+            const saved: CleaningPrices = { shortTermCents: result.data.record.shortTermCents, midTermCents: result.data.record.midTermCents, longTermCents: result.data.record.longTermCents };
+            storedRef.current = { ...storedRef.current, short: priceField(saved.shortTermCents), mid: priceField(saved.midTermCents), long: priceField(saved.longTermCents) };
             onPricesSaved(propertyId, saved);
           } else {
             failed = result.unknown ? `${result.title} The prices may or may not have been saved: refresh to see.` : result.title;
@@ -619,6 +624,17 @@ function SheetRow({ propertyId, name, publicName, status, owed, record, prices, 
           placeholder="Price"
           disabled={pricesLocked}
           onChange={(e) => change({ short: e.target.value })}
+        />
+      </td>
+      <td>
+        <input
+          className={`${form.textInput} ${form.amountInput} ${invalid && invalid.startsWith("The mid-term") ? form.inputInvalid : ""}`}
+          aria-label={`Mid-term cleaning price, ${name}`}
+          inputMode="decimal"
+          value={typed.mid}
+          placeholder="Price"
+          disabled={pricesLocked}
+          onChange={(e) => change({ mid: e.target.value })}
         />
       </td>
       <td>

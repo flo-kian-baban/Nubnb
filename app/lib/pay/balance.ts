@@ -6,7 +6,8 @@
  * nothing here reads or writes.
  *
  * ── What is owed (ruling 1) ──
- *   a cleaning       theirs, logged (not removed), with an amount: its amount
+ *   a cleaning       theirs, logged (not removed), with an amount, and not waiting on an extra they asked for
+ *                    (Kian's ruling F of 2026-11-01: the money waits until an admin decides): its amount
  *   a receipt        theirs, approved, not paid with Nubnb's card: its total now — items plus tax, every correction
  *                    applied (readLinesNow)
  *   work             theirs, approved: its total now
@@ -27,7 +28,7 @@
  */
 
 import { formatCents, readLinesNow, type CostEntryView, type HistoryEventView } from '@/app/lib/cleaners/model';
-import type { CleaningEvent } from '@/app/lib/cleanings/model';
+import type { CleaningEvent, CleaningExtra } from '@/app/lib/cleanings/model';
 import { ledgerDay } from '@/app/lib/costs/report';
 import { PAYMENT_METHOD_LABELS, type PaymentView } from './model';
 
@@ -40,6 +41,8 @@ export interface PayCleaning {
   amountCents: number | null;
   status: string;
   history: CleaningEvent[];
+  /** The extra its cleaner asked for (ruling F); absent on a cleaning read before it. */
+  extra?: Pick<CleaningExtra, 'status' | 'reason'> | null;
   propertyNameAtEntry: string | null;
   /** The property now: its public title, and the name the admin shows (Kian's rulings of 2026-10-15, evening). */
   property?: { name: string | null; internalName?: string | null } | null;
@@ -58,14 +61,14 @@ export interface PaySources {
   payments: readonly PaymentView[];
 }
 
-export type PayRowState = 'counts' | 'waiting' | 'no-amount' | 'rejected' | 'removed' | 'nubnb-card' | 'moved' | 'cannot-add-up' | 'unknown' | 'recorded' | 'deleted';
+export type PayRowState = 'counts' | 'waiting' | 'no-amount' | 'extra-asked' | 'rejected' | 'removed' | 'nubnb-card' | 'moved' | 'cannot-add-up' | 'unknown' | 'recorded' | 'deleted';
 
 /** One change that moved what an item adds. */
 export interface PayChange {
   at: string;
   /** Who made it: an admin's name, or null when the record has none. */
   by: string | null;
-  /** What it did: "Removed", "Changed: $60.00 → $55.00", "Marked paid with Nubnb's card". */
+  /** What it did: "Removed", "Changed: $65.00 → $55.00", "Marked paid with Nubnb's card". */
   words: string;
   owedBefore: number;
   owedAfter: number;
@@ -110,6 +113,8 @@ export interface MemberPay {
   noAmount: number;
   /** Their receipts and work waiting for review. */
   waitingReview: number;
+  /** Their cleanings whose extra ask waits for a decision (ruling F): listed, not counted. */
+  extraAsked: number;
   /** Entries whose lines cannot be read: left out of the balance, which is then never shown as whole. */
   cannotAddUp: number;
   /** Newest first. */
@@ -146,23 +151,33 @@ export function balanceWords(balanceCents: number): { words: string; tone: 'owed
 
 type Covering = (day: string | null, changeAt: string) => PayChange['afterPayment'];
 
+/** A cleaning's state at one point of its history: who it is for, its amount, its status, and whether an extra ask holds its money. */
+interface CleaningState {
+  cleanerId: string | null;
+  amount: number | null;
+  status: string;
+  extraAsked: boolean;
+}
+
 /** A cleaning's states along its history, replayed backwards from what is stored: states[i] is the state before event i. */
-function cleaningStates(c: PayCleaning): { cleanerId: string | null; amount: number | null; status: string }[] {
-  const states = new Array<{ cleanerId: string | null; amount: number | null; status: string }>(c.history.length + 1);
-  states[c.history.length] = { cleanerId: c.cleanerId, amount: c.amountCents, status: c.status };
+function cleaningStates(c: PayCleaning): CleaningState[] {
+  const states = new Array<CleaningState>(c.history.length + 1);
+  states[c.history.length] = { cleanerId: c.cleanerId, amount: c.amountCents, status: c.status, extraAsked: c.extra?.status === 'asked' };
   for (let i = c.history.length - 1; i >= 0; i--) {
     const event = c.history[i];
     const after = states[i + 1];
     if (event.action === 'logged') {
-      states[i] = { cleanerId: null, amount: null, status: 'none' };
+      states[i] = { cleanerId: null, amount: null, status: 'none', extraAsked: false };
       continue;
     }
     const before = { ...after };
     if (event.action === 'removed') before.status = 'logged';
-    if (event.action === 'changed') {
+    if (event.action === 'changed' || event.action === 'extra-approved') {
       if (event.before && 'amountCents' in event.before && event.before.amountCents !== undefined) before.amount = event.before.amountCents;
       if (event.before?.cleanerId !== undefined) before.cleanerId = event.before.cleanerId;
     }
+    // Before the office decided, the extra was asked and the money waited (ruling F).
+    if (event.action === 'extra-approved' || event.action === 'extra-declined') before.extraAsked = true;
     states[i] = before;
   }
   return states;
@@ -171,7 +186,7 @@ function cleaningStates(c: PayCleaning): { cleanerId: string | null; amount: num
 function cleaningRow(c: PayCleaning, memberId: string, covering: Covering): PayRow | null {
   const states = cleaningStates(c);
   if (!states.some((state) => state.cleanerId === memberId)) return null;
-  const owed = (state: { cleanerId: string | null; amount: number | null; status: string }) => (state.cleanerId === memberId && state.status === 'logged' && typeof state.amount === 'number' ? state.amount : 0);
+  const owed = (state: CleaningState) => (state.cleanerId === memberId && state.status === 'logged' && !state.extraAsked && typeof state.amount === 'number' ? state.amount : 0);
 
   const changes: PayChange[] = [];
   let lastRemoved: PayChange | null = null;
@@ -183,6 +198,8 @@ function cleaningRow(c: PayCleaning, memberId: string, covering: Covering): PayR
     if (owedBefore === owedAfter && !(event.action === 'changed' && event.before?.cleanerId !== undefined)) return;
     let words = 'Changed';
     if (event.action === 'removed') words = 'Removed';
+    else if (event.action === 'extra-approved') words = typeof event.before?.amountCents === 'number' && typeof event.after?.amountCents === 'number' ? `Extra approved: ${formatCents(event.before.amountCents)} → ${formatCents(event.after.amountCents)}` : 'Extra approved';
+    else if (event.action === 'extra-declined') words = 'Extra declined';
     else if (event.before?.cleanerId !== undefined && states[i].cleanerId === memberId) words = `Given to ${event.after?.cleanerName ?? 'another cleaner'}`;
     else if (event.before?.cleanerId !== undefined) words = 'Given to them';
     else if (event.before?.amountCents === null) words = `Amount typed: ${formatCents(owedAfter)}`;
@@ -205,6 +222,8 @@ function cleaningRow(c: PayCleaning, memberId: string, covering: Covering): PayR
   }
   if (c.status !== 'logged') return { ...base, earnedCents: null, state: 'unknown', note: `Status as stored: ${c.status}` };
   if (c.amountCents === null) return { ...base, earnedCents: null, state: 'no-amount', note: 'No amount yet' };
+  // The extra they asked for waits for the office (ruling F): listed, not counted, whatever amount it arrived with.
+  if (c.extra?.status === 'asked') return { ...base, earnedCents: null, state: 'extra-asked', note: `Extra asked: ${c.extra.reason}` };
   return { ...base, earnedCents: c.amountCents, state: 'counts', note: null };
 }
 
@@ -281,7 +300,7 @@ export function rowItemWords(row: PayRow): string {
   return [kind, row.property ?? 'Unknown property', row.detail].filter((part) => part !== null && part !== '').join(' · ');
 }
 
-/** A change in words, with when and by whom: "Changed Oct 22 by Kian: $60.00 → $55.00", "Removed Oct 22 by Kian". */
+/** A change in words, with when and by whom: "Changed Oct 22 by Kian: $65.00 → $55.00", "Removed Oct 22 by Kian". */
 export function changeWords(change: PayChange): string {
   const split = change.words.indexOf(': ');
   return split < 0 ? `${change.words} ${byWords(change.at, change.by)}` : `${change.words.slice(0, split)} ${byWords(change.at, change.by)}${change.words.slice(split)}`;
@@ -333,9 +352,10 @@ export function memberPay(memberId: string, sources: PaySources, range?: { from:
       receiptsCents: sum(rows.filter((row) => row.kind === 'receipt'), (row) => row.earnedCents),
       workCents: sum(rows.filter((row) => row.kind === 'work'), (row) => row.earnedCents),
     },
-    waiting: rows.filter((row) => row.state === 'waiting' || row.state === 'no-amount').length,
+    waiting: rows.filter((row) => row.state === 'waiting' || row.state === 'no-amount' || row.state === 'extra-asked').length,
     noAmount: rows.filter((row) => row.state === 'no-amount').length,
     waitingReview: rows.filter((row) => row.state === 'waiting').length,
+    extraAsked: rows.filter((row) => row.state === 'extra-asked').length,
     cannotAddUp: rows.filter((row) => row.state === 'cannot-add-up').length,
     rows,
     range: range

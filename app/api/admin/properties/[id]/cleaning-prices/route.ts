@@ -3,8 +3,8 @@
  *     2026-10-19): its short-term and long-term presets, and their history.
  * PUT /api/admin/properties/[id]/cleaning-prices — set both presets.
  *
- * Request (PUT): `{ shortTerm: "80.00" | null, longTerm: "120.00" | null }` — each a preset in dollars and cents, or
- *                null for none.
+ * Request (PUT): `{ shortTerm: "75.00" | null, midTerm: "75.00" | null, longTerm: "115.00" | null }` — each a preset in
+ *                dollars and cents, or null for none (the three tiers, Kian's ruling A of 2026-11-01).
  * Response:      GET 200 `{ success: true, data: { record, unreadable } }` — `record` null when the property has no
  *                prices: `{ propertyId, shortTermCents, longTermCents, setAt, setBy, history }`.
  *                PUT 200 `{ success: true, data: { record, changed } }`; 404 PROPERTY_NOT_FOUND; 422 VALIDATION_ERROR;
@@ -64,7 +64,7 @@ export const PUT = adminRoute(async function PUT(request: NextRequest, context: 
   const parsed = CleaningPricesSchema.safeParse(body);
   if (!parsed.success) return noStore(apiValidationError(parsed.error.issues.map((i) => ({ path: i.path.map(String).join('.'), message: i.message }))));
 
-  const outcome = await setCleaningPrices(actor, id, { shortTermCents: parsed.data.shortTerm, longTermCents: parsed.data.longTerm });
+  const outcome = await setCleaningPrices(actor, id, { shortTermCents: parsed.data.shortTerm, midTermCents: parsed.data.midTerm, longTermCents: parsed.data.longTerm });
   switch (outcome.kind) {
     case 'set':
       return noStore(apiSuccess({ record: outcome.record, changed: outcome.changed }));

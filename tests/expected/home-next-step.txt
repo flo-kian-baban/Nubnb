@@ -13,8 +13,8 @@
    ok   finish
   TESTPROP0007: finish · "Finish September" · /admin/property?id=TESTPROP0007&month=2026-09&tab=finish · when 2026-09 · owed 2026-09 (0 blocked, 1 ready) · under attention,ready · 1 statement owed: September 2026
    ok   finish
-  TESTPROP0008: calendar · "Calendar not read" · /admin/property/edit?id=TESTPROP0008&section=calendar · when - · owed - (0 blocked, 0 ready) · under attention,calendar · No calendar link: no turnover is known
-   ok   calendar
+  TESTPROP0008: none · "Up to date" · - · when - · owed - (0 blocked, 0 ready) · under - · Nothing to do
+   ok   none
   TESTPROP0009: calendar · "Calendar not read" · /admin/property/edit?id=TESTPROP0009&section=calendar · when - · owed - (0 blocked, 0 ready) · under attention,calendar · The last refresh could not read its calendar: check its link
    ok   calendar
   TESTPROP0010: none · "Up to date" · - · when - · owed - (0 blocked, 0 ready) · under - · Nothing to do
@@ -30,26 +30,26 @@
    ok   one line reads "1 Airbnb line", and opens the Income page at the month, at the property (Kian's rulings of 2026-10-17)
    ok   Finish names the oldest month owed and opens its Finish tab
    ok   past due and due both count as ready
-   ok   Calendar not read says which: no link, or not read
+   ok   no link is not a step (ruling G); a link not read says so
    ok   a property excluded from reporting owes nothing, even with no Report For name
    ok   assigned, booking-changed, out of the window: no cleaner needed
    ok   a month in another year carries its year
 
 ═══ 2. The chips: the rows under each ═══
-  Needs attention           9  01 02 03 04 05 06 07 08 09
+  Needs attention           8  01 02 03 04 05 06 07 09
   Statements blocked        2  01 03
   Statements ready          4  04 05 06 07
   Airbnb lines to review    3  01 03 04
   Needs a cleaner           2  01 02
   Not marked                0  
-  Calendar not read         4  01 06 08 09
+  Calendar not read         3  01 06 09
   Direct overdue            3  01 04 05
    ok   Needs attention is every row whose Next step is not Up to date
    ok   a row is under every chip it qualifies for, whatever its one step
 
 ═══ 3. Needs attention, then Next checkout ═══
-  Needs attention: 02 01 03 04 05 06 07 08 09 12 10 11
-   ok   by step; then the earliest day or month (Oct 5 before Oct 18, August before September); then the worst cell (12 has a red cell); then the name
+  Needs attention: 02 01 03 04 05 06 07 09 12 08 10 11
+   ok   by step; then the earliest day or month (Oct 5 before Oct 18, August before September); then the worst cell (12 has a red cell); then the name (08, with no calendar link, is up to date since ruling G)
   Next checkout: Test A2@2026-10-18 Test C@2026-10-18 Test B@2026-10-20 Test A@-
    ok   the soonest first, ties by name, none last
 
@@ -68,14 +68,13 @@
    ok   a calendar not read keeps its last good read; a checkout today counts
    ok   no copy: nothing known
 
-═══ 6. Not on Airbnb: no link and "Not on the site" no longer counts as "Calendar not read" ═══
-  no link, "Not on the site"                   → cell "Not on Airbnb" (none, not-on-airbnb) · Next step "Up to date" · under "Calendar not read" false
-  no link, on the site                         → cell "Calendar not read" (warning, not-read) · Next step "Calendar not read" · under "Calendar not read" true
-  no link, the mark not passed                 → cell "Calendar not read" (warning, not-read) · Next step "Calendar not read" · under "Calendar not read" true
-  a link it could not read, "Not on the site"  → cell "Calendar not read" (warning, not-read) · Next step "Calendar not read" · under "Calendar not read" true
-  a link it read, "Not on the site"            → cell "No turnover" (none, no-turnover) · Next step "Up to date" · under "Calendar not read" false
-   ok   no link and "Not on the site": the cell reads "Not on Airbnb" in grey; no Calendar not read step; not under the chip
-   ok   no link and no mark: still "Calendar not read", step and chip, as before
-   ok   a property with a link is read or not as before, marked or not
+═══ 6. No calendar link reads "No calendar", grey; the chip counts only set links that fail ═══
+  no link                                          → cell "No calendar" (none, no-calendar) · Next step "Up to date" · under "Calendar not read" false
+  no link (the Unlisted mark makes no difference)  → cell "No calendar" (none, no-calendar) · Next step "Up to date" · under "Calendar not read" false
+  a link it could not read                         → cell "Calendar not read" (warning, not-read) · Next step "Calendar not read" · under "Calendar not read" true
+  a link it read                                   → cell "No turnover" (none, no-turnover) · Next step "Up to date" · under "Calendar not read" false
+   ok   no link: the cell reads "No calendar" in grey; no Calendar not read step; never under the chip
+   ok   a set link that failed: "Calendar not read", step and chip
+   ok   a link read: as before
 
 all checks passed
