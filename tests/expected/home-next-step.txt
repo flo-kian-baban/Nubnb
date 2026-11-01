@@ -68,4 +68,14 @@
    ok   a calendar not read keeps its last good read; a checkout today counts
    ok   no copy: nothing known
 
+═══ 6. Not on Airbnb: no link and "Not on the site" no longer counts as "Calendar not read" ═══
+  no link, "Not on the site"                   → cell "Not on Airbnb" (none, not-on-airbnb) · Next step "Up to date" · under "Calendar not read" false
+  no link, on the site                         → cell "Calendar not read" (warning, not-read) · Next step "Calendar not read" · under "Calendar not read" true
+  no link, the mark not passed                 → cell "Calendar not read" (warning, not-read) · Next step "Calendar not read" · under "Calendar not read" true
+  a link it could not read, "Not on the site"  → cell "Calendar not read" (warning, not-read) · Next step "Calendar not read" · under "Calendar not read" true
+  a link it read, "Not on the site"            → cell "No turnover" (none, no-turnover) · Next step "Up to date" · under "Calendar not read" false
+   ok   no link and "Not on the site": the cell reads "Not on Airbnb" in grey; no Calendar not read step; not under the chip
+   ok   no link and no mark: still "Calendar not read", step and chip, as before
+   ok   a property with a link is read or not as before, marked or not
+
 all checks passed

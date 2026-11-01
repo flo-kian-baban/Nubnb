@@ -72,7 +72,7 @@ export function homeJobOf(job: StoredJob, cleanings: CleaningLookup): HomeJob {
 export type CleaningTone = 'problem' | 'warning' | 'assigned' | 'done' | 'none';
 
 export interface CleaningStanding {
-  key: 'needs-now' | 'not-marked' | 'needs' | 'removed' | 'changed' | 'amount' | 'assigned' | 'done' | 'no-turnover' | 'not-read';
+  key: 'needs-now' | 'not-marked' | 'needs' | 'removed' | 'changed' | 'amount' | 'assigned' | 'done' | 'no-turnover' | 'not-read' | 'not-on-airbnb';
   label: string;
   tone: CleaningTone;
   /** The job's checkout; null for the quiet words. */
@@ -108,6 +108,7 @@ const DETAIL: Record<CleaningStanding['key'], string> = {
   done: 'cleaned',
   'no-turnover': '',
   'not-read': '',
+  'not-on-airbnb': '',
 };
 
 /**
@@ -115,7 +116,12 @@ const DETAIL: Record<CleaningStanding['key'], string> = {
  * warning shows the earliest (the longest waiting), Assigned the next one, Done the latest. `calendarRead` is false
  * when the last refresh could not read the property's calendar (absent: read).
  */
-export function cleaningStanding(jobs: readonly HomeJob[], input: { today: string; hasCalendar: boolean; calendarRead?: boolean }): CleaningStanding {
+/**
+ * `notOnAirbnb`: the property has no calendar link and carries the "Not on the site" mark (unlisted). Kian's ruling of
+ * 2026-11-01: it no longer counts as "Calendar not read"; its cell reads "Not on Airbnb", in grey. A property with no
+ * link and no mark still reads "Calendar not read", as before.
+ */
+export function cleaningStanding(jobs: readonly HomeJob[], input: { today: string; hasCalendar: boolean; calendarRead?: boolean; notOnAirbnb?: boolean }): CleaningStanding {
   const from = addDays(input.today, -COLUMN_DAYS_BACK);
   const to = addDays(input.today, COLUMN_DAYS_AHEAD);
   const seen = jobs
@@ -123,6 +129,7 @@ export function cleaningStanding(jobs: readonly HomeJob[], input: { today: strin
     .map((job) => ({ job, state: standingOf(job, input.today) }))
     .filter((x): x is { job: HomeJob; state: Omit<CleaningStanding, 'title'> } => x.state !== null);
   if (seen.length === 0) {
+    if (!input.hasCalendar && input.notOnAirbnb === true) return { key: 'not-on-airbnb', label: 'Not on Airbnb', tone: 'none', day: null, title: 'Not on the site and no calendar link: no cleaning jobs are made for it' };
     if (!input.hasCalendar) return { key: 'not-read', label: 'Calendar not read', tone: 'warning', day: null, title: 'No calendar link, so no cleaning jobs' };
     if (input.calendarRead === false) return { key: 'not-read', label: 'Calendar not read', tone: 'warning', day: null, title: 'The last refresh could not read its calendar, so its turnovers are not known' };
     return { key: 'no-turnover', label: 'No turnover', tone: 'none', day: null, title: `No checkout from ${dayText(from)} to ${dayText(to)}` };

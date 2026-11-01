@@ -120,5 +120,26 @@ check(read.properties[P(2)].status === 'failed' && read.properties[P(2)].nextChe
 // Eight chips since Kian's ruling R3 of 2026-10-19 added "Not marked" beside "Needs a cleaner" (seven before).
 check(home.CHIPS.length === 8 && status.calendarFactsOf(null, TODAY).refreshedAt === null, 'no copy: nothing known');
 
+
+// ═══ 6. Not on Airbnb: no calendar link and the "Not on the site" mark (Kian's ruling of 2026-11-01) ═══
+console.log('\n═══ 6. Not on Airbnb: no link and "Not on the site" no longer counts as "Calendar not read" ═══');
+const { cleaningStanding } = await import(`${ROOT}/app/lib/schedule/standing.ts`);
+const cases6 = [
+  ['no link, "Not on the site"', { hasCalendarLink: false, calendarRead: false, notOnAirbnb: true }],
+  ['no link, on the site', { hasCalendarLink: false, calendarRead: false, notOnAirbnb: false }],
+  ['no link, the mark not passed', { hasCalendarLink: false, calendarRead: false }],
+  ['a link it could not read, "Not on the site"', { hasCalendarLink: true, calendarRead: false, notOnAirbnb: false }],
+  ['a link it read, "Not on the site"', { hasCalendarLink: true, calendarRead: true, notOnAirbnb: false }],
+];
+const seen6 = [];
+for (const [label, f] of cases6) {
+  const cell = cleaningStanding([], { today: TODAY, hasCalendar: f.hasCalendarLink, calendarRead: f.calendarRead, notOnAirbnb: f.notOnAirbnb });
+  const view = home.rowView(facts(60 + seen6.length, f));
+  seen6.push({ cell, view });
+  console.log(`  ${label.padEnd(44)} → cell "${cell.label}" (${cell.tone}, ${cell.key}) · Next step "${view.step.label}" · under "Calendar not read" ${view.under.calendar}`);
+}
+check(seen6[0].cell.label === 'Not on Airbnb' && seen6[0].cell.tone === 'none' && seen6[0].view.step.key !== 'calendar' && !seen6[0].view.under.calendar, 'no link and "Not on the site": the cell reads "Not on Airbnb" in grey; no Calendar not read step; not under the chip');
+check([1, 2].every((i) => seen6[i].cell.label === 'Calendar not read' && seen6[i].cell.tone === 'warning' && seen6[i].view.step.key === 'calendar' && seen6[i].view.under.calendar), 'no link and no mark: still "Calendar not read", step and chip, as before');
+check(seen6[3].cell.label === 'Calendar not read' && seen6[3].view.under.calendar && seen6[4].cell.label === 'No turnover' && !seen6[4].view.under.calendar, 'a property with a link is read or not as before, marked or not');
 console.log(`\n${failures === 0 ? 'all checks passed' : `${failures} check(s) FAILED`}`);
 if (failures) process.exitCode = 1;

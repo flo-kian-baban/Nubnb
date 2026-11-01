@@ -4567,7 +4567,7 @@ nothing changed in production (the closing export identical, 686 documents). The
 
 Kian's rulings on the fresh start are recorded here, in §62, and nowhere else: CLAUDE.md has no section for them.
 62.1 to 62.4 are Step 1 of the dispatch of 2026-10-31, the code: the first month any property owes a statement for
-moves from September 2026 to November 2026, so no September or October statement is owed. 62.5 and 62.6 record Kian's
+moves from September 2026 to November 2026, so no September or October statement is owed. 62.5 to 62.7 record Kian's
 rulings of 2026-11-01, in his words, and what they changed. The data reset that followed (a dry run, deletes on
 Kian's approval of its manifest, the checks) and the sweep after it change no code and are recorded outside the
 repository.
@@ -4758,3 +4758,36 @@ the reset kept closes with no deletes; its dry-run manifest is kept outside the 
   - 12: the refusal, including `recordDirectPayment` refusing before any read and storing nothing.
 - direct-payments checks its 12-month limit at a today a year after the first statement month. Its output is
   unchanged.
+
+### 62.7 Kian's rulings of 2026-11-01, third round: properties not on Airbnb, and a missing file
+
+**In his words:**
+1. "A property with no calendar link that carries the existing "Not on the site" mark (from Availability) no longer
+   counts as "Calendar not read" on the home chip, its cell or the Schedule. Its home cell reads "Not on Airbnb" in
+   grey. A property with no link and no mark still counts, as now."
+2. "Missing Airbnb file after a month ends: stays grey (no change)."
+
+Kian marks the properties himself. On 2026-11-01 six properties with no link counted as "Calendar not read". No other
+link was unread: the day's refresh read all 52 set links.
+
+**What changed (ruling 1):**
+- **The mark** is the Unlisted toggle, which Availability shows as "Not on the site". The home already reads it beside
+  the properties (`unlistedIds`).
+- **The fact:** a property with no calendar link and that mark is not on Airbnb (`notOnAirbnb`, `app/admin/page.tsx`).
+- **Its Cleaning cell** (`cleaningStanding`, `app/lib/schedule/standing.ts`) reads "Not on Airbnb", in grey. The cell
+  links to the edit page's calendar section, where a link would be set (`app/admin/components/PropertyColumns.tsx`).
+- **The Next step and the chip** (`rowView`, `app/lib/home/next-step.ts`): such a row has no "Calendar not read" step
+  and is not under the "Calendar not read" chip.
+- **Unchanged:**
+  - A property with no link and no mark reads "Calendar not read", as before.
+  - So does one whose link was not read, marked or not.
+- **The Schedule needed no change.** It never named a property with no link: its line lists only the links whose read
+  failed in the last run, and a property with no link has no jobs.
+
+**Ruling 2** changes nothing: "No file yet" stays grey after the month ends, as it was (62.6). Nothing in the code makes
+Airbnb's file due; the month's statement is what falls due, in the Statement column.
+
+**Test:** home-next-step, section 6.
+- No link with the mark: the cell reads "Not on Airbnb" in grey, with no step and no chip.
+- No link without the mark, or the mark not passed: "Calendar not read", step and chip.
+- A link, read or not, with the mark: as before.

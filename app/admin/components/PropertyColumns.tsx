@@ -41,7 +41,8 @@ function incomeHref(propertyId: string, s: IncomeStanding): string {
  * own first day (a week back); with no calendar link, the edit page's Calendar section.
  */
 function cleaningHref(propertyId: string, s: CleaningStanding, today: string): string {
-  if (s.key === "not-read") return editSection(propertyId, "calendar");
+  // "Calendar not read", and "Not on Airbnb" (no link, not on the site: Kian's ruling of 2026-11-01): the calendar link is set there.
+  if (s.key === "not-read" || s.key === "not-on-airbnb") return editSection(propertyId, "calendar");
   const from = s.day !== null && s.day < addDays(today, -7) ? `&from=${s.day}` : "";
   return `/admin/schedule?property=${encodeURIComponent(propertyId)}${from}`;
 }

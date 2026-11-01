@@ -203,23 +203,26 @@ function AdminHome() {
         const copy = calendar.properties[p.id];
         // Read: it has a link and the last refresh read it. Not in the copy (added since) is not read either.
         const calendarRead = hasCalendarLink && copy?.status === "ok";
+        // Not on Airbnb: no link, and the "Not on the site" mark (unlisted). It no longer counts as "Calendar not read";
+        // its Cleaning cell reads "Not on Airbnb" in grey (Kian's ruling of 2026-11-01). No link and no mark still counts.
+        const notOnAirbnb = !hasCalendarLink && unlistedIds.has(p.id);
         const own = jobs.get(p.id) ?? [];
         const status = statuses?.get(p.id);
         return [
           p.id,
           {
             income: incomeStanding(income, p.id),
-            cleaning: cleaningStanding(own, { today: day, hasCalendar: hasCalendarLink, calendarRead }),
+            cleaning: cleaningStanding(own, { today: day, hasCalendar: hasCalendarLink, calendarRead, notOnAirbnb }),
             nextCheckout: copy?.nextCheckout ?? null,
             view:
               status && withReportFor
-                ? rowView({ propertyId: p.id, today: day, status, hasReportFor: withReportFor.has(p.id), incomeMonth: income.month, review: income.properties[p.id]?.review ?? 0, direct: income.direct[p.id] ?? null, jobs: own, hasCalendarLink, calendarRead })
+                ? rowView({ propertyId: p.id, today: day, status, hasReportFor: withReportFor.has(p.id), incomeMonth: income.month, review: income.properties[p.id]?.review ?? 0, direct: income.direct[p.id] ?? null, jobs: own, hasCalendarLink, calendarRead, notOnAirbnb })
                 : null,
           },
         ];
       }),
     );
-  }, [statusData, properties, statuses, withReportFor]);
+  }, [statusData, properties, statuses, withReportFor, unlistedIds]);
   /** Why a Next step is not known: the read that failed. */
   const viewsFailed = statusFailed ?? (statementsRead.statements.kind === "error" ? statementsRead.statements.title : null);
   const viewsReady = rows !== null && statuses !== null && withReportFor !== null;
