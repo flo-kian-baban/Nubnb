@@ -33,7 +33,7 @@
 
 import { formatCents, type Actor } from '@/app/lib/cleaners/model';
 import type { PlatformLineInput } from '@/app/lib/reports/statement';
-import { addMonths, isMonth, monthLabel, monthOfDay } from '@/app/lib/reports/model';
+import { addMonths, beforeStatementsLine, isMonth, monthLabel, monthOfDay } from '@/app/lib/reports/model';
 import { isDay, nightsBetween, rangeText } from '@/app/lib/availability/days';
 import { earliestPaymentDay } from '@/app/lib/pay/model';
 
@@ -104,7 +104,7 @@ export interface DirectArrangement {
   wording: string;
   /** 1–28: the day of each month it is due. Overdue from the day after. */
   dueDay: number;
-  /** The first month expected. */
+  /** The arrangement's first month. Months are expected from the later of it and the first statement month (periods.ts, Kian's rule of 2026-11-01). */
   fromMonth: string;
   /** The last month expected, once ended; null while it runs. */
   untilMonth: string | null;
@@ -329,12 +329,18 @@ export function directLinesOf(payments: readonly DirectPaymentView[]): PlatformL
 
 // ─── Days and months ───────────────────────────────────────────
 
-/** Why a day received is refused, or null: a real day, never after `today`, at most 12 months before it (Toronto days). */
+/**
+ * Why a day received is refused, or null: a real day, never after `today`, never before the first statement month
+ * (Kian's rule of 2026-11-01: a payment dated before November 2026 is refused with "Statements start in November
+ * 2026", and nothing is written), and at most 12 months before `today` (Toronto days).
+ */
 export function receivedDayProblem(day: string, today: string): string | null {
   if (!DAY.test(day)) return 'Write the day as yyyy-mm-dd.';
   const [year, month, date] = day.split('-').map(Number);
   if (new Date(Date.UTC(year, month - 1, date)).toISOString().slice(0, 10) !== day) return 'Not a real calendar date.';
   if (day > today) return 'The day received cannot be in the future.';
+  const before = beforeStatementsLine(monthOfDay(day));
+  if (before !== null) return before;
   if (day < earliestPaymentDay(today)) return 'The day received must be within the last 12 months.';
   return null;
 }

@@ -9,7 +9,11 @@
  *   overdue       its due day has passed (from the day after) and it is not fully paid
  *
  * The months: from the arrangement's first month to its last (or to today's month while it runs), less the months
- * it is paused. Each month expects the amount in force from that month on: earlier months keep theirs.
+ * it is paused. Each month expects the amount in force from that month on: earlier months keep theirs. No month
+ * before the first statement month (STATEMENTS_FROM_DEFAULT, November 2026) is expected: expected amounts begin at
+ * the later of the arrangement's start and that month (Kian's rule of 2026-11-01, CLEANER-COSTS-DESIGN.md §62.5), so
+ * nothing before it is owed or overdue, and Direct overdue, Record direct payment, the Income page's count and
+ * Finish's check follow. The arrangement keeps the start it was written with.
  *
  * The payments (Kian's ruling: monthly periods only; a part payment goes to the oldest unpaid month first,
  * changeable; an overpayment waits for the next month): a payment the admin set months for pays those, as set; every
@@ -18,7 +22,7 @@
  * each payment in the month it was received.
  */
 
-import { addMonths, monthLabel, monthOfDay } from '@/app/lib/reports/model';
+import { STATEMENTS_FROM_DEFAULT, addMonths, monthLabel, monthOfDay } from '@/app/lib/reports/model';
 import type { ArrangementView, DirectPaymentView } from './model';
 
 export type PeriodState = 'expected' | 'partly' | 'paid' | 'overdue';
@@ -63,9 +67,14 @@ export function amountFor(arrangement: Pick<ArrangementView, 'amounts'>, month: 
   return cents;
 }
 
-/** Whether a month is one the arrangement expects: in its span and not paused. */
+/** The first month an arrangement can expect: the later of its start and the first statement month (Kian's rule of 2026-11-01). */
+export function firstExpectedMonth(arrangement: Pick<ArrangementView, 'fromMonth'>): string {
+  return arrangement.fromMonth < STATEMENTS_FROM_DEFAULT ? STATEMENTS_FROM_DEFAULT : arrangement.fromMonth;
+}
+
+/** Whether a month is one the arrangement expects: in its span, from its first month expected, and not paused. */
 export function isExpectedMonth(arrangement: Pick<ArrangementView, 'fromMonth' | 'untilMonth' | 'pauses'>, month: string): boolean {
-  return month >= arrangement.fromMonth && (arrangement.untilMonth === null || month <= arrangement.untilMonth) && !isPausedIn(arrangement, month);
+  return month >= firstExpectedMonth(arrangement) && (arrangement.untilMonth === null || month <= arrangement.untilMonth) && !isPausedIn(arrangement, month);
 }
 
 /** The day a month is due: the due day, which every month has (1–28). */
@@ -88,7 +97,7 @@ export function arrangementMonths(arrangement: ArrangementView, payments: readon
   const now = monthOfDay(today);
   const last = arrangement.untilMonth !== null && arrangement.untilMonth < now ? arrangement.untilMonth : now;
   const periods: Period[] = [];
-  for (let month = arrangement.fromMonth, i = 0; month <= last && i < 1_200; month = addMonths(month, 1), i += 1) {
+  for (let month = firstExpectedMonth(arrangement), i = 0; month <= last && i < 1_200; month = addMonths(month, 1), i += 1) {
     if (!isExpectedMonth(arrangement, month)) continue;
     periods.push({ month, dueDate: dueDateOf(month, arrangement.dueDay), expectedCents: amountFor(arrangement, month), receivedCents: 0, state: 'expected', paidBy: [] });
   }
@@ -189,7 +198,8 @@ export function directStanding(arrangements: readonly ArrangementView[], payment
       const p = overdue[0];
       here = { state: 'overdue', month: p.month, dueDate: p.dueDate, expectedCents: p.expectedCents, receivedCents: p.receivedCents, wording: arrangement.wording, overdueMonths: 0 };
     } else if (months.status === 'upcoming') {
-      here = { state: 'expected', month: arrangement.fromMonth, dueDate: dueDateOf(arrangement.fromMonth, arrangement.dueDay), expectedCents: amountFor(arrangement, arrangement.fromMonth), receivedCents: 0, wording: arrangement.wording, overdueMonths: 0 };
+      const first = firstExpectedMonth(arrangement);
+      here = { state: 'expected', month: first, dueDate: dueDateOf(first, arrangement.dueDay), expectedCents: amountFor(arrangement, first), receivedCents: 0, wording: arrangement.wording, overdueMonths: 0 };
     } else if (months.status === 'paused') {
       here = { state: 'paused', month: now, dueDate: null, expectedCents: 0, receivedCents: 0, wording: arrangement.wording, overdueMonths: 0 };
     } else {

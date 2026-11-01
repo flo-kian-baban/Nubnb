@@ -4,7 +4,15 @@
  * Income (dispatch 27, Kian's rulings of 2026-10-04): the one place income
  * comes in for all properties, beside Costs. One month at a time, the month
  * Airbnb paid it out; it opens on the month whose statements are being
- * written (the previous one).
+ * written (the previous one), never on one before the first statement month
+ * (Kian's rule of 2026-11-01: on 1 November 2026 it opens on November).
+ *
+ *   Before the first statement month (STATEMENTS_FROM_DEFAULT, November
+ *              2026) nothing is expected, owed, missing or overdue (Kian's
+ *              rule of 2026-11-01, CLEANER-COSTS-DESIGN.md §62.5): such a
+ *              month shows one line, "Statements start in November 2026",
+ *              and nothing else — no file or upload, no gaps, no review, no
+ *              direct payments, no properties — and reads nothing.
  *
  *   Upload     the month's Airbnb transaction CSV. The upload types are a
  *              list (income/model.ts, INCOME_CHANNELS), so another channel
@@ -70,7 +78,7 @@ import { RowMenu } from "../cleaners/RowMenu";
 import { amountField, readAmount } from "../costs/cost-display";
 import { formatCents } from "@/app/lib/cleaners/model";
 import { torontoDayOf } from "@/app/lib/costs/report";
-import { STATEMENTS_FROM_DEFAULT, STATEMENT_LIMITS, addMonths, dateText, isMonth, lastClosedMonth, monthLabel, monthName, monthOfDay, monthRange, monthsBetween } from "@/app/lib/reports/model";
+import { STATEMENTS_FROM_DEFAULT, STATEMENT_LIMITS, addMonths, beforeStatementsLine, dateText, isMonth, lastClosedMonth, monthLabel, monthName, monthOfDay, monthRange, monthsBetween, openingMonth } from "@/app/lib/reports/model";
 import { INCOME_CHANNEL_LABELS, isActiveTitle, isReadWhereStored, isSetAside, linkState, proposedLabel, shortDay, type EarningsLineView, type EarningsUploadView } from "@/app/lib/income/model";
 import { linkOf, monthView, needsDecision, owedNow, standingWords, suggestedProperty, type HeldLine, type MonthStandingView, type ReviewGroup, type TitleRow } from "@/app/lib/income/month";
 import { acceptIncomeLines, acceptMonthLines, decideIncomeLine, editIncomeLine, fetchIncomeMonth, fetchUploadFileLink, linkTitle, rejectIncomeLines, setIncomeSource, setTitleAside, uploadIncomeFile, type IncomeMonth, type IncomeResult } from "@/app/lib/income-client";
@@ -127,8 +135,10 @@ function IncomePageInner() {
   const thisMonth = monthOfDay(today);
   const [month, setMonth] = useState(() => {
     const wanted = params.get("month");
-    return isMonth(wanted) && wanted <= thisMonth ? wanted : lastClosedMonth(today);
+    return isMonth(wanted) && wanted <= thisMonth ? wanted : openingMonth(lastClosedMonth(today), thisMonth);
   });
+  /** A month before the first statement month, in its one line (Kian's rule of 2026-11-01); null for any other month. */
+  const before = beforeStatementsLine(month);
   /** The property the page was opened for (the home's and the property page's review links): brought into view once its read is in. */
   const focusRef = useRef<string | null>(params.get("property"));
   const [read, setRead] = useState<Read<IncomeMonth>>({ kind: "loading" });
@@ -147,6 +157,8 @@ function IncomePageInner() {
 
   // ── The read: on opening, on each month, on Refresh, after an upload, and when the decisions settle ──
   useEffect(() => {
+    // A month before the first statement month shows its one line and reads nothing.
+    if (beforeStatementsLine(month) !== null) return;
     let cancelled = false;
     fetchIncomeMonth(month).then((result) => {
       if (cancelled) return;
@@ -535,7 +547,7 @@ function IncomePageInner() {
   const propertyHref = (propertyId: string, tab?: string) => `/admin/property?id=${encodeURIComponent(propertyId)}&month=${month}${tab ? `&tab=${tab}` : ""}`;
   const groupOf = (propertyId: string) => view?.review.find((group) => group.propertyId === propertyId) ?? null;
 
-  const loading = read.kind === "loading";
+  const loading = before === null && read.kind === "loading";
   const gapCount = view ? view.gaps.unlinked.length + view.gaps.untitled.length + view.gaps.checkIns.length + view.gaps.missing.length : 0;
   const toReview = view ? view.review.reduce((n, g) => n + g.lines.length, 0) : 0;
   const locked = busy !== null || editing !== null;
@@ -694,26 +706,31 @@ function IncomePageInner() {
               <ChevronRight size={18} aria-hidden />
             </button>
           </div>
-          <div className={styles.barEnd}>
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".csv,text/csv"
-              className={styles.fileInput}
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                event.target.value = "";
-                if (file) void upload(file);
-              }}
-            />
-            <button type="button" className={shared.btnPrimary} onClick={() => fileRef.current?.click()} disabled={busy !== null || !data} title={`${INCOME_CHANNEL_LABELS[CHANNEL]}'s transaction report for ${monthLabel(month)}, as a CSV`}>
-              <Upload size={15} aria-hidden />
-              <span>{busy === "upload" ? "Reading…" : `Upload ${INCOME_CHANNEL_LABELS[CHANNEL]} CSV`}</span>
-            </button>
-          </div>
+          {before === null && (
+            <div className={styles.barEnd}>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".csv,text/csv"
+                className={styles.fileInput}
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = "";
+                  if (file) void upload(file);
+                }}
+              />
+              <button type="button" className={shared.btnPrimary} onClick={() => fileRef.current?.click()} disabled={busy !== null || !data} title={`${INCOME_CHANNEL_LABELS[CHANNEL]}'s transaction report for ${monthLabel(month)}, as a CSV`}>
+                <Upload size={15} aria-hidden />
+                <span>{busy === "upload" ? "Reading…" : `Upload ${INCOME_CHANNEL_LABELS[CHANNEL]} CSV`}</span>
+              </button>
+            </div>
+          )}
         </div>
 
-        {read.kind === "loading" ? (
+        {before !== null ? (
+          /* Before the first statement month: this one line and nothing else (Kian's rule of 2026-11-01). */
+          <p className={styles.empty}>{before}</p>
+        ) : read.kind === "loading" ? (
           <div className={shared.loading}>
             <div className={shared.spinner} />
             <p>Loading {monthLabel(month)}…</p>

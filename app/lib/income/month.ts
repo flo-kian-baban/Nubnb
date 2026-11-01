@@ -71,7 +71,9 @@ export interface MonthInputs {
   statements: { propertyId: string; finished: boolean; lines: Line[]; sent?: Line[] | null }[];
   /**
    * The stored calendar copies: check-ins in the month, and (K2) how many reserved stays running into the month each
-   * property's copies hold. Absent `stays`: not read, so no property is listed as untitled.
+   * property's copies hold, counting only stays that begin on or after the first statement month's first day (a stay
+   * before November 2026 never counts as a gap, Kian's rule of 2026-11-01). Absent `stays`: not read, so no property
+   * is listed as untitled.
    */
   calendar: { checkIns: { propertyId: string; days: string[] }[]; stays?: { propertyId: string; count: number }[] };
   /** Properties that owe no statement for the month, and why (I5): excluded from reporting, or outside their record's months. */

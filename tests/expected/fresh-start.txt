@@ -62,5 +62,89 @@
     TESTPROPfresh0000004: It is excluded from reporting: no statement is asked for.
    ok   in October, all four owe no statement: no record, a record from 2026-09, one from 2026-12, one excluded
    ok   in November, only the record from 2026-12 and the excluded property owe none
+═══ 7. A month before the first statement month: one line, on the Income page and the Costs Month tab ═══
+  2026-08 → "Statements start in November 2026"
+  2026-09 → "Statements start in November 2026"
+  2026-10 → "Statements start in November 2026"
+  2026-11 → null
+  2026-12 → null
+  2027-01 → null
+   ok   August, September and October 2026 each show the one line "Statements start in November 2026"
+   ok   November 2026 on shows its month as before
+═══ 8. Direct arrangements: expected from the later of the start and November 2026 ═══
+  from 2026-10, due the 28th (as the kept one): expects from 2026-11 on, within its span and outside its pauses
+    2026-10-31 · running · nothing expected · standing none
+    2026-11-01 · running · 2026-11 expected · standing expected 2026-11 due 2026-11-28, 0 overdue
+    2026-11-28 · running · 2026-11 expected · standing expected 2026-11 due 2026-11-28, 0 overdue
+    2026-11-29 · running · 2026-11 overdue · standing overdue 2026-11 due 2026-11-28, 1 overdue
+    2026-12-01 · running · 2026-11 overdue, 2026-12 expected · standing overdue 2026-11 due 2026-11-28, 1 overdue
+  from 2026-12: expects from 2026-12 on, within its span and outside its pauses
+    2026-10-31 · upcoming · nothing expected · standing expected 2026-12 due 2026-12-28, 0 overdue
+    2026-11-01 · upcoming · nothing expected · standing expected 2026-12 due 2026-12-28, 0 overdue
+    2026-11-28 · upcoming · nothing expected · standing expected 2026-12 due 2026-12-28, 0 overdue
+    2026-11-29 · upcoming · nothing expected · standing expected 2026-12 due 2026-12-28, 0 overdue
+    2026-12-01 · running · 2026-12 expected · standing expected 2026-12 due 2026-12-28, 0 overdue
+  from 2026-09, ended 2026-10: expects from 2026-11 on, within its span and outside its pauses
+    2026-10-31 · running · nothing expected · standing none
+    2026-11-01 · ended · nothing expected · standing none
+    2026-11-28 · ended · nothing expected · standing none
+    2026-11-29 · ended · nothing expected · standing none
+    2026-12-01 · ended · nothing expected · standing none
+  from 2026-08, paused October to November: expects from 2026-11 on, within its span and outside its pauses
+    2026-10-31 · paused · nothing expected · standing paused 2026-10, 0 overdue
+    2026-11-01 · paused · nothing expected · standing paused 2026-11, 0 overdue
+    2026-11-28 · paused · nothing expected · standing paused 2026-11, 0 overdue
+    2026-11-29 · paused · nothing expected · standing paused 2026-11, 0 overdue
+    2026-12-01 · running · 2026-12 expected · standing expected 2026-12 due 2026-12-28, 0 overdue
+   ok   an arrangement from October 2026 expects nothing for October, and expects November
+   ok   on 31 October 2026 it expects nothing and has no standing: October is not overdue
+   ok   on 1 November 2026 it is Expected for November, due the 28th, nothing overdue
+   ok   November is overdue from the 29th, one month only
+   ok   an arrangement from December 2026 expects December, as before
+   ok   an arrangement that ended in October 2026 never owed anything
+   ok   an arrangement from August paused October to November expects December first
+  a payment received 2026-10-28, no months set → pays {"parts":[{"month":"2026-11","cents":280000}],"creditCents":0} · November paid
+   ok   a payment received before November, its months not set, pays November, the oldest month expected
+   ok   Finish's check lists nothing unpaid for October, and November's overdue payment
+  the home on 2026-10-31: Income cell (no direct standing) · under Direct overdue false · Next step "Up to date"
+  the home on 2026-11-01: Income cell "Expected Nov 28" · under Direct overdue false · Next step "Up to date"
+  the home on 2026-11-29: Income cell "Overdue" · under Direct overdue true · Next step "Record direct payment"
+   ok   on 31 October and 1 November the row is not under Direct overdue and has no Record direct payment step
+   ok   on 1 November its Income cell reads "Expected Nov 28"
+   ok   from 29 November, unpaid, the row is under Direct overdue with Record direct payment
+═══ 9. The month the Income page and the Costs Month tab open on ═══
+  2026-10-31 → Income 2026-10 · Month tab 2026-10
+  2026-11-01 → Income 2026-11 · Month tab 2026-11
+  2026-11-30 → Income 2026-11 · Month tab 2026-11
+  2026-12-01 → Income 2026-11 · Month tab 2026-11
+  2027-01-05 → Income 2026-12 · Month tab 2026-12
+   ok   in November 2026 both open on November 2026, not October
+   ok   from December on, both open on the month before today's, as before
+   ok   from 1 November 2026 neither opens before the first statement month
+═══ 10. The Income page's calendar gaps: stays before November never count ═══
+  the calendar copy of 2026-11-01 holds two stays for an untitled property: 2026-10-28 → 2026-11-03 and 2026-11-05 → 2026-11-08
+  2026-10: stays counted 0 · check-ins [] · untitled gap []
+  2026-11: stays counted 1 · check-ins ["2026-11-05"] · untitled gap [1]
+   ok   October: the stay from 28 October counts nowhere, as a stay or a check-in
+   ok   November: only the stay from 5 November counts; the one that began on 28 October does not
+═══ 11. The home's Income column: on and after 1 November it describes November, never October ═══
+  31 Oct 2026, 12:00 EDT  → the column's month 2026-10 · a titled property "No file yet" (October 2026: Airbnb's file has not been uploaded) · an untitled one "No Airbnb title", month null
+  1 Nov 2026, 00:30 EDT   → the column's month 2026-11 · a titled property "No file yet" (November 2026: Airbnb's file has not been uploaded) · an untitled one "No Airbnb title", month null
+  1 Nov 2026, 11:00 EST   → the column's month 2026-11 · a titled property "No file yet" (November 2026: Airbnb's file has not been uploaded) · an untitled one "No Airbnb title", month null
+  30 Nov 2026, 23:30 EST  → the column's month 2026-11 · a titled property "No file yet" (November 2026: Airbnb's file has not been uploaded) · an untitled one "No Airbnb title", month null
+  1 Dec 2026, 09:00 EST   → the column's month 2026-11 · a titled property "No file yet" (November 2026: Airbnb's file has not been uploaded) · an untitled one "No Airbnb title", month null
+  5 Jan 2027, 09:00 EST   → the column's month 2026-12 · a titled property "No file yet" (December 2026: Airbnb's file has not been uploaded) · an untitled one "No Airbnb title", month null
+   ok   from 00:30 on 1 November the column never describes a month before November
+   ok   on 1 November it describes November: "No file yet" is about November, not October
+   ok   from December, the month before today's, as before
+═══ 12. Recording a payment dated before November 2026 ═══
+  receivedDayProblem(2026-10-28, today 2026-11-20) → "Statements start in November 2026"
+  receivedDayProblem(2026-10-31, today 2026-11-20) → "Statements start in November 2026"
+  receivedDayProblem(2026-11-01, today 2026-11-20) → null
+  receivedDayProblem(2026-11-20, today 2026-11-20) → null
+   ok   a day received before November 2026 is refused with "Statements start in November 2026"; 1 November is not
+   ok   the 12-month limit holds as before once a year has passed since November 2026
+  recordDirectPayment(a parking payment received 2026-10-28, on 2026-11-20) → {"kind":"refused","problem":"Statements start in November 2026"} · reads it made 0 · direct payments stored after 0
+   ok   refused before any read, and nothing is written
 
 all checks passed

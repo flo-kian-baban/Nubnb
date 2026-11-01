@@ -3,8 +3,9 @@
  * each property's income for the month due stands, in one badge. Pure and client-safe.
  *
  * The month is the last closed one, the month the Statement column names: a platform's file for a month exists only
- * after it ends. What is waiting for review and what is missing from the month's file are the Income page's own
- * (`monthView`), so the column and the Income page cannot disagree.
+ * after it ends. It is never one before the first statement month (Kian's rule of 2026-11-01): on and after 1 November
+ * 2026 the column describes November, never October. What is waiting for review and what is missing from the month's
+ * file are the Income page's own (`monthView`), so the column and the Income page cannot disagree.
  *
  * Direct payments (part B, Kian's rulings of 2026-10-15) add their own states, from the arrangements' months
  * (app/lib/direct/periods.ts, `directStanding`): Overdue in red, Partly paid in amber, Paid in green, Expected and

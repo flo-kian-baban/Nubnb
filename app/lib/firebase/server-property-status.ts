@@ -18,7 +18,7 @@ import { EARNINGS_LINES_COLLECTION, EARNINGS_TITLE_LINKS_COLLECTION, EARNINGS_UP
 import { incomeReadOf, type IncomeRead } from '@/app/lib/income/standing';
 import { DIRECT_ARRANGEMENTS_COLLECTION, DIRECT_PAYMENTS_COLLECTION, readArrangement, readDirectPayment, type ArrangementView, type DirectPaymentView } from '@/app/lib/direct/model';
 import { directStanding, type DirectStanding } from '@/app/lib/direct/periods';
-import { lastClosedMonth } from '@/app/lib/reports/model';
+import { lastClosedMonth, monthOfDay, openingMonth } from '@/app/lib/reports/model';
 import { CLEANING_JOBS_COLLECTION, readJob, type StoredJob } from '@/app/lib/schedule/model';
 import { COLUMN_DAYS_AHEAD, COLUMN_DAYS_BACK, homeJobOf, type HomeJob } from '@/app/lib/schedule/standing';
 import { readCurrent } from '@/app/lib/availability/store';
@@ -55,7 +55,9 @@ export interface PropertyStatusRead {
 export async function readPropertyStatus(now: Date = new Date()): Promise<PropertyStatusRead> {
   const db = getAdminDb();
   const today = torontoDay(now);
-  const month = lastClosedMonth(today);
+  // The month the Income column describes: the last closed one, never one before the first statement month (Kian's
+  // rule of 2026-11-01): on and after 1 November 2026 it describes November, never October.
+  const month = openingMonth(lastClosedMonth(today), monthOfDay(today));
   const from = addDays(today, -COLUMN_DAYS_BACK);
   const to = addDays(today, COLUMN_DAYS_AHEAD);
   const [uploadsSnap, linesSnap, linksSnap, jobsSnap, arrangementsSnap, paymentsSnap, snapshot] = await Promise.all([

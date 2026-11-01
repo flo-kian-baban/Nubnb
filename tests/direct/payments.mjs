@@ -43,8 +43,8 @@ const at = (day) => `${day}T16:00:00.000Z`;
 function arrangement(extra = {}) {
   const a = {
     schemaVersion: 1, propertyId: P, propertyNameAtStart: 'Test Lakeview Suite', payerName: 'Test Payer', wording: 'Monthly stay', dueDay: 20,
-    fromMonth: '2026-10', untilMonth: null, amounts: [{ from: '2026-10', cents: 120_000 }], pauses: [], createdAt: at('2026-10-01'), createdBy: ADMIN,
-    history: [{ at: at('2026-10-01'), action: 'started', actor: ADMIN, month: '2026-10', cents: 120_000 }], ...extra,
+    fromMonth: '2026-11', untilMonth: null, amounts: [{ from: '2026-11', cents: 120_000 }], pauses: [], createdAt: at('2026-11-01'), createdBy: ADMIN,
+    history: [{ at: at('2026-11-01'), action: 'started', actor: ADMIN, month: '2026-11', cents: 120_000 }], ...extra,
   };
   const read = dm.readArrangement('TESTARRANGE000000001', a);
   if (!read) throw new Error('arrangement not in shape');
@@ -65,36 +65,36 @@ const show = (months) =>
   months.periods.map((p) => `${p.month} ${pr.PERIOD_STATE_LABELS[p.state]} ${$(p.receivedCents)}/${$(p.expectedCents)}`).join(' · ') + ` · credit ${$(months.creditCents)}${months.nextMonth ? ` for ${months.nextMonth}` : ''} · ${months.status}`;
 
 // ═══ 1. An arrangement's months ═══
-console.log("═══ 1. An arrangement's months: $1,200.00 a month from October, due the 20th; today 2026-12-15 ═══");
+console.log("═══ 1. An arrangement's months: $1,200.00 a month from November, due the 20th; today 2027-01-15 ═══");
 const A = arrangement();
-const p1 = payment('2026-11-05', 120_000);
-const p2 = payment('2026-11-25', 60_000, { method: 'e-transfer' });
-const p3 = payment('2026-12-03', 100_000);
-const p4 = payment('2026-12-10', 100_000, { method: 'cheque' });
-const TODAY = '2026-12-15';
+const p1 = payment('2026-12-05', 120_000);
+const p2 = payment('2026-12-25', 60_000, { method: 'e-transfer' });
+const p3 = payment('2027-01-03', 100_000);
+const p4 = payment('2027-01-10', 100_000, { method: 'cheque' });
+const TODAY = '2027-01-15';
 const steps = [
   ['nothing received', []],
-  ['Nov 5 · $1,200.00 cash', [p1]],
-  ['Nov 25 · $600.00 e-transfer', [p1, p2]],
-  ['Dec 3 · $1,000.00 cash', [p1, p2, p3]],
-  ['Dec 10 · $1,000.00 cheque', [p1, p2, p3, p4]],
+  ['Dec 5 · $1,200.00 cash', [p1]],
+  ['Dec 25 · $600.00 e-transfer', [p1, p2]],
+  ['Jan 3 · $1,000.00 cash', [p1, p2, p3]],
+  ['Jan 10 · $1,000.00 cheque', [p1, p2, p3, p4]],
 ];
 for (const [label, list] of steps) console.log(`  ${label.padEnd(30)} ${show(pr.arrangementMonths(A, list, TODAY))}`);
 const after4 = pr.arrangementMonths(A, [p1, p2, p3, p4], TODAY);
 check(after4.periods.map((p) => p.state).join(',') === 'paid,paid,paid', 'all three months paid after the fourth payment');
-check(after4.creditCents === 20_000 && after4.nextMonth === '2027-01', 'the overpayment of $200.00 waits for January');
-check(pr.arrangementMonths(A, [p1], TODAY).periods[0].paidBy[0].paymentId === p1.id, "Nov 5's payment pays October first: the oldest unpaid month");
+check(after4.creditCents === 20_000 && after4.nextMonth === '2027-02', 'the overpayment of $200.00 waits for February');
+check(pr.arrangementMonths(A, [p1], TODAY).periods[0].paidBy[0].paymentId === p1.id, "Dec 5's payment pays November first: the oldest unpaid month");
 const after3 = pr.arrangementMonths(A, [p1, p2, p3], TODAY);
-check(after3.periods[2].state === 'partly' && after3.periods[1].state === 'paid', 'December partly paid before its due day; November paid by the oldest-first rule');
-check(pr.arrangementMonths(A, [p1, p2], TODAY).periods[1].state === 'overdue', 'November with $600.00 of $1,200.00 after its due day is overdue');
-check(pr.arrangementMonths(A, [p1, p2], '2026-11-20').periods[1].state === 'partly', 'on its due day itself it is still partly paid: overdue from the day after');
+check(after3.periods[2].state === 'partly' && after3.periods[1].state === 'paid', 'January partly paid before its due day; December paid by the oldest-first rule');
+check(pr.arrangementMonths(A, [p1, p2], TODAY).periods[1].state === 'overdue', 'December with $600.00 of $1,200.00 after its due day is overdue');
+check(pr.arrangementMonths(A, [p1, p2], '2026-12-20').periods[1].state === 'partly', 'on its due day itself it is still partly paid: overdue from the day after');
 console.log(`  how the fourth payment was applied: ${dm.appliesToWords(after4.applied.get(p4.id).parts)} · credit ${$(after4.applied.get(p4.id).creditCents)}`);
 // The months set by hand (changeable)
-const pHand = payment('2026-12-12', 100_000, { appliesTo: [{ month: '2026-12', cents: 50_000 }, { month: '2027-01', cents: 50_000 }] });
+const pHand = payment('2027-01-12', 100_000, { appliesTo: [{ month: '2027-01', cents: 50_000 }, { month: '2027-02', cents: 50_000 }] });
 const hand = pr.arrangementMonths(A, [p1, pHand], TODAY);
-console.log(`  set by hand, Dec $500.00 + Jan $500.00:  ${show(hand)}`);
-check(hand.periods.find((p) => p.month === '2026-12').receivedCents === 50_000 && hand.creditCents === 50_000, "a month set by hand is paid as set; January's part waits as credit until January is expected");
-check(hand.periods.find((p) => p.month === '2026-11').receivedCents === 0, 'a payment set by hand pays no other month');
+console.log(`  set by hand, Jan $500.00 + Feb $500.00:  ${show(hand)}`);
+check(hand.periods.find((p) => p.month === '2027-01').receivedCents === 50_000 && hand.creditCents === 50_000, "a month set by hand is paid as set; February's part waits as credit until February is expected");
+check(hand.periods.find((p) => p.month === '2026-12').receivedCents === 0, 'a payment set by hand pays no other month');
 
 // ═══ 2. Its changes, each a step in its history with its admin ═══
 console.log("\n═══ 2. Changes: pause, resume, change the amount, end ═══");
@@ -109,19 +109,19 @@ const step = (a, change, actor, label) => {
   console.log(`  ${label}: ${last.action} ${last.month}${last.cents ? ` ${$(last.cents)}` : ''} by ${last.actor.name} · pauses ${JSON.stringify(next.pauses)} · amounts ${next.amounts.map((x) => `${x.from} ${$(x.cents)}`).join(', ')} · until ${next.untilMonth}`);
   return next;
 };
-const B0 = arrangement({ fromMonth: '2026-12', amounts: [{ from: '2026-12', cents: 90_000 }], dueDay: 25, history: [{ at: at(TODAY), action: 'started', actor: ADMIN, month: '2026-12', cents: 90_000 }] });
+const B0 = arrangement({ fromMonth: '2027-01', amounts: [{ from: '2027-01', cents: 90_000 }], dueDay: 25, history: [{ at: at(TODAY), action: 'started', actor: ADMIN, month: '2027-01', cents: 90_000 }] });
 console.log(`  started: ${show(pr.arrangementMonths(B0, [], TODAY))}`);
-const B1 = step(B0, { action: 'pause', month: '2026-12' }, ADMIN, 'pause from December');
-check(pr.arrangementMonths(B1, [], TODAY).status === 'paused' && pr.arrangementMonths(B1, [], TODAY).periods.length === 0, 'paused from December: nothing expected, status paused');
-step(B1, { action: 'pause', month: '2027-01' }, ADMIN, 'pause again');
-step(B1, { action: 'resume', month: '2026-12' }, ADMIN, 'resume from the month it paused');
-const B2 = step(B1, { action: 'resume', month: '2027-01' }, SECOND, 'resume from January');
-const B3 = step(B2, { action: 'amount', month: '2027-02', cents: 95_000 }, SECOND, 'amount from February');
-step(B3, { action: 'amount', month: '2027-01', cents: 92_000 }, ADMIN, 'amount from January (before the last change)');
-step(B3, { action: 'amount', month: '2027-03', cents: 95_000 }, ADMIN, 'the same amount again');
-const B4 = step(B3, { action: 'end', month: '2027-04' }, ADMIN, 'end with April');
-step(B4, { action: 'end', month: '2027-05' }, ADMIN, 'end twice');
-step(B4, { action: 'pause', month: '2028-05' }, ADMIN, 'a month more than 12 away');
+const B1 = step(B0, { action: 'pause', month: '2027-01' }, ADMIN, 'pause from January');
+check(pr.arrangementMonths(B1, [], TODAY).status === 'paused' && pr.arrangementMonths(B1, [], TODAY).periods.length === 0, 'paused from January: nothing expected, status paused');
+step(B1, { action: 'pause', month: '2027-02' }, ADMIN, 'pause again');
+step(B1, { action: 'resume', month: '2027-01' }, ADMIN, 'resume from the month it paused');
+const B2 = step(B1, { action: 'resume', month: '2027-02' }, SECOND, 'resume from February');
+const B3 = step(B2, { action: 'amount', month: '2027-03', cents: 95_000 }, SECOND, 'amount from March');
+step(B3, { action: 'amount', month: '2027-02', cents: 92_000 }, ADMIN, 'amount from February (before the last change)');
+step(B3, { action: 'amount', month: '2027-04', cents: 95_000 }, ADMIN, 'the same amount again');
+const B4 = step(B3, { action: 'end', month: '2027-05' }, ADMIN, 'end with May');
+step(B4, { action: 'end', month: '2027-06' }, ADMIN, 'end twice');
+step(B4, { action: 'pause', month: '2028-06' }, ADMIN, 'a month more than 12 away');
 // A monthly stay of at least 30 nights (Kian's rulings: the short-stay threshold is 30 nights)
 const Feb = arrangement({ fromMonth: '2027-02', amounts: [{ from: '2027-02', cents: 90_000 }], history: [{ at: at(TODAY), action: 'started', actor: ADMIN, month: '2027-02', cents: 90_000 }] });
 step(Feb, { action: 'end', month: '2027-02' }, ADMIN, 'February 2027 alone (28 nights)');
@@ -129,13 +129,13 @@ const Sep1 = arrangement({ fromMonth: '2026-11', amounts: [{ from: '2026-11', ce
 step(Sep1, { action: 'end', month: '2026-11' }, ADMIN, 'November 2026 alone (30 nights)');
 check('problem' in ch.changedArrangement(Feb, { action: 'end', month: '2027-02' }, ADMIN, at(TODAY), TODAY) && !('problem' in ch.changedArrangement(Sep1, { action: 'end', month: '2026-11' }, ADMIN, at(TODAY), TODAY)), 'ended within one month: 28 nights refused, 30 accepted');
 check(B4.history.map((h) => `${h.action}:${h.actor.name}`).join(',') === 'started:Test Admin,paused:Test Admin,resumed:Second Admin,amount-changed:Second Admin,ended:Test Admin', 'the history keeps every step and who took it');
-check(pr.amountFor(B4, '2027-01') === 90_000 && pr.amountFor(B4, '2027-02') === 95_000, 'earlier months keep their amount; February on is $950.00');
-check(pr.arrangementMonths(B4, [], '2027-08-01').periods.map((p) => p.month).join(',') === '2027-01,2027-02,2027-03,2027-04', 'months expected: January to April, December paused, nothing after the end');
-check(pr.arrangementMonths(B4, [], '2027-08-01').status === 'ended', 'after April it is ended');
+check(pr.amountFor(B4, '2027-02') === 90_000 && pr.amountFor(B4, '2027-03') === 95_000, 'earlier months keep their amount; March on is $950.00');
+check(pr.arrangementMonths(B4, [], '2027-09-01').periods.map((p) => p.month).join(',') === '2027-02,2027-03,2027-04,2027-05', 'months expected: February to May, January paused, nothing after the end');
+check(pr.arrangementMonths(B4, [], '2027-09-01').status === 'ended', 'after May it is ended');
 
 // ═══ 3. On the owner's statement ═══
 console.log("\n═══ 3. The owner's statement: Kian's wording, the month received, the next open statement ═══");
-const record = { id: P, schemaVersion: 3, propertyId: P, reportFor: { name: 'Test Owner', address: '' }, owners: [], statementsFrom: '2026-10', statementsUntil: null, defaultFeeRateBasisPoints: null, defaultFee: null, setAt: at('2026-10-01') };
+const record = { id: P, schemaVersion: 3, propertyId: P, reportFor: { name: 'Test Owner', address: '' }, owners: [], statementsFrom: '2026-11', statementsUntil: null, defaultFeeRateBasisPoints: null, defaultFee: null, setAt: at('2026-11-01') };
 const draftOf = (month, extra = {}) => ({ reference: `${model.monthReferenceWord(month)}-DIR`, reportDate: model.monthRange(model.addMonths(month, 1)).from, lines: [], fee: null, carried: null, notes: null, supersedes: null, ...extra });
 function freeze(lines, reports, draft, month, finishedAt) {
   const built = st.buildStatement({ propertyId: P, propertyName: 'Test Lakeview Suite', month, entries: [], reports, draft, management: record, platformLines: lines });
@@ -151,50 +151,50 @@ function freeze(lines, reports, draft, month, finishedAt) {
   return { report: model.readMonthlyReport(id, report), statement: s, claim: built.claim };
 }
 const lines = dm.directLinesOf([p1, p2, p3, p4]);
-const novBuilt = st.buildStatement({ propertyId: P, propertyName: 'Test Lakeview Suite', month: '2026-11', entries: [], reports: [], draft: draftOf('2026-11'), management: record, platformLines: lines });
-console.log(`  November, as it stands: ${novBuilt.statement.lines.map((l) => `${l.description} ${$(l.amountCents)} (source ${l.source})`).join(' · ')}`);
-check(novBuilt.statement.lines.map((l) => l.description).join(' | ') === 'E-transfer - Monthly stay - received Nov 25 | Cash - Monthly stay - received Nov 5', "November prints its two payments in Kian's words, newest first");
-check(JSON.stringify(novBuilt.claim.platform.map((c) => c.seen)) === '[1,1]', "Finish's claim holds each payment and its history's length");
-const nov = freeze(lines, [], draftOf('2026-11'), '2026-11', at('2026-12-05'));
-const novPdf = pdfStrings(statementPdf(nov.statement)).filter((t) => /received|Test Payer|Monthly stay/.test(t));
-console.log(`  November's PDF prints: ${novPdf.map((t) => JSON.stringify(t)).join(' · ')}`);
-check(novPdf.length === 2 && !novPdf.some((t) => t.includes('Test Payer')), 'the PDF prints both payments and never the payer');
-check(nov.report.lines.every((l) => l.source === 'direct' && dm.DIRECT_PAYMENT_ID.test(l.platformLineId)), 'the finished statement keeps each line with its payment');
-// A November payment recorded after November was finished
-const late = payment('2026-11-28', 30_000);
+const decBuilt = st.buildStatement({ propertyId: P, propertyName: 'Test Lakeview Suite', month: '2026-12', entries: [], reports: [], draft: draftOf('2026-12'), management: record, platformLines: lines });
+console.log(`  December, as it stands: ${decBuilt.statement.lines.map((l) => `${l.description} ${$(l.amountCents)} (source ${l.source})`).join(' · ')}`);
+check(decBuilt.statement.lines.map((l) => l.description).join(' | ') === 'E-transfer - Monthly stay - received Dec 25 | Cash - Monthly stay - received Dec 5', "December prints its two payments in Kian's words, newest first");
+check(JSON.stringify(decBuilt.claim.platform.map((c) => c.seen)) === '[1,1]', "Finish's claim holds each payment and its history's length");
+const dec = freeze(lines, [], draftOf('2026-12'), '2026-12', at('2027-01-05'));
+const decPdf = pdfStrings(statementPdf(dec.statement)).filter((t) => /received|Test Payer|Monthly stay/.test(t));
+console.log(`  December's PDF prints: ${decPdf.map((t) => JSON.stringify(t)).join(' · ')}`);
+check(decPdf.length === 2 && !decPdf.some((t) => t.includes('Test Payer')), 'the PDF prints both payments and never the payer');
+check(dec.report.lines.every((l) => l.source === 'direct' && dm.DIRECT_PAYMENT_ID.test(l.platformLineId)), 'the finished statement keeps each line with its payment');
+// A December payment recorded after December was finished
+const late = payment('2026-12-28', 30_000);
 const lines2 = dm.directLinesOf([p1, p2, p3, p4, late]);
-const decBuilt = st.buildStatement({ propertyId: P, propertyName: 'Test Lakeview Suite', month: '2026-12', entries: [], reports: [nov.report], draft: draftOf('2026-12'), management: record, platformLines: lines2 });
-console.log(`  December, after November was finished: ${decBuilt.statement.lines.map((l) => l.description).join(' · ')}`);
-check(decBuilt.statement.lines.some((l) => l.description === 'Cash - Monthly stay - received Nov 28'), "the late November payment is on December's statement, its day printed once, no \"(paid …)\"");
-check(!nov.report.lines.some((l) => l.platformLineId === late.id), "November's finished statement is not touched");
+const janBuilt = st.buildStatement({ propertyId: P, propertyName: 'Test Lakeview Suite', month: '2027-01', entries: [], reports: [dec.report], draft: draftOf('2027-01'), management: record, platformLines: lines2 });
+console.log(`  January, after December was finished: ${janBuilt.statement.lines.map((l) => l.description).join(' · ')}`);
+check(janBuilt.statement.lines.some((l) => l.description === 'Cash - Monthly stay - received Dec 28'), "the late December payment is on January's statement, its day printed once, no \"(paid …)\"");
+check(!dec.report.lines.some((l) => l.platformLineId === late.id), "December's finished statement is not touched");
 // The lock
-const printed = st.printedPlatformLines(model.currentReports([nov.report]));
-check(printed.has(p1.id) && printed.has(p2.id) && !printed.has(late.id), 'Nov 5 and Nov 25 are printed on a finished statement (locked); Nov 28 is not');
+const printed = st.printedPlatformLines(model.currentReports([dec.report]));
+check(printed.has(p1.id) && printed.has(p2.id) && !printed.has(late.id), 'Dec 5 and Dec 25 are printed on a finished statement (locked); Dec 28 is not');
 const lateRemoved = dm.readDirectPayment(late.id, { ...late, status: 'removed', removedAt: at(TODAY), removedBy: SECOND, history: [...late.history, { at: at(TODAY), action: 'removed', actor: SECOND, appliesTo: null }] });
-const decAfter = st.buildStatement({ propertyId: P, propertyName: 'Test Lakeview Suite', month: '2026-12', entries: [], reports: [nov.report], draft: draftOf('2026-12'), management: record, platformLines: dm.directLinesOf([p1, p2, p3, p4, lateRemoved]) });
-check(!decAfter.statement.lines.some((l) => l.platformLineId === late.id) && decAfter.statement.incomeCents === decBuilt.statement.incomeCents - 30_000, 'a removed payment leaves the statement and its totals');
+const janAfter = st.buildStatement({ propertyId: P, propertyName: 'Test Lakeview Suite', month: '2027-01', entries: [], reports: [dec.report], draft: draftOf('2027-01'), management: record, platformLines: dm.directLinesOf([p1, p2, p3, p4, lateRemoved]) });
+check(!janAfter.statement.lines.some((l) => l.platformLineId === late.id) && janAfter.statement.incomeCents === janBuilt.statement.incomeCents - 30_000, 'a removed payment leaves the statement and its totals');
 check(dm.directLineOf(lateRemoved) === null && lateRemoved.status === 'removed', 'removed, it is kept: read back whole, marked');
 // Owed months (M2)
 console.log(`  owed months: ${JSON.stringify([...st.moneyMonthsByProperty([], [], lines2)])}`);
 
 // ═══ 4. The figures beside the fee's base, and Finish ═══
 console.log("\n═══ 4. The revenue beside the fee's base, its check, and Finish's warning ═══");
-const decFig = money.figuresOf(decBuilt.statement, new Set());
-console.log(`  December's figures: revenue ${$(decFig.revenueCents)} · direct ${$(decFig.directCents)} · Airbnb ${$(decFig.airbnbCents)} · typed ${$(decFig.typedRevenueCents)}`);
-check(decFig.directCents === 230_000 && decFig.revenueCents === 230_000, 'direct income is revenue, named apart from Airbnb');
+const janFig = money.figuresOf(janBuilt.statement, new Set());
+console.log(`  January's figures: revenue ${$(janFig.revenueCents)} · direct ${$(janFig.directCents)} · Airbnb ${$(janFig.airbnbCents)} · typed ${$(janFig.typedRevenueCents)}`);
+check(janFig.directCents === 230_000 && janFig.revenueCents === 230_000, 'direct income is revenue, named apart from Airbnb');
 const fee = st.feeFrom('NuBNB 20% Net of $1,000.00', 2000, 100_000, null);
-const withFee = st.buildStatement({ propertyId: P, propertyName: 'Test Lakeview Suite', month: '2026-12', entries: [], reports: [nov.report], draft: draftOf('2026-12', { fee: { ...fee, baseRevenueCents: 100_000 } }), management: record, platformLines: lines2 });
-const checks = finishChecks({ statement: withFee.statement, reports: [nov.report], entries: [], income: { waiting: 0, unlinked: [], checkouts: 0 }, today: TODAY, revenueCents: money.figuresOf(withFee.statement, new Set()).revenueCents, direct: pr.unpaidInMonth([A], [p1, p2, p3], '2026-12', TODAY) });
+const withFee = st.buildStatement({ propertyId: P, propertyName: 'Test Lakeview Suite', month: '2027-01', entries: [], reports: [dec.report], draft: draftOf('2027-01', { fee: { ...fee, baseRevenueCents: 100_000 } }), management: record, platformLines: lines2 });
+const checks = finishChecks({ statement: withFee.statement, reports: [dec.report], entries: [], income: { waiting: 0, unlinked: [], checkouts: 0 }, today: TODAY, revenueCents: money.figuresOf(withFee.statement, new Set()).revenueCents, direct: pr.unpaidInMonth([A], [p1, p2, p3], '2027-01', TODAY) });
 for (const w of checks.warnings) console.log(`    warns: ${w.text}`);
 check(checks.warnings.some((w) => w.key === 'fee-base' && w.text.includes('$1,000.00') && w.text.includes('$2,300.00')), "the base check counts direct income: typed at $1,000.00 of revenue, now $2,300.00");
-check(checks.warnings.some((w) => w.key === 'direct-0' && w.text.includes('$400.00 of $1,200.00')), "Finish warns: December's expected $1,200.00 has $400.00 received");
-check(pr.unpaidInMonth([A], [p1, p2, p3, p4], '2026-12', TODAY).length === 0, 'once December is paid, no warning');
+check(checks.warnings.some((w) => w.key === 'direct-0' && w.text.includes('$400.00 of $1,200.00')), "Finish warns: January's expected $1,200.00 has $400.00 received");
+check(pr.unpaidInMonth([A], [p1, p2, p3, p4], '2027-01', TODAY).length === 0, 'once January is paid, no warning');
 
 // ═══ 5. The property list's Income column ═══
 console.log("\n═══ 5. The Income column's direct states ═══");
 const col = (arrs, pays, today) => {
   const d = pr.directStanding(arrs, pays, today);
-  const read = { month: '2026-11', uploaded: true, properties: {}, direct: d ? { [P]: d } : {} };
+  const read = { month: '2026-12', uploaded: true, properties: {}, direct: d ? { [P]: d } : {} };
   const s = income.incomeStanding(read, P);
   return `${s.key} · "${s.label}" · ${s.tone} · ${s.month ?? '-'} · ${s.title}`;
 };
@@ -210,19 +210,19 @@ for (const [key, arrs, pays, today] of cases) {
   console.log(`  ${line}`);
   check(line.startsWith(`direct-${key}`), `direct-${key}`);
 }
-const both = income.incomeStanding({ month: '2026-11', uploaded: true, properties: { [P]: { activeTitle: true, review: 0, undecided: 0, missing: false, accepted: 2, acceptedCents: 50_000 } }, direct: { [P]: pr.directStanding([B0], [], TODAY) } }, P);
+const both = income.incomeStanding({ month: '2026-12', uploaded: true, properties: { [P]: { activeTitle: true, review: 0, undecided: 0, missing: false, accepted: 2, acceptedCents: 50_000 } }, direct: { [P]: pr.directStanding([B0], [], TODAY) } }, P);
 console.log(`  Airbnb Received beside direct Expected: ${both.key} · "${both.label}" · ${both.title}`);
 check(both.key === 'received', 'green outranks plain: Airbnb Received shows, the tooltip names both');
-const both2 = income.incomeStanding({ month: '2026-11', uploaded: true, properties: { [P]: { activeTitle: true, review: 0, undecided: 0, missing: false, accepted: 2, acceptedCents: 50_000 } }, direct: { [P]: pr.directStanding([A], [], TODAY) } }, P);
+const both2 = income.incomeStanding({ month: '2026-12', uploaded: true, properties: { [P]: { activeTitle: true, review: 0, undecided: 0, missing: false, accepted: 2, acceptedCents: 50_000 } }, direct: { [P]: pr.directStanding([A], [], TODAY) } }, P);
 check(both2.key === 'direct-overdue' && both2.tone === 'problem', 'red outranks green: Overdue shows');
 
 // ═══ 6. Readers and route schemas ═══
 console.log("\n═══ 6. Readers and route schemas ═══");
-check(model.readLine({ id: 'x', description: 'Cash - Monthly stay - received Dec 3', from: null, to: null, quantity: 1, rateCents: 100, amountCents: 100, source: 'direct' }) === null, 'a direct line without its payment is not a line');
+check(model.readLine({ id: 'x', description: 'Cash - Monthly stay - received Jan 3', from: null, to: null, quantity: 1, rateCents: 100, amountCents: 100, source: 'direct' }) === null, 'a direct line without its payment is not a line');
 check(dm.readDirectPayment(hex(), { ...p1, purpose: 'long-stay' }) === null, "an arrangement's payment is a monthly stay, never a one-off's purpose");
-check(dm.readDirectPayment(hex(), { ...p1, appliesTo: [{ month: '2026-11', cents: 1 }] }) === null, 'months set by hand add up to the whole amount');
+check(dm.readDirectPayment(hex(), { ...p1, appliesTo: [{ month: '2026-12', cents: 1 }] }) === null, 'months set by hand add up to the whole amount');
 check(dm.readDirectPayment('TESTNOTHEX', p1) === null, 'an ID not 64 hex is refused');
-const body = (extra = {}) => ({ propertyId: P, arrangementId: null, purpose: 'not-a-stay', day: '2026-12-12', amount: '75.00', method: 'cash', wording: 'Parking', ...extra });
+const body = (extra = {}) => ({ propertyId: P, arrangementId: null, purpose: 'not-a-stay', day: '2027-01-12', amount: '75.00', method: 'cash', wording: 'Parking', ...extra });
 const stay29 = { from: '2026-11-01', to: '2026-11-30' };
 const stay30 = { from: '2026-11-01', to: '2026-12-01' };
 const parse = (schema, b) => {
@@ -233,9 +233,9 @@ console.log(`  one-off, not a stay: ${parse(sc.RecordDirectPaymentSchema, body()
 console.log(`  one-off, a short stay: ${parse(sc.RecordDirectPaymentSchema, body({ purpose: 'short-stay' }))}`);
 console.log(`  one-off with no purpose: ${parse(sc.RecordDirectPaymentSchema, body({ purpose: null }))}`);
 console.log(`  arrangement with a purpose: ${parse(sc.RecordDirectPaymentSchema, body({ arrangementId: 'TESTARRANGE000000001' }))}`);
-console.log(`  months not adding up: ${parse(sc.RecordDirectPaymentSchema, body({ arrangementId: 'TESTARRANGE000000001', purpose: null, appliesTo: [{ month: '2026-12', amount: '50.00' }] }))}`);
-console.log(`  start: ${parse(sc.StartArrangementSchema, { propertyId: P, payerName: '  Test   Payer ', wording: 'Monthly stay', amount: '1200.00', dueDay: 29, fromMonth: '2026-12' })}`);
-console.log(`  change amount: ${parse(sc.ChangeArrangementSchema, { action: 'amount', seen: 1, month: '2027-02', amount: '950.00' })}`);
+console.log(`  months not adding up: ${parse(sc.RecordDirectPaymentSchema, body({ arrangementId: 'TESTARRANGE000000001', purpose: null, appliesTo: [{ month: '2027-01', amount: '50.00' }] }))}`);
+console.log(`  start: ${parse(sc.StartArrangementSchema, { propertyId: P, payerName: '  Test   Payer ', wording: 'Monthly stay', amount: '1200.00', dueDay: 29, fromMonth: '2027-01' })}`);
+console.log(`  change amount: ${parse(sc.ChangeArrangementSchema, { action: 'amount', seen: 1, month: '2027-03', amount: '950.00' })}`);
 check(!sc.RecordDirectPaymentSchema.safeParse(body({ purpose: 'short-stay' })).success, 'a direct short stay cannot be recorded (Kian: until his accountant confirms its tax treatment)');
 console.log(`  a stay with no dates: ${parse(sc.RecordDirectPaymentSchema, body({ purpose: 'long-stay', wording: 'Stay' }))}`);
 console.log(`  not a stay, with dates: ${parse(sc.RecordDirectPaymentSchema, body({ stay: stay30 }))}`);
@@ -250,34 +250,36 @@ check(dm.DIRECT_PURPOSE_LABELS['long-stay'] === 'A stay of 30 nights or more' &&
 // ═══ 7. A finished statement holding a direct line, corrected ═══
 console.log("\n═══ 7. A finished statement holding a direct line, corrected ═══");
 const pStay = oneOff(stay30);
-const pFee = dm.readDirectPayment(hex(), { ...p1, arrangementId: null, purpose: 'not-a-stay', payerName: null, wording: 'Parking', day: '2026-11-22', amountCents: 5_000 });
+const pFee = dm.readDirectPayment(hex(), { ...p1, arrangementId: null, purpose: 'not-a-stay', payerName: null, wording: 'Parking', day: '2026-12-22', amountCents: 5_000 });
 const linesC = dm.directLinesOf([pStay, pFee]);
-const novC = freeze(linesC, [], draftOf('2026-11'), '2026-11', at('2026-12-06'));
+const decC = freeze(linesC, [], draftOf('2026-12'), '2026-12', at('2027-01-06'));
 const printedC = (reports) => st.printedPlatformLines(model.currentReports(reports));
-console.log(`  November finished: ${novC.report.lines.map((l) => l.description).join(' · ')}`);
-check(printedC([novC.report]).has(pStay.id) && printedC([novC.report]).has(pFee.id), 'both are printed: locked');
+console.log(`  December finished: ${decC.report.lines.map((l) => l.description).join(' · ')}`);
+check(printedC([decC.report]).has(pStay.id) && printedC([decC.report]).has(pFee.id), 'both are printed: locked');
 // The correction: a draft that supersedes it. The finished statement stays current (the owner's), while the draft rebuilds the month without it.
-const corrDraft = draftOf('2026-11', { supersedes: { reportId: novC.report.id, reason: 'Test correction' } });
-const corrBuilt = st.buildStatement({ propertyId: P, propertyName: 'Test Lakeview Suite', month: '2026-11', entries: [], reports: [novC.report], draft: corrDraft, management: record, platformLines: linesC });
+const corrDraft = draftOf('2026-12', { supersedes: { reportId: decC.report.id, reason: 'Test correction' } });
+const corrBuilt = st.buildStatement({ propertyId: P, propertyName: 'Test Lakeview Suite', month: '2026-12', entries: [], reports: [decC.report], draft: corrDraft, management: record, platformLines: linesC });
 console.log(`  the correction as it stands: ${corrBuilt.statement.lines.map((l) => l.description).join(' · ')}`);
-check(JSON.stringify(corrBuilt.statement.lines.map((l) => [l.description, l.amountCents, l.platformLineId])) === JSON.stringify(novC.report.lines.map((l) => [l.description, l.amountCents, l.platformLineId])), 'the correction holds the same direct lines, word for word');
-const decDuring = st.buildStatement({ propertyId: P, propertyName: 'Test Lakeview Suite', month: '2026-12', entries: [], reports: [novC.report], draft: draftOf('2026-12'), management: record, platformLines: linesC });
-check(decDuring.statement.lines.length === 0, "while it is corrected, December's statement holds neither");
+check(JSON.stringify(corrBuilt.statement.lines.map((l) => [l.description, l.amountCents, l.platformLineId])) === JSON.stringify(decC.report.lines.map((l) => [l.description, l.amountCents, l.platformLineId])), 'the correction holds the same direct lines, word for word');
+const janDuring = st.buildStatement({ propertyId: P, propertyName: 'Test Lakeview Suite', month: '2027-01', entries: [], reports: [decC.report], draft: draftOf('2027-01'), management: record, platformLines: linesC });
+check(janDuring.statement.lines.length === 0, "while it is corrected, January's statement holds neither");
 // Removed during the correction (the server's lock lifts while a draft supersedes the statement), then the correction finished.
 const pFeeRemoved = dm.readDirectPayment(pFee.id, { ...pFee, status: 'removed', removedAt: at(TODAY), removedBy: SECOND, history: [...pFee.history, { at: at(TODAY), action: 'removed', actor: SECOND, appliesTo: null }] });
 const linesC2 = dm.directLinesOf([pStay, pFeeRemoved]);
-const corr = freeze(linesC2, [novC.report], corrDraft, '2026-11', at('2026-12-07'));
-const after = [novC.report, corr.report];
+const corr = freeze(linesC2, [decC.report], corrDraft, '2026-12', at('2027-01-07'));
+const after = [decC.report, corr.report];
 console.log(`  corrected: ${corr.report.lines.map((l) => l.description).join(' · ')} · current ${model.currentReports(after).map((r) => r.id).join(', ')}`);
 check(model.currentReports(after).length === 1 && model.currentReports(after)[0].id === corr.report.id, 'the corrected statement replaces the first');
 const pdfLine = (s) => pdfStrings(statementPdf(s)).filter((t) => t.includes('received'));
-console.log(`  first PDF: ${JSON.stringify(pdfLine(novC.statement))} · corrected PDF: ${JSON.stringify(pdfLine(corr.statement))}`);
-check(pdfLine(corr.statement).includes(pdfLine(novC.statement).find((t) => t.startsWith('Cash - Stay'))), 'the stay line prints the same in the corrected PDF');
+console.log(`  first PDF: ${JSON.stringify(pdfLine(decC.statement))} · corrected PDF: ${JSON.stringify(pdfLine(corr.statement))}`);
+check(pdfLine(corr.statement).includes(pdfLine(decC.statement).find((t) => t.startsWith('Cash - Stay'))), 'the stay line prints the same in the corrected PDF');
 check(printedC(after).has(pStay.id) && !printedC(after).has(pFee.id), 'the stay is locked again, by the corrected statement; the removed one is on none');
-const decAfterC = st.buildStatement({ propertyId: P, propertyName: 'Test Lakeview Suite', month: '2026-12', entries: [], reports: after, draft: draftOf('2026-12'), management: record, platformLines: linesC2 });
-console.log(`  December after: ${decAfterC.statement.lines.length} lines · income ${$(decAfterC.statement.incomeCents)}`);
-check(decAfterC.statement.lines.length === 0 && decAfterC.statement.incomeCents === 0, 'nothing is charged twice: December holds no November payment');
-check(dm.receivedDayProblem('2026-12-16', TODAY) !== null && dm.receivedDayProblem('2025-12-14', TODAY) !== null && dm.receivedDayProblem('2025-12-15', TODAY) === null, 'a day received: never after today, at most 12 months back');
+const janAfterC = st.buildStatement({ propertyId: P, propertyName: 'Test Lakeview Suite', month: '2027-01', entries: [], reports: after, draft: draftOf('2027-01'), management: record, platformLines: linesC2 });
+console.log(`  January after: ${janAfterC.statement.lines.length} lines · income ${$(janAfterC.statement.incomeCents)}`);
+check(janAfterC.statement.lines.length === 0 && janAfterC.statement.incomeCents === 0, 'nothing is charged twice: January holds no December payment');
+// At a today a year after the first statement month, so the 12-month limit is what refuses (before November 2026 a
+// day is refused as before the first statement month: fresh-start, section 12).
+check(dm.receivedDayProblem('2027-11-16', '2027-11-15') !== null && dm.receivedDayProblem('2026-11-14', '2027-11-15') !== null && dm.receivedDayProblem('2026-11-15', '2027-11-15') === null, 'a day received: never after today, at most 12 months back');
 
 console.log(`\n${failures === 0 ? 'all checks passed' : `${failures} check(s) FAILED`}`);
 if (failures) process.exitCode = 1;

@@ -7,7 +7,10 @@
  * with no amount that go on it; a totals row; each row opens the property's page at that month. One read of the
  * month (GET /api/admin/cost-entries/month), again on Refresh or another month.
  *
- * It opens on the month before today's: the one being settled.
+ * It opens on the month before today's: the one being settled, never one before the first statement month (Kian's
+ * rule of 2026-11-01: on 1 November 2026 it opens on November). A month before that month (STATEMENTS_FROM_DEFAULT,
+ * November 2026), for which nothing is expected, owed, missing or overdue, shows one line, "Statements start in
+ * November 2026", and nothing else, and reads nothing (CLEANER-COSTS-DESIGN.md §62.5).
  */
 
 import { useEffect, useState } from "react";
@@ -15,7 +18,7 @@ import Link from "next/link";
 import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
 import { fetchCostsMonth } from "@/app/lib/costs-client";
 import { formatCents } from "@/app/lib/cleaners/model";
-import { addMonths, monthLabel } from "@/app/lib/reports/model";
+import { addMonths, beforeStatementsLine, monthLabel, openingMonth } from "@/app/lib/reports/model";
 import type { CostsMonth, CostsMonthRow, Part } from "@/app/lib/costs/month-view";
 import styles from "./MonthTab.module.css";
 
@@ -37,12 +40,16 @@ function PartCell({ part, warn = false }: { part: Part; warn?: boolean }) {
 
 export function MonthTab({ today, attempt }: { today: string; attempt: number }) {
   const thisMonth = today.slice(0, 7);
-  const [month, setMonth] = useState(() => addMonths(thisMonth, -1));
+  const [month, setMonth] = useState(() => openingMonth(addMonths(thisMonth, -1), thisMonth));
   const [answer, setAnswer] = useState<State | null>(null);
   const [again, setAgain] = useState(0);
   const key = `${month}|${attempt}|${again}`;
+  /** A month before the first statement month, in its one line (Kian's rule of 2026-11-01); null for any other month. */
+  const before = beforeStatementsLine(month);
 
   useEffect(() => {
+    // A month before the first statement month shows its one line and reads nothing.
+    if (beforeStatementsLine(month) !== null) return;
     let cancelled = false;
     fetchCostsMonth(month).then((result) => {
       if (cancelled) return;
@@ -65,10 +72,13 @@ export function MonthTab({ today, attempt }: { today: string; attempt: number })
         <button type="button" className={styles.step} onClick={() => setMonth(addMonths(month, 1))} disabled={month >= thisMonth} aria-label="The month after">
           <ChevronRight size={16} aria-hidden />
         </button>
-        <span className={styles.caption}>Each property&apos;s {label} statement, as its preview shows it: costs only.</span>
+        {before === null && <span className={styles.caption}>Each property&apos;s {label} statement, as its preview shows it: costs only.</span>}
       </div>
 
-      {state.kind === "loading" ? (
+      {before !== null ? (
+        /* Before the first statement month: this one line and nothing else (Kian's rule of 2026-11-01). */
+        <p className={styles.muted}>{before}</p>
+      ) : state.kind === "loading" ? (
         <p className={styles.muted}>Loading {label}…</p>
       ) : state.kind === "error" ? (
         <div className={styles.error} role="alert">

@@ -88,6 +88,7 @@ import {
   MONTHLY_REPORTS_COLLECTION,
   MONTHLY_REPORT_DRAFTS_COLLECTION,
   PROPERTY_MANAGEMENT_COLLECTION,
+  STATEMENTS_FROM_DEFAULT,
   STATEMENT_LIMITS,
   currentReports,
   displayRef,
@@ -519,7 +520,11 @@ export async function readIncomeMonth(month: string): Promise<IncomeMonth> {
     if (statement) statements.push(statement);
   }
 
-  // ── The calendar: check-ins in the month (the gaps), and stays (renames) ──
+  // ── The calendar: check-ins in the month (the gaps), and stays (renames; and the untitled gap) ──
+  // A calendar stay before the first statement month never counts as a gap (Kian's rule of 2026-11-01, §62.5): the
+  // check-ins and the untitled properties' stays count only stays that begin on or after its first day. Renames still
+  // compare lines with every stay.
+  const firstDay = `${STATEMENTS_FROM_DEFAULT}-01`;
   const days: string[] = [];
   const checkIns = new Map<string, Set<string>>();
   for (const doc of daysSnap.docs) {
@@ -528,7 +533,7 @@ export async function readIncomeMonth(month: string): Promise<IncomeMonth> {
     days.push(doc.id);
     for (const [propertyId, feed] of Object.entries(data.properties)) {
       for (const event of feed.events ?? []) {
-        if (event.kind !== 'reserved' || event.start < from || event.start > to) continue;
+        if (event.kind !== 'reserved' || event.start < from || event.start > to || event.start < firstDay) continue;
         const set = checkIns.get(propertyId) ?? new Set<string>();
         set.add(event.start);
         checkIns.set(propertyId, set);
@@ -572,7 +577,7 @@ export async function readIncomeMonth(month: string): Promise<IncomeMonth> {
     lastSeen,
     properties,
     statements,
-    calendar: { days: days.sort(), checkIns: [...checkIns.entries()].map(([propertyId, set]) => ({ propertyId, days: [...set].sort() })), stays: [...stays].map(([propertyId, list]) => ({ propertyId, count: list.length })) },
+    calendar: { days: days.sort(), checkIns: [...checkIns.entries()].map(([propertyId, set]) => ({ propertyId, days: [...set].sort() })), stays: [...stays].map(([propertyId, list]) => ({ propertyId, count: list.filter((stay) => stay.start >= firstDay).length })) },
     notThroughFiles,
     standings,
     seenBefore: [...new Set(lines.map((line) => `${line.platform}|${line.listingTitle}`))].filter((key) => allUploads.some((u) => u.month < month && u.titles.some((t) => `${u.platform}|${normaliseTitle(t.title)}` === key))).sort(),

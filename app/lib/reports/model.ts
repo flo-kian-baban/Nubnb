@@ -279,6 +279,25 @@ export function lastClosedMonth(today: string): string {
 }
 
 /**
+ * A month before the first statement month, in one line (Kian's rule of 2026-11-01, CLEANER-COSTS-DESIGN.md §62.5:
+ * for any month before STATEMENTS_FROM_DEFAULT nothing is expected, owed, missing or overdue). The Income page and the
+ * Costs page's Month tab show such a month as this line and nothing else; any other month, null.
+ */
+export function beforeStatementsLine(month: string): string | null {
+  return month < STATEMENTS_FROM_DEFAULT ? `Statements start in ${monthLabel(STATEMENTS_FROM_DEFAULT)}` : null;
+}
+
+/**
+ * The month the Income page and the Costs page's Month tab open on (Kian's rule of 2026-11-01): the one they open on
+ * otherwise (`usual`: the last closed month, the one being settled), never before STATEMENTS_FROM_DEFAULT, and never
+ * after `thisMonth`. On 1 November 2026, November 2026; from 1 December 2026, the month before today's, as before.
+ */
+export function openingMonth(usual: string, thisMonth: string): string {
+  const notBefore = usual < STATEMENTS_FROM_DEFAULT ? STATEMENTS_FROM_DEFAULT : usual;
+  return notBefore > thisMonth ? thisMonth : notBefore;
+}
+
+/**
  * Whether `month` has ended by `today` (Toronto). A closed month with no
  * finished statement is outstanding; the current month is "open, not yet
  * due" and never outstanding (Kian's ruling of 2026-09-30, dispatch 23D). A

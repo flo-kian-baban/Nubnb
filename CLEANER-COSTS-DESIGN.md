@@ -4565,10 +4565,12 @@ nothing changed in production (the closing export identical, 686 documents). The
 
 ## 62. The fresh start of 1 November 2026: statements begin with November — Kian's rulings R1–R7 of 2026-10-31
 
-Kian's rulings of 2026-10-31 are in CLAUDE.md under *Fresh start — 2026-11-01*. This section is Step 1 of that
-dispatch, the code: the first month any property owes a statement for moves from September 2026 to November 2026, so
-no September or October statement is owed. The data reset that follows (a dry run, deletes on Kian's approval of its
-manifest, the checks) changes no code and is recorded outside the repository.
+Kian's rulings on the fresh start are recorded here, in §62, and nowhere else: CLAUDE.md has no section for them.
+62.1 to 62.4 are Step 1 of the dispatch of 2026-10-31, the code: the first month any property owes a statement for
+moves from September 2026 to November 2026, so no September or October statement is owed. 62.5 and 62.6 record Kian's
+rulings of 2026-11-01, in his words, and what they changed. The data reset that followed (a dry run, deletes on
+Kian's approval of its manifest, the checks) and the sweep after it change no code and are recorded outside the
+repository.
 
 ### 62.1 What changed
 
@@ -4636,6 +4638,123 @@ manifest, the checks) changes no code and is recorded outside the repository.
 
 ### 62.4 What does not move with it
 
-- **Direct arrangements keep their own months.** An arrangement from October 2026 still expects October's payment:
-  "Direct overdue" and "Record direct payment" read the arrangement's months, not the statements' first month.
+- **Direct arrangements kept their own months until 2026-11-01.** An arrangement from October 2026 still expected
+  October's payment, and "Direct overdue" and "Record direct payment" read the arrangement's months. Kian's rule of
+  2026-11-01 replaces this: expected amounts begin at the later of the arrangement's start and the first statement
+  month (62.5).
 - **No stored document is changed.** The first month is code; records keep the start month they were written with.
+
+### 62.5 Kian's ruling and rule of 2026-11-01: nothing before November
+
+**Kian's ruling, in his words:** "From 1 November 2026 nothing from before that date is a payment, record or report on
+the platform. Kept: current properties, their calendars, title links, team members, admins, management records and the
+direct arrangement (re-dated). The 280 admin_actions stay as the audit log."
+
+**Kian's rule, in his words:** "For any month before STATEMENTS_FROM_DEFAULT (2026-11), nothing is expected, owed,
+missing or overdue.
+
+1. Income: a month before the floor shows one line, "Statements start in November 2026", and nothing else. No Gaps, no
+   Direct expected or overdue, no review queue. Calendar stays before November never count as gaps.
+2. Direct arrangements: expected amounts begin at the later of the arrangement's start and the floor. The home's
+   "Direct overdue" chip and every count follow.
+3. Costs Month tab: a month before the floor shows the same one line.
+4. Income and the Month tab open on the latest month that is not before the floor (today: November 2026)."
+
+**What changed:**
+
+1. **One line and one opening month** (`app/lib/reports/model.ts`). `beforeStatementsLine(month)` is "Statements
+   start in November 2026" for a month before STATEMENTS_FROM_DEFAULT and null for any other. `openingMonth(usual,
+   thisMonth)` is the month a page opens on otherwise, never before STATEMENTS_FROM_DEFAULT and never after this month.
+   Both pages read both.
+2. **The Income page** (`app/admin/income/page.tsx`).
+   - It opens on `openingMonth(lastClosedMonth(today), thisMonth)`: November 2026 on 1 November, the month before
+     today's from December on.
+   - A month before the floor reads nothing and shows the line alone: no file or upload button, no gaps, no review, no
+     direct payments, no By property, no titles.
+   - The month's read (`app/lib/firebase/server-income.ts`) counts a calendar stay only if it begins on or after 1
+     November 2026, both as a check-in and as an untitled property's stay. Renames still compare lines with every stay.
+3. **Direct arrangements** (`app/lib/direct/periods.ts`).
+   - `firstExpectedMonth` is the later of an arrangement's start and STATEMENTS_FROM_DEFAULT. `isExpectedMonth` and
+     `arrangementMonths` begin there, and an arrangement that starts later is Expected for that month.
+   - Every reader of those functions follows:
+     - the Income page's Direct section and its count;
+     - the home's Income cell, its "Direct overdue" chip and "Record direct payment" step (`directStanding`);
+     - the property page's Direct block;
+     - Finish's check (`unpaidInMonth`);
+     - the months the record-a-payment dialog offers;
+     - the server's check of the months a payment is set to pay. A month before November is refused as one the
+       arrangement does not expect.
+   - The arrangement keeps the start it was written with. No document is changed.
+4. **The Costs Month tab** (`app/admin/costs/MonthTab.tsx`). It opens on `openingMonth(the month before today's,
+   thisMonth)`. A month before the floor reads nothing and shows the same line, without the caption.
+
+**Tests.**
+
+- **fresh-start** gains four sections:
+  - 7: the line for August 2026 to January 2027.
+  - 8: an arrangement shaped like the kept one (from October 2026, due the 28th), and others from December, ended in
+    October, and paused October to November. Each is shown day by day from 31 October to 1 December, with the home's
+    cell, chip and step, Finish's check, and a payment received before November.
+  - 9: the opening months from 31 October 2026 to 5 January 2027.
+  - 10: the calendar gaps, read by `readIncomeMonth` on the in-memory Firestore from a copy that holds a stay from 28
+    October and one from 5 November.
+- **direct-payments** made up an arrangement from October 2026, which no longer expects October.
+  - Its dates move one month later, by 62.2's function with a step of one. Its 28- and 30-night month-length cases, and
+    the one-off stays of 29 and 30 nights with their labels, stay as committed.
+  - Its output equals the old recording moved one month, except those four kept lines, which equal the old recording.
+
+**The developer's choices.**
+
+1. A link to a month before the floor, such as `?month=2026-10`, still opens that month, with the one line. Only the
+   month a page opens on by default changed.
+2. "Nothing else" includes the upload button. The upload route itself is unchanged: it files a file's rows by their
+   payout month, and the button exists only on a month from November on.
+3. The chips always show, with their counts (Kian's rulings of 2026-10-17). For a month before November, "Direct
+   overdue" counts 0 and no row is under it.
+4. Payments keep the oldest-first rule. A payment dated before November with no months set pays the oldest month
+   expected, November. No direct payment was stored on 2026-11-01. (Replaced the same day: such a payment is refused,
+   62.6.)
+
+### 62.6 Kian's rulings of 2026-11-01, second round
+
+**In his words:** "The home's Income column follows the floor rule. On and after 1 November it describes November,
+never October: no "No file yet" or "No Airbnb title" for months before the floor." And: "Recording a payment dated
+before November 2026 is refused with "Statements start in November 2026". Nothing written." The sweep of the documents
+the reset kept closes with no deletes; its dry-run manifest is kept outside the repository as a record.
+
+**What changed:**
+
+1. **The home's Income column** (`app/lib/firebase/server-property-status.ts`) reads
+   `openingMonth(lastClosedMonth(today), this month)`, the month the Income page opens on.
+   - On and after 1 November 2026 it describes November: "No file yet" is about November's file.
+   - From December on it describes the month before today's, as before.
+   - "No Airbnb title" names no month.
+2. **A payment dated before November 2026 is refused** (`receivedDayProblem`, `app/lib/direct/model.ts`) with
+   "Statements start in November 2026".
+   - The server asks it before any read or write, so nothing is written.
+   - The API answers 422 `DIRECT_PAYMENT_REFUSED` with "Nothing was recorded.", and the record-a-payment dialog shows
+     the answer.
+   - The 12-month limit stays: it refuses only from November 2027 on, a year after the first statement month.
+
+**Daylight saving, checked and unchanged.** The clocks went back on 1 November 2026 and go forward on 14 March 2027.
+- **No fixed offset.** Nothing in the code holds a fixed offset or builds a Toronto day by hand. Every Toronto day
+  comes from `Intl.DateTimeFormat` in America/Toronto. Every `toISOString()` day is calendar arithmetic anchored at
+  noon UTC or built with `Date.UTC`.
+- **The check:** it ran at 23:30 and 00:30 Toronto on 31 October to 2 November 2026 and on 13 to 15 March 2027, under
+  a UTC process (as on Vercel) and a Toronto one (as on a phone).
+- **Every value as expected,** and the two runs were identical:
+  - today on the server and on the pages;
+  - the cleaner home's jobs and badges;
+  - "Mark cleaned opens on …" from the server, and "Mark cleaned opens …" from the app's own line;
+  - the day's first refresh;
+  - the 3-hour age across the hour the clocks change (elapsed time is real time, not wall-clock time);
+  - the opening months.
+- The check is kept outside the repository; no code changed for it.
+
+**Tests.**
+- fresh-start gains two sections:
+  - 11: the column's month, from 31 October 2026 to 5 January 2027, read by `readPropertyStatus` on the in-memory
+    Firestore.
+  - 12: the refusal, including `recordDirectPayment` refusing before any read and storing nothing.
+- direct-payments checks its 12-month limit at a today a year after the first statement month. Its output is
+  unchanged.

@@ -73,7 +73,7 @@ export interface RowFacts {
   status: ReportingStatus;
   /** Its management record holds a Report For name. */
   hasReportFor: boolean;
-  /** The month the Income column is about (the last closed one), and its lines waiting for review. */
+  /** The month the Income column is about (the last closed one, never before the first statement month), and its lines waiting for review. */
   incomeMonth: string;
   review: number;
   /** Its direct payments in one word, when it has an arrangement. */
