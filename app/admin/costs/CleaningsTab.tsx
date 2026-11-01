@@ -264,10 +264,14 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
     () => cleanings.filter((c) => c.status === "logged" && c.amountCents === null && (filters.propertyId === "" || c.propertyId === filters.propertyId) && (filters.cleanerId === "" || c.cleanerId === filters.cleanerId)),
     [cleanings, filters.propertyId, filters.cleanerId],
   );
-  const [onlyWaiting, setOnlyWaiting] = useState(() => cleanings.some((c) => c.status === "logged" && c.amountCents === null));
+  // A link to one cleaning (?cleaning=, the home's "Decide extra" and the pay view's links, Phase 3 of 2026-11-01) opens
+  // the list that holds it: an extra asked, waiting for an amount, or every cleaning.
+  const focused = focusId === null ? undefined : cleanings.find((c) => c.id === focusId);
+  const focusedWaits = focused !== undefined && focused.status === "logged" && focused.amountCents === null;
+  const [onlyWaiting, setOnlyWaiting] = useState(() => (focused !== undefined ? focusedWaits : cleanings.some((c) => c.status === "logged" && c.amountCents === null)));
   // ── Extra asked (Kian's ruling F of 2026-11-01): approve, approve at a new amount, or decline, from here ──
   const askedAll = useMemo(() => cleanings.filter((c) => extraAsked(c) && (filters.propertyId === "" || c.propertyId === filters.propertyId) && (filters.cleanerId === "" || c.cleanerId === filters.cleanerId)), [cleanings, filters.propertyId, filters.cleanerId]);
-  const [onlyAsked, setOnlyAsked] = useState(() => !cleanings.some((c) => c.status === "logged" && c.amountCents === null) && cleanings.some((c) => extraAsked(c)));
+  const [onlyAsked, setOnlyAsked] = useState(() => (focused !== undefined ? !focusedWaits && extraAsked(focused) : !cleanings.some((c) => c.status === "logged" && c.amountCents === null) && cleanings.some((c) => extraAsked(c))));
   /** Decided here: kept in the list with the outcome until the filter changes. */
   const [decidedHere, setDecidedHere] = useState<Map<string, { decision: "approve" | "decline"; cents: number | null; statementMonth: string }>>(new Map());
   const [approveAt, setApproveAt] = useState<Record<string, string>>({});
@@ -443,8 +447,9 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
           </div>
           <label className={`${p.field} ${styles.fieldAmountShort}`}>
             <span className={p.fieldLabel}>Amount ($)</span>
-            <input className={`${p.textInput} ${p.amountInput}`} inputMode="decimal" placeholder="65.00" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={saving} />
-            {propertyId !== "" && start.kind !== "none" && <span className={p.note}>{startWords(start)}</span>}
+            <input className={`${p.textInput} ${p.amountInput}`} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={saving} />
+            {/* No example figure in the field (Phase 3, 2026-11-01, as the waiting rows in Phase 1): it is empty until the property's price fills it, and says so. */}
+            <span className={p.note}>{propertyId === "" || start.kind === "none" ? "Pick the property and the cleaner: the amount starts from the property’s price." : startWords(start)}</span>
           </label>
           <label className={`${p.field} ${p.fieldGrow}`}>
             <span className={p.fieldLabel}>Note (optional)</span>

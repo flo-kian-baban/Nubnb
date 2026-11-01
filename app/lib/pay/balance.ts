@@ -11,9 +11,10 @@
  *   a receipt        theirs, approved, not paid with Nubnb's card: its total now — items plus tax, every correction
  *                    applied (readLinesNow)
  *   work             theirs, approved: its total now
- * Paid: their payments not deleted. Balance = owed − paid, over all time: no pay periods (ruling 3). Below zero it is
- * overpaid. An entry whose lines cannot be read counts nowhere and is counted apart (`cannotAddUp`), so a balance is
- * never shown as if it were whole.
+ * Paid: their payments not deleted. Balance = owed − paid, over all time: no pay periods (ruling 3). Below zero it reads
+ * "Paid ahead $X" (Kian's ruling of 2026-11-01, Phase 3, replacing ruling 3's "overpaid"): an advance, not money owed.
+ * An entry whose lines cannot be read counts nowhere and is counted apart (`cannotAddUp`), so a balance is never shown
+ * as if it were whole.
  *
  * ── Listed, counted or not ──
  * Every cleaning, receipt, work entry and payment of theirs, by date — a cleaning's day, the day a receipt or work
@@ -140,11 +141,15 @@ export function dayWords(day: string): string {
 const who = (actor: { role?: string | null; name?: string | null } | null | undefined): string | null => actor?.name ?? (actor?.role === 'system' ? 'automatic approval' : null);
 const byWords = (at: string, by: string | null) => `${whenWords(at)}${by ? ` by ${by}` : ''}`;
 
-/** A balance in words, and its tone: owed to them, overpaid, or settled (ruling 3). */
-export function balanceWords(balanceCents: number): { words: string; tone: 'owed' | 'overpaid' | 'settled' } {
-  if (balanceCents > 0) return { words: `${formatCents(balanceCents)} owed`, tone: 'owed' };
-  if (balanceCents < 0) return { words: `${formatCents(-balanceCents)} overpaid`, tone: 'overpaid' };
-  return { words: 'Settled', tone: 'settled' };
+/**
+ * A balance in words, and its tone: owed to them, paid ahead, or settled (ruling 3; below zero "Paid ahead $X", Kian's
+ * ruling of 2026-11-01). `words` stands alone ("$65.00 owed", "Paid ahead $45.00", "Settled"); `inline` sits inside a
+ * sentence ("$65.00 owed", "paid ahead $45.00", "settled").
+ */
+export function balanceWords(balanceCents: number): { words: string; inline: string; tone: 'owed' | 'ahead' | 'settled' } {
+  if (balanceCents > 0) return { words: `${formatCents(balanceCents)} owed`, inline: `${formatCents(balanceCents)} owed`, tone: 'owed' };
+  if (balanceCents < 0) return { words: `Paid ahead ${formatCents(-balanceCents)}`, inline: `paid ahead ${formatCents(-balanceCents)}`, tone: 'ahead' };
+  return { words: 'Settled', inline: 'settled', tone: 'settled' };
 }
 
 // ─── The function ──────────────────────────────────────────────

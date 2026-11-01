@@ -28,6 +28,8 @@ const isDirect = (d: unknown) =>
 const isJob = (j: unknown) =>
   isRecord(j) && typeof j.propertyId === 'string' && typeof j.checkout === 'string' && (j.status === 'open' || j.status === 'booking-changed') && typeof j.changedAfterMark === 'boolean' && isTextOrNull(j.change) && Array.isArray(j.cleaners) && j.cleaners.every(isCleaner);
 
+const isExtra = (e: unknown) => isRecord(e) && typeof e.cleaningId === 'string' && typeof e.propertyId === 'string' && typeof e.day === 'string' && isTextOrNull(e.cleanerName);
+
 const FEED_STATES = ['ok', 'failed', 'no-feed'];
 const isCalendar = (c: unknown) => isRecord(c) && FEED_STATES.includes(c.status as string) && isTextOrNull(c.nextCheckout);
 
@@ -36,7 +38,7 @@ function isAnswer(data: unknown): data is PropertyStatusRead {
   const { income, cleaning, calendar } = data;
   return (
     typeof income.month === 'string' && typeof income.uploaded === 'boolean' && isRecord(income.properties) && Object.values(income.properties).every(isFacts) && isRecord(income.direct) && Object.values(income.direct).every(isDirect) &&
-    typeof cleaning.from === 'string' && typeof cleaning.to === 'string' && Array.isArray(cleaning.jobs) && cleaning.jobs.every(isJob) &&
+    typeof cleaning.from === 'string' && typeof cleaning.to === 'string' && Array.isArray(cleaning.jobs) && cleaning.jobs.every(isJob) && Array.isArray(cleaning.extras) && cleaning.extras.every(isExtra) &&
     isTextOrNull(calendar.refreshedAt) && isRecord(calendar.properties) && Object.values(calendar.properties).every(isCalendar)
   );
 }

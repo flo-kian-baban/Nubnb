@@ -29,7 +29,7 @@ import { CLEANERS_COLLECTION, COST_ENTRIES_COLLECTION, CURRENCY, fieldText, read
 import { CLEANINGS_COLLECTION, readCleaning } from '@/app/lib/cleanings/model';
 import { torontoDay } from '@/app/lib/availability/days';
 import type { PayCleaning, PayEntry, PaySources } from '@/app/lib/pay/balance';
-import { PAYMENT_SCHEMA_VERSION, TEAM_PAYMENTS_COLLECTION, paymentDayProblem, readPayment, type Payment, type PaymentMethod, type PaymentView } from '@/app/lib/pay/model';
+import { PAYMENT_SCHEMA_VERSION, TEAM_PAYMENTS_COLLECTION, paymentDayProblem, paymentsSeen, readPayment, type Payment, type PaymentMethod, type PaymentView } from '@/app/lib/pay/model';
 
 function grpcCode(err: unknown): string {
   const code = (err as { code?: unknown } | null)?.code;
@@ -159,21 +159,30 @@ export interface NewPayment {
   day: string;
   method: PaymentMethod;
   note: string | null;
+  /** What the page saw of their payments (`paymentsSeen`): the record is refused when it differs. */
+  seen: number;
 }
 
 export type RecordPaymentResult =
   | { kind: 'recorded'; payment: PaymentView }
   | { kind: 'no-such-member' }
+  /** A payment to them was recorded or deleted since the page loaded, or one of theirs cannot be read: nothing written. */
+  | { kind: 'changed-since' }
   | { kind: 'bad-day'; problem: string }
   /** The transaction failed: it may or may not have been recorded. */
   | { kind: 'failed' };
 
-export const RECORD_REFUSALS: Record<'no-such-member' | 'failed', Refusal> = {
+export const RECORD_REFUSALS: Record<'no-such-member' | 'changed-since' | 'failed', Refusal> = {
   'no-such-member': { status: 404, code: 'MEMBER_NOT_FOUND', message: 'That team member does not exist.', hint: 'Nothing was recorded. Reload the Team page.' },
+  'changed-since': { status: 409, code: 'PAYMENTS_CHANGED', message: 'A payment to this team member was recorded or deleted since this page loaded.', hint: 'Nothing was recorded. Refresh, check their balance, and record it again only if it is still owed.' },
   failed: { status: 502, code: 'PAYMENT_RECORD_FAILED', message: 'Could not record the payment.', hint: 'It may or may not have been recorded. Reload their pay before recording it again.' },
 };
 
-/** Record a payment to a team member, by the admin `actor` (ruling 2). */
+/**
+ * Record a payment to a team member, by the admin `actor` (ruling 2) — only when their payments are as the page saw
+ * them (`seen`), read inside the transaction: two pages, or one left open, never pay the same balance twice unseen.
+ * Reads: one for the member, one per payment of theirs (one when they have none).
+ */
 export async function recordPayment(actor: Actor, input: NewPayment, now: Date = new Date()): Promise<RecordPaymentResult> {
   if (!isDocumentId(input.memberId)) return { kind: 'no-such-member' };
   const problem = paymentDayProblem(input.day, torontoDay(now));
@@ -184,6 +193,8 @@ export async function recordPayment(actor: Actor, input: NewPayment, now: Date =
     return await db.runTransaction(async (tx): Promise<RecordPaymentResult> => {
       const member = await tx.get(db.collection(CLEANERS_COLLECTION).doc(input.memberId));
       if (!member.exists) return { kind: 'no-such-member' };
+      const theirs = readPayments((await tx.get(db.collection(TEAM_PAYMENTS_COLLECTION).where('memberId', '==', input.memberId))).docs);
+      if (theirs.unreadable > 0 || paymentsSeen(theirs.payments, input.memberId) !== input.seen) return { kind: 'changed-since' };
       const at = now.toISOString();
       const payment: Payment = {
         schemaVersion: PAYMENT_SCHEMA_VERSION,

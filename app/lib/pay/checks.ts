@@ -47,7 +47,7 @@ export function recordQuestions(pay: PayStanding, amountCents: number, name: str
   if (notCounted.length > 0) {
     questions.push({
       title: `Record this payment while ${name}'s pay is not all counted?`,
-      lines: [`${notCounted.map((part, i) => (i === 0 ? part[0].toUpperCase() + part.slice(1) : part)).join(', and ')}.`, `The balance of ${balanceWords(pay.balanceCents).words.toLowerCase().replace(/^settled$/, '$0.00, settled,')} does not include them.`],
+      lines: [`${notCounted.map((part, i) => (i === 0 ? part[0].toUpperCase() + part.slice(1) : part)).join(', and ')}.`, pay.balanceCents < 0 ? `The balance, ${balanceWords(pay.balanceCents).inline}, does not include them.` : `The balance of ${balanceWords(pay.balanceCents).inline.replace(/^settled$/, '$0.00, settled,')} does not include them.`],
       confirm: 'Record anyway',
     });
   }
@@ -55,7 +55,7 @@ export function recordQuestions(pay: PayStanding, amountCents: number, name: str
     const over = amountCents - Math.max(pay.balanceCents, 0);
     questions.push({
       title: `This pays ${formatCents(over)} more than ${name} is owed. Record it as an advance?`,
-      lines: [pay.balanceCents > 0 ? `${name} is owed ${formatCents(pay.balanceCents)}; this payment is ${formatCents(amountCents)}.` : pay.balanceCents === 0 ? `${name} is owed nothing; this payment is ${formatCents(amountCents)}.` : `${name} is already overpaid by ${formatCents(-pay.balanceCents)}; this payment is ${formatCents(amountCents)}.`],
+      lines: [pay.balanceCents > 0 ? `${name} is owed ${formatCents(pay.balanceCents)}; this payment is ${formatCents(amountCents)}.` : pay.balanceCents === 0 ? `${name} is owed nothing; this payment is ${formatCents(amountCents)}.` : `${name} is already paid ahead by ${formatCents(-pay.balanceCents)}; this payment is ${formatCents(amountCents)}.`],
       confirm: 'Record as an advance',
     });
   }
@@ -71,7 +71,7 @@ export function deleteRefusal(pay: PayStanding, uncertain: number, name: string 
   const outstanding = notCountedWords(pay);
   if (pay.balanceCents !== 0) {
     const tail = outstanding.length > 0 ? `, and ${outstanding.join(', and ')}` : '';
-    return { code: 'MEMBER_HAS_BALANCE', message: `${who}'s balance is ${balanceWords(pay.balanceCents).words}${tail}, so they cannot be deleted.`, hint };
+    return { code: 'MEMBER_HAS_BALANCE', message: `${who}'s balance is ${balanceWords(pay.balanceCents).inline}${tail}, so they cannot be deleted.`, hint };
   }
   if (uncertain > 0 || pay.cannotAddUp > 0) {
     const n = uncertain + pay.cannotAddUp;

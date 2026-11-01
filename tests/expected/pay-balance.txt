@@ -53,7 +53,7 @@
 
 ═══ 3. Sam, a handyman: approved work, paid more than earned, an entry that cannot add up ═══
 ── Sam, all time
-   earned $120.00 (cleanings $0.00, receipts $0.00, work $120.00) · paid $160.00 · balance $40.00 overpaid [overpaid] · waiting 0 · cannot add up 1
+   earned $120.00 (cleanings $0.00, receipts $0.00, work $120.00) · paid $160.00 · balance Paid ahead $40.00 [ahead] · waiting 0 · cannot add up 1
    2026-10-11 · Work · Test Cozy Pad · earned — · paid — · amount — · cannot-add-up · Cannot add up: Line 1's amount is not stored in whole cents.
    2026-10-10 · Payment · Other · earned — · paid $160.00 · amount $160.00 · recorded · Recorded Oct 10 by Test Admin
    2026-10-09 · Work · Test Cozy Pad · Hung shelves · earned — · paid — · amount $30.00 · removed · Removed Oct 12 by Test Admin · was $30.00 · AMBER
@@ -62,7 +62,7 @@
    2026-10-08 · Work · Test Lakeview Loft · Fixed the sink · earned $120.00 · paid — · amount $120.00 · counts
        Approved Oct 9 by Test Admin (owed $0.00 → $120.00)
    ok   earned = the approved work
-   ok   overpaid $40.00
+   ok   paid ahead $40.00
    ok   the entry that cannot add up is counted nowhere, and counted apart
    ok   work removed after the payment that may have included it: amber
 
@@ -79,7 +79,7 @@
 ═══ 5. Words ═══
    balance 24000: $240.00 owed [owed]
    balance 0: Settled [settled]
-   balance -4000: $40.00 overpaid [overpaid]
+   balance -4000: Paid ahead $40.00 [ahead]
    the payment of $150.00 on Oct 20 (e-transfer)
    Changed Oct 22 by Test Admin: $60.00 → $55.00
    Removed Oct 22
@@ -122,5 +122,6 @@
    a field beyond: refused
    a cheque: refused
    an ID with a slash: refused
+   without what the page saw: refused
 
 every check held

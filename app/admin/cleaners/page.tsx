@@ -1015,7 +1015,7 @@ function PayCells({ pay }: { pay: RowPay }) {
     <>
       <td className={styles.payCell}>{formatCents(pay.pay.earnedCents)}</td>
       <td className={styles.payCell}>{formatCents(pay.pay.paidCents)}</td>
-      <td className={`${styles.payCell} ${balance.tone === "overpaid" || uncertain > 0 ? styles.payWarn : ""}`}>
+      <td className={`${styles.payCell} ${balance.tone === "ahead" || uncertain > 0 ? styles.payWarn : ""}`}>
         {/* "Settled" only when nothing waits (round 1): a dash with items not counted would read as nothing owed. */}
         {balance.tone === "settled" ? waiting > 0 ? <span className={styles.muted}>$0.00 so far</span> : <span className={styles.muted}>—</span> : balance.words}
         {waiting > 0 && <span className={`${styles.payNote} ${styles.payWarn}`}> · {waiting === 1 ? "1 waiting" : `${waiting} waiting`}</span>}

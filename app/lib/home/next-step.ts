@@ -17,6 +17,9 @@
  *   Check <day> was cleaned      a job from 14 days back whose checkout passed, assigned, with someone on it who has
  *                                not marked it cleaned and whose mark the office did not remove, the earliest
  *                                ("Not marked", Kian's ruling R3 of 2026-10-19)
+ *   Decide extra for <day>       a cleaning whose cleaner asked for extra and the office has not decided, however long
+ *                                ago, the earliest (Kian's ruling F of 2026-11-01; the "Extra asked" chip, Phase 3 of
+ *                                2026-11-01): its money waits, off the statement and out of pay, until it is decided
  *   Add Report For name          a statement owed while Finish would refuse it
  *   Review n Airbnb lines        the month due's lines waiting on the Income page
  *   Record direct payment        a direct payment overdue
@@ -31,15 +34,16 @@
  */
 
 import { addDays, dayText } from '@/app/lib/availability/days';
+import { cleaningHref } from '@/app/lib/cleanings/model';
 import { monthLabel, monthName } from '@/app/lib/reports/model';
 import type { ReportingStatus } from '@/app/lib/reports/statement';
 import type { DirectStanding } from '@/app/lib/direct/periods';
 import { COLUMN_DAYS_AHEAD, COLUMN_DAYS_BACK, type HomeJob } from '@/app/lib/schedule/standing';
 
-export type StepKey = 'assign' | 'not-marked' | 'report-for' | 'review' | 'direct' | 'finish' | 'calendar' | 'none';
+export type StepKey = 'assign' | 'not-marked' | 'extra' | 'report-for' | 'review' | 'direct' | 'finish' | 'calendar' | 'none';
 
 /** Most pressing first: the order the step is picked in, and the Needs attention sort's. */
-export const STEP_ORDER: readonly StepKey[] = ['assign', 'not-marked', 'report-for', 'review', 'direct', 'finish', 'calendar', 'none'];
+export const STEP_ORDER: readonly StepKey[] = ['assign', 'not-marked', 'extra', 'report-for', 'review', 'direct', 'finish', 'calendar', 'none'];
 
 export interface NextStep {
   key: StepKey;
@@ -52,7 +56,7 @@ export interface NextStep {
   when: string | null;
 }
 
-export type ChipKey = 'attention' | 'blocked' | 'ready' | 'review' | 'cleaner' | 'not-marked' | 'calendar' | 'direct';
+export type ChipKey = 'attention' | 'blocked' | 'ready' | 'review' | 'cleaner' | 'not-marked' | 'extra' | 'calendar' | 'direct';
 
 /** The chips above the list, in Kian's order; "Not marked" beside "Needs a cleaner" (Kian's ruling R3 of 2026-10-19). */
 export const CHIPS: readonly { key: ChipKey; label: string }[] = [
@@ -62,6 +66,7 @@ export const CHIPS: readonly { key: ChipKey; label: string }[] = [
   { key: 'review', label: 'Airbnb lines to review' },
   { key: 'cleaner', label: 'Needs a cleaner' },
   { key: 'not-marked', label: 'Not marked' },
+  { key: 'extra', label: 'Extra asked' },
   { key: 'calendar', label: 'Calendar not read' },
   { key: 'direct', label: 'Direct overdue' },
 ];
@@ -86,10 +91,17 @@ export interface RowFacts {
   hasCalendarLink: boolean;
   /** The last refresh read its calendar. */
   calendarRead: boolean;
+  /** Its cleanings whose extra ask waits for the office, any day (ruling F); absent is none. */
+  extras?: readonly { cleaningId: string; day: string; cleanerName: string | null }[];
 }
 
 export interface RowView {
   step: NextStep;
+  /**
+   * The step a chip's own filter shows instead, when the row's Next step is about something else: under "Extra asked"
+   * a row links to its extra's decision even when a more pressing step leads the row (Phase 3, 2026-11-01).
+   */
+  chipSteps: Partial<Record<ChipKey, NextStep>>;
   /** Which chips the row is under. */
   under: Record<ChipKey, boolean>;
   /** Its statements owed, oldest first: past due, then the month due. */
@@ -133,10 +145,22 @@ export function rowView(f: RowFacts): RowView {
   const owed = owedMonths(f.status);
   const unstaffed = unstaffedJobs(f.jobs, f.today);
   const notMarked = unmarkedJobs(f.jobs, f.today);
+  const extras = [...(f.extras ?? [])].sort((a, b) => a.day.localeCompare(b.day) || a.cleaningId.localeCompare(b.cleaningId));
   const overdue = f.direct?.state === 'overdue' ? f.direct : null;
   const blocked = f.hasReportFor ? 0 : owed.length;
   const ready = f.hasReportFor ? owed.length : 0;
   const owedText = owed.map(monthLabel).join(', ');
+
+  const extraStep: NextStep | null =
+    extras.length > 0
+      ? {
+          key: 'extra',
+          label: `Decide extra for ${dayText(extras[0].day)}`,
+          href: cleaningHref(f.propertyId, extras[0].day, extras[0].cleaningId),
+          title: `Cleaned ${dayText(extras[0].day)}: ${extras[0].cleanerName ?? 'the cleaner'} asked for extra; its money waits until it is decided${extras.length > 1 ? ` · ${plural(extras.length - 1, 'other extra', 'other extras')} too` : ''}`,
+          when: extras[0].day,
+        }
+      : null;
 
   let step: NextStep;
   if (unstaffed.length > 0) {
@@ -149,6 +173,8 @@ export function rowView(f: RowFacts): RowView {
     const who = job.cleaners.filter((c) => !c.marked).map((c) => c.name ?? 'a deleted cleaner').join(', ');
     const more = notMarked.length > 1 ? ` · ${plural(notMarked.length - 1, 'other job', 'other jobs')} too` : '';
     step = { key: 'not-marked', label: `Check ${dayText(job.checkout)} was cleaned`, href: `/admin/schedule?property=${enc(f.propertyId)}&from=${job.checkout}`, title: `Checkout ${dayText(job.checkout)}: not marked cleaned by ${who}${more}`, when: job.checkout };
+  } else if (extraStep) {
+    step = extraStep;
   } else if (blocked > 0) {
     step = { key: 'report-for', label: 'Add Report For name', href: propertyMonth(f.propertyId, owed[0], 'details'), title: `${plural(owed.length, 'statement', 'statements')} owed (${owedText}): Finish refuses a statement with no Report For name`, when: owed[0] };
   } else if (f.review > 0) {
@@ -166,6 +192,7 @@ export function rowView(f: RowFacts): RowView {
 
   return {
     step,
+    chipSteps: extraStep && step.key !== 'extra' ? { extra: extraStep } : {},
     owed,
     blocked,
     ready,
@@ -176,6 +203,7 @@ export function rowView(f: RowFacts): RowView {
       review: f.review > 0,
       cleaner: unstaffed.length > 0,
       'not-marked': notMarked.length > 0,
+      extra: extras.length > 0,
       calendar: f.hasCalendarLink && !f.calendarRead,
       direct: overdue !== null,
     },

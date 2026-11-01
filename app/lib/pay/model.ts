@@ -105,6 +105,11 @@ export function readPayment(id: string, fields: Record<string, unknown>): Paymen
   };
 }
 
+/** What a page has seen of one person's payments: the events in their histories, recorded and deleted (the record's `seen`). */
+export function paymentsSeen(payments: readonly Pick<PaymentView, 'memberId' | 'history'>[], memberId: string): number {
+  return payments.filter((p) => p.memberId === memberId).reduce((n, p) => n + p.history.length, 0);
+}
+
 // ─── The day paid ──────────────────────────────────────────────
 
 /** `day` moved `months` back, the day of the month kept where it can be: the purchase dates' arithmetic. */

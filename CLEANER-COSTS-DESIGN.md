@@ -5053,3 +5053,69 @@ and 14 properties with no row. The manifest, its SHA-256 and the UNSURE table ar
   words under it, the three decisions on their own line. A pill longer than the cell (the `__TEST__` prefix made one)
   no longer runs into the State column: it folds its notes under the name inside the pill (`.chipLine .chip` takes
   `max-width: 100%; flex-wrap: wrap`), the parts staying whole. Shots `b6-*` in the harness.
+
+### 64.8 Released, and the prefill written (2026-11-01)
+
+- **Released** as `0a3996891f6798df209cac401ebec5a5a54368ec` (59 paths staged by name, no trailer), its tree scanned
+  clean from `git archive` against the export of 21:20 Z, pushed 21:22 Z; Vercel's Production deployment succeeded
+  (GitHub deployment 7479297506 for that SHA) and production serves `dpl_8SC43gGfuGB1GePjLmFPqpJ5hnzp`; `/admin` and
+  `/cleaner` answer 200 as no one, the cleaner door's scripts carrying "Ask for extra" and "Sent to Nubnb".
+- **The prefill, written after the deploy** (Kian's Step 3): the collection read first (empty), then the manifest's 52
+  records through `importCleaningPrices` in one transaction as the system actor "price prefill", under a guard that
+  allowed only those 52 document IDs and activity lines by that actor (nothing refused), then one `admin_actions` line
+  per property. Read back by ID: 52 of 52 in shape and equal to the manifest on all three tiers, mid = short on all,
+  one history event each from none; the collection holds 52; 52 activity lines. The closing export against the opening
+  one: 499 documents identical, 104 differences, exactly those 104 new documents. Reads for the release and the write:
+  2,262 of the 3,000 allowed (two full exports, the import's transaction, the read-back).
+
+## 65. Phase 3: team pay before the first payout (2026-11-01)
+
+Kian's dispatch of 2026-11-01: audit the Team pay view, payments and advances, the balance, member delete and
+deactivate; add an "Extra asked" chip to the home; remove the example figure from two amount fields; measure the
+home's reads. Verified on production data behind the write guard, Unlisted `__TEST__` properties, clock 18 November
+2028, a `__TEST__` admin, two `__TEST__` cleaners and a `__TEST__` handyman; cleaned up by exact ID; exports identical.
+
+### 65.1 What changed, and why (the developer's choices; none changes a statement or what an owner receives)
+
+- **A payment carries what the page saw.** `POST /api/admin/payments` takes `seen`, the events in that person's
+  payments' histories as the page holds them (`paymentsSeen`, pay/model.ts); `recordPayment` reads their payments in
+  the same transaction and refuses with 409 `PAYMENTS_CHANGED` when they differ, or when one cannot be read. Without
+  it, a page left open, or a second admin, could pay a balance already paid: the K2 question only knows what its own
+  page holds.
+- **The amount field follows the balance** until the admin types in it, and returns to it after each payment. It used
+  to hold the balance the page opened with: typing the missing amounts (Save all) and then pressing Record paid the
+  old figure.
+- **Not counted yet lists every waiting item by its reason**: the cleanings with no amount (as before), each cleaning
+  whose extra waits ("Extra asked: “…”", linked to its decision on the Cleanings tab), and each receipt or work entry
+  waiting for review, a flagged one said to be "Flagged as a possible second send". An extra used to be counted in the
+  sentence and listed nowhere in the section, and a person whose only wait was an extra had no section at all.
+- **The home's "Extra asked" chip and step** (ruling F's money waits until decided): every undecided extra is read on
+  its own (`cleanings where extra.status == 'asked'`, one read each, one when there are none), not through the jobs'
+  14-day window, so an ask from the 1st is still on the home at month end. The step "Decide extra for <day>" comes after
+  Not marked and before Add Report For name; under the chip a row shows its extra's step even when another leads the
+  row (`chipSteps`). It links to the Cleanings tab on that cleaning.
+- **A link to one cleaning opens the list that holds it** (`?cleaning=`): Extra asked, Waiting for an amount, or all.
+  It used to open on Waiting for an amount whatever the cleaning was.
+- **No example figure** in the pay view's amount fields or the hand-log form: empty, with the hint in words ("Pick the
+  property and the cleaner: the amount starts from the property’s price.").
+
+### 65.2 The home's reads (measured, not changed)
+
+One open of `/admin` on production data (58 properties): 507 reads. `properties` 180 and `property_cleaner_names` 180
+(each read three times: the property list, and `listCosts` twice — once inside the statements tracker, once for the
+Costs tile), `getAll` 38, `earnings_title_links` 30, `cleanings` 22, `cleaners` 14, `cost_entries` 12, jobs 11, the
+rest one or two each. The cheapest cut: the Costs tile reads `fetchCosts()` again although the tracker's answer already
+holds the same entries; working the tile out from those removes one whole `listCosts` (about 150 reads at today's
+counts, client-only). Next: read properties and cleaner names once per open (about 120 more). Not done here.
+
+### 65.3 Kian's rulings of 2026-11-01 (Phase 3 approved)
+
+- **"A declined extra makes the base amount owed (ruling F stands)."** Declining releases the cleaning's own amount,
+  which waited with the ask; no extra is added.
+- **"A negative balance reads 'Paid ahead $X'."** This replaces ruling 3's "shown as overpaid" in every place a
+  balance below zero is shown: the pay view's Balance ("Paid ahead $50.00"), the Team table's Balance cell, the dates'
+  sentence ("balance paid ahead $45.00 at the start"), the record questions ("The balance, paid ahead $20.00, does not
+  include them."; "Test Ana is already paid ahead by $20.00; …") and the delete refusal ("Test Ana's balance is paid
+  ahead $5.00, …"). `balanceWords` gives `words` (alone) and `inline` (in a sentence); its tone is `ahead`, in amber as
+  before. Recordings re-recorded for it: `pay-balance` and `team-round1`.
+- **"'Decide extra' after Not marked, as built."**

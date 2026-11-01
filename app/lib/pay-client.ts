@@ -49,8 +49,8 @@ export function fetchPayments(): Promise<PayResult<{ payments: PaymentView[]; un
   return call('/api/admin/payments', {}, 'Loading the payments failed', (data) => isRecord(data) && Array.isArray(data.payments) && data.payments.every(isPayment) && typeof data.unreadable === 'number');
 }
 
-/** Record a payment (ruling 2): the amount as typed, "300.00". PAYMENT_RECORD_FAILED: it may or may not have landed. */
-export function recordPayment(request: { memberId: string; amount: string; day: string; method: PaymentMethod; note: string | null }): Promise<PayResult<{ payment: PaymentView }>> {
+/** Record a payment (ruling 2): the amount as typed, "300.00", and what the page saw of their payments (`paymentsSeen`). PAYMENT_RECORD_FAILED: it may or may not have landed. */
+export function recordPayment(request: { memberId: string; amount: string; day: string; method: PaymentMethod; note: string | null; seen: number }): Promise<PayResult<{ payment: PaymentView }>> {
   return call(
     '/api/admin/payments',
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request) },

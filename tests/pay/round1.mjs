@@ -60,7 +60,8 @@ const cases = [
   ['owed $300, paying $500, nothing waiting', standing(30_000), 50_300],
   ['owed $300, paying $500, 1 cleaning with no amount', standing(30_000, 1), 50_300],
   ['settled, paying $83', standing(0), 8_300],
-  ['overpaid $20, paying $53', standing(-2_000), 5_300],
+  ['paid ahead $20, paying $53', standing(-2_000), 5_300],
+  ['paid ahead $20, 1 cleaning with no amount, paying $10', standing(-2_000, 1), 1_000],
   ['settled, 3 cleanings with no amount, paying $0.01', standing(0, 3), 1],
 ];
 for (const [label, pay, cents] of cases) {
@@ -72,14 +73,15 @@ check(checks.recordQuestions(standing(30_000, 2, 1), 30_000, 'Test Ana').length 
 check(/balance of \$300\.00 owed does not include them/.test(checks.recordQuestions(standing(30_000, 2, 1), 30_000, 'Test Ana')[0].lines[1]), 'K1 says the balance does not include them');
 check(checks.recordQuestions(standing(30_000), 50_300, 'Test Ana')[0].title === 'This pays $203.00 more than Test Ana is owed. Record it as an advance?', 'K2 in Kian\'s words, $X the amount above the balance');
 check(checks.recordQuestions(standing(30_000, 1), 50_300, 'Test Ana').map((x) => x.confirm).join(',') === 'Record anyway,Record as an advance', 'both: K1 first, then K2');
-check(checks.recordQuestions(standing(-2_000), 5_300, 'Test Ana')[0].title.startsWith('This pays $53.00 more'), 'overpaid already: the whole payment is above what is owed');
+check(checks.recordQuestions(standing(-2_000), 5_300, 'Test Ana')[0].title.startsWith('This pays $53.00 more'), 'paid ahead already: the whole payment is above what is owed');
+check(checks.recordQuestions(standing(-2_000, 1), 1_000, 'Test Ana')[0].lines[1] === 'The balance, paid ahead $20.00, does not include them.', 'a balance below zero reads "paid ahead" in K1 (Kian\'s ruling of 2026-11-01)');
 
 // ═══ 2. K3: the delete refusal ═══
 console.log('\n═══ 2. Deleting a member: refused with a balance (2026-10-15), with records that cannot be read, or with anything not counted (K3) ═══');
 for (const [label, pay, uncertain] of [
   ['settled, nothing waiting', standing(0), 0],
   ['owed $12.50', standing(1_250), 0],
-  ['overpaid $5.00 and 1 cleaning with no amount', standing(-500, 1), 0],
+  ['paid ahead $5.00 and 1 cleaning with no amount', standing(-500, 1), 0],
   ['settled, 1 record not in shape', standing(0), 1],
   ['settled, 1 entry that cannot add up', standing(0, 0, 0, 1), 0],
   ['settled, 2 cleanings with no amount', standing(0, 2), 0],

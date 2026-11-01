@@ -117,8 +117,9 @@ const read = status.calendarFactsOf(snapshot, TODAY);
 for (const [id, f] of Object.entries(read.properties)) console.log(`  ${id}: ${f.status} · next checkout ${f.nextCheckout ?? '-'}`);
 check(read.properties[P(1)].nextCheckout === '2026-10-19', 'the soonest reservation ending today or later; a block is not a checkout');
 check(read.properties[P(2)].status === 'failed' && read.properties[P(2)].nextCheckout === '2026-10-17', 'a calendar not read keeps its last good read; a checkout today counts');
-// Eight chips since Kian's ruling R3 of 2026-10-19 added "Not marked" beside "Needs a cleaner" (seven before).
-check(home.CHIPS.length === 8 && status.calendarFactsOf(null, TODAY).refreshedAt === null, 'no copy: nothing known');
+// Nine chips: Kian's ruling R3 of 2026-10-19 added "Not marked" beside "Needs a cleaner" (seven before), and Phase 3
+// (2026-11-01) "Extra asked" beside it.
+check(home.CHIPS.length === 9 && status.calendarFactsOf(null, TODAY).refreshedAt === null, 'no copy: nothing known');
 
 
 // ═══ 6. No calendar (Kian's ruling G of 2026-11-01, replacing the "Not on Airbnb" rule of the same day) ═══
@@ -140,5 +141,30 @@ for (const [label, f] of cases6) {
 check([0, 1].every((i) => seen6[i].cell.label === 'No calendar' && seen6[i].cell.tone === 'none' && seen6[i].view.step.key === 'none' && !seen6[i].view.under.calendar), 'no link: the cell reads "No calendar" in grey; no Calendar not read step; never under the chip');
 check(seen6[2].cell.label === 'Calendar not read' && seen6[2].cell.tone === 'warning' && seen6[2].view.step.key === 'calendar' && seen6[2].view.under.calendar, 'a set link that failed: "Calendar not read", step and chip');
 check(seen6[3].cell.label === 'No turnover' && !seen6[3].view.under.calendar, 'a link read: as before');
+
+// ═══ 7. Extra asked (Kian's ruling F of 2026-11-01; Phase 3, 2026-11-01) ═══
+console.log('\n═══ 7. Extra asked: a step and a chip, any day, linking to the decision ═══');
+const ex = (id, day, cleanerName = 'Test Ana') => ({ cleaningId: id, day, cleanerName });
+const cases7 = [
+  ['an extra asked 16 days ago (outside the jobs window)', facts(70, { extras: [ex('TESTCLEANING0070b', '2026-10-01')] })],
+  ['two extras: the earliest first', facts(71, { extras: [ex('TESTCLEANING0071b', '2026-10-15'), ex('TESTCLEANING0071a', '2026-10-09', null)] })],
+  ['an extra and a statement blocked: the extra first', facts(72, { status: due, hasReportFor: false, extras: [ex('TESTCLEANING0072a', '2026-10-12')] })],
+  ['an extra and a job not marked: not marked first', facts(73, { jobs: [job(P(73), '2026-10-15', [c('Test Ben')])], extras: [ex('TESTCLEANING0073a', '2026-10-12')] })],
+  ['no extras (none given): as before', facts(74)],
+];
+const seen7 = [];
+for (const [label, f] of cases7) {
+  const v = home.rowView(f);
+  seen7.push(v);
+  console.log(`  ${label}\n    ${show(v)}`);
+}
+check(seen7[0].step.key === 'extra' && seen7[0].step.label === 'Decide extra for Oct 1' && seen7[0].step.href === `/admin/costs?tab=cleanings&property=${P(70)}&from=2026-10-01&to=2026-10-01&cleaning=TESTCLEANING0070b` && seen7[0].under.extra && seen7[0].under.attention, 'an extra from any day: its step links to the cleaning on the Cleanings tab; under Extra asked and Needs attention');
+check(seen7[1].step.when === '2026-10-09' && seen7[1].step.title.includes('the cleaner asked') && seen7[1].step.title.includes('1 other extra too'), 'the earliest first, the others counted');
+check(seen7[2].step.key === 'extra' && seen7[2].under.blocked && seen7[2].under.extra, 'before Add Report For name; both chips');
+check(seen7[3].step.key === 'not-marked' && seen7[3].under.extra && seen7[3].chipSteps.extra?.href === `/admin/costs?tab=cleanings&property=${P(73)}&from=2026-10-12&to=2026-10-12&cleaning=TESTCLEANING0073a`, 'after Not marked; still under Extra asked, where the row shows the extra\'s step');
+check(Object.keys(seen7[0].chipSteps).length === 0 && Object.keys(seen7[4].chipSteps).length === 0, 'a row whose Next step is the extra, or with none, shows its own step under the chip');
+check(seen7[4].step.key === 'none' && !seen7[4].under.extra, 'none: no step, no chip');
+check(home.CHIPS.map((x) => x.key).join(',') === 'attention,blocked,ready,review,cleaner,not-marked,extra,calendar,direct', 'the chip sits beside Not marked');
+
 console.log(`\n${failures === 0 ? 'all checks passed' : `${failures} check(s) FAILED`}`);
 if (failures) process.exitCode = 1;

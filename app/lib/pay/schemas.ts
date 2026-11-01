@@ -33,6 +33,12 @@ export const RecordPaymentSchema = z.strictObject({
   day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Write the day as yyyy-mm-dd'),
   method: z.enum(PAYMENT_METHODS),
   note: NoteSchema.optional().default(null),
+  /**
+   * What the page saw of this person's payments: the number of events in their payments' histories (each payment
+   * recorded is one, each delete one more). The record is refused when it differs, so a page loaded before another
+   * payment to them was recorded cannot pay them again unseen (Phase 3, 2026-11-01).
+   */
+  seen: z.number().int().min(0).max(1_000_000),
 });
 
 export const DeletePaymentSchema = z.strictObject({

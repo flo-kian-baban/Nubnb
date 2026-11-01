@@ -197,6 +197,8 @@ function AdminHome() {
     const { income, cleaning, calendar, today: day } = statusData;
     const jobs = new Map<string, HomeJob[]>();
     for (const job of cleaning.jobs) jobs.set(job.propertyId, [...(jobs.get(job.propertyId) ?? []), job]);
+    const extras = new Map<string, (typeof cleaning.extras)[number][]>();
+    for (const extra of cleaning.extras) extras.set(extra.propertyId, [...(extras.get(extra.propertyId) ?? []), extra]);
     return new Map<string, { income: IncomeStanding; cleaning: CleaningStanding; nextCheckout: string | null; view: RowView | null }>(
       properties.map((p) => {
         const hasCalendarLink = (p.icalUrl ?? "").trim() !== "";
@@ -214,7 +216,7 @@ function AdminHome() {
             nextCheckout: copy?.nextCheckout ?? null,
             view:
               status && withReportFor
-                ? rowView({ propertyId: p.id, today: day, status, hasReportFor: withReportFor.has(p.id), incomeMonth: income.month, review: income.properties[p.id]?.review ?? 0, direct: income.direct[p.id] ?? null, jobs: own, hasCalendarLink, calendarRead })
+                ? rowView({ propertyId: p.id, today: day, status, hasReportFor: withReportFor.has(p.id), incomeMonth: income.month, review: income.properties[p.id]?.review ?? 0, direct: income.direct[p.id] ?? null, jobs: own, hasCalendarLink, calendarRead, extras: extras.get(p.id) ?? [] })
                 : null,
           },
         ];
@@ -595,7 +597,7 @@ function AdminHome() {
                       <td className={styles.colFit}>{row ? <IncomeCell propertyId={p.id} standing={row.income} /> : <UnknownCell failed={statusFailed} />}</td>
                       <td className={styles.colFit}>{row && statusData ? <CleaningCell propertyId={p.id} standing={row.cleaning} today={statusData.today} /> : <UnknownCell failed={statusFailed} />}</td>
                       {/* The one most pressing action (Kian's rulings of 2026-10-17). */}
-                      <td className={styles.colFit}>{row?.view ? <NextStepCell step={row.view.step} /> : <UnknownCell failed={viewsFailed} />}</td>
+                      <td className={styles.colFit}>{row?.view ? <NextStepCell step={(chip && row.view.chipSteps[chip]) || row.view.step} /> : <UnknownCell failed={viewsFailed} />}</td>
                       {/* A click in this cell that misses a control does nothing: it is beside Delete. */}
                       <td className={`${styles.actionsCell} ${styles.colFit}`} onClick={(event) => event.stopPropagation()} title="">
                         <div className={styles.actionsFlex}>

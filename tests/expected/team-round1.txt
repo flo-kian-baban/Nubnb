@@ -4,19 +4,21 @@
   owed $300, paying $500, nothing waiting: "This pays $203.00 more than Test Ana is owed. Record it as an advance?" / Test Ana is owed $300.00; this payment is $503.00. / [Record as an advance]
   owed $300, paying $500, 1 cleaning with no amount: "Record this payment while Test Ana's pay is not all counted?" / 1 cleaning has no amount yet. / The balance of $300.00 owed does not include them. / [Record anyway] THEN "This pays $203.00 more than Test Ana is owed. Record it as an advance?" / Test Ana is owed $300.00; this payment is $503.00. / [Record as an advance]
   settled, paying $83: "This pays $83.00 more than Test Ana is owed. Record it as an advance?" / Test Ana is owed nothing; this payment is $83.00. / [Record as an advance]
-  overpaid $20, paying $53: "This pays $53.00 more than Test Ana is owed. Record it as an advance?" / Test Ana is already overpaid by $20.00; this payment is $53.00. / [Record as an advance]
+  paid ahead $20, paying $53: "This pays $53.00 more than Test Ana is owed. Record it as an advance?" / Test Ana is already paid ahead by $20.00; this payment is $53.00. / [Record as an advance]
+  paid ahead $20, 1 cleaning with no amount, paying $10: "Record this payment while Test Ana's pay is not all counted?" / 1 cleaning has no amount yet. / The balance, paid ahead $20.00, does not include them. / [Record anyway] THEN "This pays $10.00 more than Test Ana is owed. Record it as an advance?" / Test Ana is already paid ahead by $20.00; this payment is $10.00. / [Record as an advance]
   settled, 3 cleanings with no amount, paying $0.01: "Record this payment while Test Ana's pay is not all counted?" / 3 cleanings have no amount yet. / The balance of $0.00, settled, does not include them. / [Record anyway] THEN "This pays $0.01 more than Test Ana is owed. Record it as an advance?" / Test Ana is owed nothing; this payment is $0.01. / [Record as an advance]
    ok   nothing waiting and not above the balance: no question
    ok   K1 names the counts
    ok   K1 says the balance does not include them
    ok   K2 in Kian's words, $X the amount above the balance
    ok   both: K1 first, then K2
-   ok   overpaid already: the whole payment is above what is owed
+   ok   paid ahead already: the whole payment is above what is owed
+   ok   a balance below zero reads "paid ahead" in K1 (Kian's ruling of 2026-11-01)
 
 ═══ 2. Deleting a member: refused with a balance (2026-10-15), with records that cannot be read, or with anything not counted (K3) ═══
   settled, nothing waiting: may be deleted
   owed $12.50: MEMBER_HAS_BALANCE — Test Ana's balance is $12.50 owed, so they cannot be deleted. Deactivate them instead. Nothing was deleted.
-  overpaid $5.00 and 1 cleaning with no amount: MEMBER_HAS_BALANCE — Test Ana's balance is $5.00 overpaid, and 1 cleaning has no amount yet, so they cannot be deleted. Deactivate them instead. Nothing was deleted.
+  paid ahead $5.00 and 1 cleaning with no amount: MEMBER_HAS_BALANCE — Test Ana's balance is paid ahead $5.00, and 1 cleaning has no amount yet, so they cannot be deleted. Deactivate them instead. Nothing was deleted.
   settled, 1 record not in shape: MEMBER_HAS_BALANCE — Test Ana's balance cannot be worked out (1 record cannot be read), so they cannot be deleted. Deactivate them instead. Nothing was deleted.
   settled, 1 entry that cannot add up: MEMBER_HAS_BALANCE — Test Ana's balance cannot be worked out (1 record cannot be read), so they cannot be deleted. Deactivate them instead. Nothing was deleted.
   settled, 2 cleanings with no amount: MEMBER_HAS_OUTSTANDING — Test Ana: 2 cleanings have no amount yet, so they cannot be deleted. Deactivate them instead. Nothing was deleted.

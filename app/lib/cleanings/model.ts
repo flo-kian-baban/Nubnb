@@ -404,6 +404,15 @@ export function isCleaning(entry: { kind: string }): boolean {
   return entry.kind === 'cleaning';
 }
 
+/**
+ * The Cleanings tab opened on one cleaning: its property and day, the cleaning in view. Where an extra asked is decided
+ * (Kian's ruling F of 2026-11-01): the home's "Extra asked" step and the pay view link here.
+ */
+export function cleaningHref(propertyId: string, day: string, cleaningId: string): string {
+  const enc = encodeURIComponent;
+  return `/admin/costs?tab=cleanings&property=${enc(propertyId)}&from=${day}&to=${day}&cleaning=${enc(cleaningId)}`;
+}
+
 /** "$65.00": a cents amount as an input field holds it, no sign or comma ("65.00"). */
 export function amountField(cents: number): string {
   return (cents / 100).toFixed(2);

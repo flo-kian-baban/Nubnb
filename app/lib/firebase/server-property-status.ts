@@ -41,11 +41,21 @@ export function calendarFactsOf(snapshot: AvailabilitySnapshot | null, today: st
   return { refreshedAt: snapshot?.refreshedAt ?? null, properties };
 }
 
+/** A cleaning whose extra ask waits for the office (Kian's ruling F of 2026-11-01), however long ago it was cleaned. */
+export interface ExtraAsked {
+  cleaningId: string;
+  propertyId: string;
+  /** The day cleaned. */
+  day: string;
+  cleanerName: string | null;
+}
+
 export interface PropertyStatusRead {
   /** Toronto. */
   today: string;
   income: IncomeRead;
-  cleaning: { from: string; to: string; jobs: HomeJob[] };
+  /** `extras`: every extra asked not yet decided, read on its own (not by the jobs' 14-day window), so an ask from early in the month is still on the home at its end. */
+  cleaning: { from: string; to: string; jobs: HomeJob[]; extras: ExtraAsked[] };
   /** The last calendar copy, as the list needs it. */
   calendar: { refreshedAt: string | null; properties: Record<string, CalendarFacts> };
   /** Documents not in a written shape: left out, never guessed at. */
@@ -60,7 +70,7 @@ export async function readPropertyStatus(now: Date = new Date()): Promise<Proper
   const month = openingMonth(lastClosedMonth(today), monthOfDay(today));
   const from = addDays(today, -COLUMN_DAYS_BACK);
   const to = addDays(today, COLUMN_DAYS_AHEAD);
-  const [uploadsSnap, linesSnap, linksSnap, jobsSnap, arrangementsSnap, paymentsSnap, snapshot] = await Promise.all([
+  const [uploadsSnap, linesSnap, linksSnap, jobsSnap, arrangementsSnap, paymentsSnap, snapshot, extrasSnap] = await Promise.all([
     db.collection(EARNINGS_UPLOADS_COLLECTION).where('month', '==', month).get(),
     db.collection(EARNINGS_LINES_COLLECTION).where('month', '==', month).get(),
     db.collection(EARNINGS_TITLE_LINKS_COLLECTION).get(),
@@ -68,6 +78,8 @@ export async function readPropertyStatus(now: Date = new Date()): Promise<Proper
     db.collection(DIRECT_ARRANGEMENTS_COLLECTION).get(),
     db.collection(DIRECT_PAYMENTS_COLLECTION).get(),
     readCurrent(db),
+    // Only the extras still asked: one read each (one when there are none), the four fields the home needs.
+    db.collection(CLEANINGS_COLLECTION).where('extra.status', '==', 'asked').select('propertyId', 'day', 'status', 'cleanerNameAtEntry').get(),
   ]);
   let unreadable = 0;
   const strictly = <T>(docs: { id: string; data: () => Record<string, unknown> }[], read: (id: string, fields: Record<string, unknown>) => T | null, what: string): T[] => {
@@ -109,5 +121,21 @@ export async function readPropertyStatus(now: Date = new Date()): Promise<Proper
       }),
   );
 
-  return { today, income: { ...incomeReadOf({ month, uploads, lines, links }), direct }, cleaning: { from, to, jobs: jobs.map((job) => homeJobOf(job, cleanings)) }, calendar: calendarFactsOf(snapshot, today), unreadable };
+  // An extra waits only on a cleaning still logged: one removed has no money to decide.
+  const extras: ExtraAsked[] = [];
+  for (const doc of extrasSnap.docs) {
+    const propertyId: unknown = doc.get('propertyId');
+    const day: unknown = doc.get('day');
+    const name: unknown = doc.get('cleanerNameAtEntry');
+    if (doc.get('status') !== 'logged') continue;
+    if (typeof propertyId !== 'string' || typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+      unreadable += 1;
+      console.error(`[property-status] ${CLEANINGS_COLLECTION}/${doc.id} is not in the written shape; left out`);
+      continue;
+    }
+    extras.push({ cleaningId: doc.id, propertyId, day, cleanerName: typeof name === 'string' ? name : null });
+  }
+  extras.sort((a, b) => a.day.localeCompare(b.day) || a.cleaningId.localeCompare(b.cleaningId));
+
+  return { today, income: { ...incomeReadOf({ month, uploads, lines, links }), direct }, cleaning: { from, to, jobs: jobs.map((job) => homeJobOf(job, cleanings)), extras }, calendar: calendarFactsOf(snapshot, today), unreadable };
 }

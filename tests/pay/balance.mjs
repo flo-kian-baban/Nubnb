@@ -142,7 +142,7 @@ check(ben.cannotAddUp === 1 && ben.rows.find((r) => r.id === r7.id).detail === n
 console.log('\n═══ 3. Sam, a handyman: approved work, paid more than earned, an entry that cannot add up ═══');
 const sam = show('Sam, all time', SAM, sources);
 check(sam.earnedCents === 12000 && sam.parts.workCents === 12000, 'earned = the approved work');
-check(sam.balanceCents === -4000 && pay.balanceWords(sam.balanceCents).words === '$40.00 overpaid' && pay.balanceWords(sam.balanceCents).tone === 'overpaid', 'overpaid $40.00');
+check(sam.balanceCents === -4000 && pay.balanceWords(sam.balanceCents).words === 'Paid ahead $40.00' && pay.balanceWords(sam.balanceCents).tone === 'ahead', 'paid ahead $40.00');
 check(sam.cannotAddUp === 1 && sam.rows.find((r) => r.id === w2.id).earnedCents === null, 'the entry that cannot add up is counted nowhere, and counted apart');
 check(sam.rows.find((r) => r.id === w3.id).amber, 'work removed after the payment that may have included it: amber');
 
@@ -191,7 +191,7 @@ for (const amount of ['300.00', '0.50', '999999.99', '300', '0.00', '1000000.00'
   const parsed = schemas.PaymentAmountSchema.safeParse(amount);
   console.log(`   amount "${amount}": ${parsed.success ? `${parsed.data} cents` : 'refused'}`);
 }
-const request = { memberId: ANA, amount: '300.00', day: '2026-10-20', method: 'e-transfer' };
+const request = { memberId: ANA, amount: '300.00', day: '2026-10-20', method: 'e-transfer', seen: 0 };
 for (const [label, body] of [
   ['no note', request],
   ['a note with spaces', { ...request, note: '  Sept   pay ' }],
@@ -199,6 +199,7 @@ for (const [label, body] of [
   ['a field beyond', { ...request, paidTo: 'someone' }],
   ['a cheque', { ...request, method: 'cheque' }],
   ['an ID with a slash', { ...request, memberId: 'a/b' }],
+  ['without what the page saw', { memberId: ANA, amount: '300.00', day: '2026-10-20', method: 'e-transfer' }],
 ]) {
   const parsed = schemas.RecordPaymentSchema.safeParse(body);
   console.log(`   ${label}: ${parsed.success ? `accepted, note ${JSON.stringify(parsed.data.note)}` : 'refused'}`);
