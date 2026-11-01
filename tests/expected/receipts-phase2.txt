@@ -1,0 +1,55 @@
+═══ 1. A purchase date before November 2026 is refused with "Statements start in November 2026" ═══
+  purchasedOnProblem(2026-10-31, today 2026-11-20) → "Statements start in November 2026"
+  purchasedOnProblem(2026-10-01, today 2026-11-20) → "Statements start in November 2026"
+  purchasedOnProblem(2026-11-01, today 2026-11-20) → null
+  purchasedOnProblem(2026-10-31, today 2028-11-20) → "Statements start in November 2026"
+  purchasedOnProblem(2026-11-01, today 2028-11-20) → "The date must be within the last 12 months"
+  purchasedOnProblem(2027-11-20, today 2028-11-20) → null
+  purchasedOnProblem(2028-11-21, today 2028-11-20) → "The date cannot be in the future"
+  purchasedOnProblem(2026-02-30, today 2026-11-20) → "Not a real calendar date"
+   ok   October 2026, inside the 12 months, is refused with the first statement month
+   ok   two years on, a date before November 2026 still reads "Statements start in November 2026", not the 12-month window
+   ok   1 November 2026 is accepted
+   ok   the 12-month window holds as before after the floor
+   ok   a future day and a day that does not exist are refused as before
+  parseEntryPart(purchasedOn 2026-10-31) → {"kind":"invalid","issues":[{"path":"purchasedOn","message":"Statements start in November 2026"}]}
+   ok   the entry route refuses it as a 422 on purchasedOn, before any photo is stored
+   ok   no purchase date at all (what the app sends) is accepted
+═══ 2. A possible second send is flagged on the new receipt, never refused ═══
+  the same photo as an approved receipt, another amount: approved (approved automatically) · stored photoSha256 as sent · sentTotalCents 1500 · possibleDuplicates [same-photo → TESTENTRYearlierphoto]
+   ok   the same photo is flagged, whatever the amount
+  the same photo as a rejected receipt: approved (approved automatically) · stored photoSha256 as sent · sentTotalCents 1111 · possibleDuplicates (absent)
+   ok   a rejected earlier receipt is not counted: no flag
+  the same total, same unit, sent 20 days before: approved (approved automatically) · stored photoSha256 as sent · sentTotalCents 4720 · possibleDuplicates (absent)
+   ok   the same total from longer than 14 days ago is not flagged
+  the same total as a receipt for another unit: approved (approved automatically) · stored photoSha256 as sent · sentTotalCents 9999 · possibleDuplicates (absent)
+   ok   the same total for another property is not flagged
+  the same total, same unit, 2 days before, another photo: pending · stored photoSha256 as sent · sentTotalCents 24857 · possibleDuplicates [same-amount → TESTENTRYearlierphoto]
+   ok   the same total for the same property within the window is flagged (the photo taken again)
+  the same total as a pending receipt by another cleaner, same unit: approved (approved automatically) · stored photoSha256 as sent · sentTotalCents 6050 · possibleDuplicates [same-amount → TESTENTRYpendingamt01]
+   ok   a pending earlier receipt counts, whoever sent it
+  the same total as a removed receipt: approved (approved automatically) · stored photoSha256 as sent · sentTotalCents 7070 · possibleDuplicates (absent)
+   ok   a removed earlier receipt is not counted
+  the same total as a handyman's work on the unit: approved (approved automatically) · stored photoSha256 as sent · sentTotalCents 3030 · possibleDuplicates (absent)
+   ok   work is not a receipt: no flag
+  both the same photo and the same total as one receipt: pending · stored photoSha256 as sent · sentTotalCents 24857 · possibleDuplicates [same-photo → the same photo as an approved receipt, another amount, same-photo → TESTENTRYearlierphoto, same-amount → the same total, same unit, 2 days before, another photo]
+   ok   one hint per earlier receipt (the receipts sent above match too), the photo ones first
+   ok   a flagged receipt under $200.00 is still approved automatically (approved); one of $200.00 or more waits (pending)
+═══ 3. A check that cannot be made writes the receipt, unflagged ═══
+  the same photo again, the check failing: approved (approved automatically) · stored photoSha256 as sent · sentTotalCents 1500 · possibleDuplicates (absent)
+  logged: ["[cost-entries] duplicate check not made: grpc code 14"]
+   ok   the receipt is written; no flag; the failure is logged by its code
+═══ 4. The flag read back and in words ═══
+  readCostEntryFields(…).possibleDuplicates → [{"entryId":"TESTENTRYearlierphoto","why":"same-photo","sentAt":"2028-11-20T15:03:10.067Z"}]
+   ok   a hint not in the written shape is left out
+   ok   an entry with none carries no key at all (every older entry reads as before)
+  same-photo, sent 2028-11-20T15:03:10.067Z → "Same photo as the receipt sent 20 Nov 2028" · /admin/costs?entry=E1&status=all
+  same-amount, sent 2028-12-01T04:30:02.939Z → "Same amount, same unit, as the receipt sent 30 Nov 2028" · /admin/costs?entry=E2&status=all
+  same-amount, sent null → "Same amount, same unit, as the receipt" · /admin/costs?entry=E3&status=all
+   ok   the day is Toronto's: 04:30 UTC on 1 December is 30 November
+   ok   duplicateHints reads absent as none
+═══ 5. "Mark these n seen" leaves a possible duplicate out ═══
+  of U1, U2, U3 the bulk Seen sends U1, U3
+   ok   the flagged one is left for an admin to open (the page filters as here: page.tsx onMarkAll)
+
+all checks passed

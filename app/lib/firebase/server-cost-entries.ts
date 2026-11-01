@@ -110,7 +110,7 @@ import { isDocumentId } from './server-leads';
 import { cleanerFacingNamesOf, internalNameOf, listCleanerFacingNames } from './server-property-names';
 import type { ReadingAttachment } from '@/app/lib/cleaners/readings';
 import { byLedgerDay, inRange, ledgerDay } from '@/app/lib/costs/report';
-import { MONTHLY_REPORTS_COLLECTION, STATEMENTS_FROM_DEFAULT, currentReports, monthLabel, readMonthlyReport } from '@/app/lib/reports/model';
+import { MONTHLY_REPORTS_COLLECTION, STATEMENTS_FROM_DEFAULT, beforeStatementsLine, currentReports, monthLabel, readMonthlyReport } from '@/app/lib/reports/model';
 import { windowStart } from '@/app/lib/costs/patterns';
 import { receiptThumbLink } from '@/app/lib/cleaners/receipts';
 import {
@@ -126,6 +126,7 @@ import {
   COST_REPORT_EXPORTS_COLLECTION,
   COST_REPORT_EXPORT_SCHEMA_VERSION,
   CURRENCY,
+  DUPLICATE_HINTS,
   ENTRY_TIME_ZONE,
   LIMITS,
   OFFICE_APPROVAL_REASON,
@@ -148,6 +149,7 @@ import {
   type CostEntryFields,
   type CostEntryView,
   type CostsView,
+  type DuplicateHint,
   type HistoryEvent,
   type HistoryEventView,
   type QueueView,
@@ -246,10 +248,14 @@ export function monthsBefore(day: string, months: number): string {
 
 /**
  * Why a purchase date is refused, or null. It must be a real day, no later
- * than today and no earlier than 12 months before today, on the Toronto
- * calendar (Kian's ruling of 2026-09-30; before it, anything from 2020 to
- * tomorrow UTC was taken). Wherever a purchase date is entered, it comes
- * through this schema, so the rule holds everywhere.
+ * than today, not before the first statement month (Kian's rule of
+ * 2026-11-01, Phase 2: a cost dated before November 2026 is refused with
+ * "Statements start in November 2026", and nothing is written), and no
+ * earlier than 12 months before today, on the Toronto calendar (Kian's
+ * ruling of 2026-09-30; before it, anything from 2020 to tomorrow UTC was
+ * taken). The first statement month is said before the 12 months, so a date
+ * before it reads the same on any day. Wherever a purchase date is entered,
+ * it comes through this schema, so the rule holds everywhere.
  */
 export function purchasedOnProblem(value: string, now: Date = new Date()): string | null {
   const match = ISO_DATE.exec(value);
@@ -262,6 +268,8 @@ export function purchasedOnProblem(value: string, now: Date = new Date()): strin
 
   const today = dayIn(ENTRY_TIME_ZONE, now);
   if (value > today) return 'The date cannot be in the future';
+  const before = beforeStatementsLine(value.slice(0, 7));
+  if (before !== null) return before;
   const earliest = monthsBefore(today, LIMITS.PURCHASED_ON_MONTHS_BACK);
   if (value < earliest) return `The date must be within the last ${LIMITS.PURCHASED_ON_MONTHS_BACK} months`;
   return null;
@@ -670,6 +678,50 @@ function refuseDuplicate(sent: DocumentSnapshot): void {
   throw new DuplicateSubmissionError(first);
 }
 
+/** A status under which an earlier receipt counts, or may: a second send of a rejected or removed one is not doubled money. */
+const COUNTS_OR_MAY = new Set(['pending', 'approved']);
+
+/**
+ * The earlier receipts a new one may be a second send of (Phase 2, 2026-11-01): one whose stored photo has the same
+ * bytes (any property, any time), or one with the same total as sent for the same property, sent in the last
+ * DUPLICATE_HINTS.WINDOW_DAYS days; pending or approved only. Two equality queries on single fields, written on new
+ * receipts since this rule (`photoSha256`, `sentTotalCents`), each read field-masked and capped at SCAN_MAX documents,
+ * so the cost is about two reads when nothing matches. Read before the write's transaction, so no earlier entry is
+ * held by it. A read that fails is logged and gives no hint: the flag never stops a receipt from being recorded.
+ */
+async function findPossibleDuplicates(input: { propertyId: string; sha256: string; sentTotalCents: number; nowMs: number }): Promise<DuplicateHint[]> {
+  const { propertyId, sha256, sentTotalCents, nowMs } = input;
+  try {
+    const entries = getAdminDb().collection(COST_ENTRIES_COLLECTION);
+    const fields = ['kind', 'status', 'propertyId', 'createdAt'];
+    const [samePhoto, sameAmount] = await Promise.all([
+      entries.where('photoSha256', '==', sha256).select(...fields).limit(DUPLICATE_HINTS.SCAN_MAX).get(),
+      entries.where('sentTotalCents', '==', sentTotalCents).select(...fields).limit(DUPLICATE_HINTS.SCAN_MAX).get(),
+    ]);
+    const since = nowMs - DUPLICATE_HINTS.WINDOW_DAYS * 86_400_000;
+    const counts = (doc: DocumentSnapshot) => {
+      const kind = doc.get('kind');
+      return (kind === undefined || kind === null || kind === 'receipt') && COUNTS_OR_MAY.has(String(doc.get('status')));
+    };
+    const hints = new Map<string, DuplicateHint>();
+    for (const doc of samePhoto.docs) {
+      if (counts(doc)) hints.set(doc.id, { entryId: doc.id, why: 'same-photo', sentAt: fieldText(doc.get('createdAt')) });
+    }
+    for (const doc of sameAmount.docs) {
+      if (hints.has(doc.id) || !counts(doc) || doc.get('propertyId') !== propertyId) continue;
+      const sentAt = fieldText(doc.get('createdAt'));
+      const at = sentAt === null ? Number.NaN : Date.parse(sentAt);
+      if (Number.isFinite(at) && at >= since && at <= nowMs) hints.set(doc.id, { entryId: doc.id, why: 'same-amount', sentAt });
+    }
+    return [...hints.values()]
+      .sort((a, b) => (a.why === b.why ? 0 : a.why === 'same-photo' ? -1 : 1) || String(b.sentAt).localeCompare(String(a.sentAt)))
+      .slice(0, DUPLICATE_HINTS.HINTS_MAX);
+  } catch (err) {
+    console.error(`[cost-entries] duplicate check not made: grpc code ${grpcCode(err)}`);
+    return [];
+  }
+}
+
 /**
  * Write one entry, in a transaction that first re-reads the cleaner: they
  * must exist, be active, and be on the session epoch the token carries.
@@ -690,6 +742,10 @@ export async function createCostEntry(input: NewCostEntry): Promise<CostEntryCre
   const { entryRef, cleanerId, sessionEpoch, entry, propertyNameAtEntry, receipt, reading } = input;
   let createdAt = '';
   let autoApprovedOut = false;
+  // The rule (dispatch 24): the entry as sent, lines plus tax.
+  const sentTotalCents = entry.lines.reduce((sum, line) => sum + line.lineTotalCents, 0) + (entry.tax ?? 0);
+  // Phase 2 (2026-11-01): a possible second send of a receipt already held is flagged for the admin, never refused.
+  const possibleDuplicates = await findPossibleDuplicates({ propertyId: entry.propertyId, sha256: receipt.sha256, sentTotalCents, nowMs: Date.now() });
 
   try {
     const db = getAdminDb();
@@ -714,7 +770,6 @@ export async function createCostEntry(input: NewCostEntry): Promise<CostEntryCre
       };
 
       // The rule (dispatch 24): the entry as sent, lines plus tax, strictly under the threshold.
-      const sentTotalCents = entry.lines.reduce((sum, line) => sum + line.lineTotalCents, 0) + (entry.tax ?? 0);
       const autoApprove = sentTotalCents < LIMITS.AUTO_APPROVE_UNDER_CENTS;
       const approved: HistoryEvent = {
         at: now,
@@ -760,6 +815,10 @@ export async function createCostEntry(input: NewCostEntry): Promise<CostEntryCre
         statusReason: null,
         history: autoApprove ? [submitted, approved] : [submitted],
         autoApproved,
+        // Phase 2 (2026-11-01): what a later receipt is compared with, and what this one was found to match.
+        photoSha256: receipt.sha256,
+        sentTotalCents,
+        ...(possibleDuplicates.length > 0 ? { possibleDuplicates } : {}),
       });
       tx.create(sentRef, {
         schemaVersion: COST_ENTRY_SUBMISSION_SCHEMA_VERSION,
@@ -1046,6 +1105,7 @@ function toView(
     autoApproved: entry.autoApproved,
     month: entry.month,
     paidWith: entry.paidWith,
+    ...(entry.possibleDuplicates ? { possibleDuplicates: entry.possibleDuplicates } : {}),
   };
 }
 

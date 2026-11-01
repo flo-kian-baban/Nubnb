@@ -85,7 +85,7 @@
 
 .row {
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) auto 96px;
+  grid-template-columns: 40px minmax(0, 1fr) auto auto 96px;
   align-items: center;
   gap: 14px;
   width: 100%;
@@ -138,4 +138,21 @@
 
 .pane {
   padding: 4px 14px 14px;
+}
+
+/* A possible second send of a receipt already held (Phase 2, 2026-11-01): counted in the head, marked on its row. */
+.dupCount {
+  color: #ef5350;
+  font-weight: 600;
+}
+.dupMark {
+  display: inline-flex;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: #ef5350;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
 }

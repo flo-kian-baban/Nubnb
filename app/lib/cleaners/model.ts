@@ -450,6 +450,31 @@ export const SYSTEM_ACTOR: Actor = { role: 'system', id: null, name: 'auto-appro
 export const AUTO_APPROVAL_REASON = 'Under $200.00: approved automatically';
 
 /**
+ * A receipt the server takes for a possible second send of one it already holds (Phase 2, 2026-11-01): written on
+ * the new entry when it is created, never on an older one and never later. `same-photo`: the stored photo's bytes are
+ * the bytes of an earlier receipt's photo (SHA-256), any property, any time. `same-amount`: the same total as sent
+ * (lines plus tax) for the same property within DUPLICATE_HINTS.WINDOW_DAYS days before. Only an earlier entry that is
+ * pending or approved counts. It is a flag for the admin, not a refusal: the entry is written all the same.
+ */
+export interface DuplicateHint {
+  entryId: string;
+  why: 'same-photo' | 'same-amount';
+  /** When the earlier receipt was sent, as stored. */
+  sentAt: string | null;
+}
+
+export const DUPLICATE_HINTS = {
+  /** How far back a same-amount match for the same property looks, in days. */
+  WINDOW_DAYS: 14,
+  /** At most this many documents read per check; at most HINTS_MAX hints written. */
+  SCAN_MAX: 50,
+  HINTS_MAX: 5,
+} as const;
+
+/** A stored hint as read back; anything not in the written shape is left out. */
+export type DuplicateHintView = DuplicateHint;
+
+/**
  * What an entry approved automatically records about the rule it met
  * (dispatch 24): on every new entry, this map or null. A threshold that
  * changes later confuses nothing.
@@ -703,6 +728,8 @@ export interface CostEntryFields {
   month: string | null;
   /** Who paid for a receipt (2026-10-15): `team-member` when the document has none; anything else as stored. */
   paidWith: string;
+  /** The earlier receipts this one may be a second send of (Phase 2, 2026-11-01); absent when there are none. */
+  possibleDuplicates?: DuplicateHintView[];
 }
 
 /**
@@ -751,6 +778,8 @@ export interface CostEntryView {
   month: string | null;
   /** Who paid for a receipt (Kian's ruling of 2026-10-15): `team-member`, or `nubnb-card`, which is not owed to them; anything else as stored. */
   paidWith: string;
+  /** The earlier receipts this one may be a second send of (Phase 2, 2026-11-01): a flag for the admin; absent when there are none. */
+  possibleDuplicates?: DuplicateHintView[];
 }
 
 /**
@@ -1253,7 +1282,20 @@ export function readCostEntryFields(id: string, fields: Record<string, unknown>)
     month: typeof fields.month === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(fields.month) ? fields.month : null,
     // Absent means the team member paid (2026-10-15), on every entry written before the field existed.
     paidWith: fields.paidWith === undefined || fields.paidWith === null ? 'team-member' : fieldText(fields.paidWith) ?? 'team-member',
+    // Written on a new receipt only when the server found a possible earlier send (Phase 2, 2026-11-01).
+    ...readDuplicateHints(fields.possibleDuplicates),
   };
+}
+
+/** `possibleDuplicates` as stored, or nothing at all when there are none: a hint must name an entry and say why. */
+function readDuplicateHints(value: unknown): { possibleDuplicates?: DuplicateHintView[] } {
+  if (!Array.isArray(value)) return {};
+  const hints = value
+    .map(asMap)
+    .filter((hint): hint is Record<string, unknown> => hint !== null)
+    .filter((hint) => typeof hint.entryId === 'string' && (hint.why === 'same-photo' || hint.why === 'same-amount'))
+    .map((hint) => ({ entryId: hint.entryId as string, why: hint.why as DuplicateHint['why'], sentAt: fieldText(hint.sentAt) }));
+  return hints.length > 0 ? { possibleDuplicates: hints } : {};
 }
 
 function readReportExportEntry(value: unknown): ReportExportEntryView {

@@ -4791,3 +4791,62 @@ Airbnb's file due; the month's statement is what falls due, in the Statement col
 - No link with the mark: the cell reads "Not on Airbnb" in grey, with no step and no chip.
 - No link without the mark, or the mark not passed: "Calendar not read", step and chip.
 - A link, read or not, with the mark: as before.
+
+## 63. Phase 2, receipts and work: the first statement month on a purchase date, and a receipt sent twice flagged (2026-11-01)
+
+Kian's dispatch of 2026-11-01 ("Phase 2 — Receipts and work"): every purchase and every handyman job recorded once,
+with its photo, on the right property and month; an admin checks it; it reaches the right statement and the right
+person's pay. Its definition of done holds two rules in his words, built here:
+
+- "A cost dated before November 2026 is refused with "Statements start in November 2026". Refusal only, nothing
+  written."
+- "The same receipt submitted twice is flagged to the admin."
+
+**63.1 The purchase date.** `purchasedOnProblem` (server-cost-entries.ts) refuses a day before the first statement month
+with `beforeStatementsLine`'s words, "Statements start in November 2026", the same sentence a direct payment gets (Kian's
+rule of 2026-11-01). It is checked after "a real day" and "not in the future" and before the 12-month window, so a date
+before November 2026 reads the same on any day; once a year has passed, the 12 months refuse later dates as before.
+The entry route parses the entry before anything is stored, so the refusal is a 422 on `purchasedOn` with no upload and
+no write. The cleaner app does not ask for a purchase date (ruling 4 of 2026-10-16), so this is the route's rule for
+any sender. A handyman's work has no date. The office cost's month check is unchanged and still says "Statements begin
+with November 2026" (the fresh start's check records those words).
+
+**63.2 The month a receipt belongs to (reported, not changed).** `entryMonth` (costs/report.ts): a receipt or a piece of
+work belongs to the month of the Toronto day it was sent; the purchase date, when one is given, is stored and never moves
+it. A purchase of 30 November sent at 23:30 on 30 November goes on November's statement; sent at 00:30 on 1 December,
+on December's.
+
+**63.3 The flag.** On a new receipt, before its write's transaction, `findPossibleDuplicates` asks two equality
+questions of `cost_entries` (single-field indexes, no composite index): the same photo bytes (`photoSha256`, any property,
+any time) and the same total as sent (`sentTotalCents`, lines plus tax; the same property, sent in the last 14 days).
+Only an earlier receipt that is pending or approved counts: a second send of a rejected or removed one is not doubled
+money, and work never counts. What it finds is written on the new entry as `possibleDuplicates: [{ entryId, why:
+'same-photo' | 'same-amount', sentAt }]` (at most five, the photo ones first), and every new receipt now carries
+`photoSha256` and `sentTotalCents`. Nothing is refused and nothing else changes: the status follows the $200.00 rule as
+before. A question that fails is logged by its code and the receipt is written unflagged. About two reads a receipt
+when nothing matches. New entries only; no existing document is written (no receipt existed when it was built).
+
+- **The admin sees it** in the queue's row ("Possible duplicate", the earlier receipt in its title), in the entry's
+  pane ("Possible duplicate: Same photo as the receipt sent 20 Nov 2028. Open it", a link to that entry at any status),
+  and in "Approved automatically, not yet looked at": the head counts them ("1 possible duplicate") and each row is
+  marked.
+- **"Mark these n seen" leaves a flagged entry out**: an approved duplicate counts on the statement and in pay, so it is
+  opened and decided one by one, as the Income page holds possible duplicates back from its one-pass accept (Kian's
+  ruling K1 of 2026-10-17). My decision, in the precedent's terms; reversible.
+- **The words** live in `app/lib/costs/duplicates.ts` (client-safe, pure). The view carries `possibleDuplicates` only when
+  there are some, so every other entry reads as before.
+
+**63.4 Held for Kian.**
+1. A handyman cannot attach a photo or materials: the work screen has "Work done" and "Price" only (dispatch 24), and the
+   receipt route refuses a handyman. Recommendation: a handyman adds materials through the cleaner's receipt screen
+   (photo, reading, items, tax), always waiting for approval as work does, owed to them unless paid with Nubnb's card;
+   labour stays a work entry.
+2. A flagged receipt under $200.00 is still approved automatically and counts until an admin opens it. Recommendation:
+   a receipt the server flags waits for a decision instead. The dispatch's intent ("an admin checks it before it
+   counts") and the automatic approval of 2026-09-30 differ; which holds is his.
+
+**63.5 Verification (2026-11-01).** A local build reading production, every write through a guard that allowed only the
+test's own documents and photos, the server's clock in November and December 2028, Gemini answered by a local stand-in
+(no photo left the machine), a `__TEST__` admin, cleaners and a handyman on two Unlisted `__TEST__` properties. Phones at
+390 and 360. Opening and closing exports identical (499 documents); 58 test paths and 10 photos deleted by exact path;
+4,689 reads. Test: receipts-phase2.

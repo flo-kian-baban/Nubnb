@@ -187,6 +187,7 @@ import { AutoApprovals } from "./AutoApprovals";
 import { MonthTab } from "./MonthTab";
 import { statementMonthFor } from "@/app/lib/reports/statement";
 import { useAsk } from "../components/AskDialog";
+import { duplicateHints, duplicateWords } from "@/app/lib/costs/duplicates";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
 
@@ -1219,7 +1220,8 @@ function Costs() {
                 selectedId={selectedId}
                 onToggle={toggle}
                 marking={marking !== null}
-                onMarkAll={() => void markSeenMany(unseen)}
+                // A possible duplicate is left out of the bulk Seen (Phase 2, 2026-11-01): it is opened and decided one by one.
+                onMarkAll={() => void markSeenMany(unseen.filter((entry) => duplicateHints(entry).length === 0))}
                 pane={(entry) => (
                   <EntryPane
                     key={entry.id}
@@ -1387,6 +1389,12 @@ function EntryRow({
           {late && (
             <span className={styles.lateMark} title={`${monthLabel(late.own)}'s statement is finished: once approved, this goes on ${monthLabel(late.goes)}'s.`}>
               Late · goes on {monthLabel(late.goes)}
+            </span>
+          )}
+          {/* A possible second send of a receipt already held (Phase 2, 2026-11-01): which, in the pane. */}
+          {duplicateHints(entry).length > 0 && (
+            <span className={styles.dupMark} title={duplicateHints(entry).map(duplicateWords).join(" · ")}>
+              Possible duplicate
             </span>
           )}
         </span>

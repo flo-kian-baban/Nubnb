@@ -88,6 +88,7 @@ import {
   type ReviewStatus,
 } from "@/app/lib/cleaners/model";
 import { distributionText, splitText, type CleanerPattern } from "@/app/lib/costs/patterns";
+import { duplicateHints, duplicateHref, duplicateWords } from "@/app/lib/costs/duplicates";
 import {
   cleanerLabel,
   entryMonth,
@@ -449,6 +450,18 @@ export function EntryPane({ entry, pdf, pattern, statements, onChanged, onDelete
                 {unseen && " No admin has looked at it yet."}
               </p>
             )}
+            {/* A possible second send (Phase 2, 2026-11-01): each earlier receipt it matches, one line, with the way to it. */}
+            {duplicateHints(entry).map((hint) => (
+              <p key={hint.entryId} className={styles.dupNote}>
+                <AlertTriangle size={14} aria-hidden />
+                <span>
+                  Possible duplicate: {duplicateWords(hint)}.{" "}
+                  <Link href={duplicateHref(hint)} prefetch={false} className={styles.linkButton}>
+                    Open it
+                  </Link>
+                </span>
+              </p>
+            ))}
             {entry.status === "rejected" && (
               <p className={styles.reasonText}>
                 Reason, as the cleaner sees it: <FieldText value={entry.statusReason} />

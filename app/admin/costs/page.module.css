@@ -1238,6 +1238,39 @@
   border: 1px solid rgba(230, 180, 80, 0.25);
 }
 
+/* A possible second send of a receipt already held (Phase 2, 2026-11-01): the row's mark and the pane's line. */
+.dupMark {
+  display: inline-flex;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: #ef5350;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.dupNote {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #ffb4ae;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.dupNote svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: #ef5350;
+}
+
 /* A whole month's ledger: what its statement also charges for earlier months (Kian's ruling K1 of 2026-10-18). */
 .earlier {
   margin: 0 0 16px;

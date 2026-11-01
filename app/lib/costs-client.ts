@@ -108,7 +108,9 @@ function isCostEntryView(data: unknown): data is CostEntryView {
     typeof data.kind === 'string' &&
     (data.autoApproved === null || isRecord(data.autoApproved)) &&
     // Who paid for a receipt (2026-10-15): every entry the server sends carries it.
-    typeof data.paidWith === 'string'
+    typeof data.paidWith === 'string' &&
+    // A possible second send (Phase 2, 2026-11-01): absent, or the hints.
+    (data.possibleDuplicates === undefined || Array.isArray(data.possibleDuplicates))
   );
 }
 

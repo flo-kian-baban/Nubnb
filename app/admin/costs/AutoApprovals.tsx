@@ -8,6 +8,10 @@
  * The thumbnails' links are asked for in one request when the list is opened (each lasts a minute, and the image is
  * loaded the moment the link comes, as the entry pane's is); a receipt whose link has run out shows its icon. A click
  * on a row opens the entry under it, as the queue's table does.
+ *
+ * A possible second send of a receipt already held (Phase 2, 2026-11-01) is marked on its row and counted in the
+ * head, and "Mark these n seen" leaves it out: it is approved and counts, so an admin opens it and decides, one by one
+ * (as the Income page holds possible duplicates back from its one-pass accept, Kian's ruling K1 of 2026-10-17).
  */
 
 import { Fragment, useEffect, useState, type ReactNode } from "react";
@@ -15,6 +19,7 @@ import { ChevronRight, Eye, ImageIcon } from "lucide-react";
 import { fetchReceiptLinks } from "@/app/lib/costs-client";
 import { formatCents, type CostEntryView } from "@/app/lib/cleaners/model";
 import { propertyLabel, shortDay, sentDay } from "@/app/lib/costs/report";
+import { duplicateHints, duplicateWords } from "@/app/lib/costs/duplicates";
 import styles from "./AutoApprovals.module.css";
 
 interface Props {
@@ -24,7 +29,7 @@ interface Props {
   onToggle: (id: string) => void;
   /** The open entry's pane. */
   pane: (entry: CostEntryView) => ReactNode;
-  /** Mark them all seen in one request; true while it runs. */
+  /** Mark them seen in one request, every one but a possible duplicate (`seeable`); true while it runs. */
   onMarkAll: () => void;
   marking: boolean;
 }
@@ -60,6 +65,8 @@ export function AutoApprovals({ entries, selectedId, onToggle, pane, onMarkAll, 
   }, [wantKey]);
 
   if (entries.length === 0) return null;
+  const flagged = entries.filter((entry) => duplicateHints(entry).length > 0).length;
+  const seeable = entries.length - flagged;
   return (
     <section className={styles.block} aria-label="Approved automatically, not yet looked at">
       <div className={styles.head}>
@@ -81,11 +88,14 @@ export function AutoApprovals({ entries, selectedId, onToggle, pane, onMarkAll, 
           <span className={styles.figure}>
             {entries.length} · {formatCents(totalCents)}
           </span>
+          {flagged > 0 && <span className={styles.dupCount}>{flagged === 1 ? "1 possible duplicate" : `${flagged} possible duplicates`}</span>}
         </button>
-        <button type="button" className={styles.markAll} disabled={marking} onClick={onMarkAll} title="Each already counts in its ledger. Seen takes it out of the queue: one request for all of them.">
-          <Eye size={14} aria-hidden />
-          <span>{marking ? "Marking…" : `Mark these ${entries.length} seen`}</span>
-        </button>
+        {seeable > 0 && (
+          <button type="button" className={styles.markAll} disabled={marking} onClick={onMarkAll} title={`Each already counts in its ledger. Seen takes it out of the queue: one request for all of them.${flagged > 0 ? " A possible duplicate is left out: open it and decide." : ""}`}>
+            <Eye size={14} aria-hidden />
+            <span>{marking ? "Marking…" : `Mark these ${seeable} seen`}</span>
+          </button>
+        )}
       </div>
       {open && (
         <ul className={styles.list}>
@@ -108,6 +118,13 @@ export function AutoApprovals({ entries, selectedId, onToggle, pane, onMarkAll, 
                     <span className={styles.property} title={propertyLabel(entry)}>
                       {propertyLabel(entry)}
                     </span>
+                    {duplicateHints(entry).length > 0 ? (
+                      <span className={styles.dupMark} title={duplicateHints(entry).map(duplicateWords).join(" · ")}>
+                        Possible duplicate
+                      </span>
+                    ) : (
+                      <span />
+                    )}
                     <span className={styles.total}>{entry.linesNow.kind === "ok" ? formatCents(entry.linesNow.totalCents) : "—"}</span>
                     <span className={styles.day}>{day ? shortDay(day) : "—"}</span>
                   </button>
