@@ -120,4 +120,17 @@
    ok   read again on its own: only the two properties its jobs name, never every property, and no cleaning
    ok   its home: the job still to mark (the 18th), and tomorrow's (Ana is the regular cleaner on P1, section 2)
 
+═══ 9. A changed booking's turnover column; Take off with nobody unticked ═══
+  open, next guest the same day        → turnover column "Same day"
+  cancelled, next guest the same day   → turnover column "next guest 2026-11-03"
+  moved, next guest the same day       → turnover column "next guest 2026-11-03"
+  open, next guest the day after       → turnover column "next guest 2026-11-04"
+  open, no next guest                  → turnover column "no next guest yet"
+   ok   Same day only while the booking still checks out that day: never for a cancelled or moved one
+  Take off, nobody unticked  → "Nobody was taken off", nothing sent
+  Take off, Ben unticked     → sends the job's cleaners as ["TESTCLEANERana000001"] (takes off ["TESTCLEANERben000001"])
+  Take off, both unticked    → sends the job's cleaners as [] (takes off ["TESTCLEANERana000001","TESTCLEANERben000001"])
+   ok   Save with nobody unticked: "Nobody was taken off", nothing sent
+   ok   unticking takes those cleaners off, as before
+
 all checks passed

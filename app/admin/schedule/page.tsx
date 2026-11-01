@@ -18,7 +18,8 @@
  *     cell uses too (needsCleanerNow). A job whose checkout passed with someone on it who has not marked it cleaned
  *     (and whose mark the office did not remove) reads "Not marked", red.
  *   - A booking-changed job's cleaners can be taken off it ("Take off": the server already accepted it); nobody is
- *     added to it (R2).
+ *     added to it (R2). Save with nobody unticked says "Nobody was taken off" and sends nothing (Kian's instruction of
+ *     2026-11-01; it used to close without a word). Such a job's turnover column never says "Same day" (isSameDay).
  *   - The picker says who the property's regular cleaner is, and offers "Make Ana the regular cleaner for this
  *     property" (R5): the job sync puts them on its next jobs. Jobs already made are not changed. It asks first, in
  *     Nubnb's own dialog and the edit page's words (regularCleanerQuestion), then saves.
@@ -51,7 +52,7 @@ import shared from "../page.module.css";
 import styles from "./page.module.css";
 import { fetchRegularCleaner, fetchSchedule, mergeJob, reopenJobFor, setJobCleaners, setRegularCleanerOf, type RegularCleanerAnswer, type ScheduleAnswer } from "@/app/lib/schedule-client";
 import { addDays, dayText, isDay, minutesBetween } from "@/app/lib/availability/days";
-import { changeWords, isSameDay, jobState, type AssigneeView, type JobView, type TeamMember } from "@/app/lib/schedule/model";
+import { NOBODY_TAKEN_OFF, changeWords, isSameDay, jobState, takenOff, type AssigneeView, type JobView, type TeamMember } from "@/app/lib/schedule/model";
 import { regularCleanerQuestion } from "@/app/lib/schedule/regular";
 import { secondCleanerQuestion } from "@/app/lib/cleanings/prices";
 
@@ -542,6 +543,8 @@ function AssignDialog(props: {
   const [regular, setRegular] = useState<{ kind: "loading" } | { kind: "ready"; data: RegularCleanerAnswer } | { kind: "error"; title: string }>({ kind: "loading" });
   const [regularBusy, setRegularBusy] = useState(false);
   const [regularSaid, setRegularSaid] = useState<string | null>(null);
+  /** Take off's own line: "Nobody was taken off" after a Save with nobody unticked, until a tick changes. */
+  const [takeOffSaid, setTakeOffSaid] = useState<string | null>(null);
   const { ask, dialog: question } = useAsk();
   useEffect(() => {
     if (mode !== "assign") return;
@@ -597,7 +600,8 @@ function AssignDialog(props: {
             <button type="button" className={`${ed.btn} ${ed.btnGhost}`} onClick={onClose} disabled={busy}>
               Cancel
             </button>
-            <button type="button" className={`${ed.btn} ${ed.btnPrimary}`} onClick={onSave} disabled={busy}>
+            {/* Nobody unticked: say so and send nothing, rather than close without a word (Kian's instruction of 2026-11-01). */}
+            <button type="button" className={`${ed.btn} ${ed.btnPrimary}`} onClick={() => (takenOff(job, picked).length === 0 ? setTakeOffSaid(NOBODY_TAKEN_OFF) : onSave())} disabled={busy}>
               {busy ? "Saving…" : "Save"}
             </button>
           </>
@@ -608,12 +612,26 @@ function AssignDialog(props: {
           <ul className={styles.pickList}>
             {job.assignees.map((a) => (
               <li key={a.cleanerId} className={styles.pickRow}>
-                <Tick checked={picked.includes(a.cleanerId)} onChange={() => onToggle(a.cleanerId)} label={`${a.name ?? "Unnamed"} on this job`} disabled={busy || a.cleaningId !== null} title={a.cleaningId !== null ? "Marked it cleaned: stays on it" : undefined} />
+                <Tick
+                  checked={picked.includes(a.cleanerId)}
+                  onChange={() => {
+                    setTakeOffSaid(null);
+                    onToggle(a.cleanerId);
+                  }}
+                  label={`${a.name ?? "Unnamed"} on this job`}
+                  disabled={busy || a.cleaningId !== null}
+                  title={a.cleaningId !== null ? "Marked it cleaned: stays on it" : undefined}
+                />
                 <span className={styles.pickName}>{a.name ?? "Unnamed"}</span>
                 <span className={styles.muted}>{a.cleaningId !== null ? "marked it cleaned" : ""}</span>
               </li>
             ))}
           </ul>
+          {takeOffSaid && (
+            <p className={styles.warn} role="status">
+              {takeOffSaid}
+            </p>
+          )}
         </div>
       </Dialog>
     );

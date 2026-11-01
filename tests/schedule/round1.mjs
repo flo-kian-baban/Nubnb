@@ -275,5 +275,30 @@ console.log(`  read again on its own (after a refresh): ${reread.result.length} 
 check(reread.by.properties === 2 && reread.by.property_cleaner_names === 2 && !('cleanings' in reread.by), 'read again on its own: only the two properties its jobs name, never every property, and no cleaning');
 check(homeJobs(listed.result, TODAY).map((j) => j.checkout).join() === '2026-10-18,2026-10-20', 'its home: the job still to mark (the 18th), and tomorrow\'s (Ana is the regular cleaner on P1, section 2)');
 
+
+// ═══ 9. Phase 1's LATER items (Kian's instruction of 2026-11-01) ═══
+console.log("\n═══ 9. A changed booking's turnover column; Take off with nobody unticked ═══");
+const turnover = (status, extra = {}) => ({ status, checkout: '2026-11-03', nextCheckIn: '2026-11-03', ...extra });
+const cases9 = [
+  ['open, next guest the same day', turnover('open')],
+  ['cancelled, next guest the same day', turnover('booking-changed', { change: { kind: 'gone' } })],
+  ['moved, next guest the same day', turnover('booking-changed', { change: { kind: 'moved' } })],
+  ['open, next guest the day after', turnover('open', { nextCheckIn: '2026-11-04' })],
+  ['open, no next guest', turnover('open', { nextCheckIn: null })],
+];
+for (const [label, job] of cases9) console.log(`  ${label.padEnd(36)} → turnover column ${jm.isSameDay(job) ? '"Same day"' : `"${job.nextCheckIn ? `next guest ${job.nextCheckIn}` : 'no next guest yet'}"`}`);
+check(jm.isSameDay(cases9[0][1]) && !jm.isSameDay(cases9[1][1]) && !jm.isSameDay(cases9[2][1]), 'Same day only while the booking still checks out that day: never for a cancelled or moved one');
+const onJob = { cleanerIds: ['TESTCLEANERana000001', 'TESTCLEANERben000001'] };
+const pickedCases = [
+  ['nobody unticked', ['TESTCLEANERana000001', 'TESTCLEANERben000001']],
+  ['Ben unticked', ['TESTCLEANERana000001']],
+  ['both unticked', []],
+];
+for (const [label, picked] of pickedCases) {
+  const off = jm.takenOff(onJob, picked);
+  console.log(`  Take off, ${label.padEnd(16)} → ${off.length === 0 ? `"${jm.NOBODY_TAKEN_OFF}", nothing sent` : `sends the job's cleaners as ${JSON.stringify(picked)} (takes off ${JSON.stringify(off)})`}`);
+}
+check(jm.NOBODY_TAKEN_OFF === 'Nobody was taken off' && jm.takenOff(onJob, pickedCases[0][1]).length === 0, 'Save with nobody unticked: "Nobody was taken off", nothing sent');
+check(jm.takenOff(onJob, pickedCases[1][1]).join() === 'TESTCLEANERben000001' && jm.takenOff(onJob, []).length === 2, 'unticking takes those cleaners off, as before');
 console.log(failures === 0 ? '\nall checks passed' : `\n${failures} check(s) FAILED`);
 process.exit(failures === 0 ? 0 : 1);

@@ -285,9 +285,21 @@ export function jobEvent(at: string, action: JobAction, actor: JobActor, fields:
 
 // ─── What a job says ───────────────────────────────────────────
 
-/** A same-day turnover: the next guest's first night is the checkout day. */
-export function isSameDay(job: Pick<CleaningJob, 'checkout' | 'nextCheckIn'>): boolean {
-  return job.nextCheckIn !== null && job.nextCheckIn === job.checkout;
+/**
+ * A same-day turnover: the next guest's first night is the checkout day, on a booking that still checks out then. A
+ * cancelled or moved booking has no turnover that day, so the Schedule's turnover column does not say "Same day" for
+ * it (Phase 1's LATER item, Kian's instruction of 2026-11-01), as the cleaner app's badge does not (3beacb8).
+ */
+export function isSameDay(job: Pick<CleaningJob, 'status' | 'checkout' | 'nextCheckIn'>): boolean {
+  return job.status === 'open' && job.nextCheckIn !== null && job.nextCheckIn === job.checkout;
+}
+
+/** What Take off says when Save would take nobody off (Kian's instruction of 2026-11-01): nothing is sent. */
+export const NOBODY_TAKEN_OFF = 'Nobody was taken off';
+
+/** The cleaners a Take off takes off the job: those on it and no longer ticked. None: NOBODY_TAKEN_OFF, nothing sent. */
+export function takenOff(job: Pick<CleaningJob, 'cleanerIds'>, picked: readonly string[]): string[] {
+  return job.cleanerIds.filter((cleanerId) => !picked.includes(cleanerId));
 }
 
 /** How many of the cleaners on a job have marked it cleaned: a mark removed by the office stays a mark. */
