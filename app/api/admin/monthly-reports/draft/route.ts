@@ -45,7 +45,7 @@ export const GET = adminRoute(async function GET(request: NextRequest) {
   }
 });
 
-export const PUT = adminRoute(async function PUT(request: NextRequest) {
+export const PUT = adminRoute(async function PUT(request: NextRequest, _context: unknown, { actor }) {
   const crossSite = refuseCrossSite(request);
   if (crossSite) return crossSite;
   const wrongType = requireMediaType(request, 'application/json');
@@ -62,7 +62,7 @@ export const PUT = adminRoute(async function PUT(request: NextRequest) {
     return noStore(apiValidationError(result.error.issues.map((i) => ({ path: i.path.map(String).join('.'), message: i.message }))));
   }
   try {
-    const outcome = await saveDraft(result.data);
+    const outcome = await saveDraft(actor, result.data);
     if (outcome.kind !== 'saved') {
       const refusal = DRAFT_REFUSALS[outcome.kind];
       return noStore(apiFailure(outcome.kind === 'changed-since' ? { ...refusal, hint: `${refusal.hint} It is at revision ${outcome.revision}.` } : refusal));

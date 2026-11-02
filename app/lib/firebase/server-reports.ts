@@ -105,7 +105,7 @@ import {
 } from '@/app/lib/reports/model';
 import { buildStatement, chargedBy, moneyMonthsByProperty, nothingToReport, printedBy, sameClaim, statementMonthFor, type FinishClaim, type PlatformLineInput, type Statement } from '@/app/lib/reports/statement';
 import { airbnbLineIdsOf, costCharges, monthMoney, type Figures } from '@/app/lib/money/month';
-import { EARNINGS_LINES_COLLECTION, platformLinesOf, readEarningsLine, type EarningsLineView } from '@/app/lib/income/model';
+import { EARNINGS_LINES_COLLECTION, EARNINGS_UNREAD_COLLECTION, platformLinesOf, readEarningsLine, readEarningsUnread, type EarningsLineView } from '@/app/lib/income/model';
 import { statementPdf } from '@/app/lib/reports/statement-pdf';
 
 const CONTROL_CHARACTER = /\p{Cc}/u;
@@ -433,8 +433,20 @@ export const DRAFT_REFUSALS: Record<Exclude<SaveDraftResult['kind'], 'saved'>, R
  * revision is the one the page loaded. A finished month takes a save only
  * as a correction: `supersedes` must name the report it was finished as,
  * and the draft becomes a draft again.
+ *
+ * A typed line the save removes may hold a row of a platform's file that
+ * became no line (Kian's ruling of 2026-11-01, `earnings_unread`): the row
+ * was placed with that line, and with the line gone it is a gap again. So,
+ * only when at least one typed line of the stored draft (a line with no
+ * `platformLineId`) is absent from the lines sent, the property's placed
+ * rows for the month are read in the same transaction, and each placed with
+ * a removed line gets its decision set back to null and a 'reopened' event
+ * in its history, by `actor`. The Income page and Finish then read it as any
+ * undecided row, with no change of their own. A row not in the written shape
+ * is logged and left as it is; a save that removes no typed line reads
+ * nothing more.
  */
-export async function saveDraft(input: DraftInput): Promise<SaveDraftResult> {
+export async function saveDraft(actor: Actor, input: DraftInput): Promise<SaveDraftResult> {
   const { propertyId, month } = input;
   if ((await propertyName(propertyId)) === null) return { kind: 'no-such-property' };
   const db = getAdminDb();
@@ -456,6 +468,20 @@ export async function saveDraft(input: DraftInput): Promise<SaveDraftResult> {
         const report = await tx.get(db.collection(MONTHLY_REPORTS_COLLECTION).doc(input.supersedes.reportId));
         const read = report.exists ? readMonthlyReport(report.id, report.data() ?? {}) : null;
         if (!read || read.propertyId !== propertyId || read.month !== month) return { kind: 'no-such-report' };
+      }
+      // The typed lines this save removes: a row of a file placed with one of them is a gap again (read before any write).
+      const removed = new Set((stored?.lines ?? []).filter((line) => line.platformLineId === undefined && !input.lines.some((sent) => sent.id === line.id)).map((line) => line.id));
+      if (removed.size > 0) {
+        const placedSnap = await tx.get(db.collection(EARNINGS_UNREAD_COLLECTION).where('decision.propertyId', '==', propertyId).where('decision.month', '==', month));
+        for (const doc of placedSnap.docs) {
+          const row = readEarningsUnread(doc.id, doc.data());
+          if (!row) {
+            console.error(`[reports] ${EARNINGS_UNREAD_COLLECTION}/${doc.id} is not in the written shape; left as it is`);
+            continue;
+          }
+          if (row.decision?.kind !== 'placed' || !removed.has(row.decision.lineId)) continue;
+          tx.update(doc.ref, { decision: null, history: [...row.history, { at: now, actor, action: 'reopened' }] });
+        }
       }
       const next: StatementDraft = {
         schemaVersion: MONTHLY_REPORT_DRAFT_SCHEMA_VERSION,

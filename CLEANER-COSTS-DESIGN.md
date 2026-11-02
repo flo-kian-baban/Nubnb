@@ -5186,3 +5186,112 @@ the real 21-column format, clock in December 2028. No BLOCKER or HIGH was found;
   and from Finish; P's revenue moved by the typed line only ($210.10 → $330.55) and nothing moved with the decisions;
   the repeated rejected row was named on its upload. 30 documents and 2 kept files deleted by exact ID and path;
   exports identical (603). Tests: `income-unread` (new); `admin-accounts` (one handler more).
+
+## 67. Phase 5: statements, and the end-to-end rehearsal before November's first real statements (2026-11-01)
+
+Kian's dispatch of 2026-11-01 (evening): audit and fix the statement preview and output, Finish, the carry-over between
+months, the fee, Report For and the home's Costs tile before the first real use (November's statements, written 1–10
+December); rehearse a whole November 2028 on two Unlisted `__TEST__` properties through the real flows only; nine
+points of definition of done. Run on production data behind the write guard, the server's clock at 5, 15, 23, 28 and
+30 November 2028 for the month and 2 December 2028 for the statements, a `__TEST__` admin, two `__TEST__` cleaners and
+a `__TEST__` handyman; 120 documents and 7 Storage objects cleaned up by exact ID and path; the opening and closing
+exports identical (603 documents). 4,962 production reads, exports excluded (budget 8,000).
+
+### 67.1 The rehearsal
+
+- **P** (a management record with a Report For name, a 20% default rate and a reference stem; a direct arrangement
+  from November 2028) and **Q** (a 15% default rate and, at first, no Report For name). Both with a `__TEST__`
+  calendar link answered from made-up feeds; every real feed cut off, so no real calendar was fetched.
+- **Jobs from the calendar copy**, made by the real refresh at four clock positions (two days before each checkout):
+  eight jobs, P's six assigned by the regular-cleaner rule (history "assigned by regular cleaner"), Q's two with
+  nobody, then Ben put on them. One per-job amount set before its mark. Add a job on Q and Record as cleaned by the
+  admin (ruling E): the same cleaning as a cleaner's own mark.
+- **Marks**: short, mid and long presets, the job's amount, a two-cleaner job (both marks arrive with no amount; the
+  admin types the split), an extra asked and approved at a new amount in November, an extra asked and left undecided
+  at month close. Two marks on Ana's phone at 390 × 844 through the app's own form (one plain, one with a note and
+  "Ask for extra"); no figure on any card.
+- **Costs**: Ana's receipt above the automatic line, approved by the admin; the same photo sent again, flagged as a
+  possible second send and rejected; a third receipt left pending at month close; Hal's work approved; an office cost
+  logged on 2 December for November (prints "ref … · Nov 2028 (logged Dec 2)").
+- **Airbnb file** for November: 26 rows, 10 lines (reservations, a positive Adjustment, a negative Resolution
+  Adjustment held for a decision and accepted on its own), 3 rows that became no line (two USD rows, a negative row
+  with no confirmation code). Two of them placed with typed lines on P's draft, one USD row left undecided. One direct
+  payment on P. Fee base typed as "what Airbnb paid" (K4).
+- **The statement, independently.** `compute.mjs` reads the raw documents (cleanings, cost entries, accepted lines,
+  direct payments, the draft, the management record) and writes the arithmetic from the rulings, importing nothing
+  from the app. Beside it, the app's `buildStatement` over the server's own bundle (what the preview and Finish
+  run). Every figure equal to the cent on both properties: P revenue (positive lines) $6,215.43, typed expenses
+  $75.20, recorded costs $858.04 (six cleanings $443.00, a receipt, work, the office cost), fee $901.58, Revenue
+  Share $4,380.61; Q revenue $765.30, three cleanings $235.00, fee $114.80, Revenue Share $415.50. P's 16 printed
+  rows: 14 in the same position, 2 the same rows in swapped order (the app sorts a direct payment among the file
+  lines by its day received, newest first; the independent script listed it after them).
+- **The fee, as coded** (`feeComputed`, reports/model.ts): `Math.round(baseCents × rateBasisPoints / 10,000)`, the
+  base typed by the admin (never filled in; K4's button types what Airbnb paid), the rate the draft holds, started
+  from the previous statement's rate, else the management record's default. Half a cent rounds up: Q's $765.30 × 15%
+  = 114.795 printed $114.80; P's $4,507.88 × 20% = 901.576 printed $901.58. The management record holds the rate
+  only (no base); both drafts' rates equalled their records' defaults.
+- **Finish** warned on P about the undecided receipt ("1 entry sent in November 2028 is still pending and not in
+  it"), the undecided extra ("1 cleaning waits for a decision on extra asked; it will go on December 2028's statement
+  once decided") and the unread row ("1 row of November's Airbnb file is not placed: $95.00 USD …"), on the Finish
+  tab in the browser and in the page's own checks. Both statements finished (schema 4); the page's SHA-256 check and
+  the stored object's SHA-256 both equal to the report's.
+- **December**: the receipt approved and the extra approved (at the amount it arrived with) each print once on P's
+  December statement, in the "from November 2028" rows, and in the ledger's "On this month's statement from earlier
+  months" section ($295.50 over three rows); the approved receipt's first line corrected after Finish prints an
+  Adjustment of $5.50 on December ("reported in November 2028 as -$236.80, now -$242.30"). November's finished
+  document and its stored PDF were byte-identical before and after.
+- **The owner's output**, read back with pdftotext from the stored objects: every printed row, the Report For name and
+  address, the property's address as heading, the reference, the date; of 24 probes for internal data (cleaner,
+  handyman and admin names, the payer, notes, extra reasons, a rejection reason, the words pending/approved/
+  rejected/asked/declined/job/automatic/duplicate, cleaner codes, the public and Airbnb titles, confirmation codes,
+  the property ID) none hit on Q and one on P: "USD", the admin's own words on the typed line that placed the row.
+- **No Report For name** (Q, at first): the Finish tab lists the one refusal, the server answers 422
+  STATEMENT_INCOMPLETE (`missing: reportForName`), and the preview prints no Report For block. Real properties
+  without a Report For name in the opening export: 57 of 58 (none Unlisted, none excluded from reporting); 2
+  management records exist, 1 with a name, 0 with a default fee rate, both from `2026-09`.
+
+### 67.2 What changed
+
+1. **The home's Costs tile** (`app/admin/components/DashboardStats.tsx`; the LATER item of §65.2) is worked out from
+   the statements tracker's `entries` — the same `listCosts().entries` the costs route answers — instead of a second
+   `fetchCosts()`. Loading while the tracker loads; its failure when the tracker failed; the same words, tones and
+   `costFigures`. One home open on production data: 517 reads before, 368 after (properties and cleaner-facing names
+   180 → 120 each; the costs read gone).
+2. **Deleting a placed row's typed line brings its gap back** (`saveDraft`, `app/lib/firebase/server-reports.ts`;
+   the route passes the admin). When a draft save leaves out a typed line of the stored draft, the property's placed
+   rows for that month are read in the same transaction and each one placed with a removed line has its decision set
+   back to null, with a `reopened` event in its history by that admin. The Income page and Finish then read it as any
+   undecided row (`UnreadAction` gains `reopened` in income/model.ts; the readers accept it). A save that removes no
+   typed line reads nothing more. Live: December's USD row placed with a typed line, the draft saved without that line
+   → decision null, history "placed, reopened", the gap on the Income page and in Finish's December warnings again; a
+   save keeping the line, and one removing an unrelated line, changed nothing. Test: `income-unread` §8 (re-recorded).
+
+### 67.3 The developer's choices
+
+1. The reopening is written by the draft save, not worked out at read time: the Income page, Finish and the empty-month
+   finish keep reading `decision === null`, and the row's history says who deleted the line and when.
+2. The Costs tile's failure follows the tracker's: the one read it now depends on.
+3. The independent computation lists direct payments after the file lines; the app's order (a payment's day among
+   the stays, newest first) is the ruling's and stands.
+
+### 67.4 Held for Kian (with the developer's recommendation; nothing changed)
+
+1. **A negative file row placed with a typed line counts as an expense**, since ruling M1 covers lines read from the
+   files. On P's November, the -$30.00 placement both ways: as coded, revenue $6,170.23, "Airbnb paid" $4,507.88, fee
+   $901.58, Revenue Share $4,380.61; as less revenue (M1 extended, the base following), revenue $6,140.23, "Airbnb
+   paid" $4,477.88, fee $895.58, Revenue Share $4,386.61 — the fee $6.00 less and the owner's share $6.00 more; the
+   Total before the fee is the same either way. Recommendation: count a row placed by an admin as Airbnb's money
+   (less revenue when negative, revenue and part of "Airbnb paid" when positive), read from the placing decision.
+2. **An unread row left undecided at month close cannot be placed once its month is finished**: placing needs a typed
+   line on the property's statement for the row's month, and that draft is finished (409 DRAFT_FINISHED; a line on
+   December's draft is refused with 422 UNREAD_LINE_NOT_FOUND). Only "not Nubnb's money", or correcting the finished
+   statement, remains. Recommendation: let the place decision take a typed line on the property's next open statement
+   when the row's month is finished, as a late file line goes there (M11), the admin's words naming the month.
+
+### 67.5 LATER
+
+- I15 (stays on the calendar no line covers) was not exercised: the daily copies for November 2028 exist only in the
+  verification server's memory, so the property's income read found no copies and made no check (never an all-clear).
+- The cleaner app's card reads "Cleaned · extra asked" after the office decided the extra (ruling F: never the outcome).
+- The home still reads `properties` and `property_cleaner_names` twice each per open (120 reads of 368): the next cut.
+- Finish's pending warning counts the entries ("1 entry sent in November 2028 is still pending") and names none.

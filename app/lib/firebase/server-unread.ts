@@ -7,8 +7,11 @@
  *     the property's statement draft for the row's month, typed (not a line read from a file). The decision keeps the
  *     property, the month, the line's ID, and its description and amount as they stood; or
  *   - marks it "not Nubnb's money", with a reason.
- * Either decision is logged in the row's history with who and when, and is not undone here. Nothing else is written:
- * no draft, no line, no statement. The typed line is what reaches the owner, exactly as typed.
+ * Either decision is logged in the row's history with who and when, and is not undone here: a placing is undone only
+ * by the draft save, when the typed line it names is deleted from the property's draft for that month (saveDraft in
+ * server-reports.ts sets the decision back to null and logs 'reopened', and the row is a gap again); "not Nubnb's
+ * money" is never undone. Nothing else is written here: no draft, no line, no statement. The typed line is what reaches
+ * the owner, exactly as typed.
  *
  * Reached only through the Admin SDK (the admin route under /api/admin/income/unread); firestore.rules' catch-all
  * denies every browser.

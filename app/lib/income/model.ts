@@ -278,7 +278,10 @@ export interface EarningsUpload {
  * other than CAD, no listing, no amount, no type — kept with what identifies it (Kian's ruling of 2026-11-01). It is
  * a gap of its month, at the top of the Income page and in Finish's warnings for that month's statements, until an
  * admin places it with a typed line on a property's statement or marks it "not Nubnb's money" with a reason. Either
- * decision is logged in its history and never undone here. The same row in a later file makes the same key and adds
+ * decision is logged in its history. One thing undoes a placing: when the typed line it names is deleted from the
+ * property's draft for that month, the draft save (saveDraft, server-reports.ts) sets the decision back to null in the
+ * same transaction and logs 'reopened', and the row is a gap again, read as any undecided row is. Nothing else undoes a
+ * decision, and "not Nubnb's money" is never undone. The same row in a later file makes the same key and adds
  * nothing; two identical rows in one file are two rows, as two identical lines are two payments.
  */
 export interface UnreadPlaced {
@@ -300,6 +303,8 @@ export interface UnreadNotOurs {
   actor: Actor;
 }
 export type UnreadDecision = UnreadPlaced | UnreadNotOurs;
+/** One step in a row's life: placed, marked not Nubnb's money, or reopened when the typed line it was placed with was deleted from the draft. */
+export type UnreadAction = 'placed' | 'not-ours' | 'reopened';
 
 export interface EarningsUnread {
   schemaVersion: number;
@@ -321,7 +326,7 @@ export interface EarningsUnread {
   /** Why it became no line, as the reader says it: "no confirmation code", "the currency is USD, not CAD". */
   why: string;
   decision: UnreadDecision | null;
-  history: { at: string; actor: Actor; action: 'placed' | 'not-ours' }[];
+  history: { at: string; actor: Actor; action: UnreadAction }[];
   createdAt: string;
 }
 export interface EarningsUnreadView extends EarningsUnread {
@@ -644,7 +649,7 @@ export function readEarningsUnread(id: string, fields: Record<string, unknown>):
       read = { kind: 'not-ours', reason: decision.reason, at: decision.at, actor: decision.actor };
     } else return null;
   }
-  if (!Array.isArray(history) || !history.every((e) => isRecord(e) && isText(e.at) && isActor(e.actor) && (e.action === 'placed' || e.action === 'not-ours'))) return null;
+  if (!Array.isArray(history) || !history.every((e) => isRecord(e) && isText(e.at) && isActor(e.actor) && (e.action === 'placed' || e.action === 'not-ours' || e.action === 'reopened'))) return null;
   return {
     id,
     schemaVersion,
@@ -661,7 +666,7 @@ export function readEarningsUnread(id: string, fields: Record<string, unknown>):
     amountCents,
     why,
     decision: read,
-    history: (history as Record<string, unknown>[]).map((e) => ({ at: e.at as string, actor: e.actor as Actor, action: e.action as 'placed' | 'not-ours' })),
+    history: (history as Record<string, unknown>[]).map((e) => ({ at: e.at as string, actor: e.actor as Actor, action: e.action as UnreadAction })),
     createdAt,
   };
 }

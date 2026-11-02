@@ -24,16 +24,18 @@
  *
  * "To review" is the pending entries plus, since dispatch 24, the receipts approved automatically that no admin has
  * looked at: what the queue holds for an admin. Its detail line counts the two, and names when a cleaner is worth a
- * look (costs/patterns.ts), in the same words as the queue.
+ * look (costs/patterns.ts), in the same words as the queue. Its figures are worked out from the tracker's entries —
+ * the same `listCosts().entries` the costs route answers, carried by the read the Statements tile already makes
+ * (`entries` of GET /api/admin/monthly-reports) — not from a second read of the costs: that read was about 150 of the
+ * home's 507 Firestore reads (measured 2026-11-01), for figures the page already held.
  *
- * Each tile shows its own read's state, so a failed read is shown as a failure, never as 0.
+ * Each tile shows the state of the read it is worked out from, so a failed read is shown as a failure, never as 0.
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { AlertTriangle, ArrowRight, ClipboardCheck, FileText, Inbox, Receipt } from "lucide-react";
 import { fetchLeads } from "@/app/lib/leads-client";
-import { fetchCosts } from "@/app/lib/costs-client";
 import { fetchTracker, type TrackerData } from "@/app/lib/reports-client";
 import { isMonth, lastClosedMonth, type ReportDownloadView } from "@/app/lib/reports/model";
 import { reportingCounts, type ReportingStatus } from "@/app/lib/reports/statement";
@@ -160,8 +162,17 @@ interface DashboardStatsProps {
 
 export function DashboardStats({ statements: read, statuses, today, figures, turnovers }: DashboardStatsProps) {
   const [leads, setLeads] = useState<Read<ReturnType<typeof leadFigures>>>({ kind: "loading" });
-  const [costs, setCosts] = useState<Read<ReturnType<typeof costFigures>>>({ kind: "loading" });
   const { statements, refresh: refreshStatements, refreshing, downloaded } = read;
+  /**
+   * The costs queue's figures, from the entries the tracker's read already carries (`statements.data.entries`, the
+   * same `listCosts().entries` the costs route answers): loading while the tracker loads, its failure when it failed,
+   * and never a second read of the costs. A refresh keeps the figures shown until the tracker's answer comes, as the
+   * Statements tile does.
+   */
+  const costs = useMemo<Read<ReturnType<typeof costFigures>>>(() => {
+    if (statements.kind === "ready") return { kind: "ready", data: costFigures(statements.data.entries) };
+    return statements.kind === "error" ? { kind: "error", title: statements.title } : { kind: "loading" };
+  }, [statements]);
   /** The panel's month when it is open, from the address bar; null while it is closed. */
   const [panelMonth, setPanelMonth] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
@@ -190,10 +201,6 @@ export function DashboardStats({ statements: read, statuses, today, figures, tur
     fetchLeads().then((result) => {
       if (cancelled) return;
       setLeads(result.ok ? { kind: "ready", data: leadFigures(result.data) } : { kind: "error", title: result.title });
-    });
-    fetchCosts().then((result) => {
-      if (cancelled) return;
-      setCosts(result.ok ? { kind: "ready", data: costFigures(result.data.entries) } : { kind: "error", title: result.title });
     });
     return () => {
       cancelled = true;

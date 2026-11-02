@@ -59,4 +59,34 @@
    ok   an upload reads with its count, and one written before reads without it
    ok   more rejected than already in is not in shape
 
+═══ 8. Deleting a placed row's typed line from the draft brings its gap back ═══
+  P1 draft with A, B, C: saved at revision 1, 3 lines · earnings_unread read 0 time(s)
+    X undecided · history none | Y undecided · history none | Z undecided · history none
+  P2 draft with A (the same line ID on another property): saved at revision 1, 1 line · earnings_unread read 0 time(s)
+    X undecided · history none | Y undecided · history none | Z undecided · history none
+   ok   a first save removes nothing and reads no unread row
+  placed: X decided | Y decided | Z decided
+    X placed with test-line-a · history placed | Y placed with test-line-b · history placed | Z placed with test-line-a · history placed
+   ok   three rows placed: X with A and Y with B on P1, Z with A on P2
+  P1 saved keeping A, B, C: saved at revision 2, 3 lines · earnings_unread read 0 time(s)
+    X placed with test-line-a · history placed | Y placed with test-line-b · history placed | Z placed with test-line-a · history placed
+   ok   a save keeping the lines reads no unread row and changes none
+  P1 saved without C (no row placed with it): saved at revision 3, 2 lines · earnings_unread read 1 time(s)
+    X placed with test-line-a · history placed | Y placed with test-line-b · history placed | Z placed with test-line-a · history placed
+   ok   removing a typed line no row was placed with reads the placed rows once and changes none
+  P1 saved without A: saved at revision 4, 1 line · earnings_unread read 1 time(s)
+    X undecided · history placed, reopened | Y placed with test-line-b · history placed | Z placed with test-line-a · history placed
+   ok   removing A sets X back to undecided, with a "reopened" event by the admin after its "placed"
+   ok   Y (another line) and Z (the same line ID on another property) are untouched
+  P1 saved without B as well: saved at revision 5, 0 lines · earnings_unread read 1 time(s)
+    X undecided · history placed, reopened | Y undecided · history placed, reopened | Z placed with test-line-a · history placed
+   ok   removing B reopens Y; X, already reopened, gets no second event
+   ok   a reopened row reads back in shape, its history holding the "reopened" event
+   ok   an action the row cannot have is still not in shape
+  gaps.unread: row 4 $88.88 USD (the currency is USD, not CAD) | row 5 $100.00 (no listing) · decided: row 3 placed
+   ok   the Income page reads X and Y as gaps again and Z as decided, with no change of its own
+   ok   Finish warns about the two again
+  placing Y again with B, now deleted: no-such-line (2026-11)
+   ok   a reopened row can be decided again, with the history the page now sees; its deleted line is no longer there to place it with
+
 all checks passed

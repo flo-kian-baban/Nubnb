@@ -5,13 +5,22 @@
 //      a typed line or marks it "not Nubnb's money" with a reason.
 //   2. When a later file repeats a rejected line's row, the upload names it ("1 row was rejected before and stays
 //      rejected") instead of "already in".
+//   3. A row placed with a typed line is a gap again when that line is deleted from the draft: the draft save sets the
+//      decision back to null and logs 'reopened', in its own transaction (section 8, the app's own server code on the
+//      in-memory Firestore of tests/tools/memory-firestore.cjs).
 // Made-up data only: titles "__TEST__ …", booking codes HMTEST…, properties TESTPROP…. Nothing is read from or written
 // to production.
 //   node --import ./tests/tools/ts-hook.mjs tests/income/unread.mjs
-import { createHash } from 'node:crypto';
+import { createHash, generateKeyPairSync } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = process.env.NUBNB_ROOT || fileURLToPath(new URL('../..', import.meta.url)).replace(/\/$/, '');
+createRequire(`${ROOT}/package.json`)(`${ROOT}/tests/tools/memory-firestore.cjs`);
+const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2_048 });
+process.env.FIREBASE_SERVICE_ACCOUNT_KEY = JSON.stringify({ type: 'service_account', project_id: 'memory-test', private_key_id: 'memory-test', private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }), client_email: 'memory-test@memory-test.iam.gserviceaccount.com', client_id: '1', token_uri: 'https://oauth2.googleapis.com/token' });
+process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET = 'memory-test.appspot.com';
+process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID = 'memory-test';
 const { readerFor } = await import(`${ROOT}/app/lib/income/platforms.ts`);
 const inc = await import(`${ROOT}/app/lib/income/model.ts`);
 const mv = await import(`${ROOT}/app/lib/income/month.ts`);
@@ -137,6 +146,63 @@ check(inc.uploadCountWords({ added: 0, duplicates: 1, rejectedBefore: 1 }) === '
 const upload = { schemaVersion: 1, platform: 'airbnb', month: '2026-11', file: { name: '__TEST__.csv', kind: 'csv', bytes: 1, sha256: 'a', storagePath: 'p', storedBytes: 1, storedSha256: 'b', blanked: ['Guest', 'Details'] }, read: { by: 'csv', rows: 1, payoutRows: 1, lineRows: 1, amountCents: 1, paidOutCents: 1, balanced: true, unbalanced: [] }, titles: [], added: 0, duplicates: 1, outsideMonth: [], notRead: [], uploadedAt: AT, actor: ADMIN };
 check(inc.readEarningsUpload('u', { ...upload, rejectedBefore: 1 })?.rejectedBefore === 1 && inc.readEarningsUpload('u', upload)?.rejectedBefore === undefined, 'an upload reads with its count, and one written before reads without it');
 check(inc.readEarningsUpload('u', { ...upload, rejectedBefore: 2 }) === null, 'more rejected than already in is not in shape');
+
+// ═══ 8. A placed row's typed line deleted from the draft: the gap comes back ═══
+console.log('\n═══ 8. Deleting a placed row\'s typed line from the draft brings its gap back ═══');
+const sr = await import(`${ROOT}/app/lib/firebase/server-reports.ts`);
+const su = await import(`${ROOT}/app/lib/firebase/server-unread.ts`);
+globalThis.__memSeed('properties', P(1), { name: '__TEST__ Pine Loft' });
+globalThis.__memSeed('properties', P(2), { name: '__TEST__ Cedar Flat' });
+// Three rows waiting: the USD row and the no-listing row go on P1's statement, the no-code row on P2's.
+const [rowX, rowY, rowZ] = [stored(usd, 1, null), stored(noListing, 2, null), stored(noCode, 0, null)];
+for (const { id, ...fields } of [rowX, rowY, rowZ]) globalThis.__memSeed('earnings_unread', id, fields);
+const lineInput = (id, description, rate) => ({ id, description, from: '2026-11-24', to: '2026-11-26', quantity: 1, rate });
+const LINE_A = lineInput('test-line-a', 'Revenue - Nov 24–26, 2026 (USD row)', '120.45');
+const LINE_B = lineInput('test-line-b', 'Revenue - Nov 20–22, 2026 (no listing)', '100.00');
+const LINE_C = lineInput('test-line-c', 'Expense - Supplies', '-19.99');
+const draftInput = (propertyId, revision, lines) => sr.DraftInputSchema.parse({ propertyId, month: '2026-11', revision, reference: 'Nov-TEST', reportDate: '2026-12-02', lines, fee: null, carried: null, notes: null, supersedes: null });
+const rowState = (row) => {
+  const doc = globalThis.__memDoc('earnings_unread', row.id);
+  return `${doc.decision === null ? 'undecided' : `${doc.decision.kind} with ${doc.decision.lineId}`} · history ${doc.history.map((e) => e.action).join(', ') || 'none'}`;
+};
+const unreadReads = () => globalThis.__memReads.filter((r) => r.what === 'earnings_unread').length;
+/** Save the draft and say what it did to the rows, and how many times earnings_unread was read for it. */
+const save = async (label, propertyId, revision, lines) => {
+  const before = unreadReads();
+  const saved = await sr.saveDraft(ADMIN, draftInput(propertyId, revision, lines));
+  console.log(`  ${label}: ${saved.kind}${saved.kind === 'saved' ? ` at revision ${saved.draft.revision}, ${saved.draft.lines.length} ${saved.draft.lines.length === 1 ? 'line' : 'lines'}` : ''} · earnings_unread read ${unreadReads() - before} time(s)`);
+  console.log(`    X ${rowState(rowX)} | Y ${rowState(rowY)} | Z ${rowState(rowZ)}`);
+  return { saved, reads: unreadReads() - before };
+};
+const first = await save('P1 draft with A, B, C', P(1), 0, [LINE_A, LINE_B, LINE_C]);
+const other = await save('P2 draft with A (the same line ID on another property)', P(2), 0, [LINE_A]);
+check(first.saved.kind === 'saved' && other.saved.kind === 'saved' && first.reads === 0 && other.reads === 0, 'a first save removes nothing and reads no unread row');
+const placedX = await su.placeUnread(ADMIN, rowX.id, { seen: 0, propertyId: P(1), lineId: 'test-line-a' }, new Date(AT));
+const placedY = await su.placeUnread(ADMIN, rowY.id, { seen: 0, propertyId: P(1), lineId: 'test-line-b' }, new Date(AT));
+const placedZ = await su.placeUnread(ADMIN, rowZ.id, { seen: 0, propertyId: P(2), lineId: 'test-line-a' }, new Date(AT));
+console.log(`  placed: X ${placedX.kind} | Y ${placedY.kind} | Z ${placedZ.kind}`);
+console.log(`    X ${rowState(rowX)} | Y ${rowState(rowY)} | Z ${rowState(rowZ)}`);
+check([placedX, placedY, placedZ].every((p) => p.kind === 'decided'), 'three rows placed: X with A and Y with B on P1, Z with A on P2');
+const kept = await save('P1 saved keeping A, B, C', P(1), 1, [LINE_A, LINE_B, LINE_C]);
+check(kept.saved.kind === 'saved' && kept.reads === 0 && rowState(rowX) === 'placed with test-line-a · history placed' && rowState(rowY) === 'placed with test-line-b · history placed', 'a save keeping the lines reads no unread row and changes none');
+const unrelated = await save('P1 saved without C (no row placed with it)', P(1), 2, [LINE_A, LINE_B]);
+check(unrelated.saved.kind === 'saved' && unrelated.reads === 1 && rowState(rowX) === 'placed with test-line-a · history placed' && rowState(rowY) === 'placed with test-line-b · history placed', 'removing a typed line no row was placed with reads the placed rows once and changes none');
+const removedA = await save('P1 saved without A', P(1), 3, [LINE_B]);
+const afterA = globalThis.__memDoc('earnings_unread', rowX.id);
+check(removedA.saved.kind === 'saved' && afterA.decision === null && afterA.history.length === 2 && afterA.history[1].action === 'reopened' && afterA.history[1].actor.id === ADMIN.id, 'removing A sets X back to undecided, with a "reopened" event by the admin after its "placed"');
+check(rowState(rowY) === 'placed with test-line-b · history placed' && rowState(rowZ) === 'placed with test-line-a · history placed', 'Y (another line) and Z (the same line ID on another property) are untouched');
+const removedB = await save('P1 saved without B as well', P(1), 4, []);
+check(removedB.saved.kind === 'saved' && rowState(rowY) === 'undecided · history placed, reopened' && rowState(rowX) === 'undecided · history placed, reopened', 'removing B reopens Y; X, already reopened, gets no second event');
+const back = [rowX, rowY, rowZ].map((row) => inc.readEarningsUnread(row.id, globalThis.__memDoc('earnings_unread', row.id)));
+check(back.every((row) => row !== null) && back[0].history[1].action === 'reopened', 'a reopened row reads back in shape, its history holding the "reopened" event');
+check(inc.readEarningsUnread('x', { ...rowX, history: [{ at: AT, actor: ADMIN, action: 'undone' }] }) === null, 'an action the row cannot have is still not in shape');
+const again = mv.monthView({ uploads: [], lines: [], links: [], lastSeen: {}, properties: [], statements: [], calendar: { checkIns: [] }, month: '2026-11', unread: back });
+console.log(`  gaps.unread: ${again.gaps.unread.map((u) => `row ${u.fileRow} ${inc.unreadAmountWords(u)} (${u.why})`).join(' | ')} · decided: ${again.unreadDecided.map((u) => `row ${u.fileRow} ${u.decision.kind}`).join(' | ')}`);
+check(again.gaps.unread.length === 2 && again.unreadDecided.length === 1 && again.unreadDecided[0].id === rowZ.id, 'the Income page reads X and Y as gaps again and Z as decided, with no change of its own');
+check(warned(again.gaps.unread).length === 1 && warned(again.gaps.unread)[0].text.startsWith('2 rows of November\'s Airbnb file are not placed'), 'Finish warns about the two again');
+const placedAgain = await su.placeUnread(ADMIN, rowY.id, { seen: 2, propertyId: P(1), lineId: 'test-line-b' }, new Date(AT));
+console.log(`  placing Y again with B, now deleted: ${placedAgain.kind}${placedAgain.kind === 'no-such-line' ? ` (${placedAgain.month})` : ''}`);
+check(placedAgain.kind === 'no-such-line', 'a reopened row can be decided again, with the history the page now sees; its deleted line is no longer there to place it with');
 
 console.log(`\n${failures === 0 ? 'all checks passed' : `${failures} check(s) FAILED`}`);
 if (failures) process.exitCode = 1;
