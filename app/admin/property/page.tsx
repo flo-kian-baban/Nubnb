@@ -793,6 +793,8 @@ function MonthWork(props: MonthWorkProps) {
       // Kian's ruling K2 of 2026-10-17: a title of its own, or the mark "not paid through Nubnb's files".
       titled: read.data.titles.some((link) => link.propertyId === propertyId),
       notThroughFiles: read.data.notThroughFiles,
+      // Rows of the month's file that became no line, not decided: any property's, so every statement of the month warns (Kian's ruling of 2026-11-01).
+      unread: read.data.unread.filter((row) => row.month === month && row.decision === null),
     };
   }, [props.fromFiles, files.pending, files.calendar, month, propertyId]);
 

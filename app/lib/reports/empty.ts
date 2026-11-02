@@ -82,8 +82,12 @@ export interface EmptyInputs {
   drafts: StatementDraftView[];
   /** Every cost entry. */
   entries: CostEntryView[];
-  /** What the month's file and calendar say: lines waiting by property, properties with check-ins and nothing in the file, titles unsettled. */
-  income: { waiting: Map<string, number>; checkInsWithout: Set<string>; unsettled: UnsettledTitle[] };
+  /**
+   * What the month's file and calendar say: lines waiting by property, properties with check-ins and nothing in the
+   * file, titles unsettled, and the rows of the month's file that became no line and are not decided (Kian's ruling of
+   * 2026-11-01: Finish warns of them on every statement of the month, so none is finished empty while one waits).
+   */
+  income: { waiting: Map<string, number>; checkInsWithout: Set<string>; unsettled: UnsettledTitle[]; unread?: { type: string; amountCents: number; currency: string; why: string }[] };
   /** Every accepted line read where it is stored (dispatch 37C, `platformLinesOf`). Absent: none. */
   platformLines?: PlatformLineInput[];
 }
@@ -159,7 +163,7 @@ export function emptyMonth(input: EmptyInputs): EmptyMonth {
       continue;
     }
     // ── Anything else Finish would warn about: an empty statement goes out only when nothing needs a look ──
-    const checks = finishChecks({ statement: built.statement, reports, entries: input.entries, income: { waiting: 0, unlinked: [], checkouts: 0 }, today });
+    const checks = finishChecks({ statement: built.statement, reports, entries: input.entries, income: { waiting: 0, unlinked: [], checkouts: 0, unread: input.income.unread ?? [] }, today });
     const warnings = [...checks.refusals, ...checks.warnings.filter((check) => check.key !== 'fee-none')];
     if (warnings.length > 0) {
       leave(warnings[0].text);

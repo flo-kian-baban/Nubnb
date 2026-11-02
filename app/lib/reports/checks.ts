@@ -17,6 +17,8 @@
  *            S3   an earlier month closed owing NuBNB and no statement carries it (dispatch 35: every such month, not only the last)
  *            S2   a carried balance whose month's statement was deleted and not finished again (dispatch 35: a corrected one is followed by the link)
  *            I1   Airbnb lines waiting, or titles in the month's file linked to no property
+ *            —    rows of the month's file that became no line and are not decided (Kian's ruling of 2026-11-01): on
+ *                 every statement of the month, each named with its amount and why
  *            N4   no cleaning line while the month's Airbnb file shows checkouts (dispatch 37B: a logged
  *                 cleaning of the month prints the cleaning line; Kian's ruling of 2026-10-13 keeps the warning,
  *                 a count only)
@@ -45,7 +47,7 @@
 import { EXTRA_ASKED } from '@/app/lib/cleanings/model';
 import { awaitingLook, formatCents, type CostEntryView } from '@/app/lib/cleaners/model';
 import { currentReports, dateText, feeComputed, isDayText, monthLabel, monthName, monthRange, rangeText, type Fee, type MonthlyReportView } from './model';
-import { isStayType, type IncomeChannel } from '@/app/lib/income/model';
+import { isStayType, unreadAmountWords, type IncomeChannel } from '@/app/lib/income/model';
 import { carriedFromMonth, statementMonthFor, uncarriedDebts, type Statement } from './statement';
 import { entryMonth } from '@/app/lib/costs/report';
 import { reportForCut } from './statement-pdf';
@@ -81,6 +83,12 @@ export interface IncomeFacts {
   titled?: boolean;
   /** Marked "not paid through Nubnb's files" by an admin (Kian's ruling K2 of 2026-10-17). */
   notThroughFiles?: boolean;
+  /**
+   * The month's rows that became no line, not decided yet, any property's (Kian's ruling of 2026-11-01: each is in
+   * Finish's warnings for that month's statements until placed with a typed line or marked not Nubnb's money).
+   * Absent: not read.
+   */
+  unread?: { type: string; amountCents: number; currency: string; why: string }[];
 }
 
 export interface CheckInputs {
@@ -206,6 +214,11 @@ export function finishChecks(input: CheckInputs): FinishChecks {
     if (income.unlinked.length > 0) {
       const total = income.unlinked.reduce((sum, title) => sum + title.amountCents, 0);
       warnings.push({ key: 'airbnb-unlinked', text: `${plural(income.unlinked.length, 'title', 'titles')} in ${monthName(s.month)}'s Airbnb file ${income.unlinked.length === 1 ? 'is' : 'are'} linked to no property (${formatCents(total)}).`, tab: 'income' });
+    }
+    if (income.unread && income.unread.length > 0) {
+      const n = income.unread.length;
+      const shown = income.unread.slice(0, 3).map((row) => `${unreadAmountWords(row)} (${row.why})`).join(', ');
+      warnings.push({ key: 'file-unread', text: `${plural(n, 'row', 'rows')} of ${monthName(s.month)}'s Airbnb file ${n === 1 ? 'is' : 'are'} not placed: ${shown}${n > 3 ? ` and ${n - 3} more` : ''}. Place ${n === 1 ? 'it' : 'each'} with a typed line, or mark it not Nubnb's money, on the Income page.`, tab: 'income' });
     }
     if (income.checkouts > 0 && !hasCleaningLine(s)) warnings.push({ key: 'cleaning', text: `No cleaning line · ${plural(income.checkouts, 'Airbnb checkout', 'Airbnb checkouts')} in ${monthName(s.month)}.`, tab: 'income' });
     // Stays on the calendar the month's file does not hold (I15): money not yet in, or a stay that is not Nubnb's to report.

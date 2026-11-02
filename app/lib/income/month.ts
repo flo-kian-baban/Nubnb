@@ -58,7 +58,7 @@ import { STANDING_LABELS, type Standing } from '@/app/lib/reports/statement';
 import { sentDay } from '@/app/lib/costs/report';
 import { airbnbLineIdsOf, incomeFigures } from '@/app/lib/money/month';
 import { formatCents } from '@/app/lib/cleaners/model';
-import { isActiveTitle, isCopied, isKnownType, isReadWhereStored, lineInDraft, normaliseTitle, type EarningsLineView, type EarningsUploadView, type IncomeChannel, type TitleLinkView } from './model';
+import { isActiveTitle, isCopied, isKnownType, isReadWhereStored, lineInDraft, normaliseTitle, type EarningsLineView, type EarningsUnreadView, type EarningsUploadView, type IncomeChannel, type TitleLinkView } from './model';
 
 /** What the month's read holds, as this module needs it. */
 export interface MonthInputs {
@@ -91,6 +91,8 @@ export interface MonthInputs {
    * function), and whether it has a Report For name. Absent for a property: not known, so not shown.
    */
   standings?: Record<string, MonthStandingView>;
+  /** The month's rows that became no line, decided or not (Kian's ruling of 2026-11-01). Absent: none read. */
+  unread?: readonly EarningsUnreadView[];
 }
 
 /** A property-month's statement as the home and the property page word it: its standing, and blocked when it is owed with no Report For name. */
@@ -192,7 +194,14 @@ export interface MonthView {
     missing: { link: TitleLinkView; name: string | null; lastSeen: string | null }[];
     /** Properties with Airbnb stays on their calendar copies, no title, and no mark (Kian's ruling K2 of 2026-10-17). */
     untitled: { propertyId: string; name: string; stays: number }[];
+    /**
+     * Rows of the month's files that became no line and are not decided yet (Kian's ruling of 2026-11-01): a gap until
+     * an admin places one with a typed line or marks it not Nubnb's money. By the day paid.
+     */
+    unread: EarningsUnreadView[];
   };
+  /** The month's rows that became no line and were decided: placed, or not Nubnb's money, with who and when. */
+  unreadDecided: EarningsUnreadView[];
   /** The properties marked "not paid through Nubnb's files" (K2), A to Z. */
   marked: { propertyId: string; name: string }[];
   /**
@@ -443,7 +452,9 @@ export function monthView(input: MonthInputs): MonthView {
   };
 
   const markedRows = [...marked].filter((id) => names.has(id)).map((id) => ({ propertyId: id, name: names.get(id)! })).sort((a, b) => a.name.localeCompare(b.name));
-  return { titles, review, rejected, removed, accepted, warnings, held, onePass, byProperty, gaps: { unlinked, checkIns, missing, untitled }, marked: markedRows, pair, statements: statementCounts };
+  // ── Rows that became no line (Kian's ruling of 2026-11-01): a gap until decided ──
+  const unreadRows = [...(input.unread ?? [])].sort((a, b) => a.payoutDate.localeCompare(b.payoutDate) || a.fileRow - b.fileRow || a.id.localeCompare(b.id));
+  return { titles, review, rejected, removed, accepted, warnings, held, onePass, byProperty, gaps: { unread: unreadRows.filter((row) => row.decision === null), unlinked, checkIns, missing, untitled }, unreadDecided: unreadRows.filter((row) => row.decision !== null), marked: markedRows, pair, statements: statementCounts };
 }
 
 // ─── A renamed title (dispatch 37C, Kian's ruling M14) ──────────

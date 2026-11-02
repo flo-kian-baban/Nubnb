@@ -71,6 +71,7 @@ import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, FileText, Refres
 import { AdminHeader } from "../components/AdminHeader";
 import { PageHead } from "../components/PageHead";
 import { DirectSection } from "./DirectSection";
+import { UnreadDecided, UnreadGaps } from "./UnreadGaps";
 import { AdminSelect } from "../components/AdminSelect";
 import { PinGate } from "../components/PinGate";
 import { NoticeBanner, useNotice } from "../components/Notice";
@@ -79,7 +80,7 @@ import { amountField, readAmount } from "../costs/cost-display";
 import { formatCents } from "@/app/lib/cleaners/model";
 import { torontoDayOf } from "@/app/lib/costs/report";
 import { STATEMENTS_FROM_DEFAULT, STATEMENT_LIMITS, addMonths, beforeStatementsLine, dateText, isMonth, lastClosedMonth, monthLabel, monthName, monthOfDay, monthRange, monthsBetween, openingMonth } from "@/app/lib/reports/model";
-import { INCOME_CHANNEL_LABELS, isActiveTitle, isReadWhereStored, isSetAside, linkState, proposedLabel, shortDay, type EarningsLineView, type EarningsUploadView } from "@/app/lib/income/model";
+import { INCOME_CHANNEL_LABELS, isActiveTitle, isReadWhereStored, isSetAside, linkState, proposedLabel, shortDay, uploadCountWords, type EarningsLineView, type EarningsUnreadView, type EarningsUploadView } from "@/app/lib/income/model";
 import { linkOf, monthView, needsDecision, owedNow, standingWords, suggestedProperty, type HeldLine, type MonthStandingView, type ReviewGroup, type TitleRow } from "@/app/lib/income/month";
 import { acceptIncomeLines, acceptMonthLines, decideIncomeLine, editIncomeLine, fetchIncomeMonth, fetchUploadFileLink, linkTitle, rejectIncomeLines, setIncomeSource, setTitleAside, uploadIncomeFile, type IncomeMonth, type IncomeResult } from "@/app/lib/income-client";
 import { useAsk } from "../components/AskDialog";
@@ -275,7 +276,7 @@ function IncomePageInner() {
     const { upload: done } = result.data;
     show({
       tone: done.read.balanced ? "success" : "warning",
-      title: `Read ${plural(done.read.rows, "row", "rows")}: ${plural(done.added, "new line", "new lines")}, ${done.duplicates} already in.`,
+      title: `Read ${plural(done.read.rows, "row", "rows")}: ${uploadCountWords(done)}.`,
       detail: done.read.balanced ? undefined : "The file does not add up: see the payouts named under it.",
     });
     reread();
@@ -548,7 +549,9 @@ function IncomePageInner() {
   const groupOf = (propertyId: string) => view?.review.find((group) => group.propertyId === propertyId) ?? null;
 
   const loading = before === null && read.kind === "loading";
-  const gapCount = view ? view.gaps.unlinked.length + view.gaps.untitled.length + view.gaps.checkIns.length + view.gaps.missing.length : 0;
+  const gapCount = view ? view.gaps.unread.length + view.gaps.unlinked.length + view.gaps.untitled.length + view.gaps.checkIns.length + view.gaps.missing.length : 0;
+  /** A row that became no line, as the server decided it: in place of the one held (Kian's ruling of 2026-11-01). */
+  const putUnread = (row: EarningsUnreadView) => setRead((prev) => (prev.kind === "ready" ? { kind: "ready", data: { ...prev.data, unread: prev.data.unread.map((r) => (r.id === row.id ? row : r)) } } : prev));
   const toReview = view ? view.review.reduce((n, g) => n + g.lines.length, 0) : 0;
   const locked = busy !== null || editing !== null;
 
@@ -768,7 +771,7 @@ function IncomePageInner() {
                     <span>{whenText(item.uploadedAt)}</span>
                     <span>{plural(item.read.rows, "row", "rows")}</span>
                     <span>
-                      {plural(item.added, "new line", "new lines")} · {item.duplicates} already in
+                      {uploadCountWords(item).replace(/, /g, " · ")}
                     </span>
                     <span className={item.read.balanced ? styles.ok : styles.noteWarn} title={`Payouts ${formatCents(item.read.paidOutCents)} · rows ${formatCents(item.read.amountCents)}`}>
                       {item.read.balanced ? `Adds up${item.read.checkedBy === "day" ? ", day by day" : ""} · ${formatCents(item.read.paidOutCents)}` : "Does not add up"}
@@ -799,6 +802,8 @@ function IncomePageInner() {
                   </div>
                 ))
               )}
+              {/* The month's rows that became no line, decided: where each went, or why it is not Nubnb's money (Kian's ruling of 2026-11-01). */}
+              <UnreadDecided rows={view.unreadDecided} names={names} />
             </section>
 
             {/* ── The calendar copies the check-ins are read from (I8): never an all-clear when days are missing ── */}
@@ -820,6 +825,25 @@ function IncomePageInner() {
                   <AlertTriangle size={15} aria-hidden />
                   <span>Gaps · {gapCount}</span>
                 </h2>
+
+                {view.gaps.unread.length > 0 && (
+                  <UnreadGaps
+                    month={month}
+                    rows={view.gaps.unread}
+                    links={data.links}
+                    statements={data.statements}
+                    propertyOptions={propertyOptions}
+                    names={names}
+                    fileNames={uploadName}
+                    busy={busy}
+                    setBusy={setBusy}
+                    ask={ask}
+                    clear={clear}
+                    show={show}
+                    failed={failed}
+                    onDecided={putUnread}
+                  />
+                )}
 
                 {view.gaps.unlinked.length > 0 && (
                   <div className={styles.gapGroup}>

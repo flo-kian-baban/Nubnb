@@ -13,7 +13,7 @@
 
 import { describeErrorBody, readErrorBody } from '@/app/lib/api/http-failure';
 import type { Line } from '@/app/lib/reports/model';
-import type { EarningsLineView, EarningsUploadView, IncomeChannel, TitleLinkView } from '@/app/lib/income/model';
+import type { EarningsLineView, EarningsUnreadView, EarningsUploadView, IncomeChannel, TitleLinkView } from '@/app/lib/income/model';
 import type { MonthStandingView, RenameSuggestion } from '@/app/lib/income/month';
 
 export type IncomeResult<T> =
@@ -56,6 +56,8 @@ export interface IncomeMonth {
   renames: RenameSuggestion[];
   /** The month's accepted lines a finished statement prints, by line ID: locked (M10). */
   locked: Record<string, { month: string; reference: string }>;
+  /** The month's rows that became no line, decided or not (Kian's ruling of 2026-11-01). */
+  unread: EarningsUnreadView[];
   unreadable: number;
 }
 
@@ -102,6 +104,9 @@ async function call<T>(url: string, init: RequestInit, action: string, isExpecte
 const isLine = (data: unknown): boolean => isRecord(data) && typeof data.id === 'string' && typeof data.amountCents === 'number' && typeof data.status === 'string' && typeof data.month === 'string';
 const isUpload = (data: unknown): boolean => isRecord(data) && typeof data.id === 'string' && isRecord(data.file) && isRecord(data.read) && Array.isArray(data.titles);
 const isLink = (data: unknown): boolean => isRecord(data) && typeof data.id === 'string' && typeof data.title === 'string';
+/** A row that became no line (Kian's ruling of 2026-11-01): its identity, amount, why, and its decision or null. */
+const isUnread = (data: unknown): boolean =>
+  isRecord(data) && typeof data.id === 'string' && typeof data.month === 'string' && typeof data.payoutDate === 'string' && typeof data.amountCents === 'number' && typeof data.currency === 'string' && typeof data.why === 'string' && typeof data.type === 'string' && isRecord(data.stay) && (data.decision === null || (isRecord(data.decision) && (data.decision.kind === 'placed' || data.decision.kind === 'not-ours'))) && Array.isArray(data.history);
 
 export function fetchIncomeMonth(month: string): Promise<IncomeResult<IncomeMonth>> {
   return call(`/api/admin/income?month=${encodeURIComponent(month)}`, {}, 'Loading the month\'s income failed', (data) =>
@@ -124,7 +129,23 @@ export function fetchIncomeMonth(month: string): Promise<IncomeResult<IncomeMont
     isRecord(data.standings) &&
     Array.isArray(data.noStatement) &&
     Array.isArray(data.renames) &&
-    isRecord(data.locked),
+    isRecord(data.locked) &&
+    Array.isArray(data.unread) &&
+    data.unread.every(isUnread),
+  );
+}
+
+/**
+ * Decide a row of the month's file that became no line (Kian's ruling of 2026-11-01): placed with a typed line on the
+ * property's statement for the row's month, or not Nubnb's money with a reason. A 502 is unknown: reload to see.
+ */
+export function decideUnread(id: string, body: { action: 'place'; seen: number; propertyId: string; lineId: string } | { action: 'not-ours'; seen: number; reason: string }): Promise<IncomeResult<{ unread: EarningsUnreadView }>> {
+  return call(
+    `/api/admin/income/unread/${encodeURIComponent(id)}`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+    'Recording the decision failed',
+    (data) => isRecord(data) && isUnread(data.unread) && (data.unread as Record<string, unknown>).id === id,
+    ['UNREAD_DECISION_FAILED'],
   );
 }
 
@@ -226,6 +247,8 @@ export interface PropertyIncome {
   calendar: { month: string; days: string[]; stays: { start: string; end: string }[] } | null;
   /** Marked "not paid through Nubnb's files" (Kian's ruling K2 of 2026-10-17). */
   notThroughFiles: boolean;
+  /** With a month: the month's rows that became no line, any property's (Finish warns on them; Kian's ruling of 2026-11-01). */
+  unread: EarningsUnreadView[];
 }
 
 /** One property's lines from the files, for its page, the titles in each month's files that no link names, its titles, and, with a month, its calendar's stays. */
@@ -241,7 +264,9 @@ export function fetchPropertyIncome(propertyId: string, month?: string): Promise
     Array.isArray(data.titles) &&
     data.titles.every(isLink) &&
     (data.calendar === null || (isRecord(data.calendar) && Array.isArray(data.calendar.days) && Array.isArray(data.calendar.stays))) &&
-    typeof data.notThroughFiles === 'boolean',
+    typeof data.notThroughFiles === 'boolean' &&
+    Array.isArray(data.unread) &&
+    data.unread.every(isUnread),
   );
 }
 

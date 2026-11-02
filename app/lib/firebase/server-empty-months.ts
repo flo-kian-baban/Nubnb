@@ -69,7 +69,7 @@ export async function readEmptyMonth(month: string): Promise<EmptyMonthRead> {
     reports,
     drafts,
     entries: costs.entries,
-    income: { waiting: new Map(view.review.map((group) => [group.propertyId, group.lines.length])), checkInsWithout: new Set(view.gaps.checkIns.map((row) => row.propertyId)), unsettled },
+    income: { waiting: new Map(view.review.map((group) => [group.propertyId, group.lines.length])), checkInsWithout: new Set(view.gaps.checkIns.map((row) => row.propertyId)), unsettled, unread: income.unread.filter((row) => row.decision === null) },
     platformLines,
   });
   return { kind: 'ok', data, today };

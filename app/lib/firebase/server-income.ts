@@ -14,7 +14,13 @@
  * a type Nubnb does not recognise is a line like the others, and needs a
  * decision.
  * Rows paid in another month are counted, never stored, so that month's own
- * file proposes them. The file is kept with its Guest and Details columns
+ * file proposes them. A row of the month that becomes no line (no
+ * confirmation code, another currency, no listing, no amount, no type) is
+ * kept as `earnings_unread/{key}`, keyed like a line from everything the file
+ * gives about it: a gap of its month until an admin places it with a typed
+ * line or marks it not Nubnb's money (Kian's ruling of 2026-11-01). A row
+ * already stored whose line an admin rejected stays rejected, and the upload
+ * counts it apart from the rows already in (`rejectedBefore`). The file is kept with its Guest and Details columns
  * blanked, create-only and private like a receipt, before anything is
  * recorded; the same file twice (by its SHA-256) is refused and nothing is
  * stored.
@@ -51,11 +57,13 @@ import { type Actor, type Refusal } from '@/app/lib/cleaners/model';
 import { torontoDayOf } from '@/app/lib/costs/report';
 import { addDays } from '@/app/lib/availability/days';
 import { DAYS_COLLECTION, isSnapshot } from '@/app/lib/availability/store';
-import { readerFor, type PlatformRow } from '@/app/lib/income/platforms';
+import { readerFor, type PlatformRow, type UnreadRow } from '@/app/lib/income/platforms';
 import {
   EARNINGS_LINES_COLLECTION,
   EARNINGS_SCHEMA_VERSION,
   EARNINGS_TITLE_LINKS_COLLECTION,
+  EARNINGS_UNREAD_COLLECTION,
+  EARNINGS_UNREAD_SCHEMA_VERSION,
   EARNINGS_UPLOADS_COLLECTION,
   EARNINGS_UPLOADS_PREFIX,
   INCOME_LIMITS,
@@ -71,13 +79,17 @@ import {
   platformLinesOf,
   proposedLabel,
   readEarningsLine,
+  readEarningsUnread,
   readEarningsUpload,
+  unreadKeyText,
   isSetAside,
   linkState,
   readTitleLink,
   titleKeyText,
   type EarningsLine,
   type EarningsLineView,
+  type EarningsUnread,
+  type EarningsUnreadView,
   type EarningsUpload,
   type EarningsUploadView,
   type IncomeChannel,
@@ -170,7 +182,7 @@ export async function uploadEarnings(actor: Actor, input: { platform: IncomeChan
     outside.set(rowMonth, { rows: was.rows + 1, amountCents: was.amountCents + row.amountCents });
   }
   if (inMonth.length === 0 && notReadInMonth.length === 0) return { kind: 'nothing-in-month', months: [...outside.keys()].sort() };
-  if (inMonth.length > INCOME_LIMITS.LINES_PER_UPLOAD_MAX) return { kind: 'too-many', lines: inMonth.length };
+  if (inMonth.length + notReadInMonth.length > INCOME_LIMITS.LINES_PER_UPLOAD_MAX) return { kind: 'too-many', lines: inMonth.length + notReadInMonth.length };
 
   // The month's rows, each under its key. Two identical rows in one file are two payments (Kian's ruling of
   // 2026-10-13): the second is keyed "|2", the third "|3", in the file's order.
@@ -181,6 +193,15 @@ export async function uploadEarnings(actor: Actor, input: { platform: IncomeChan
     const occurrence = (seenInFile.get(key) ?? 0) + 1;
     seenInFile.set(key, occurrence);
     byId.set(lineIdOf(platform, row, occurrence), row);
+  }
+  // The month's rows that become no line, each under its key, the same way (Kian's ruling of 2026-11-01).
+  const unreadById = new Map<string, UnreadRow>();
+  const seenUnread = new Map<string, number>();
+  for (const row of notReadInMonth) {
+    const key = unreadKeyText(platform, row);
+    const occurrence = (seenUnread.get(key) ?? 0) + 1;
+    seenUnread.set(key, occurrence);
+    unreadById.set(sha256(unreadKeyText(platform, row, occurrence)), row);
   }
   const titles = new Map<string, { rows: number; amountCents: number }>();
   for (const row of inMonth) {
@@ -239,6 +260,7 @@ export async function uploadEarnings(actor: Actor, input: { platform: IncomeChan
   };
 
   const lineRefs = [...byId.keys()].map((id) => db.collection(EARNINGS_LINES_COLLECTION).doc(id));
+  const unreadRefs = [...unreadById.keys()].map((id) => db.collection(EARNINGS_UNREAD_COLLECTION).doc(id));
   try {
     const outcome = await db.runTransaction(async (tx): Promise<UploadResult> => {
       const again = await tx.get(sameFile);
@@ -247,12 +269,15 @@ export async function uploadEarnings(actor: Actor, input: { platform: IncomeChan
         return { kind: 'already-uploaded', uploadId: again.docs[0].id, uploadedAt: was?.uploadedAt ?? '', month: was?.month ?? '' };
       }
       const existing = lineRefs.length > 0 ? await tx.getAll(...lineRefs) : [];
+      const unreadSnaps = unreadRefs.length > 0 ? await tx.getAll(...unreadRefs) : [];
       const fresh = existing.filter((snap) => !snap.exists);
+      // A row already stored whose line an admin rejected: it stays rejected, and is named apart (Kian's ruling of 2026-11-01).
+      const rejectedBefore = existing.filter((snap) => snap.exists && snap.get('status') === 'rejected').length;
       // A title set aside as not a Nubnb property (dispatch 36, Kian's ruling of 2026-10-12): its lines are rejected.
       const titlesHere = [...new Set(fresh.map((snap) => byId.get(snap.id)!.listingTitle))];
       const linkSnaps = titlesHere.length > 0 ? await tx.getAll(...titlesHere.map((title) => db.collection(EARNINGS_TITLE_LINKS_COLLECTION).doc(linkIdOf(platform, title)))) : [];
       const setAside = new Set(titlesHere.filter((_, i) => linkSnaps[i].exists && isSetAside(readTitleLink(linkSnaps[i].id, linkSnaps[i].data() ?? {}))));
-      const next: EarningsUpload = { ...record, added: fresh.length, duplicates: existing.length - fresh.length };
+      const next: EarningsUpload = { ...record, added: fresh.length, duplicates: existing.length - fresh.length, rejectedBefore };
       tx.create(uploadRef, next);
       for (const snap of fresh) {
         const row = byId.get(snap.id)!;
@@ -277,6 +302,30 @@ export async function uploadEarnings(actor: Actor, input: { platform: IncomeChan
           history: aside ? [{ at: uploadedAt, actor, action: 'rejected' }] : [],
         };
         tx.create(snap.ref, line);
+      }
+      // A row that becomes no line, new: a gap until it is decided. One already stored keeps its decision.
+      for (const snap of unreadSnaps) {
+        if (snap.exists) continue;
+        const row = unreadById.get(snap.id)!;
+        const unread: EarningsUnread = {
+          schemaVersion: EARNINGS_UNREAD_SCHEMA_VERSION,
+          platform,
+          uploadId: uploadRef.id,
+          fileRow: row.row,
+          payoutDate: row.payoutDate,
+          month,
+          type: row.type,
+          confirmationCode: row.confirmationCode,
+          listingTitle: row.listingTitle,
+          currency: row.currency,
+          stay: row.stay,
+          amountCents: row.amountCents,
+          why: row.why,
+          decision: null,
+          history: [],
+          createdAt: uploadedAt,
+        };
+        tx.create(snap.ref, unread);
       }
       return { kind: 'uploaded', upload: { id: uploadRef.id, ...next } };
     });
@@ -368,6 +417,8 @@ export interface IncomeMonth {
   renames: RenameSuggestion[];
   /** The month's accepted lines a finished statement prints, by line ID (M10: locked), unless that statement is being corrected. */
   locked: Record<string, { month: string; reference: string }>;
+  /** The month's rows that became no line, decided or not (Kian's ruling of 2026-11-01), by the day paid. */
+  unread: EarningsUnreadView[];
   /** Stored documents left out because they are not in the written shape. */
   unreadable: number;
 }
@@ -453,6 +504,7 @@ export async function readIncomeMonth(month: string): Promise<IncomeMonth> {
     // The names the page shows (Kian's rulings of 2026-10-15, evening).
     listCleanerFacingNames(),
   ]);
+  const unreadRead = await readMonthUnread(month);
   const sourcesSnap = await sourcesRead;
   const notThroughFiles = sourcesSnap.docs.map((doc) => readIncomeSource(doc.id, doc.data())).filter((source) => source !== null && source.notThroughFiles).map((source) => source!.propertyId).sort();
   let unreadable = 0;
@@ -584,8 +636,26 @@ export async function readIncomeMonth(month: string): Promise<IncomeMonth> {
     noStatement,
     renames,
     locked,
-    unreadable,
+    unread: unreadRead.unread,
+    unreadable: unreadable + unreadRead.unreadable,
   };
+}
+
+/** A month's rows that became no line, decided or not, by the day paid: one read each (one when there are none). @throws if the read fails. */
+export async function readMonthUnread(month: string): Promise<{ unread: EarningsUnreadView[]; unreadable: number }> {
+  const snap = await getAdminDb().collection(EARNINGS_UNREAD_COLLECTION).where('month', '==', month).get();
+  const unread: EarningsUnreadView[] = [];
+  let unreadable = 0;
+  for (const doc of snap.docs) {
+    const row = readEarningsUnread(doc.id, doc.data());
+    if (row) unread.push(row);
+    else {
+      unreadable += 1;
+      console.error(`[income] ${EARNINGS_UNREAD_COLLECTION}/${doc.id} is not in the written shape; left out`);
+    }
+  }
+  unread.sort((a, b) => a.payoutDate.localeCompare(b.payoutDate) || a.fileRow - b.fileRow || a.id.localeCompare(b.id));
+  return { unread, unreadable };
 }
 
 /**
@@ -627,6 +697,8 @@ export interface PropertyIncome {
   calendar: { month: string; days: string[]; stays: { start: string; end: string }[] } | null;
   /** Marked "not paid through Nubnb's files" by an admin (Kian's ruling K2 of 2026-10-17). */
   notThroughFiles: boolean;
+  /** With a month: that month's rows that became no line, any property's (Finish warns on every statement of the month while one is undecided). */
+  unread: EarningsUnreadView[];
 }
 
 /**
@@ -639,11 +711,12 @@ export async function readPropertyIncome(propertyId: string, month: string | nul
   // Every link and every upload, both small (one link per title, one upload per file): the property's titles,
   // and the titles in each month's files that no link names (dispatch 34, I1).
   const range = month ? monthRange(month) : null;
-  const [linksSnap, uploadsSnap, daysSnap, sourceSnap] = await Promise.all([
+  const [linksSnap, uploadsSnap, daysSnap, sourceSnap, unreadRead] = await Promise.all([
     db.collection(EARNINGS_TITLE_LINKS_COLLECTION).get(),
     db.collection(EARNINGS_UPLOADS_COLLECTION).get(),
     range ? db.collection(DAYS_COLLECTION).where(FieldPath.documentId(), '>=', range.from).where(FieldPath.documentId(), '<=', addDays(range.to, 7)).get() : Promise.resolve(null),
     db.collection(INCOME_SOURCES_COLLECTION).doc(propertyId).get(),
+    month ? readMonthUnread(month) : Promise.resolve({ unread: [], unreadable: 0 }),
   ]);
   const source = sourceSnap.exists ? readIncomeSource(sourceSnap.id, sourceSnap.data() ?? {}) : null;
   const links = linksSnap.docs.map((doc) => readTitleLink(doc.id, doc.data())).filter((link): link is TitleLinkView => link !== null);
@@ -694,6 +767,7 @@ export async function readPropertyIncome(propertyId: string, month: string | nul
     titles: titles.sort((a, b) => Number(isActiveTitle(b)) - Number(isActiveTitle(a)) || b.linkedAt.localeCompare(a.linkedAt)),
     calendar,
     notThroughFiles: source?.notThroughFiles === true,
+    unread: unreadRead.unread,
   };
 }
 

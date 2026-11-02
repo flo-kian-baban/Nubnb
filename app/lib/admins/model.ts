@@ -474,6 +474,7 @@ const ACTION_WORDS: [method: string, path: RegExp, words: string][] = [
   ['POST', new RegExp(`^/api/admin/income/lines/accept-month$`), 'Accepted a month’s income lines in one confirmation'],
   ['POST', new RegExp(`^/api/admin/income/lines/reject$`), 'Rejected income lines'],
   ['PUT', new RegExp(`^/api/admin/income/links$`), 'Linked an Airbnb title'],
+  ['POST', new RegExp(`^/api/admin/income/unread/${ID}$`), 'Decided a row of an Airbnb file that became no line'],
   ['POST', new RegExp(`^/api/admin/income/uploads$`), 'Uploaded an Airbnb file'],
   ['GET', new RegExp(`^/api/admin/month-package$`), 'Downloaded a month’s files'],
   ['GET', new RegExp(`^/api/admin/monthly-reports/${ID}/pdf$`), 'Downloaded a statement'],

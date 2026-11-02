@@ -28,6 +28,19 @@ export interface PlatformRow {
   remittedTaxCents: number | null;
 }
 
+/** A row that becomes no line (see `notRead`). */
+export interface UnreadRow {
+  row: number;
+  payoutDate: string;
+  type: string;
+  amountCents: number;
+  why: string;
+  confirmationCode: string;
+  listingTitle: string;
+  currency: string;
+  stay: Stay;
+}
+
 export type PlatformRead =
   | {
       ok: true;
@@ -35,8 +48,12 @@ export type PlatformRead =
       rows: number;
       lines: PlatformRow[];
       payouts: { row: number; payoutDate: string; paidOutCents: number; rowsCents: number; rows: number }[];
-      /** Rows that are not payouts and become no line, with why. */
-      notRead: { row: number; payoutDate: string; type: string; amountCents: number; why: string }[];
+      /**
+       * Rows that are not payouts and become no line, with why, and what identifies each (Kian's ruling of 2026-11-01:
+       * such a row is a gap until an admin places it or marks it not Nubnb's money): its code, listing and currency as
+       * the file gives them (any may be empty), and its stay when its dates are in Airbnb's form.
+       */
+      notRead: UnreadRow[];
       amountCents: number;
       paidOutCents: number;
       balanced: boolean;

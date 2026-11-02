@@ -695,7 +695,7 @@ Cleaning schedule phase 2: pay, on the Team page.
 2. **Payments are recorded by any admin: amount, date, method (e-transfer,
    cash, other), optional note, and the admin who recorded it.**
 3. **No pay periods: each person has a running balance (owed minus paid).
-   It may go negative after a change, shown as overpaid.** [ruling 2]
+   It may go negative after a change, shown as paid ahead (see §65.3).** [ruling 2]
 4. **Any admin can delete a payment after a confirmation naming it; the
    person's history keeps it, with who deleted it.** [ruling 3]
 5. **On the Team page each person's row shows Earned, Paid and Balance;

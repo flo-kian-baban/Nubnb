@@ -43,6 +43,7 @@ export const CHECKS = [
   { name: 'fresh-start', script: 'statements/fresh-start.mjs', args: [] },
   { name: 'receipts-phase2', script: 'money/receipts-phase2.mjs', args: [] },
   { name: 'cleaning-flow', script: 'schedule/cleaning-flow.mjs', args: [] },
+  { name: 'income-unread', script: 'income/unread.mjs', args: [] },
 ];
 
 const argv = process.argv.slice(2);

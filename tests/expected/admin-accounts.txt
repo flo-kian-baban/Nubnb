@@ -173,6 +173,7 @@
   POST   /api/admin/income/lines/reject                       recorded as "Rejected income lines"
   PUT    /api/admin/income/links                              recorded as "Linked an Airbnb title"
   GET    /api/admin/income                                    read, not recorded
+  POST   /api/admin/income/unread/[id]                        recorded as "Decided a row of an Airbnb file that became no line"
   GET    /api/admin/income/uploads/[id]/file                  read, not recorded
   POST   /api/admin/income/uploads                            recorded as "Uploaded an Airbnb file"
   GET    /api/admin/month-package                             recorded as "Downloaded a month’s files"
@@ -220,7 +221,7 @@
   POST   /api/properties                                      recorded as "Added a property"
   POST   /api/scrape-airbnb                                   recorded as "Read an Airbnb listing"
   POST   /api/upload-image                                    recorded as "Uploaded an image"
-  102 handlers through adminRoute; problems: 0
+  103 handlers through adminRoute; problems: 0
   routes still on the PIN-signed session: 0
   a route that unlocks an admin's PIN (the first version's per-admin lock): false
 

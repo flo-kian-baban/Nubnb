@@ -1,0 +1,62 @@
+═══ 1. A file with rows that become no line: each kept with what identifies it ═══
+  read: 6 rows · 1 line · 4 not read · balanced true
+    row 3: Adjustment · -1999 cents CAD · code "" · listing "__TEST__ Pine Loft" · stay 2026-11-02→2026-11-05 (3) · no confirmation code
+    row 4: Reservation · 8888 cents USD · code "HMTESTU1" · listing "__TEST__ Pine Loft" · stay 2026-11-24→2026-11-26 (2) · the currency is USD, not CAD
+    row 5: Reservation · 10000 cents CAD · code "HMTESTU2" · listing "" · stay 2026-11-20→2026-11-22 (2) · no listing
+    row 6: Adjustment · -1999 cents CAD · code "" · listing "__TEST__ Pine Loft" · stay 2026-11-02→2026-11-05 (3) · no confirmation code
+   ok   four rows not read, one line, and the file still adds up
+   ok   each says why
+   ok   each keeps its code, listing, currency and stay
+
+═══ 2. Each row under its key ═══
+  key text: unread|airbnb|2026-11-26|Reservation|HMTESTU1|__TEST__ Pine Loft|USD|8888|2026-11-24|2026-11-26
+   ok   two identical rows: the same text, told apart by "|2" as two identical lines are
+   ok   a different currency or listing is a different row
+   ok   two rows with no code and different stays are never one
+   ok   the same file read again makes the same keys: nothing is added twice
+
+═══ 3. The Income page's month: the gap ═══
+   ok   stored row 4 reads back in shape
+   ok   stored row 3 reads back in shape
+   ok   stored row 5 reads back in shape
+   ok   stored row 6 reads back in shape
+   ok   a "not Nubnb's money" with no reason is not in shape
+   ok   a placement with no line ID is not in shape
+  gaps.unread: row 3 -$19.99 (no confirmation code) | row 6 -$19.99 (no confirmation code)
+  decided: row 4 placed | row 5 not-ours
+   ok   the undecided rows are the gap, each with its amount and why
+   ok   a placed row and a row not Nubnb's money leave the gap and are listed as decided
+   ok   an amount is said in its own currency, CAD plain
+   ok   none read: no gap
+
+═══ 4. Finish's warnings for the month's statements ═══
+  two waiting: ["2 rows of November's Airbnb file are not placed: -$19.99 (no confirmation code), -$19.99 (no confirmation code). Place each with a typed line, or mark it not Nubnb's money, on the Income page."]
+  four waiting: ["4 rows of November's Airbnb file are not placed: -$19.99 (no confirmation code), -$19.99 (no confirmation code), -$19.99 (no confirmation code) and 1 more. Place each with a typed line, or mark it not Nubnb's money, on the Income page."]
+  one waiting: ["1 row of November's Airbnb file is not placed: -$19.99 (no confirmation code). Place it with a typed line, or mark it not Nubnb's money, on the Income page."]
+   ok   the warning names each row with its amount and why, on the Income tab
+   ok   more than three: three named, the rest counted
+   ok   none waiting, or not read: no such warning
+
+═══ 5. The empty month: no statement of the month is finished empty while a row waits ═══
+  with a row waiting: eligible 0 · left out ["2 rows of November's Airbnb file are not placed: -$19.99 (no confirmation code), -$19.99 (no confirmation code). Place each with a typed line, or mark it not Nubnb's money, on the Income page."]
+  with none: eligible 1 · left out 0
+   ok   while a row waits, the empty month is left out, with Finish's words
+   ok   once decided, it can be finished empty again
+
+═══ 6. What the decision route accepts ═══
+  place: accepted {"action":"place","seen":0,"propertyId":"TESTPROP0001","lineId":"test-line-1"}
+  not ours, with a reason: accepted {"action":"not-ours","seen":0,"reason":"Another host's money"}
+  not ours, a blank reason: refused
+  place, no line: refused
+  a field beyond: refused
+
+═══ 7. An upload's counts in words ═══
+  a file repeating one rejected row: "0 new lines, 0 already in, 1 row was rejected before and stays rejected"
+  new lines, rows already in, two rejected before: "12 new lines, 4 already in, 2 rows were rejected before and stay rejected"
+  nothing rejected before: "12 new lines, 6 already in"
+  an upload written before the count: "3 new lines, 1 already in"
+   ok   the repeated rejected row is named, and not counted as already in
+   ok   an upload reads with its count, and one written before reads without it
+   ok   more rejected than already in is not in shape
+
+all checks passed

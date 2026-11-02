@@ -5119,3 +5119,70 @@ counts, client-only). Next: read properties and cleaner names once per open (abo
   ahead $5.00, …"). `balanceWords` gives `words` (alone) and `inline` (in a sentence); its tone is `ahead`, in amber as
   before. Recordings re-recorded for it: `pay-balance` and `team-round1`.
 - **"'Decide extra' after Not marked, as built."**
+
+## 66. Phase 4: income before November's file (2026-11-01)
+
+Kian's dispatch of 2026-11-01: audit the Income page, the upload, title links and review, direct payments, gaps, the
+home's Income column and the statement's income, live on Unlisted `__TEST__` properties with made-up Airbnb files in
+the real 21-column format, clock in December 2028. No BLOCKER or HIGH was found; no code changed.
+
+- **The month rule:** a line belongs to the month of its row's Date, the day Airbnb paid it out (Kian's ruling of
+  2026-10-04), never the check-in, the checkout or a split by nights. A stay across month end paid once is wholly in
+  its payout month; a long stay paid in instalments puts each instalment in its own payout month, and the months add
+  up to what was paid. An upload stores only the rows paid in the month chosen; the others are counted on the upload
+  and left for their own month's file.
+- **Once only:** a line is keyed by confirmation code, payout date, type and amount (two identical rows in one file
+  are two payments); the same file twice is refused by its SHA-256; an overlapping file adds only rows not stored.
+- **Held:** a title with no link (until it is linked once, then by itself on every later file), a negative amount, a
+  stay begun more than a month before the file's month, an unknown row type, a possible duplicate. A row that cannot
+  become a line (no amount, no confirmation code, no listing, not CAD) is named on its file's row with its amount and
+  why, and counted in the payout's check; it is in no total.
+- **Agreement:** a property's month on the Income page, the home's Income column and the property page's statement
+  read the same accepted lines (verified to the cent).
+- **A wrong upload:** an upload is never deleted (Kian's ruling of 2026-10-13); its lines are sent back, rejected or
+  proposed again one by one, or a property's together. A rejected line stays rejected when a later file repeats its
+  row: that file counts it as already in.
+
+### 66.1 Kian's rulings of 2026-11-01 (Phase 4 approved; the held item)
+
+- **"A file row that can't become a line (no confirmation code, a currency other than CAD, or any other refusal)
+  counts as a gap: at the top of the Income page for its month, with amount and reason, and in Finish's warnings for
+  that month's statements. It clears when an admin places it with a typed line, or marks it 'not Nubnb's money' with
+  a reason (logged)."**
+- **"When a later file repeats a rejected line's row, the upload result names it ('1 row was rejected before and stays
+  rejected') instead of 'already in'."**
+
+### 66.2 As built (the developer's choices; none changes what an owner receives)
+
+- **Kept:** each such row of the upload's month is `earnings_unread/{sha256(key)}`, server-only (firestore.rules'
+  catch-all), keyed like a line but from everything the file gives — payout date, type, code (may be empty), listing,
+  currency, amount, stay — with "|2" for a second identical row in one file. A later file holding the same row adds
+  nothing and leaves its decision as it is. The reader keeps code, listing, currency and stay with each row it does not
+  turn into a line. The upload's limit of 400 rows counts these too.
+- **The gap:** "Rows not read from the file", the first group of the Income page's Gaps panel, each with its day, type,
+  listing, code, stay, amount in its own currency ("$88.88 USD", never added to CAD) and why, and its file and row.
+  Decided rows are listed under the month's files, one quiet line each, with who and when.
+- **Placed with a typed line:** the admin types the line on the property's statement as any line is typed (its page's
+  Income tab, the draft's own save and revision), then names the property and that line on the Income page. The server
+  checks, in one transaction, that the row is still undecided as the page saw it and that the property's draft for the
+  row's month holds a typed line with that ID, and records the property, month, line ID, description and amount. No
+  draft is written from the Income page: a draft made there would skip the reference and fee rate the property page
+  offers a new statement (Kian's rulings K5 and K6), which are saved with its first edit.
+- **Not Nubnb's money:** a reason of 1–300 characters, recorded with who and when. Either decision is final here.
+- **Finish:** while any of the month's rows waits, every statement of that month warns, naming up to three with amount
+  and why ("2 rows of November's Airbnb file are not placed: $88.88 USD (the currency is USD, not CAD), -$19.99 (no
+  confirmation code). …"). The empty-month finish builds on Finish's warnings (an empty statement goes out only when
+  nothing needs a look), so it leaves every property out while one waits.
+- **The upload:** `rejectedBefore` on the upload record counts the repeated rows whose stored line was rejected; the
+  upload's notice and its file row say "0 new lines, 0 already in, 1 row was rejected before and stays rejected". An
+  upload written before reads without it.
+- **Route:** POST /api/admin/income/unread/[id], `{ action: "place", seen, propertyId, lineId }` or `{ action:
+  "not-ours", seen, reason }`; logged in the admins' activity as "Decided a row of an Airbnb file that became no line".
+- **LATER:** a placed row's typed line deleted afterwards does not bring the gap back; a decision cannot be undone; a
+  negative row placed by a typed line counts as an expense, not as less revenue (ruling M1 covers lines from files).
+- **Verified** on Unlisted `__TEST__` properties, clock 1 December 2028, under the write guard: a file with a USD row and
+  a row with no code showed both as gaps on the Income page and in Finish on two properties' November statements; a
+  line typed on P's statement placed the USD row and the other was marked not Nubnb's money; both cleared from the page
+  and from Finish; P's revenue moved by the typed line only ($210.10 → $330.55) and nothing moved with the decisions;
+  the repeated rejected row was named on its upload. 30 documents and 2 kept files deleted by exact ID and path;
+  exports identical (603). Tests: `income-unread` (new); `admin-accounts` (one handler more).

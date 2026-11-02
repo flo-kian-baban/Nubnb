@@ -6,7 +6,7 @@
 
 import { z } from 'zod';
 import { STATEMENT_LIMITS, isMonth } from '@/app/lib/reports/model';
-import { INCOME_CHANNELS, INCOME_LIMITS, NOT_NUBNB, normaliseTitle } from './model';
+import { INCOME_CHANNELS, INCOME_LIMITS, NOT_NUBNB, UNREAD_REASON_MAX, normaliseTitle } from './model';
 
 const CONTROL_CHARACTER = /\p{Cc}/u;
 const LINE_ID = /^[0-9a-f]{64}$/;
@@ -122,3 +122,20 @@ export const AcceptMonthInputSchema = z.strictObject({
 
 /** PUT /api/admin/properties/[id]/income-source (Kian's ruling K2 of 2026-10-17): marked or not, as the page saw it. */
 export const IncomeSourceInputSchema = z.strictObject({ notThroughFiles: z.boolean(), expected: z.boolean() });
+
+/**
+ * A decision on a row that became no line (Kian's ruling of 2026-11-01): placed with a typed line already on the
+ * property's statement for the row's month, or "not Nubnb's money" with a reason. `seen`: the row's history length as
+ * the page saw it.
+ */
+export const UnreadDecisionSchema = z.discriminatedUnion('action', [
+  z.strictObject({ action: z.literal('place'), seen: z.number().int().min(0).max(100), propertyId: z.string().regex(DOCUMENT_ID, 'Not a property ID'), lineId: z.string().regex(/^[A-Za-z0-9_-]{1,40}$/, 'Not a line ID') }),
+  z.strictObject({
+    action: z.literal('not-ours'),
+    seen: z.number().int().min(0).max(100),
+    reason: z
+      .string()
+      .transform((s) => s.normalize('NFC').replace(/\s+/g, ' ').trim())
+      .pipe(z.string().min(1, 'Say why it is not Nubnb\'s money').max(UNREAD_REASON_MAX, `At most ${UNREAD_REASON_MAX} characters`).refine((s) => !CONTROL_CHARACTER.test(s), 'No control characters')),
+  }),
+]);

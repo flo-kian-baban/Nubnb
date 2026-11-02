@@ -220,6 +220,20 @@
   flex-direction: column;
   gap: 2px;
 }
+/* The month's rows not read from the file, decided (Kian's ruling of 2026-11-01): one quiet line each, under the files. */
+/* The reason a row is not Nubnb's money (Kian's ruling of 2026-11-01): wide enough for its words. */
+.reasonInput {
+  width: 300px;
+  max-width: 100%;
+}
+.decidedList {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
 .ok {
   color: #8fe3b4;
 }

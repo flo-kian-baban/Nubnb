@@ -77,6 +77,11 @@ import type { PlatformLineInput } from '@/app/lib/reports/statement';
 export const EARNINGS_UPLOADS_COLLECTION = 'earnings_uploads';
 export const EARNINGS_LINES_COLLECTION = 'earnings_lines';
 export const EARNINGS_TITLE_LINKS_COLLECTION = 'earnings_title_links';
+/** Rows of the files that become no line (Kian's ruling of 2026-11-01): `earnings_unread/{sha256(key)}`. */
+export const EARNINGS_UNREAD_COLLECTION = 'earnings_unread';
+export const EARNINGS_UNREAD_SCHEMA_VERSION = 1;
+/** A reason an admin gives for "not Nubnb's money": 1 to this many characters. */
+export const UNREAD_REASON_MAX = 300;
 /** Storage prefix of the kept files. Readers use the stored path and never rebuild it. */
 export const EARNINGS_UPLOADS_PREFIX = 'earnings-uploads';
 export const EARNINGS_SCHEMA_VERSION = 1;
@@ -255,12 +260,95 @@ export interface EarningsUpload {
   /** This month's rows stored as new lines, and those already stored by an earlier file. */
   added: number;
   duplicates: number;
+  /**
+   * Of `duplicates`, the rows whose stored line an admin had rejected: they stay rejected, and the upload names them
+   * apart from the rows already in (Kian's ruling of 2026-11-01). Absent on an upload written before: none named.
+   */
+  rejectedBefore?: number;
   /** Rows paid in another month: counted, never stored, so that month's own file proposes them. */
   outsideMonth: { month: string; rows: number; amountCents: number }[];
   /** Rows the reader does not turn into lines, and why: a type it does not read, no amount, another currency. */
   notRead: { row: number; type: string; amountCents: number; why: string }[];
   uploadedAt: string;
   actor: Actor;
+}
+
+/**
+ * `earnings_unread/{sha256(key)}`: a row of a platform's file that becomes no line — no confirmation code, a currency
+ * other than CAD, no listing, no amount, no type — kept with what identifies it (Kian's ruling of 2026-11-01). It is
+ * a gap of its month, at the top of the Income page and in Finish's warnings for that month's statements, until an
+ * admin places it with a typed line on a property's statement or marks it "not Nubnb's money" with a reason. Either
+ * decision is logged in its history and never undone here. The same row in a later file makes the same key and adds
+ * nothing; two identical rows in one file are two rows, as two identical lines are two payments.
+ */
+export interface UnreadPlaced {
+  kind: 'placed';
+  propertyId: string;
+  /** The statement month the typed line went on: the row's own month. */
+  month: string;
+  /** The typed line, on that month's draft (`monthly_report_drafts/{propertyId}_{month}`), as written. */
+  lineId: string;
+  description: string;
+  amountCents: number;
+  at: string;
+  actor: Actor;
+}
+export interface UnreadNotOurs {
+  kind: 'not-ours';
+  reason: string;
+  at: string;
+  actor: Actor;
+}
+export type UnreadDecision = UnreadPlaced | UnreadNotOurs;
+
+export interface EarningsUnread {
+  schemaVersion: number;
+  platform: IncomeChannel;
+  /** The upload that first held it, and its row there. */
+  uploadId: string;
+  fileRow: number;
+  payoutDate: string;
+  /** The month it was paid in: its upload's month. */
+  month: string;
+  type: string;
+  /** As the file gives them; any may be empty. */
+  confirmationCode: string;
+  listingTitle: string;
+  currency: string;
+  stay: Stay;
+  /** In the row's own currency. */
+  amountCents: number;
+  /** Why it became no line, as the reader says it: "no confirmation code", "the currency is USD, not CAD". */
+  why: string;
+  decision: UnreadDecision | null;
+  history: { at: string; actor: Actor; action: 'placed' | 'not-ours' }[];
+  createdAt: string;
+}
+export interface EarningsUnreadView extends EarningsUnread {
+  id: string;
+}
+
+/**
+ * The text an unread row's ID is the SHA-256 of: everything the file gives about it, so that two different rows with
+ * no confirmation code are never one; "|2", "|3" for the second and third identical row of one file.
+ */
+export function unreadKeyText(platform: IncomeChannel, row: { payoutDate: string; type: string; confirmationCode: string; listingTitle: string; currency: string; amountCents: number; stay: Pick<Stay, 'start' | 'end'> }, occurrence = 1): string {
+  return ['unread', platform, row.payoutDate, row.type, row.confirmationCode, normaliseTitle(row.listingTitle), row.currency, String(row.amountCents), row.stay.start ?? '', row.stay.end ?? '', ...(occurrence > 1 ? [String(occurrence)] : [])].join('|');
+}
+
+/** "-$19.99", "$88.88 USD": an unread row's amount in its own currency. */
+export function unreadAmountWords(row: Pick<EarningsUnread, 'amountCents' | 'currency'>): string {
+  const cents = Math.abs(row.amountCents);
+  const text = `${row.amountCents < 0 ? '-' : ''}$${(cents / 100).toLocaleString('en-CA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return row.currency === '' || row.currency === 'CAD' ? text : `${text} ${row.currency}`;
+}
+
+/** What an upload added, in words (Kian's ruling of 2026-11-01): a repeated row whose line was rejected is named apart from those already in. */
+export function uploadCountWords(upload: Pick<EarningsUpload, 'added' | 'duplicates' | 'rejectedBefore'>): string {
+  const rejected = upload.rejectedBefore ?? 0;
+  const parts = [`${upload.added} new ${upload.added === 1 ? 'line' : 'lines'}`, `${upload.duplicates - rejected} already in`];
+  if (rejected > 0) parts.push(`${rejected} ${rejected === 1 ? 'row was' : 'rows were'} rejected before and ${rejected === 1 ? 'stays' : 'stay'} rejected`);
+  return parts.join(', ');
 }
 
 /**
@@ -490,8 +578,9 @@ export function readEarningsLine(id: string, fields: Record<string, unknown>): E
 }
 
 export function readEarningsUpload(id: string, fields: Record<string, unknown>): EarningsUploadView | null {
-  const { schemaVersion, platform, month, file, read, titles, added, duplicates, outsideMonth, notRead, uploadedAt, actor } = fields;
+  const { schemaVersion, platform, month, file, read, titles, added, duplicates, rejectedBefore, outsideMonth, notRead, uploadedAt, actor } = fields;
   if (!isCents(schemaVersion) || !isIncomeChannel(platform) || !isMonthText(month) || !isText(uploadedAt) || !isActor(actor) || !isCents(added) || !isCents(duplicates)) return null;
+  if (rejectedBefore !== undefined && (!isCents(rejectedBefore) || rejectedBefore < 0 || rejectedBefore > duplicates)) return null;
   if (!isRecord(file) || !isText(file.name) || file.kind !== 'csv' || !isCents(file.bytes) || !isText(file.sha256) || !isText(file.storagePath) || !isCents(file.storedBytes) || !isText(file.storedSha256)) return null;
   if (!Array.isArray(file.blanked) || !file.blanked.every(isText)) return null;
   if (!isRecord(read) || read.by !== 'csv' || !isCents(read.rows) || !isCents(read.payoutRows) || !isCents(read.lineRows) || !isCents(read.amountCents) || !isCents(read.paidOutCents) || typeof read.balanced !== 'boolean') return null;
@@ -529,10 +618,51 @@ export function readEarningsUpload(id: string, fields: Record<string, unknown>):
     titles: (titles as Record<string, unknown>[]).map((t) => ({ title: t.title as string, rows: t.rows as number, amountCents: t.amountCents as number })),
     added,
     duplicates,
+    ...(rejectedBefore !== undefined ? { rejectedBefore: rejectedBefore as number } : {}),
     outsideMonth: (outsideMonth as Record<string, unknown>[]).map((o) => ({ month: o.month as string, rows: o.rows as number, amountCents: o.amountCents as number })),
     notRead: (notRead as Record<string, unknown>[]).map((n) => ({ row: n.row as number, type: n.type as string, amountCents: n.amountCents as number, why: n.why as string })),
     uploadedAt,
     actor,
+  };
+}
+
+/** A stored unread row, read strictly: null when any field is not in the written shape. */
+export function readEarningsUnread(id: string, fields: Record<string, unknown>): EarningsUnreadView | null {
+  const { schemaVersion, platform, uploadId, fileRow, payoutDate, month, type, confirmationCode, listingTitle, currency, stay, amountCents, why, decision, history, createdAt } = fields;
+  if (!isCents(schemaVersion) || !isIncomeChannel(platform) || !isText(uploadId) || !isCents(fileRow) || !isDay(payoutDate) || !isMonthText(month)) return null;
+  if (!isText(type) || !isText(confirmationCode) || !isText(listingTitle) || !isText(currency) || !isCents(amountCents) || !isText(why) || !isText(createdAt)) return null;
+  if (!isRecord(stay) || !isDayOrNull(stay.start) || !isDayOrNull(stay.end) || !(stay.nights === null || isCents(stay.nights))) return null;
+  let read: UnreadDecision | null = null;
+  if (decision !== null) {
+    if (!isRecord(decision) || !isText(decision.at) || !isActor(decision.actor)) return null;
+    if (decision.kind === 'placed') {
+      const { propertyId, month: placedMonth, lineId, description, amountCents: placedCents } = decision;
+      if (!isText(propertyId) || !isMonthText(placedMonth) || !isText(lineId) || !isText(description) || !isCents(placedCents)) return null;
+      read = { kind: 'placed', propertyId, month: placedMonth, lineId, description, amountCents: placedCents, at: decision.at, actor: decision.actor };
+    } else if (decision.kind === 'not-ours') {
+      if (!isText(decision.reason) || decision.reason.trim() === '') return null;
+      read = { kind: 'not-ours', reason: decision.reason, at: decision.at, actor: decision.actor };
+    } else return null;
+  }
+  if (!Array.isArray(history) || !history.every((e) => isRecord(e) && isText(e.at) && isActor(e.actor) && (e.action === 'placed' || e.action === 'not-ours'))) return null;
+  return {
+    id,
+    schemaVersion,
+    platform,
+    uploadId,
+    fileRow,
+    payoutDate,
+    month,
+    type,
+    confirmationCode,
+    listingTitle,
+    currency,
+    stay: { start: stay.start as string | null, end: stay.end as string | null, nights: stay.nights as number | null },
+    amountCents,
+    why,
+    decision: read,
+    history: (history as Record<string, unknown>[]).map((e) => ({ at: e.at as string, actor: e.actor as Actor, action: e.action as 'placed' | 'not-ours' })),
+    createdAt,
   };
 }
 

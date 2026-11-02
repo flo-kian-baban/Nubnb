@@ -40,7 +40,7 @@
 
 import { parseCsv, writeCsv } from './csv';
 import { PLATFORM_TYPES, normaliseTitle } from './model';
-import type { PlatformRead, PlatformRow } from './platforms';
+import type { PlatformRead, PlatformRow, UnreadRow } from './platforms';
 
 /** The columns this reader needs, by Airbnb's names. */
 export const AIRBNB_COLUMNS = {
@@ -128,7 +128,7 @@ export function readAirbnbCsv(text: string): AirbnbRead {
   };
   const lines: AirbnbLineRow[] = [];
   const payouts: AirbnbPayout[] = [];
-  const notRead: { row: number; payoutDate: string; type: string; amountCents: number; why: string }[] = [];
+  const notRead: UnreadRow[] = [];
   const orphan = { rows: 0, cents: 0 };
   const rowAmounts: { payoutDate: string; amountCents: number }[] = [];
   let amountCents = 0;
@@ -183,9 +183,13 @@ export function readAirbnbCsv(text: string): AirbnbRead {
       orphan.cents += amount;
     }
 
+    // What identifies a row that becomes no line (Kian's ruling of 2026-11-01): kept with it, as the file gives it.
+    const identity = { confirmationCode: cell(col.code), listingTitle: normaliseTitle(record[col.listing]), currency: cell(col.currency) };
     // A row of a type Nubnb does not recognise is read as a line all the same, and needs a decision (Kian's ruling of 2026-10-13).
     if (type === '') {
-      notRead.push({ row, payoutDate, type, amountCents: amount, why: 'no type' });
+      const day = (at: number) => (cell(at) === '' ? null : airbnbDay(cell(at)));
+      const nightsKept = /^\d{1,4}$/.test(cell(col.nights)) ? Number(cell(col.nights)) : null;
+      notRead.push({ row, payoutDate, type, amountCents: amount, why: 'no type', ...identity, stay: { start: day(col.start), end: day(col.end), nights: nightsKept } });
       return;
     }
     const start = cell(col.start) === '' ? null : airbnbDay(cell(col.start));
@@ -206,7 +210,7 @@ export function readAirbnbCsv(text: string): AirbnbRead {
     const why =
       amount === 0 ? 'no amount' : code === '' ? 'no confirmation code' : title === '' ? 'no listing' : currency !== STATEMENT_CURRENCY ? `the currency is ${currency || 'not given'}, not ${STATEMENT_CURRENCY}` : null;
     if (why !== null) {
-      notRead.push({ row, payoutDate, type, amountCents: amount, why });
+      notRead.push({ row, payoutDate, type, amountCents: amount, why, ...identity, stay: { start, end, nights } });
       return;
     }
     lines.push({
