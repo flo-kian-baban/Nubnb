@@ -94,7 +94,7 @@ export const GET = adminRoute(async function GET(request: NextRequest, _context:
       db.collection(CLEANINGS_COLLECTION).get(),
       // Every recorded direct payment (part B): read where it is stored, the statements place it as they place Airbnb's lines.
       directPlatformLines(),
-      // The rows of the files placed with typed lines (Kian's rulings of 2026-11-01): a negative one is Airbnb's money; a late one prints the day paid.
+      // The rows of the files placed with typed lines (Kian's rulings of 2026-11-01 and 2026-11-02): each is Airbnb's money; a late one prints the day paid.
       placedRowsAll(),
       // The names the folders and workbooks carry: the cleaner-facing name, else the public title (Kian's rulings of 2026-10-15, evening).
       listCleanerFacingNames(),

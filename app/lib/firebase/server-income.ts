@@ -656,7 +656,7 @@ export async function readIncomeMonth(month: string): Promise<IncomeMonth> {
     noStatement,
     renames,
     locked,
-    // The month's rows, and the rows of earlier months placed on this month's statements (their typed lines are Airbnb's money when negative; Kian's ruling of 2026-11-01).
+    // The month's rows, and the rows of earlier months placed on this month's statements (their typed lines are Airbnb's money; Kian's rulings of 2026-11-01 and 2026-11-02).
     unread: [...unreadRead.unread, ...placedHere.filter((row) => row.month !== month)],
     unreadable: unreadable + unreadRead.unreadable,
   };
@@ -738,7 +738,7 @@ export async function readPropertyIncome(propertyId: string, month: string | nul
     range ? db.collection(DAYS_COLLECTION).where(FieldPath.documentId(), '>=', range.from).where(FieldPath.documentId(), '<=', addDays(range.to, 7)).get() : Promise.resolve(null),
     db.collection(INCOME_SOURCES_COLLECTION).doc(propertyId).get(),
     month ? readMonthUnread(month) : Promise.resolve({ unread: [], unreadable: 0 }),
-    // The rows of earlier months placed on this property's statement for the month (Kian's ruling of 2026-11-01): the statement prints each with the day paid, a negative one as Airbnb's money.
+    // The rows of earlier months placed on this property's statement for the month (Kian's rulings of 2026-11-01 and 2026-11-02): the statement prints each with the day paid, each as Airbnb's money.
     month ? placedRowsOn(month) : Promise.resolve([]),
   ]);
   const source = sourceSnap.exists ? readIncomeSource(sourceSnap.id, sourceSnap.data() ?? {}) : null;

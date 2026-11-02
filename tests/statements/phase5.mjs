@@ -42,7 +42,7 @@ const line = (description, cents, extra = {}) => ({ id: `L${++seq}`, description
 const fileLine = (description, cents) => line(description, cents, { source: 'airbnb', platformLineId: sha(`line-${seq}`) });
 
 // ═══ 1. A negative row placed with a typed line is Airbnb's money (M1 extended): the Phase 5 report's table, both ways ═══
-console.log('═══ 1. A negative file row placed with a typed line: Airbnb\'s money, less revenue (Kian\'s ruling of 2026-11-01) ═══');
+console.log('═══ 1. A file row placed with a typed line, either sign: Airbnb\'s money (Kian\'s rulings of 2026-11-01 and 2026-11-02) ═══');
 // P's November 2028 as the rehearsal had it: eight lines from the file, one direct payment, a typed +$162.35 placing a
 // USD row, a typed -$30.00 placing a no-code negative row.
 const fileLines = [fileLine('Revenue - Nov 22–25, 2028', 29950), fileLine('Revenue - Nov 20–23, 2028', 30103), fileLine('Revenue - Nov 13–16, 2028', 28810), fileLine('Adjustment - Nov 5–15, 2028', 1875), fileLine('Revenue - Nov 5–15, 2028', 98765), fileLine('Resolution Adjustment - Nov 2–5, 2028', -4520), fileLine('Revenue - Nov 2–5, 2028', 31245), fileLine('Revenue - Oct 31–Nov 30, 2028 (paid Nov 1)', 234560)];
@@ -62,8 +62,9 @@ console.log(`  placed rows read from the decisions: ${placedRows.length} (${plac
 check(placedRows.length === 2 && placedRows.every((r) => r.propertyId === P(1)), 'two placed rows; an undecided row and a "not Nubnb\'s money" row give nothing');
 const idsBefore = money.airbnbLineIdsOf([]);
 const idsAfter = money.airbnbLineIdsOf([], placedRows);
-check(idsBefore.size === 0 && idsAfter.size === 1 && idsAfter.has(negative.id) && !idsAfter.has(usd.id), 'only the NEGATIVE placed row\'s line joins the Airbnb set; the positive one stays typed revenue');
-const bothWays = [['as coded before (M1: file lines only)', idsBefore], ['M1 extended (the placed negative row)', idsAfter]].map(([label, ids]) => {
+check(idsBefore.size === 0 && idsAfter.size === 2 && idsAfter.has(negative.id) && idsAfter.has(usd.id), 'both placed rows\' lines join the Airbnb set, the positive one too (Kian\'s ruling of 2026-11-02)');
+const idsNegativeOnly = new Set([negative.id]);
+const bothWays = [['as coded before (M1: file lines only)', idsBefore], ['M1 extended to negative rows (2026-11-01)', idsNegativeOnly], ['every placed row (2026-11-02)', idsAfter]].map(([label, ids]) => {
   const income = money.incomeFigures(lines, ids);
   const fee = st.feeFrom(st.feeLabelFor(2000, income.airbnbCents), 2000, income.airbnbCents, null);
   const sums = st.statementSums(lines, costs, [], fee, null, []);
@@ -72,15 +73,16 @@ const bothWays = [['as coded before (M1: file lines only)', idsBefore], ['M1 ext
 // "expenses" in the Phase 5 report's table is the statement's own split by sign (negative lines negated): $75.20 either
 // way, the claw-back and the placed row both negative lines. The month's money's typed expenses (M1) move: $30.00 → $0.00.
 for (const way of bothWays) console.log(`  ${way.label.padEnd(44)} revenue ${$(way.income.revenueCents)} · Airbnb paid ${$(way.income.airbnbCents)} · base ${$(way.fee.baseCents)} · fee ${$(way.fee.amountCents)} · negative lines ${$(way.sums.expensesCents)} (typed expenses under M1 ${$(way.income.expensesCents)}) · Revenue Share ${$(way.sums.payableCents)}`);
-const [before, after] = bothWays;
+const [before, after, every] = bothWays;
 check(before.income.revenueCents === 617023 && before.income.airbnbCents === 450788 && before.fee.amountCents === 90158 && before.sums.expensesCents === 7520 && before.income.expensesCents === 3000 && before.sums.payableCents === 438061, 'as coded before: revenue $6,170.23, Airbnb paid $4,507.88, fee $901.58, negative lines $75.20, Revenue Share $4,380.61 (the Phase 5 report\'s left column)');
 check(after.income.revenueCents === 614023 && after.income.airbnbCents === 447788 && after.fee.amountCents === 89558 && after.sums.expensesCents === 7520 && after.income.expensesCents === 0 && after.sums.payableCents === 438661, 'M1 extended: revenue $6,140.23, Airbnb paid $4,477.88, fee $895.58, Revenue Share $4,386.61 (the right column); the placed row is no typed expense');
 check(after.sums.payableCents - before.sums.payableCents === before.fee.amountCents - after.fee.amountCents, 'the owner\'s share moves by the fee alone: the Total before the fee is the same either way');
-const figures = money.figuresOf({ legacy: false, lines, costs, adjustments: [], fee: after.fee, carried: null, carriedAdjustments: [], ...after.sums, propertyName: 'Test', month: '2028-11', reference: '', reportDate: '', reportFor: null, draft: true, pendingLeftOut: 0, notes: null, supersedes: null, heading: true }, idsAfter);
-check(figures.airbnbCents === 447788 && figures.revenueCents === 614023 && figures.expensesCents === 0, 'the month\'s money (figuresOf) reads the placed negative row as Airbnb\'s money too');
+check(every.income.revenueCents === 614023 && every.income.airbnbCents === 464023 && every.fee.amountCents === 92805 && every.income.expensesCents === 0 && every.sums.payableCents === 435414, 'every placed row (2026-11-02): revenue $6,140.23 (unchanged: the positive line was revenue already), Airbnb paid $4,640.23, fee $928.05 (928.046 half up), Revenue Share $4,354.14');
+const figures = money.figuresOf({ legacy: false, lines, costs, adjustments: [], fee: every.fee, carried: null, carriedAdjustments: [], ...every.sums, propertyName: 'Test', month: '2028-11', reference: '', reportDate: '', reportFor: null, draft: true, pendingLeftOut: 0, notes: null, supersedes: null, heading: true }, idsAfter);
+check(figures.airbnbCents === 464023 && figures.revenueCents === 614023 && figures.expensesCents === 0, 'the month\'s money (figuresOf) reads both placed rows as Airbnb\'s money');
 // The Income page's by-property figures read the same decisions.
 const monthViewFigures = mv.monthView({ uploads: [], lines: [], links: [], lastSeen: {}, properties: [{ id: P(1), name: '__TEST__ Pine Loft' }], statements: [{ propertyId: P(1), finished: false, lines }], calendar: { checkIns: [] }, month: '2028-11', unread: [{ id: sha('u-neg'), schemaVersion: 1, platform: 'airbnb', uploadId: 'TESTUPLOAD0001', fileRow: 12, payoutDate: '2028-11-17', month: '2028-11', type: 'Resolution Adjustment', confirmationCode: '', listingTitle: '__TEST__ Pine Loft', currency: 'CAD', stay: { start: '2028-11-15', end: '2028-11-17', nights: 2 }, amountCents: -3000, why: 'no confirmation code', decision: { kind: 'placed', propertyId: P(1), month: '2028-11', lineId: negative.id, description: negative.description, amountCents: -3000, at: AT, actor: ADMIN }, history: [{ at: AT, actor: ADMIN, action: 'placed' }], createdAt: AT }] }).byProperty[0];
-check(monthViewFigures.airbnbCents === 447788 && monthViewFigures.revenueCents === 614023 && monthViewFigures.expensesCents === 0, 'the Income page\'s by-property figures read the placed negative row as Airbnb\'s money');
+check(monthViewFigures.airbnbCents === 447788 && monthViewFigures.revenueCents === 614023 && monthViewFigures.expensesCents === 0, 'the Income page\'s by-property figures read a placed row as Airbnb\'s money (here the negative one alone is placed)');
 
 // ═══ 2. A row whose month is finished is placed on the next open statement, which prints the day paid ═══
 console.log('\n═══ 2. Late placement: a November row placed on December\'s statement, printed with the day paid (M11\'s way) ═══');

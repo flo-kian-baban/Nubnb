@@ -5384,3 +5384,29 @@ Live on production data behind the write guard (the harness of 67.1, re-run from
 - The Income page's `placeOn` reads one draft per finished property while a row waits; fine for one month's handful.
 - The placing control's label for a late placement says the statement month; the row list itself does not yet say
   "goes on December" before a property is picked.
+
+### 67.11 Kian's ruling of 2026-11-02, in his words, and what changed
+
+- "Every row placed with a typed line, positive or negative, counts as Airbnb's money. It is part of revenue and
+  'what Airbnb paid', read from the placing decision. This completes §67.6, which covered only negatives."
+
+**What changed.** `airbnbLineIdsOf(lines, placed)` (money/month.ts) adds the typed line of every placed row, whatever
+the row's sign; nothing else moved, since every reader already passed the placed rows (67.7). CLAUDE.md's M1 line
+now reads "file lines and rows placed with a typed line (see §67.6)", one line, as Kian asked. The test
+`statements-phase5` §1 shows the three rules side by side and is re-recorded; the suite is otherwise identical.
+
+**P's November, live** (the same month as 67.9, rebuilt on the cheapest real routes: the six cleanings logged by hand
+at their amounts, the three costs as office costs with the same totals, the file, the held negative, the direct payment,
+the two placements; the figures over the server's own bundle, the tracker's server-side figures, and the independent
+computation over the raw documents with the ruling written in — all equal):
+
+| rule | what Airbnb paid | revenue (M1) | fee at that base | Revenue Share |
+|---|---|---|---|---|
+| file lines only (M1 as first coded) | $4,507.88 | $6,170.23 | $901.58 | $4,380.61 |
+| + the negative placed row (2026-11-01) | $4,477.88 | $6,140.23 | $895.58 | $4,386.61 |
+| every placed row (2026-11-02, the code now) | $4,640.23 | $6,140.23 | $928.05 | $4,354.14 |
+
+Revenue does not move between the last two rows: the positive placed line was revenue already (typed); it now also
+counts in "what Airbnb paid", so the fee's base grows by its $162.35 and the fee by $32.47 (928.046 rounds half up to
+$928.05). With the base still typed at the old figure, Finish's check said "The fee's base is $4,507.88; Airbnb paid
+$4,640.23 this month." until the base was typed again (K4). Cleanup by exact ID and path; exports identical.

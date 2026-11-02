@@ -192,8 +192,8 @@ export interface PlatformLineInput {
  * 2026-11-01): the line it is placed with, the statement month that line is on, the row's own month, the day the
  * platform paid it and its amount in the file's own currency. A row placed on a later month's statement than its own
  * (its month was finished: the next open statement, as a late file line goes there under M11) prints the day paid
- * after the line's words, "(paid Nov 27)"; a negative row placed is Airbnb's money, less revenue (app/lib/money/month.ts,
- * `airbnbLineIdsOf`).
+ * after the line's words, "(paid Nov 27)"; a row placed, either sign, is Airbnb's money: revenue and "what Airbnb paid"
+ * (Kian's ruling of 2026-11-02; app/lib/money/month.ts, `airbnbLineIdsOf`).
  */
 export interface PlacedRow {
   lineId: string;

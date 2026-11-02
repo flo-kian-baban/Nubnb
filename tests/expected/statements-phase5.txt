@@ -1,14 +1,16 @@
-═══ 1. A negative file row placed with a typed line: Airbnb's money, less revenue (Kian's ruling of 2026-11-01) ═══
+═══ 1. A file row placed with a typed line, either sign: Airbnb's money (Kian's rulings of 2026-11-01 and 2026-11-02) ═══
   placed rows read from the decisions: 2 (L10 $120.00 on 2028-11; L11 -$30.00 on 2028-11)
    ok   two placed rows; an undecided row and a "not Nubnb's money" row give nothing
-   ok   only the NEGATIVE placed row's line joins the Airbnb set; the positive one stays typed revenue
+   ok   both placed rows' lines join the Airbnb set, the positive one too (Kian's ruling of 2026-11-02)
   as coded before (M1: file lines only)        revenue $6,170.23 · Airbnb paid $4,507.88 · base $4,507.88 · fee $901.58 · negative lines $75.20 (typed expenses under M1 $30.00) · Revenue Share $4,380.61
-  M1 extended (the placed negative row)        revenue $6,140.23 · Airbnb paid $4,477.88 · base $4,477.88 · fee $895.58 · negative lines $75.20 (typed expenses under M1 $0.00) · Revenue Share $4,386.61
+  M1 extended to negative rows (2026-11-01)    revenue $6,140.23 · Airbnb paid $4,477.88 · base $4,477.88 · fee $895.58 · negative lines $75.20 (typed expenses under M1 $0.00) · Revenue Share $4,386.61
+  every placed row (2026-11-02)                revenue $6,140.23 · Airbnb paid $4,640.23 · base $4,640.23 · fee $928.05 · negative lines $75.20 (typed expenses under M1 $0.00) · Revenue Share $4,354.14
    ok   as coded before: revenue $6,170.23, Airbnb paid $4,507.88, fee $901.58, negative lines $75.20, Revenue Share $4,380.61 (the Phase 5 report's left column)
    ok   M1 extended: revenue $6,140.23, Airbnb paid $4,477.88, fee $895.58, Revenue Share $4,386.61 (the right column); the placed row is no typed expense
    ok   the owner's share moves by the fee alone: the Total before the fee is the same either way
-   ok   the month's money (figuresOf) reads the placed negative row as Airbnb's money too
-   ok   the Income page's by-property figures read the placed negative row as Airbnb's money
+   ok   every placed row (2026-11-02): revenue $6,140.23 (unchanged: the positive line was revenue already), Airbnb paid $4,640.23, fee $928.05 (928.046 half up), Revenue Share $4,354.14
+   ok   the month's money (figuresOf) reads both placed rows as Airbnb's money
+   ok   the Income page's by-property figures read a placed row as Airbnb's money (here the negative one alone is placed)
 
 ═══ 2. Late placement: a November row placed on December's statement, printed with the day paid (M11's way) ═══
   December's draft saved with the typed line: saved

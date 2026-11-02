@@ -467,7 +467,8 @@ no checkout. Do not build toward one unless asked.
 - **Every page showing a property-month's figures reads them through the
   one calculation. No page computes its own.**
 - **Airbnb claw-backs count as less revenue, never as expenses. The fee
-  base is what Airbnb actually paid.** (M1)
+  base is what Airbnb actually paid: file lines and rows placed with a typed
+  line (see §67.6).** (M1)
 - **A month whose only money is a logged cleaning or a cash payment is
   owed a statement.** (M2)
 

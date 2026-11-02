@@ -113,8 +113,8 @@ export interface CheckInputs {
   /** The month's expected direct payments not fully received (app/lib/direct/periods.ts, `unpaidInMonth`). Absent: not read. */
   direct?: { wording: string; payerName: string; expectedCents: number; receivedCents: number }[];
   /**
-   * What Airbnb paid this month as the month's money gives it (its lines added up, claw-backs and placed negative rows
-   * included; Kian's rulings M1 and of 2026-11-01): the fee's base is that figure, so a typed base that differs is
+   * What Airbnb paid this month as the month's money gives it (its lines added up, claw-backs and placed rows included;
+   * Kian's rulings M1, of 2026-11-01 and of 2026-11-02): the fee's base is that figure, so a typed base that differs is
    * said. Absent: not checked.
    */
   airbnbCents?: number;

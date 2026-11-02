@@ -331,7 +331,7 @@ export function monthView(input: MonthInputs): MonthView {
   }
 
   // ── Held back for a decision of its own (Kian's ruling K1 of 2026-10-17); the rest accepted in one confirmation ──
-  // A typed line that holds a negative row of a file an admin placed is Airbnb's money (Kian's ruling of 2026-11-01).
+  // A typed line that holds a row of a file an admin placed, either sign, is Airbnb's money (Kian's rulings of 2026-11-01 and 2026-11-02).
   const airbnbLineIds = airbnbLineIdsOf(input.lines, placedRowsOf(input.unread ?? []));
   const held: HeldLine[] = [];
   for (const group of groups.values()) {

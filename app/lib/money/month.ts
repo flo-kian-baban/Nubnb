@@ -26,9 +26,10 @@
  * confirmed, and the statement it goes on. A line is made when it is read; it is never stored. Sources today:
  *   receipt, work, office   cost entries: the month an office cost is for, else the day sent (`entryMonth`);
  *                           confirmed when approved
- *   typed                   a line typed on the month's draft: confirmed when typed. A typed line that holds a
- *                           NEGATIVE row of a file an admin placed (Kian's ruling of 2026-11-01, M1 extended) reads
- *                           as Airbnb's money: less revenue, never an expense (`airbnbLineIdsOf`)
+ *   typed                   a line typed on the month's draft: confirmed when typed. A typed line that holds a row of
+ *                           a file an admin placed, either sign (Kian's rulings of 2026-11-01 and 2026-11-02, M1
+ *                           extended) reads as Airbnb's money: revenue and "what Airbnb paid", never a typed expense
+ *                           (`airbnbLineIdsOf`)
  *   airbnb                  an accepted line from a platform's file: read where it is stored since dispatch 37C
  *                           (Kian's ruling M10), placed on its month's statement or, that one finished, the next
  *                           open one (M11); or, accepted before 37C, a draft line it points to (`decided.lineId`):
@@ -69,15 +70,15 @@ const NONE: ReadonlySet<string> = new Set();
 
 /**
  * The statement lines that are Airbnb's money although typed: the line each acceptance made before dispatch 37C
- * (`decided.lineId`), and, since Kian's ruling of 2026-11-01 (M1 extended), the typed line a NEGATIVE row of a file
- * was placed with — money Airbnb took back, which a cell with no confirmation code or another currency kept out of the
- * lines: less revenue and less "what Airbnb paid", never an expense. A positive row placed stays typed revenue. Line
- * IDs are UUIDs, so one set serves every property and month.
+ * (`decided.lineId`), and the typed line a row of a file was placed with (Kian's rulings of 2026-11-01, M1 extended to
+ * negative rows, and of 2026-11-02, every placed row, either sign) — money Airbnb paid or took back, which a cell with no
+ * confirmation code or another currency kept out of the lines: part of revenue and of "what Airbnb paid", never a typed
+ * expense. Line IDs are UUIDs, so one set serves every property and month.
  */
-export function airbnbLineIdsOf(lines: readonly { decided: { status: string; lineId?: string } | null }[], placed: readonly Pick<PlacedRow, 'lineId' | 'amountCents'>[] = []): Set<string> {
+export function airbnbLineIdsOf(lines: readonly { decided: { status: string; lineId?: string } | null }[], placed: readonly Pick<PlacedRow, 'lineId'>[] = []): Set<string> {
   const ids = new Set<string>();
   for (const line of lines) if (line.decided?.status === 'accepted' && typeof line.decided.lineId === 'string') ids.add(line.decided.lineId);
-  for (const row of placed) if (row.amountCents < 0) ids.add(row.lineId);
+  for (const row of placed) ids.add(row.lineId);
   return ids;
 }
 

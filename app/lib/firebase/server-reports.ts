@@ -947,7 +947,7 @@ export async function readTracker(): Promise<TrackerData> {
     db.collection(EARNINGS_LINES_COLLECTION).where('status', '==', 'accepted').get(),
     // The recorded direct payments (part B): placed by the statements, and money in their months (M2).
     directPlatformLines(),
-    // The rows of the files placed with typed lines (Kian's rulings of 2026-11-01): a negative one is Airbnb's money too.
+    // The rows of the files placed with typed lines (Kian's rulings of 2026-11-01 and 2026-11-02): each is Airbnb's money too.
     placedRowsAll(),
   ]);
   const unreadable = { reports: 0, drafts: 0, downloads: 0 };

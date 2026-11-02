@@ -228,7 +228,7 @@ export interface SelectInputs {
   airbnbLineIds?: ReadonlySet<string>;
   /** Every accepted line read where it is stored (dispatch 37C, `platformLinesOf`): the statements place them. Absent: none. */
   platformLines?: PlatformLineInput[];
-  /** The rows of the files placed with typed lines (Kian's rulings of 2026-11-01): a negative one is Airbnb's money; a late one prints the day paid. Absent: none. */
+  /** The rows of the files placed with typed lines (Kian's rulings of 2026-11-01 and 2026-11-02): each is Airbnb's money; a late one prints the day paid. Absent: none. */
   placed?: PlacedRow[];
   /** Every cleaning, as stored (dispatch 37B): costs the statements read, beside the entries. */
   cleanings?: { id: string; stored: Record<string, unknown> }[];

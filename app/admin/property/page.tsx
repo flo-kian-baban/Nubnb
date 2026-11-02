@@ -364,7 +364,7 @@ function PropertyPageInner() {
   /** Every statement that charges each of the property's entries (dispatch 37A): one working-out for every month. */
   const charges = useMemo(() => (data && costData ? costCharges({ propertyId, entries: costData.entries, reports: data.reports, management: data.management }) : null), [data, costData, propertyId]);
   /** The statement lines that came from an accepted Airbnb line copied into a draft before dispatch 37C (Kian's ruling M1: a claw-back takes revenue off). */
-  /** The rows of the files placed with typed lines, this property's (Kian's rulings of 2026-11-01): a negative one is Airbnb's money; a late one prints the day paid. */
+  /** The rows of the files placed with typed lines, this property's (Kian's rulings of 2026-11-01 and 2026-11-02): each is Airbnb's money; a late one prints the day paid. */
   const placed = useMemo(() => placedRowsOf(fromFiles.kind === "ready" ? fromFiles.data.unread : []).filter((row) => row.propertyId === propertyId), [fromFiles, propertyId]);
   const airbnbLineIds = useMemo(() => airbnbLineIdsOf(fromFiles.kind === "ready" ? fromFiles.data.lines : [], placed), [fromFiles, placed]);
   /** The accepted lines read where they are stored (dispatch 37C, Kian's ruling M10), and the recorded direct payments (part B): the statements place them. */
