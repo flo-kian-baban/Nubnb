@@ -34,7 +34,7 @@ import {
   type ReportDownloadView,
   type StatementDraftView,
 } from '@/app/lib/reports/model';
-import { moneyMonthsByProperty, monthStanding, type AnyStatement, type PlatformLineInput, type Standing, type Statement } from '@/app/lib/reports/statement';
+import { moneyMonthsByProperty, monthStanding, type AnyStatement, type PlacedRow, type PlatformLineInput, type Standing, type Statement } from '@/app/lib/reports/statement';
 import { chargesByMonth, costCharges, monthMoney, type Figures } from '@/app/lib/money/month';
 import { cleaningEntryView, readCleaning } from '@/app/lib/cleanings/model';
 
@@ -228,6 +228,8 @@ export interface SelectInputs {
   airbnbLineIds?: ReadonlySet<string>;
   /** Every accepted line read where it is stored (dispatch 37C, `platformLinesOf`): the statements place them. Absent: none. */
   platformLines?: PlatformLineInput[];
+  /** The rows of the files placed with typed lines (Kian's rulings of 2026-11-01): a negative one is Airbnb's money; a late one prints the day paid. Absent: none. */
+  placed?: PlacedRow[];
   /** Every cleaning, as stored (dispatch 37B): costs the statements read, beside the entries. */
   cleanings?: { id: string; stored: Record<string, unknown> }[];
   /** Every management record, read, with its stored document. */
@@ -285,7 +287,7 @@ export function selectMonthPackage(input: SelectInputs): Selection {
     // The month's money (dispatch 37A): the current finished statement, also while a correction of it is written; else the draft as it stands.
     const entriesOfProperty = [...views.values()].filter((entry) => entry.property.id === property.id);
     const charges = costCharges({ propertyId: property.id, entries: entriesOfProperty, reports: reportsOfProperty, management: record });
-    const its = monthMoney({ propertyId: property.id, propertyName: name, month, entries: entriesOfProperty, reports: reportsOfProperty, draft, management: record, airbnbLineIds: input.airbnbLineIds, charges, platformLines: (input.platformLines ?? []).filter((line) => line.propertyId === property.id) });
+    const its = monthMoney({ propertyId: property.id, propertyName: name, month, entries: entriesOfProperty, reports: reportsOfProperty, draft, management: record, airbnbLineIds: input.airbnbLineIds, charges, platformLines: (input.platformLines ?? []).filter((line) => line.propertyId === property.id), placed: (input.placed ?? []).filter((row) => row.propertyId === property.id) });
     const statement: Statement | null = its.held ? asStatement(its.held) : null;
     const unreadable: string[] = its.held === null && its.build?.kind === 'unreadable' ? its.build.entryIds : [];
     // A cost the statement charges only part of: the other statements that charge the rest (T6).

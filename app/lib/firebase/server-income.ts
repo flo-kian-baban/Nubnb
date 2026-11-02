@@ -51,6 +51,7 @@ import { createHash, randomUUID } from 'crypto';
 import { FieldPath, type Transaction } from 'firebase-admin/firestore';
 import { getAdminBucket, getAdminDb } from './admin';
 import { directPlatformLines } from './server-direct';
+import { placedRowsOn } from './server-unread';
 import { isDocumentId } from './server-leads';
 import { cleanerFacingNamesOf, internalNameOf, listCleanerFacingNames } from './server-property-names';
 import { type Actor, type Refusal } from '@/app/lib/cleaners/model';
@@ -378,6 +379,12 @@ export interface MonthStatement {
    * sent. The month's figures are the statement the owner holds; the correction's are said beside (dispatch 37A, T2).
    */
   sent: Line[] | null;
+  /**
+   * Once the month is finished (Kian's ruling of 2026-11-01): the next open statement's month and the typed lines on
+   * its draft (none when it has no draft yet), where a row of this month's file that became no line is placed, as a
+   * late file line goes there under M11. Read only while the month has undecided rows; absent otherwise.
+   */
+  placeOn?: { month: string; lines: Line[] };
 }
 
 export interface IncomeMonth {
@@ -504,7 +511,7 @@ export async function readIncomeMonth(month: string): Promise<IncomeMonth> {
     // The names the page shows (Kian's rulings of 2026-10-15, evening).
     listCleanerFacingNames(),
   ]);
-  const unreadRead = await readMonthUnread(month);
+  const [unreadRead, placedHere] = await Promise.all([readMonthUnread(month), placedRowsOn(month)]);
   const sourcesSnap = await sourcesRead;
   const notThroughFiles = sourcesSnap.docs.map((doc) => readIncomeSource(doc.id, doc.data())).filter((source) => source !== null && source.notThroughFiles).map((source) => source!.propertyId).sort();
   let unreadable = 0;
@@ -571,6 +578,19 @@ export async function readIncomeMonth(month: string): Promise<IncomeMonth> {
     const statement = monthStatementOf({ propertyId, month, reports: reportsByProperty.get(propertyId) ?? [], draft: drafts.get(propertyId) ?? null, record: records.get(propertyId) ?? null, platformLines });
     if (statement) statements.push(statement);
   }
+  // Where a row of this month's file is placed once a property's month is finished (Kian's ruling of 2026-11-01): the
+  // next open statement's typed lines, read only while a row of the month still waits — one read per finished property.
+  if (unreadRead.unread.some((row) => row.decision === null)) {
+    const finished = statements.filter((statement) => statement.finished);
+    const targets = finished.map((statement) => ({ statement, month: statementMonthFor(month, new Set(currentReports(reportsByProperty.get(statement.propertyId) ?? []).map((report) => report.month))) }));
+    const refs = targets.map(({ statement, month: target }) => db.collection(MONTHLY_REPORT_DRAFTS_COLLECTION).doc(draftIdOf(statement.propertyId, target)));
+    const nextDrafts = refs.length > 0 ? await db.getAll(...refs) : [];
+    targets.forEach(({ statement, month: target }, i) => {
+      const doc = nextDrafts[i];
+      const draft = doc && doc.exists ? readStatementDraft(doc.id, doc.data() ?? {}) : null;
+      statement.placeOn = { month: target, lines: draft ? draft.lines.filter((line) => line.platformLineId === undefined) : [] };
+    });
+  }
 
   // ── The calendar: check-ins in the month (the gaps), and stays (renames; and the untitled gap) ──
   // A calendar stay before the first statement month never counts as a gap (Kian's rule of 2026-11-01, §62.5): the
@@ -636,7 +656,8 @@ export async function readIncomeMonth(month: string): Promise<IncomeMonth> {
     noStatement,
     renames,
     locked,
-    unread: unreadRead.unread,
+    // The month's rows, and the rows of earlier months placed on this month's statements (their typed lines are Airbnb's money when negative; Kian's ruling of 2026-11-01).
+    unread: [...unreadRead.unread, ...placedHere.filter((row) => row.month !== month)],
     unreadable: unreadable + unreadRead.unreadable,
   };
 }
@@ -711,12 +732,14 @@ export async function readPropertyIncome(propertyId: string, month: string | nul
   // Every link and every upload, both small (one link per title, one upload per file): the property's titles,
   // and the titles in each month's files that no link names (dispatch 34, I1).
   const range = month ? monthRange(month) : null;
-  const [linksSnap, uploadsSnap, daysSnap, sourceSnap, unreadRead] = await Promise.all([
+  const [linksSnap, uploadsSnap, daysSnap, sourceSnap, unreadRead, placedHere] = await Promise.all([
     db.collection(EARNINGS_TITLE_LINKS_COLLECTION).get(),
     db.collection(EARNINGS_UPLOADS_COLLECTION).get(),
     range ? db.collection(DAYS_COLLECTION).where(FieldPath.documentId(), '>=', range.from).where(FieldPath.documentId(), '<=', addDays(range.to, 7)).get() : Promise.resolve(null),
     db.collection(INCOME_SOURCES_COLLECTION).doc(propertyId).get(),
     month ? readMonthUnread(month) : Promise.resolve({ unread: [], unreadable: 0 }),
+    // The rows of earlier months placed on this property's statement for the month (Kian's ruling of 2026-11-01): the statement prints each with the day paid, a negative one as Airbnb's money.
+    month ? placedRowsOn(month) : Promise.resolve([]),
   ]);
   const source = sourceSnap.exists ? readIncomeSource(sourceSnap.id, sourceSnap.data() ?? {}) : null;
   const links = linksSnap.docs.map((doc) => readTitleLink(doc.id, doc.data())).filter((link): link is TitleLinkView => link !== null);
@@ -767,7 +790,7 @@ export async function readPropertyIncome(propertyId: string, month: string | nul
     titles: titles.sort((a, b) => Number(isActiveTitle(b)) - Number(isActiveTitle(a)) || b.linkedAt.localeCompare(a.linkedAt)),
     calendar,
     notThroughFiles: source?.notThroughFiles === true,
-    unread: unreadRead.unread,
+    unread: [...unreadRead.unread, ...placedHere.filter((row) => row.month !== month && row.decision?.kind === 'placed' && row.decision.propertyId === propertyId)],
   };
 }
 

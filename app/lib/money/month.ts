@@ -26,7 +26,9 @@
  * confirmed, and the statement it goes on. A line is made when it is read; it is never stored. Sources today:
  *   receipt, work, office   cost entries: the month an office cost is for, else the day sent (`entryMonth`);
  *                           confirmed when approved
- *   typed                   a line typed on the month's draft: confirmed when typed
+ *   typed                   a line typed on the month's draft: confirmed when typed. A typed line that holds a
+ *                           NEGATIVE row of a file an admin placed (Kian's ruling of 2026-11-01, M1 extended) reads
+ *                           as Airbnb's money: less revenue, never an expense (`airbnbLineIdsOf`)
  *   airbnb                  an accepted line from a platform's file: read where it is stored since dispatch 37C
  *                           (Kian's ruling M10), placed on its month's statement or, that one finished, the next
  *                           open one (M11); or, accepted before 37C, a draft line it points to (`decided.lineId`):
@@ -57,7 +59,7 @@
 import { formatCents, type CostEntryView } from '@/app/lib/cleaners/model';
 import { entryMonth } from '@/app/lib/costs/report';
 import { currentReports, monthLabel, type Line, type MonthlyReportView, type PropertyManagementView } from '@/app/lib/reports/model';
-import { buildStatement, nextOpenMonth, printedLines, statementMonthFor, statementOf, type AnyStatement, type PlatformLineInput, type StatementBuild, type StatementInputs } from '@/app/lib/reports/statement';
+import { buildStatement, nextOpenMonth, printedLines, statementMonthFor, statementOf, type AnyStatement, type PlacedRow, type PlatformLineInput, type StatementBuild, type StatementInputs } from '@/app/lib/reports/statement';
 
 // ─── Sources ───────────────────────────────────────────────────
 
@@ -66,13 +68,32 @@ export type MoneySource = 'receipt' | 'work' | 'office' | 'cleaning' | 'typed' |
 const NONE: ReadonlySet<string> = new Set();
 
 /**
- * The statement lines that came from an accepted Airbnb line: the line each acceptance made (`decided.lineId`).
- * Line IDs are UUIDs, so one set serves every property and month.
+ * The statement lines that are Airbnb's money although typed: the line each acceptance made before dispatch 37C
+ * (`decided.lineId`), and, since Kian's ruling of 2026-11-01 (M1 extended), the typed line a NEGATIVE row of a file
+ * was placed with — money Airbnb took back, which a cell with no confirmation code or another currency kept out of the
+ * lines: less revenue and less "what Airbnb paid", never an expense. A positive row placed stays typed revenue. Line
+ * IDs are UUIDs, so one set serves every property and month.
  */
-export function airbnbLineIdsOf(lines: readonly { decided: { status: string; lineId?: string } | null }[]): Set<string> {
+export function airbnbLineIdsOf(lines: readonly { decided: { status: string; lineId?: string } | null }[], placed: readonly Pick<PlacedRow, 'lineId' | 'amountCents'>[] = []): Set<string> {
   const ids = new Set<string>();
   for (const line of lines) if (line.decided?.status === 'accepted' && typeof line.decided.lineId === 'string') ids.add(line.decided.lineId);
+  for (const row of placed) if (row.amountCents < 0) ids.add(row.lineId);
   return ids;
+}
+
+/**
+ * The rows of the files placed with typed lines, as the statements read them (Kian's rulings of 2026-11-01), from the
+ * stored rows (`earnings_unread`, app/lib/income/model.ts): the decision's line and statement month, the row's own
+ * month, the day paid and its amount. A row not placed gives nothing.
+ */
+export function placedRowsOf(rows: readonly { month: string; payoutDate: string; amountCents: number; decision: { kind: string; propertyId?: string; month?: string; lineId?: string } | null }[]): PlacedRow[] {
+  const out: PlacedRow[] = [];
+  for (const row of rows) {
+    const d = row.decision;
+    if (!d || d.kind !== 'placed' || typeof d.propertyId !== 'string' || typeof d.month !== 'string' || typeof d.lineId !== 'string') continue;
+    out.push({ lineId: d.lineId, propertyId: d.propertyId, statementMonth: d.month, rowMonth: row.month, payoutDate: row.payoutDate, amountCents: row.amountCents });
+  }
+  return out;
 }
 
 /**
@@ -271,6 +292,8 @@ export interface MonthMoneyInputs {
   airbnbLineIds?: ReadonlySet<string>;
   /** The property's accepted lines read where they are stored (dispatch 37C, `platformLinesOf`). Absent: none. */
   platformLines?: readonly PlatformLineInput[];
+  /** The rows of the files placed with typed lines (`placedRowsOf`): a late one's line prints the day paid. Absent: none. */
+  placed?: readonly PlacedRow[];
   /** The property's charges (`costCharges`), when the caller already holds them for every month. */
   charges?: ReadonlyMap<string, Charge[]>;
 }
@@ -365,7 +388,7 @@ export function monthMoney(input: MonthMoneyInputs): MonthMoney {
   // ── The statement ──
   const frozen = frozenStatement(reports, month, draft);
   const correcting = frozen === null && (draft?.supersedes ?? null) !== null;
-  const build = frozen ? null : buildStatement({ propertyId, propertyName: input.propertyName, month, entries, reports, draft, management, platformLines: input.platformLines ? [...input.platformLines] : undefined });
+  const build = frozen ? null : buildStatement({ propertyId, propertyName: input.propertyName, month, entries, reports, draft, management, platformLines: input.platformLines ? [...input.platformLines] : undefined, placed: input.placed });
   const statement: AnyStatement | null = frozen ? statementOf(frozen, reports) : build?.kind === 'ok' ? build.statement : null;
   const replaced = correcting ? (reports.find((report) => report.id === draft?.supersedes?.reportId) ?? null) : null;
   const report = frozen ?? replaced;

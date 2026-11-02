@@ -14,6 +14,8 @@
  *            S4   no NuBNB fee            S15  a $0.00 fee (which does not print, Kian's ruling of 2026-10-12)
  *            S7   a fee label that does not work out to its amount
  *            S6   lines changed since the fee's base was typed
+ *            —    the fee's base is not what Airbnb paid this month (Kian's ruling of 2026-11-01: the base is what
+ *                 Airbnb paid; direct payments carry no fee): both figures shown, a warning only
  *            S3   an earlier month closed owing NuBNB and no statement carries it (dispatch 35: every such month, not only the last)
  *            S2   a carried balance whose month's statement was deleted and not finished again (dispatch 35: a corrected one is followed by the link)
  *            I1   Airbnb lines waiting, or titles in the month's file linked to no property
@@ -110,6 +112,12 @@ export interface CheckInputs {
   revenueCents?: number;
   /** The month's expected direct payments not fully received (app/lib/direct/periods.ts, `unpaidInMonth`). Absent: not read. */
   direct?: { wording: string; payerName: string; expectedCents: number; receivedCents: number }[];
+  /**
+   * What Airbnb paid this month as the month's money gives it (its lines added up, claw-backs and placed negative rows
+   * included; Kian's rulings M1 and of 2026-11-01): the fee's base is that figure, so a typed base that differs is
+   * said. Absent: not checked.
+   */
+  airbnbCents?: number;
 }
 
 /** A typed line that charges cleaning: its description says so ("Expense - Cleaning", as the reports NuBNB sends have it). */
@@ -191,6 +199,10 @@ export function finishChecks(input: CheckInputs): FinishChecks {
   const revenueCents = input.revenueCents ?? s.incomeCents;
   if (s.fee && s.fee.baseCents !== null && typeof s.fee.baseRevenueCents === 'number' && s.fee.baseRevenueCents !== revenueCents) {
     warnings.push({ key: 'fee-base', text: `Lines changed since the fee's base was typed: revenue was ${formatCents(s.fee.baseRevenueCents)}, now ${formatCents(revenueCents)}; the base is ${formatCents(s.fee.baseCents)}.`, tab: 'details' });
+  }
+  // The base is what Airbnb paid (Kian's ruling of 2026-11-01; direct payments carry no fee): a typed base that differs is said with both figures. A warning, never a refusal.
+  if (s.fee && s.fee.baseCents !== null && typeof input.airbnbCents === 'number' && s.fee.baseCents !== input.airbnbCents) {
+    warnings.push({ key: 'fee-base-airbnb', text: `The fee's base is ${formatCents(s.fee.baseCents)}; Airbnb paid ${formatCents(input.airbnbCents)} this month.`, tab: 'details' });
   }
 
   // ── The carried balance (S3, S2) ──

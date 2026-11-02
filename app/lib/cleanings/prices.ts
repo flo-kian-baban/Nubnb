@@ -294,15 +294,30 @@ export interface CsvPriceRow {
   short: string;
   mid: string | null;
   long: string;
+  /** The default fee rate, "20" or "12.5" (Kian's ruling of 2026-11-01: the sheet's import carries one per property); null when the file has no rate column. */
+  rate: string | null;
 }
 
 /** The file's columns, by the names they may carry (case and spaces set aside). */
-const COLUMN_NAMES: Record<'address' | 'short' | 'mid' | 'long', string[]> = {
+const COLUMN_NAMES: Record<'address' | 'short' | 'mid' | 'long' | 'rate', string[]> = {
   address: ['address', 'property', 'suite', 'suite/property', 'suiteproperty', 'name', 'unit'],
   short: ['short', 'shortterm', 'shorttermprice', 'shorttermprice$'],
   mid: ['mid', 'midterm', 'midtermprice', 'mid(7-27nights)', 'mid7-27'],
   long: ['long', 'longterm', 'longtermprice', 'long(28+nights)', 'longtermprice(28+days)', 'long28+'],
+  rate: ['rate', 'feerate', 'fee', 'defaultfeerate', 'defaultrate', 'managementfee', 'fee%', 'rate%', 'nubnbfee'],
 };
+
+/** A rate as the management route takes it: "20" or "12.5", at most two decimals, 0–100. */
+const RATE = /^(100(\.0{1,2})?|[0-9]{1,2}(\.[0-9]{1,2})?)$/;
+
+/** A rate cell (Kian's ruling of 2026-11-01): nothing, a rate in basis points, or bad. "20%" reads as 20. */
+export function readRateText(text: string): { kind: 'none' } | { kind: 'rate'; basisPoints: number } | { kind: 'bad' } {
+  const clean = text.trim().replace(/%$/, '').trim();
+  if (clean === '') return { kind: 'none' };
+  if (!RATE.test(clean)) return { kind: 'bad' };
+  const [whole, decimals = ''] = clean.split('.');
+  return { kind: 'rate', basisPoints: Number(whole) * 100 + Number(decimals.padEnd(2, '0')) };
+}
 
 /** The fields of one CSV line (RFC 4180 quoting: a quoted field may hold commas, newlines are not expected within a row here). */
 function splitCsvLine(line: string): string[] {
@@ -329,8 +344,8 @@ function splitCsvLine(line: string): string[] {
 }
 
 /**
- * The import file read: a header naming address, short and long (in any order, other columns ignored), then one row
- * per property. Blank lines are skipped. Not a file in that shape: one line saying why.
+ * The import file read: a header naming address, short and long (in any order; mid and rate optional, other columns
+ * ignored), then one row per property. Blank lines are skipped. Not a file in that shape: one line saying why.
  */
 export function parsePricesCsv(text: string): { kind: 'ok'; rows: CsvPriceRow[] } | { kind: 'bad'; problem: string } {
   const lines = text.replace(/^﻿/, '').replace(/\r\n?/g, '\n').split('\n');
@@ -338,7 +353,7 @@ export function parsePricesCsv(text: string): { kind: 'ok'; rows: CsvPriceRow[] 
   if (headerAt === -1) return { kind: 'bad', problem: 'The file is empty.' };
   const header = splitCsvLine(lines[headerAt]).map((h) => h.toLowerCase().replace(/[\s_-]+/g, ''));
   const at = (key: keyof typeof COLUMN_NAMES) => header.findIndex((h) => COLUMN_NAMES[key].includes(h));
-  const columns = { address: at('address'), short: at('short'), mid: at('mid'), long: at('long') };
+  const columns = { address: at('address'), short: at('short'), mid: at('mid'), long: at('long'), rate: at('rate') };
   const missing = (['address', 'short', 'long'] as const).filter((k) => columns[k] === -1);
   if (missing.length > 0) return { kind: 'bad', problem: `The first line must name the columns address, short and long (mid is optional); missing: ${missing.join(', ')}.` };
   const rows: CsvPriceRow[] = [];
@@ -347,7 +362,7 @@ export function parsePricesCsv(text: string): { kind: 'ok'; rows: CsvPriceRow[] 
     const fields = splitCsvLine(lines[i]);
     const address = (fields[columns.address] ?? '').normalize('NFC').replace(/\s+/g, ' ').trim();
     if (address === '') continue;
-    rows.push({ line: i + 1, address, short: fields[columns.short] ?? '', mid: columns.mid === -1 ? null : (fields[columns.mid] ?? ''), long: fields[columns.long] ?? '' });
+    rows.push({ line: i + 1, address, short: fields[columns.short] ?? '', mid: columns.mid === -1 ? null : (fields[columns.mid] ?? ''), long: fields[columns.long] ?? '', rate: columns.rate === -1 ? null : (fields[columns.rate] ?? '') });
   }
   if (rows.length === 0) return { kind: 'bad', problem: 'The file has a header and no rows.' };
   return { kind: 'ok', rows };
@@ -373,12 +388,18 @@ export interface MatchedPriceRow {
   after: CleaningPrices;
   /** False when the file gives what is stored already: shown, not written. */
   changes: boolean;
+  /**
+   * The default fee rate (Kian's ruling of 2026-11-01), in basis points, when the file has a rate column and the cell
+   * holds one: what the record holds now and what the file gives; `changes` false when they are the same. null when
+   * the file has no rate column or the cell is empty (the stored rate is left as it is).
+   */
+  rate: { before: number | null; after: number; changes: boolean } | null;
 }
 
 /** A row that cannot be saved, and why. */
 export interface UnmatchedPriceRow {
   row: CsvPriceRow;
-  why: 'no property with this address' | 'two or more properties share this address' | 'another row names the same property' | 'a price is not readable';
+  why: 'no property with this address' | 'two or more properties share this address' | 'another row names the same property' | 'a price is not readable' | 'the rate is not a percent';
 }
 
 /**
@@ -386,7 +407,7 @@ export interface UnmatchedPriceRow {
  * property holds now. A row with no property, an address two properties share, a property named twice, or a price
  * that is not readable is listed and never saved.
  */
-export function matchPriceRows(rows: readonly CsvPriceRow[], properties: readonly MatchableProperty[], current: ReadonlyMap<string, CleaningPrices>): { matched: MatchedPriceRow[]; unmatched: UnmatchedPriceRow[] } {
+export function matchPriceRows(rows: readonly CsvPriceRow[], properties: readonly MatchableProperty[], current: ReadonlyMap<string, CleaningPrices>, rates: ReadonlyMap<string, number | null> = new Map()): { matched: MatchedPriceRow[]; unmatched: UnmatchedPriceRow[] } {
   const byKey = new Map<string, MatchableProperty[]>();
   for (const property of properties) {
     const key = addressKey(property.name);
@@ -420,10 +441,18 @@ export function matchPriceRows(rows: readonly CsvPriceRow[], properties: readonl
       unmatched.push({ row, why: 'a price is not readable' });
       continue;
     }
+    // The default fee rate (Kian's ruling of 2026-11-01): an empty cell, or no column, leaves the stored rate as it is.
+    const rateText = row.rate === null ? { kind: 'none' as const } : readRateText(row.rate);
+    if (rateText.kind === 'bad') {
+      unmatched.push({ row, why: 'the rate is not a percent' });
+      continue;
+    }
     taken.add(property.id);
     const before = current.get(property.id) ?? NO_PRICES;
     const after: CleaningPrices = { shortTermCents: short.kind === 'cents' ? short.cents : null, midTermCents: mid.kind === 'cents' ? mid.cents : null, longTermCents: long.kind === 'cents' ? long.cents : null };
-    matched.push({ row, propertyId: property.id, name: property.name, before, after, changes: !samePrices(before, after) });
+    const rateBefore = rates.get(property.id) ?? null;
+    const rate = rateText.kind === 'rate' ? { before: rateBefore, after: rateText.basisPoints, changes: rateBefore !== rateText.basisPoints } : null;
+    matched.push({ row, propertyId: property.id, name: property.name, before, after, changes: !samePrices(before, after), rate });
   }
   return { matched, unmatched };
 }

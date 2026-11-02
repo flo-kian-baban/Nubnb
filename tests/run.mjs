@@ -44,6 +44,7 @@ export const CHECKS = [
   { name: 'receipts-phase2', script: 'money/receipts-phase2.mjs', args: [] },
   { name: 'cleaning-flow', script: 'schedule/cleaning-flow.mjs', args: [] },
   { name: 'income-unread', script: 'income/unread.mjs', args: [] },
+  { name: 'statements-phase5', script: 'statements/phase5.mjs', args: [] },
 ];
 
 const argv = process.argv.slice(2);

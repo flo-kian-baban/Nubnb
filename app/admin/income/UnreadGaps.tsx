@@ -6,6 +6,9 @@
  * its amount in its own currency and why, until an admin decides it:
  *   - Place with a typed line: the line is typed on the property's statement for the row's month as any line is
  *     (its page's Income tab); here the admin names the property and that line, and Nubnb records which line holds it.
+ *     Once the property's statement for the month is finished, the line goes on its next open statement instead
+ *     (Kian's ruling of 2026-11-01, as a late file line does under M11), and that statement prints it with the day
+ *     paid; the typed lines offered are that statement's.
  *   - Not Nubnb's money: with a reason, recorded with who and when.
  * Each asks first in Nubnb's own dialog. Nothing here writes a statement: the typed line is what reaches the owner.
  */
@@ -28,8 +31,8 @@ interface Props {
   /** The month's rows not decided yet. */
   rows: EarningsUnreadView[];
   links: TitleLinkView[];
-  /** The month's statements, for the typed lines a row can be placed with. */
-  statements: { propertyId: string; lines: Line[] }[];
+  /** The month's statements, for the typed lines a row can be placed with; a finished one names the next open statement's instead (`placeOn`). */
+  statements: { propertyId: string; lines: Line[]; placeOn?: { month: string; lines: Line[] } }[];
   propertyOptions: Options;
   names: Map<string, string>;
   fileNames: Map<string, string>;
@@ -54,7 +57,12 @@ export function UnreadGaps({ month, rows, links, statements, propertyOptions, na
   /** The property a row's title is linked to, if any: the place it starts from. */
   const linked = (row: EarningsUnreadView) => links.find((l) => l.platform === row.platform && l.title === normaliseTitle(row.listingTitle) && l.propertyId !== null)?.propertyId ?? "";
   const propertyOf = (row: EarningsUnreadView) => property[row.id] ?? linked(row);
-  const typedLines = (propertyId: string) => statements.find((s) => s.propertyId === propertyId)?.lines.filter((l) => l.platformLineId === undefined) ?? [];
+  /** The statement a row goes on for this property: this month's, or, once it is finished, the next open one (Kian's ruling of 2026-11-01). */
+  const placeMonth = (propertyId: string) => statements.find((s) => s.propertyId === propertyId)?.placeOn?.month ?? month;
+  const typedLines = (propertyId: string) => {
+    const statement = statements.find((s) => s.propertyId === propertyId);
+    return (statement?.placeOn?.lines ?? statement?.lines ?? []).filter((l) => l.platformLineId === undefined);
+  };
 
   const place = async (row: EarningsUnreadView) => {
     const propertyId = propertyOf(row);
@@ -62,8 +70,8 @@ export function UnreadGaps({ month, rows, links, statements, propertyOptions, na
     if (busy || !propertyId || !chosen) return;
     const name = names.get(propertyId) ?? "the property";
     const yes = await ask({
-      title: `Place this row with “${chosen.description}” on ${name}'s ${monthLabel(month)} statement?`,
-      lines: [`The row: ${rowWords(row)}, ${unreadAmountWords(row)}, ${row.why}.`, `The typed line: ${formatCents(chosen.amountCents)}. It is what the statement prints; Nubnb records that it holds this row, and the row leaves the gaps.`],
+      title: `Place this row with “${chosen.description}” on ${name}'s ${monthLabel(placeMonth(propertyId))} statement?`,
+      lines: [`The row: ${rowWords(row)}, ${unreadAmountWords(row)}, ${row.why}.`, `The typed line: ${formatCents(chosen.amountCents)}. It is what the statement prints${placeMonth(propertyId) !== month ? `, with the day paid after its words (${monthLabel(month)}'s statement is finished)` : ""}; Nubnb records that it holds this row, and the row leaves the gaps.`],
       confirm: "Place it",
     });
     if (!yes) return;
@@ -76,7 +84,7 @@ export function UnreadGaps({ month, rows, links, statements, propertyOptions, na
       return;
     }
     onDecided(result.data.unread);
-    show({ tone: "success", title: `Placed on ${name}'s ${monthLabel(month)} statement with “${chosen.description}”, ${formatCents(chosen.amountCents)}.` });
+    show({ tone: "success", title: `Placed on ${name}'s ${monthLabel(placeMonth(propertyId))} statement with “${chosen.description}”, ${formatCents(chosen.amountCents)}.` });
   };
 
   const notOurs = async (row: EarningsUnreadView) => {
@@ -122,8 +130,8 @@ export function UnreadGaps({ month, rows, links, statements, propertyOptions, na
               </span>
               {propertyId !== "" && lines.length === 0 && (
                 <span className={styles.muted}>
-                  No typed line on its {monthLabel(month)} statement yet:{" "}
-                  <Link href={`/admin/property?id=${encodeURIComponent(propertyId)}&month=${month}`} prefetch={false} className={styles.linkButton}>
+                  No typed line on its {monthLabel(placeMonth(propertyId))} statement yet{placeMonth(propertyId) !== month ? ` (its ${monthLabel(month)} statement is finished, so the row goes on the next open one)` : ""}:{" "}
+                  <Link href={`/admin/property?id=${encodeURIComponent(propertyId)}&month=${placeMonth(propertyId)}`} prefetch={false} className={styles.linkButton}>
                     type it there
                   </Link>
                   , then refresh this page.

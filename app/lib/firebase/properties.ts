@@ -291,9 +291,10 @@ export async function setManagementFields(id: string, fields: ManagementFieldsPa
 
 /** What the Report For sheet sends: its three columns, the rate as typed ("20"). */
 export interface ManagementFieldsPayload {
-  reportFor: { name: string; address: string } | null;
-  referenceStem: string | null;
-  defaultFeeRate: string | null;
+  reportFor?: { name: string; address: string } | null;
+  referenceStem?: string | null;
+  /** "20" or "12.5"; null for none. The sheet's import sends this field alone (Kian's ruling of 2026-11-01): a key left out keeps what is stored. */
+  defaultFeeRate?: string | null;
 }
 
 /** The record as the form saves it: the rate as typed, "20"; the legacy default fee sent back as loaded, "150.00". */

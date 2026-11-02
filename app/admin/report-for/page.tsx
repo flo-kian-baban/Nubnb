@@ -13,7 +13,9 @@
  * route (PUT /api/admin/properties/[id]/cleaning-prices) into their own server-only record. Each part is sent only
  * when it differs from what is stored. A row that cannot be saved says why in one line and sends nothing.
  *
- * "Import prices" (Kian's ruling of 2026-10-19): a CSV with the columns address, short and long. The page matches its
+ * "Import prices" (Kian's ruling of 2026-10-19): a CSV with the columns address, short and long (mid optional; and,
+ * since Kian's ruling of 2026-11-01, an optional rate column: each property's default fee rate, saved to its management
+ * record through the management route, one request per row whose rate changes). The page matches its
  * rows to properties by exact address, case and spaces ignored, shows the matched rows with their old → new values and
  * the unmatched rows by name, and saves only the matched rows, in one request, when the admin confirms in Nubnb's own
  * dialog. Nothing saves before the confirm.
@@ -43,11 +45,12 @@ import { setManagementFields } from "@/app/lib/firebase/properties";
 import { fetchAllCleaningPrices, importCleaningPricesRows, setCleaningPricesOf } from "@/app/lib/prices-client";
 import { TIER_NIGHTS, matchPriceRows, parsePricesCsv, priceField, type CleaningPrices, type MatchedPriceRow, type UnmatchedPriceRow } from "@/app/lib/cleanings/prices";
 import { torontoDayOf } from "@/app/lib/costs/report";
-import { monthLabel, monthOfDay, referenceFromStem, stemProblem, STATEMENT_LIMITS, type PropertyManagementView } from "@/app/lib/reports/model";
+import { monthLabel, monthOfDay, rateText, referenceFromStem, stemProblem, STATEMENT_LIMITS, type PropertyManagementView } from "@/app/lib/reports/model";
 import { reportingStatuses, type ReportingStatus } from "@/app/lib/reports/statement";
 import { reportForCut } from "@/app/lib/reports/statement-pdf";
 import { owedMonths } from "@/app/lib/home/next-step";
 import { pricesPayload, sameManagement, samePriceFields, sheetFieldsOf, sheetPayload, sheetProblem, type SheetFields } from "@/app/lib/reports/report-for-sheet";
+import { rateField } from "../property/statement-form";
 import shared from "../page.module.css";
 import form from "../property/page.module.css";
 import ed from "../property/editor/editor.module.css";
@@ -185,39 +188,55 @@ function Sheet() {
       parsed.rows,
       rows.map((row) => ({ id: row.id, name: row.name })),
       prices,
+      new Map(rows.map((row) => [row.id, records.get(row.id)?.defaultFeeRateBasisPoints ?? null])),
     );
-    // Those that change first, then those the file leaves as they are, each A to Z.
-    const sorted = [...matched].sort((a, b) => Number(b.changes) - Number(a.changes) || a.name.localeCompare(b.name, "en-CA"));
+    // Those that change first (a price or the rate), then those the file leaves as they are, each A to Z.
+    const sorted = [...matched].sort((a, b) => Number(b.changes || b.rate?.changes === true) - Number(a.changes || a.rate?.changes === true) || a.name.localeCompare(b.name, "en-CA"));
     setPreview({ fileName: file.name, matched: sorted, unmatched });
   };
   const confirmImport = async () => {
     if (!preview || importing) return;
     const changing = preview.matched.filter((row) => row.changes);
-    if (changing.length === 0) {
+    // The default fee rates the file changes (Kian's ruling of 2026-11-01): each saved to its management record, the record's other fields kept.
+    const ratesChanging = preview.matched.filter((row) => row.rate?.changes === true);
+    if (changing.length === 0 && ratesChanging.length === 0) {
       setPreview(null);
       show({ tone: "info", title: "Nothing to save: every matched row already holds what the file gives it." });
       return;
     }
     setImporting(true);
-    const result = await importCleaningPricesRows(changing.map((row) => ({ propertyId: row.propertyId, shortTerm: row.after.shortTermCents === null ? null : priceField(row.after.shortTermCents), midTerm: row.after.midTermCents === null ? null : priceField(row.after.midTermCents), longTerm: row.after.longTermCents === null ? null : priceField(row.after.longTermCents) })));
-    setImporting(false);
-    if (!result.ok) {
+    const result = changing.length === 0 ? null : await importCleaningPricesRows(changing.map((row) => ({ propertyId: row.propertyId, shortTerm: row.after.shortTermCents === null ? null : priceField(row.after.shortTermCents), midTerm: row.after.midTermCents === null ? null : priceField(row.after.midTermCents), longTerm: row.after.longTermCents === null ? null : priceField(row.after.longTermCents) })));
+    if (result && !result.ok) {
+      setImporting(false);
       show(result.unknown ? { tone: "warning", title: "The prices may or may not have been saved. Refresh to see what is stored.", detail: result.title } : { tone: "error", title: result.title, detail: result.detail });
       return;
     }
-    setPrices((prev) => {
-      const next = new Map(prev);
-      for (const saved of result.data.saved) next.set(saved.propertyId, { shortTermCents: saved.record.shortTermCents, midTermCents: saved.record.midTermCents, longTermCents: saved.record.longTermCents });
-      return next;
-    });
+    let ratesSaved = 0;
+    const rateFailures: string[] = [];
+    for (const row of ratesChanging) {
+      const saved = await setManagementFields(row.propertyId, { defaultFeeRate: rateField(row.rate!.after) });
+      if (saved.ok) {
+        ratesSaved += 1;
+        onSaved(saved.data.record);
+      } else rateFailures.push(`${row.name}: ${saved.error}`);
+    }
+    setImporting(false);
+    if (result) {
+      setPrices((prev) => {
+        const next = new Map(prev);
+        for (const saved of result.data.saved) next.set(saved.propertyId, { shortTermCents: saved.record.shortTermCents, midTermCents: saved.record.midTermCents, longTermCents: saved.record.longTermCents });
+        return next;
+      });
+    }
     setImported((n) => n + 1);
     setPreview(null);
-    const saved = result.data.saved.filter((s) => s.changed).length;
+    const saved = result ? result.data.saved.filter((s) => s.changed).length : 0;
     const unchanged = preview.matched.length - changing.length;
+    const what = [saved > 0 ? `cleaning prices for ${saved === 1 ? "1 property" : `${saved} properties`}` : null, ratesSaved > 0 ? `the fee rate for ${ratesSaved === 1 ? "1 property" : `${ratesSaved} properties`}` : null].filter(Boolean).join(" and ");
     show({
-      tone: "success",
-      title: `Saved cleaning prices for ${saved === 1 ? "1 property" : `${saved} properties`} from ${preview.fileName}.`,
-      detail: [unchanged > 0 ? `${unchanged} matched ${unchanged === 1 ? "row" : "rows"} already held what the file gives.` : null, preview.unmatched.length > 0 ? `${preview.unmatched.length} ${preview.unmatched.length === 1 ? "row was" : "rows were"} not saved: no matching property.` : null, "Cleanings already made keep their amounts."].filter(Boolean).join(" "),
+      tone: rateFailures.length > 0 ? "warning" : "success",
+      title: what ? `Saved ${what} from ${preview.fileName}.` : `Nothing was saved from ${preview.fileName}.`,
+      detail: [unchanged > 0 && saved > 0 ? `${unchanged} matched ${unchanged === 1 ? "row" : "rows"} already held the prices the file gives.` : null, preview.unmatched.length > 0 ? `${preview.unmatched.length} ${preview.unmatched.length === 1 ? "row was" : "rows were"} not saved: no matching property.` : null, rateFailures.length > 0 ? `Not saved: ${rateFailures.join("; ")}.` : null, "Cleanings already made keep their amounts; statements already finished keep their fee."].filter(Boolean).join(" "),
     });
   };
 
@@ -238,7 +257,7 @@ function Sheet() {
               if (file) void readFile(file);
             }}
           />
-          <button type="button" className={shared.btnGhost} onClick={() => fileRef.current?.click()} disabled={tracker.kind !== "ready" || pricesRead.kind !== "ready"} title="A CSV with the columns address, short, mid and long (mid optional: it then equals short): rows are matched to properties by exact address, shown, and saved only when you confirm">
+          <button type="button" className={shared.btnGhost} onClick={() => fileRef.current?.click()} disabled={tracker.kind !== "ready" || pricesRead.kind !== "ready"} title="A CSV with the columns address, short, mid and long (mid optional: it then equals short), and an optional rate column for each property's default fee rate: rows are matched to properties by exact address, shown, and saved only when you confirm">
             <Upload size={15} aria-hidden />
             <span>Import prices</span>
           </button>
@@ -353,13 +372,16 @@ function Sheet() {
  * that change, in one request; Escape, Cancel and the × save nothing.
  */
 function ImportDialog({ preview, importing, onConfirm, onClose }: { preview: ImportPreview; importing: boolean; onConfirm: () => void; onClose: () => void }) {
-  const changing = preview.matched.filter((row) => row.changes);
+  // A row changes when a price or its rate does (Kian's ruling of 2026-11-01: the import carries a default fee rate).
+  const changing = preview.matched.filter((row) => row.changes || row.rate?.changes === true);
   const same = preview.matched.length - changing.length;
+  const withRate = preview.matched.some((row) => row.rate !== null);
   const WHY: Record<UnmatchedPriceRow["why"], string> = {
     "no property with this address": "no property has this address",
     "two or more properties share this address": "two or more properties have this address",
     "another row names the same property": "another row names the same property",
     "a price is not readable": "a price is not dollars and cents",
+    "the rate is not a percent": "the rate is not a percent, like 20 or 12.5",
   };
   return (
     <Dialog
@@ -390,11 +412,12 @@ function ImportDialog({ preview, importing, onConfirm, onClose }: { preview: Imp
                 <th>Short</th>
                 <th>Mid</th>
                 <th>Long</th>
+                {withRate && <th>Fee rate</th>}
               </tr>
             </thead>
             <tbody>
               {preview.matched.map((row) => (
-                <tr key={row.propertyId} className={row.changes ? undefined : styles.importSame}>
+                <tr key={row.propertyId} className={row.changes || row.rate?.changes ? undefined : styles.importSame}>
                   <td>{row.name}</td>
                   <td>
                     <Change before={row.before.shortTermCents} after={row.after.shortTermCents} />
@@ -405,6 +428,7 @@ function ImportDialog({ preview, importing, onConfirm, onClose }: { preview: Imp
                   <td>
                     <Change before={row.before.longTermCents} after={row.after.longTermCents} />
                   </td>
+                  {withRate && <td>{row.rate ? <RateChange before={row.rate.before} after={row.rate.after} /> : <span className={styles.unchanged}>as stored</span>}</td>}
                 </tr>
               ))}
             </tbody>
@@ -429,6 +453,17 @@ function ImportDialog({ preview, importing, onConfirm, onClose }: { preview: Imp
         )}
       </div>
     </Dialog>
+  );
+}
+
+/** "15% → 20%", or the one value when it does not change (Kian's ruling of 2026-11-01). */
+function RateChange({ before, after }: { before: number | null; after: number }) {
+  const words = (bp: number | null) => (bp === null ? "none" : rateText(bp));
+  if (before === after) return <span className={styles.unchanged}>{words(after)}</span>;
+  return (
+    <span>
+      <span className={styles.before}>{words(before)}</span> → <b>{words(after)}</b>
+    </span>
   );
 }
 

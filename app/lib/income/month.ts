@@ -56,7 +56,7 @@
 import { addMonths, dateText, monthLabel, monthOfDay, monthRange, type Line } from '@/app/lib/reports/model';
 import { STANDING_LABELS, type Standing } from '@/app/lib/reports/statement';
 import { sentDay } from '@/app/lib/costs/report';
-import { airbnbLineIdsOf, incomeFigures } from '@/app/lib/money/month';
+import { airbnbLineIdsOf, incomeFigures, placedRowsOf } from '@/app/lib/money/month';
 import { formatCents } from '@/app/lib/cleaners/model';
 import { isActiveTitle, isCopied, isKnownType, isReadWhereStored, lineInDraft, normaliseTitle, type EarningsLineView, type EarningsUnreadView, type EarningsUploadView, type IncomeChannel, type TitleLinkView } from './model';
 
@@ -331,7 +331,8 @@ export function monthView(input: MonthInputs): MonthView {
   }
 
   // ── Held back for a decision of its own (Kian's ruling K1 of 2026-10-17); the rest accepted in one confirmation ──
-  const airbnbLineIds = airbnbLineIdsOf(input.lines);
+  // A typed line that holds a negative row of a file an admin placed is Airbnb's money (Kian's ruling of 2026-11-01).
+  const airbnbLineIds = airbnbLineIdsOf(input.lines, placedRowsOf(input.unread ?? []));
   const held: HeldLine[] = [];
   for (const group of groups.values()) {
     group.titles.sort((a, b) => a.localeCompare(b));
@@ -453,7 +454,8 @@ export function monthView(input: MonthInputs): MonthView {
 
   const markedRows = [...marked].filter((id) => names.has(id)).map((id) => ({ propertyId: id, name: names.get(id)! })).sort((a, b) => a.name.localeCompare(b.name));
   // ── Rows that became no line (Kian's ruling of 2026-11-01): a gap until decided ──
-  const unreadRows = [...(input.unread ?? [])].sort((a, b) => a.payoutDate.localeCompare(b.payoutDate) || a.fileRow - b.fileRow || a.id.localeCompare(b.id));
+  // The month's own rows: a row of an earlier month placed on this month's statement (read for the figures above) is listed on its own month's page.
+  const unreadRows = [...(input.unread ?? [])].filter((row) => input.month === undefined || row.month === input.month).sort((a, b) => a.payoutDate.localeCompare(b.payoutDate) || a.fileRow - b.fileRow || a.id.localeCompare(b.id));
   return { titles, review, rejected, removed, accepted, warnings, held, onePass, byProperty, gaps: { unread: unreadRows.filter((row) => row.decision === null), unlinked, checkIns, missing, untitled }, unreadDecided: unreadRows.filter((row) => row.decision !== null), marked: markedRows, pair, statements: statementCounts };
 }
 

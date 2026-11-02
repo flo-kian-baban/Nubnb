@@ -53,6 +53,7 @@ import { CLEANINGS_COLLECTION } from '@/app/lib/cleanings/model';
 import { EARNINGS_LINES_COLLECTION, platformLinesOf, readEarningsLine, type EarningsLineView } from '@/app/lib/income/model';
 import { createdMonthOf } from '@/app/lib/firebase/created-month';
 import { directPlatformLines } from '@/app/lib/firebase/server-direct';
+import { placedRowsAll } from '@/app/lib/firebase/server-unread';
 import { internalNameOf, listCleanerFacingNames } from '@/app/lib/firebase/server-property-names';
 
 /** The one thing logged about a Firestore or Storage error: its code. */
@@ -79,7 +80,7 @@ export const GET = adminRoute(async function GET(request: NextRequest, _context:
   let selection: ReturnType<typeof selectMonthPackage>;
   const madeAt = new Date();
   try {
-    const [properties, entries, reports, drafts, downloads, management, earnings, cleanings, directLines, facing] = await Promise.all([
+    const [properties, entries, reports, drafts, downloads, management, earnings, cleanings, directLines, placed, facing] = await Promise.all([
       db.collection('properties').select('name').get(),
       db.collection(COST_ENTRIES_COLLECTION).get(),
       db.collection(MONTHLY_REPORTS_COLLECTION).get(),
@@ -93,6 +94,8 @@ export const GET = adminRoute(async function GET(request: NextRequest, _context:
       db.collection(CLEANINGS_COLLECTION).get(),
       // Every recorded direct payment (part B): read where it is stored, the statements place it as they place Airbnb's lines.
       directPlatformLines(),
+      // The rows of the files placed with typed lines (Kian's rulings of 2026-11-01): a negative one is Airbnb's money; a late one prints the day paid.
+      placedRowsAll(),
       // The names the folders and workbooks carry: the cleaner-facing name, else the public title (Kian's rulings of 2026-10-15, evening).
       listCleanerFacingNames(),
     ]);
@@ -120,8 +123,9 @@ export const GET = adminRoute(async function GET(request: NextRequest, _context:
         const view = readPropertyManagement(doc.id, doc.data());
         return view ? [{ view, stored: doc.data() }] : [];
       }),
-      airbnbLineIds: airbnbLineIdsOf(accepted),
+      airbnbLineIds: airbnbLineIdsOf(accepted, placed),
       platformLines: [...platformLinesOf(accepted), ...directLines],
+      placed,
       cleanings: cleanings.docs.map((doc) => ({ id: doc.id, stored: doc.data() })),
     };
     selection = selectMonthPackage(input);

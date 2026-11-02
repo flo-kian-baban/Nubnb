@@ -287,7 +287,11 @@ export interface EarningsUpload {
 export interface UnreadPlaced {
   kind: 'placed';
   propertyId: string;
-  /** The statement month the typed line went on: the row's own month. */
+  /**
+   * The statement month the typed line went on: the row's own month while it is open, or, once that month is finished
+   * for the property, the next open one (Kian's ruling of 2026-11-01: as a late file line goes there under M11; the
+   * statement then prints the line with the day paid). The draft the line is on is `monthly_report_drafts/{propertyId}_{month}`.
+   */
   month: string;
   /** The typed line, on that month's draft (`monthly_report_drafts/{propertyId}_{month}`), as written. */
   lineId: string;

@@ -159,6 +159,8 @@ export interface StatementInputs {
   management: PropertyManagementView | null;
   /** The property's accepted lines from the platforms' files, read where they are stored (dispatch 37C, M10). Absent: none. */
   platformLines?: PlatformLineInput[];
+  /** The rows of the files placed with typed lines (Kian's rulings of 2026-11-01): a late one's line prints the day paid. Absent: none. */
+  placed?: readonly PlacedRow[];
 }
 
 /**
@@ -183,6 +185,26 @@ export interface PlatformLineInput {
   amountCents: number;
   /** Its history's length: what the page built from, checked again at Finish. */
   seen: number;
+}
+
+/**
+ * A row of a platform's file that became no line and that an admin placed with a typed line (Kian's rulings of
+ * 2026-11-01): the line it is placed with, the statement month that line is on, the row's own month, the day the
+ * platform paid it and its amount in the file's own currency. A row placed on a later month's statement than its own
+ * (its month was finished: the next open statement, as a late file line goes there under M11) prints the day paid
+ * after the line's words, "(paid Nov 27)"; a negative row placed is Airbnb's money, less revenue (app/lib/money/month.ts,
+ * `airbnbLineIdsOf`).
+ */
+export interface PlacedRow {
+  lineId: string;
+  propertyId: string;
+  /** The statement month the typed line is on (the decision's month). */
+  statementMonth: string;
+  /** The row's own month: the month its file was for. */
+  rowMonth: string;
+  payoutDate: string;
+  /** The row's amount in its own currency; below zero, money Airbnb took back. */
+  amountCents: number;
 }
 
 export type StatementBuild =
@@ -587,8 +609,15 @@ export function buildStatement(input: StatementInputs): StatementBuild {
   carriedAdjustments.sort((a, b) => a.fromMonth.localeCompare(b.fromMonth));
 
   // The lines from the platforms' files first, newest stay first; then the lines typed, in the admin's order (dispatch 37C).
+  // A typed line that holds a row of an earlier month's file, placed here because that month was finished (Kian's
+  // ruling of 2026-11-01), says when the platform paid it, as a late file line does (M11): "(paid Nov 27)".
   const fromFiles = platformLinesOn({ propertyId, month, firstMonth, platformLines: input.platformLines ?? [], current });
-  const lines = fromFiles.length > 0 ? [...fromFiles.map((row) => row.line), ...(draft?.lines ?? [])] : (draft?.lines ?? []);
+  const placedLate = new Map((input.placed ?? []).filter((row) => row.propertyId === propertyId && row.statementMonth === month && row.rowMonth !== month).map((row) => [row.lineId, row]));
+  const typed = (draft?.lines ?? []).map((line) => {
+    const row = placedLate.get(line.id);
+    return row ? { ...line, description: withPaidDate(line.description, row.payoutDate) } : line;
+  });
+  const lines = fromFiles.length > 0 ? [...fromFiles.map((row) => row.line), ...typed] : typed;
   const fee = draft?.fee ?? null;
   const sums = statementSums(lines, costs, adjustments, fee, carried, carriedAdjustments);
   const reportById = new Map(input.reports.map((report) => [report.id, report]));

@@ -103,7 +103,8 @@ import {
   type StatementDraftSummary,
   type StatementDraftView,
 } from '@/app/lib/reports/model';
-import { buildStatement, chargedBy, moneyMonthsByProperty, nothingToReport, printedBy, sameClaim, statementMonthFor, type FinishClaim, type PlatformLineInput, type Statement } from '@/app/lib/reports/statement';
+import { buildStatement, chargedBy, moneyMonthsByProperty, nothingToReport, printedBy, sameClaim, statementMonthFor, type FinishClaim, type PlacedRow, type PlatformLineInput, type Statement } from '@/app/lib/reports/statement';
+import { placedRowsAll, placedRowsFor } from './server-unread';
 import { airbnbLineIdsOf, costCharges, monthMoney, type Figures } from '@/app/lib/money/month';
 import { EARNINGS_LINES_COLLECTION, EARNINGS_UNREAD_COLLECTION, platformLinesOf, readEarningsLine, readEarningsUnread, type EarningsLineView } from '@/app/lib/income/model';
 import { statementPdf } from '@/app/lib/reports/statement-pdf';
@@ -307,6 +308,8 @@ export interface StatementBundle {
   management: PropertyManagementView | null;
   /** The property's accepted lines from the files, read where they are stored (dispatch 37C, Kian's ruling M10). */
   platformLines: PlatformLineInput[];
+  /** The rows of the files placed with typed lines on this statement (Kian's rulings of 2026-11-01): a late one prints the day paid. */
+  placed: PlacedRow[];
 }
 
 /**
@@ -326,16 +329,17 @@ export async function readStatementBundle(propertyId: string, month: string): Pr
   const name = await propertyName(propertyId);
   if (name === null) return null;
   const db = getAdminDb();
-  const [draftDoc, entries, reports, management, platformLines] = await Promise.all([
+  const [draftDoc, entries, reports, management, platformLines, placed] = await Promise.all([
     db.collection(MONTHLY_REPORT_DRAFTS_COLLECTION).doc(draftId(propertyId, month)).get(),
     listPropertyEntries(propertyId),
     propertyReports(propertyId),
     getManagement(propertyId),
     propertyPlatformLines(propertyId),
+    placedRowsFor(propertyId, month),
   ]);
   const draft = draftDoc.exists ? readStatementDraft(draftDoc.id, draftDoc.data() ?? {}) : null;
   if (draftDoc.exists && draft === null) console.error(`[reports] monthly_report_drafts/${draftDoc.id} is not in the written shape; read as none`);
-  return { propertyName: name, draft, entries, reports, management, platformLines };
+  return { propertyName: name, draft, entries, reports, management, platformLines, placed };
 }
 
 /** Everything a property's page shows about its statements (dispatch 23D). */
@@ -582,7 +586,7 @@ export const FINISH_REFUSALS: Record<Exclude<FinishResult['kind'], 'finished'>, 
 
 /** The frozen report, built from the bundle and the draft, with its PDF's bytes. */
 function freeze(bundle: StatementBundle, draft: StatementDraftView, propertyId: string, month: string, id: string, finishedAt: string, actor: Actor): { report: MonthlyReport; bytes: Uint8Array; statement: Statement; claim: FinishClaim } | { kind: 'unreadable'; entryIds: string[] } {
-  const built = buildStatement({ propertyId, propertyName: bundle.propertyName, month, entries: bundle.entries, reports: bundle.reports, draft, management: bundle.management, platformLines: bundle.platformLines });
+  const built = buildStatement({ propertyId, propertyName: bundle.propertyName, month, entries: bundle.entries, reports: bundle.reports, draft, management: bundle.management, platformLines: bundle.platformLines, placed: bundle.placed });
   if (built.kind === 'unreadable') return built;
   const statement: Statement = { ...built.statement, draft: false };
   const bytes = statementPdf(statement);
@@ -684,7 +688,7 @@ export async function finishStatement(actor: Actor, input: FinishInput): Promise
       const [draftSnap, entries, reports, platformLines] = await Promise.all([tx.get(draftRef), propertyEntriesInTransaction(tx, propertyId), propertyReports(propertyId, tx), propertyPlatformLines(propertyId, tx)]);
       const draftNow = draftSnap.exists ? readStatementDraft(draftSnap.id, draftSnap.data() ?? {}) : null;
       if (!draftNow || draftNow.revision !== input.draftRevision || draftNow.finishedAs !== null) return { kind: 'draft-changed' };
-      const again = buildStatement({ propertyId, propertyName: bundle.propertyName, month, entries, reports, draft: draftNow, management: bundle.management, platformLines });
+      const again = buildStatement({ propertyId, propertyName: bundle.propertyName, month, entries, reports, draft: draftNow, management: bundle.management, platformLines, placed: bundle.placed });
       if (again.kind === 'unreadable') return again;
       if (!sameClaim(again.claim, claim)) return { kind: 'changed-since' };
       tx.create(reportRefDoc, frozen.report);
@@ -933,7 +937,7 @@ export function summarise(report: MonthlyReportView): MonthlyReportSummary {
  */
 export async function readTracker(): Promise<TrackerData> {
   const db = getAdminDb();
-  const [reportsSnap, draftsSnap, downloadsSnap, management, costs, acceptedSnap, directLines] = await Promise.all([
+  const [reportsSnap, draftsSnap, downloadsSnap, management, costs, acceptedSnap, directLines, placed] = await Promise.all([
     db.collection(MONTHLY_REPORTS_COLLECTION).get(),
     db.collection(MONTHLY_REPORT_DRAFTS_COLLECTION).get(),
     db.collection(REPORT_DOWNLOADS_COLLECTION).get(),
@@ -943,6 +947,8 @@ export async function readTracker(): Promise<TrackerData> {
     db.collection(EARNINGS_LINES_COLLECTION).where('status', '==', 'accepted').get(),
     // The recorded direct payments (part B): placed by the statements, and money in their months (M2).
     directPlatformLines(),
+    // The rows of the files placed with typed lines (Kian's rulings of 2026-11-01): a negative one is Airbnb's money too.
+    placedRowsAll(),
   ]);
   const unreadable = { reports: 0, drafts: 0, downloads: 0 };
   const reports: MonthlyReportSummary[] = [];
@@ -979,8 +985,8 @@ export async function readTracker(): Promise<TrackerData> {
   // A month with accepted income or approved costs is owed whenever the property was added (Kian's ruling of 2026-10-04).
   const money = moneyMonthsByProperty(withLines, costs.entries, platformLines);
   const properties = costs.properties.map((property) => ({ ...property, moneyMonths: money.get(property.id) ?? [] }));
-  const airbnbLineIds = airbnbLineIdsOf(accepted);
-  const figures = panelFigures({ today: torontoDayOf(new Date()), properties, entries: costs.entries, reports: fullReports, drafts: fullDrafts, management, airbnbLineIds, platformLines });
+  const airbnbLineIds = airbnbLineIdsOf(accepted, placed);
+  const figures = panelFigures({ today: torontoDayOf(new Date()), properties, entries: costs.entries, reports: fullReports, drafts: fullDrafts, management, airbnbLineIds, platformLines, placed });
   return { reports, drafts, downloads, management, properties, entries: costs.entries, unreadable, figures };
 }
 
@@ -999,6 +1005,8 @@ export function panelFigures(input: {
   airbnbLineIds: ReadonlySet<string>;
   /** Accepted lines read where they are stored (dispatch 37C). Absent: none. */
   platformLines?: PlatformLineInput[];
+  /** The rows of the files placed with typed lines (Kian's rulings of 2026-11-01). Absent: none. */
+  placed?: PlacedRow[];
 }): Record<string, Record<string, PanelFigures>> {
   const thisMonth = monthOfDay(input.today);
   const named = [...input.reports.map((report) => report.month), ...input.drafts.map((draft) => draft.month)];
@@ -1015,7 +1023,7 @@ export function panelFigures(input: {
     const charges = costCharges({ propertyId: property.id, entries, reports, management });
     for (const month of months) {
       const draft = drafts.find((d) => d.month === month) ?? null;
-      const one = monthMoney({ propertyId: property.id, propertyName: property.name?.trim() || 'Unnamed property', month, entries, reports, draft, management, airbnbLineIds: input.airbnbLineIds, charges, platformLines });
+      const one = monthMoney({ propertyId: property.id, propertyName: property.name?.trim() || 'Unnamed property', month, entries, reports, draft, management, airbnbLineIds: input.airbnbLineIds, charges, platformLines, placed: (input.placed ?? []).filter((row) => row.propertyId === property.id) });
       if (one.figures === null || one.held === null) continue;
       const empty = one.held.legacy ? false : nothingToReport(one.held);
       if (one.report === null && draft === null && empty) continue;

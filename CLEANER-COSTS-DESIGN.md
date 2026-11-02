@@ -5295,3 +5295,92 @@ exports identical (603 documents). 4,962 production reads, exports excluded (bud
 - The cleaner app's card reads "Cleaned · extra asked" after the office decided the extra (ruling F: never the outcome).
 - The home still reads `properties` and `property_cleaner_names` twice each per open (120 reads of 368): the next cut.
 - Finish's pending warning counts the entries ("1 entry sent in November 2028 is still pending") and names none.
+
+### 67.6 Kian's rulings of 2026-11-01 (Phase 5 approved), in his words
+
+- "A negative file row placed with a typed line counts as Airbnb's money: it reduces revenue and 'what Airbnb paid'
+  (M1 extended), read from the placing decision."
+- "An unread row whose month is finished can be placed with a typed line on the next open statement, labelled with its
+  month, as late file lines are under M11."
+- "The fee base is what Airbnb paid; direct payments carry no fee (as coded)."
+
+Step 1 of his instruction committed 67.2 as it stood (`29a5872`). Step 2, below, built the two rulings, a Finish warning
+on the fee's base and a rate column on the sheet's import.
+
+### 67.7 Step 2: what changed
+
+1. **A placed negative row is Airbnb's money** (`airbnbLineIdsOf(lines, placed)` in money/month.ts, `placedRowsOf`
+   reading the stored decisions). The typed line a NEGATIVE row of a file was placed with reads as source `airbnb`:
+   less revenue and less "what Airbnb paid", never a typed expense. A positive row placed stays typed revenue (the
+   ruling names the negative row; the Phase 5 table's right column, which Kian approved, had the positive $162.35
+   outside "Airbnb paid"). Every reader that builds the Airbnb set passes the placed rows: the property page (from its
+   income read), the tracker (`placedRowsAll`), the Income page's month view (its month's rows and the rows placed on
+   its statements), the month's ZIP and the backup data. The statement's own split by sign is unchanged (the stored
+   `incomeCents`/`expensesCents`): M1 is applied in the month's money, as before.
+2. **Late placement** (`placeUnread`, server-unread.ts). The property's current finished statements are read in the
+   transaction; the line must be on the draft of `statementMonthFor(row.month, finished)`: the row's own month while
+   open, else the next open one. The decision's `month` names that statement month. `buildStatement` takes `placed`
+   (`PlacedRow`: the line, the statement month, the row's month, the day paid, the amount) and prints a typed line
+   placed from an earlier month with the day paid after its words, "(paid Nov 27)", exactly as M11 prints a late
+   file line; the draft keeps the admin's words as typed. The server's bundle carries the placed rows
+   (`placedRowsFor`), so the preview, Finish and the frozen PDF agree. The Income page's month read gives each finished
+   property-month `placeOn` (the next open statement's month and typed lines; read only while a row of the month
+   waits, one `getAll`), and the placing control offers those lines, names that month in its question and its
+   "type it there" link. The Phase 5 fix follows: deleting the line from December's draft reopens the November row
+   (the reopening reads the decision's month).
+3. **Finish warns on the fee's base** (`fee-base-airbnb`, checks.ts): when the typed base is not what Airbnb paid this
+   month (the month's money's Airbnb figure, claw-backs and placed negative rows included), "The fee's base is
+   $4,476.88; Airbnb paid $4,477.88 this month.", on the Details tab. A warning, never a refusal; absent when equal or
+   when the figure is not read. Direct payments carry no fee: they are outside that figure, as coded.
+4. **The sheet's import carries a default fee rate** (prices.ts `parsePricesCsv`, `matchPriceRows(…, rates)`,
+   `readRateText`; the Report For page). An optional `rate` column ("20", "12.5", "20%"); an empty cell or no column
+   leaves the stored rate as it is; a cell that is not a percent leaves the row unsaved and says so. The dialog gains a
+   Fee rate column (old → new) when the file has one; Save writes each changed rate to its management record through
+   the management route (`defaultFeeRate` alone, one request per row, the record's other fields kept), beside the
+   prices' one request. A new statement starts from the previous statement's rate, else this default, as before
+   (`feeRateSuggestion`): the sheet's rate and "the management record" are the one stored field. The sheet already
+   carried, per row typed in place: the Report For name and address, the stem, the rate and the three prices; the
+   import carried address, short, mid and long; only the rate column is new.
+
+### 67.8 Step 2: the developer's choices
+
+1. The negative case only is Airbnb's money, by the ruling's words and the approved table; a positive placed row is
+   typed revenue. Reversible: one condition in `airbnbLineIdsOf`.
+2. The late label is M11's "(paid <Mon D>)" (the day the platform paid the row), not the month's name: the ruling says
+   "as late file lines are under M11".
+3. The decision's `month` is the statement month the line is on (the row keeps its own `month`); the Income page lists
+   a row on its own month's page and reads the rows placed on a month's statements only for that month's figures.
+4. An empty rate cell in the import leaves the stored rate alone (a price cell left empty clears the price, as before):
+   a default rate is what a statement starts from, and the file's silence should not take it away.
+
+### 67.9 Step 2: verified
+
+Live on production data behind the write guard (the harness of 67.1, re-run from a fresh seed; three Unlisted
+`__TEST__` properties, Ana, Ben, Hal, a `__TEST__` admin; the server's clock at 30 November then 2 December 2028):
+- **P's figures both ways** match the Phase 5 table to the cent: the same November (six cleanings $443.00, the
+  receipt, the work, the office cost, eight file lines, the direct payment, the two placements), the independent
+  computation over the raw documents with the ruling written in beside the app's statement — revenue $6,140.23,
+  Airbnb paid $4,477.88, fee $895.58, Revenue Share $4,386.61 (the right column); the left column, what Phase 5
+  finished, was $6,170.23 / $4,507.88 / $901.58 / $4,380.61. Every figure equal. Finished; the stored PDF's SHA-256
+  equal to the report's and to the writer's bytes.
+- **The fee-base warning** on P's Finish tab in the browser with the base $4,476.88 against $4,477.88 paid:
+  "The fee's base is $4,476.88; Airbnb paid $4,477.88 this month." (Details); with the base typed equal, the line is
+  gone and the three Phase 5 warnings remain. Placing the negative row moved "what Airbnb paid" from $4,507.88 to
+  $4,477.88 and the check named the stale base until it was typed again.
+- **Late placement**: with November finished, the Income page's read gave P `placeOn` December with December's typed
+  line; the row was placed (decision month 2028-12); December's statement prints "Revenue - paid in USD, converted
+  (paid Nov 27)"; November's stored document unchanged in all 27 fields and its PDF's SHA-256 the same.
+- **The sheet**: a CSV with `rate` uploaded through the page; the dialog's Fee rate column read "none → 18%" for R;
+  Save wrote R's default rate (1800 bp) and prices; a new December statement for R starts at rate "18", base empty.
+- Tests: `statements-phase5` (new recording; the table both ways, the late placement end to end on the in-memory
+  Firestore, the warning present/absent, the rate column); the suite otherwise identical (32 checks).
+- Cleanup by exact ID and path: 124 documents and 6 objects; exports identical (603 documents). Reads: 4,149 counted
+  by the harness plus about 60 by the independent computation, against a budget of 4,000: the overrun is one wasted
+  pass of the income flow, whose first upload carried the previous run's file (a harness slip; the stray titles were
+  set aside and their rows marked not Nubnb's money).
+
+### 67.10 LATER
+
+- The Income page's `placeOn` reads one draft per finished property while a row waits; fine for one month's handful.
+- The placing control's label for a late placement says the statement month; the row list itself does not yet say
+  "goes on December" before a property is picked.

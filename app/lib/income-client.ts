@@ -29,6 +29,8 @@ export interface MonthStatement {
   lines: Line[];
   /** While a correction is written: the lines of the statement it replaces, as sent (dispatch 37A). */
   sent: Line[] | null;
+  /** Once the month is finished: the next open statement's month and typed lines, where a row of this month's file is placed (Kian's ruling of 2026-11-01). */
+  placeOn?: { month: string; lines: Line[] };
 }
 
 /** What GET /api/admin/income answers. */

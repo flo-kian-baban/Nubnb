@@ -1,0 +1,56 @@
+═══ 1. A negative file row placed with a typed line: Airbnb's money, less revenue (Kian's ruling of 2026-11-01) ═══
+  placed rows read from the decisions: 2 (L10 $120.00 on 2028-11; L11 -$30.00 on 2028-11)
+   ok   two placed rows; an undecided row and a "not Nubnb's money" row give nothing
+   ok   only the NEGATIVE placed row's line joins the Airbnb set; the positive one stays typed revenue
+  as coded before (M1: file lines only)        revenue $6,170.23 · Airbnb paid $4,507.88 · base $4,507.88 · fee $901.58 · negative lines $75.20 (typed expenses under M1 $30.00) · Revenue Share $4,380.61
+  M1 extended (the placed negative row)        revenue $6,140.23 · Airbnb paid $4,477.88 · base $4,477.88 · fee $895.58 · negative lines $75.20 (typed expenses under M1 $0.00) · Revenue Share $4,386.61
+   ok   as coded before: revenue $6,170.23, Airbnb paid $4,507.88, fee $901.58, negative lines $75.20, Revenue Share $4,380.61 (the Phase 5 report's left column)
+   ok   M1 extended: revenue $6,140.23, Airbnb paid $4,477.88, fee $895.58, Revenue Share $4,386.61 (the right column); the placed row is no typed expense
+   ok   the owner's share moves by the fee alone: the Total before the fee is the same either way
+   ok   the month's money (figuresOf) reads the placed negative row as Airbnb's money too
+   ok   the Income page's by-property figures read the placed negative row as Airbnb's money
+
+═══ 2. Late placement: a November row placed on December's statement, printed with the day paid (M11's way) ═══
+  December's draft saved with the typed line: saved
+  placing with a line that is on no draft: no-such-line · the month named: 2026-12
+   ok   with November finished, the refusal names December: the next open statement is where the line must be
+  placing with December's typed line: decided · decision month 2026-12 · line test-late-line
+   ok   the row is placed on December's statement (the decision names December, the row keeps its own month)
+  as the statements read it: [{"lineId":"test-late-line","propertyId":"TESTPROP0002","statementMonth":"2026-12","rowMonth":"2026-11","payoutDate":"2026-11-26","amountCents":9500}]
+  December prints: "Revenue - paid in USD, converted (November) (paid Nov 26)" $128.50
+   ok   the late line prints with the day paid after its words, as a late file line does (M11)
+   ok   the PDF carries the label
+   ok   the draft keeps the admin's words as typed: the label is printed, not stored
+   ok   November's finished statement and its PDF's hash are untouched
+   ok   a row placed on its own month's statement prints the line as typed, no label
+   ok   deleting the line from December's draft reopens the November row
+
+═══ 3. Finish: the fee's base against what Airbnb paid (the base is what Airbnb paid; direct payments carry no fee) ═══
+  base $100.00, Airbnb paid $100.00: 0 warning(s)
+  base $100.00, Airbnb paid $101.00: 1 warning(s) · "The fee's base is $100.00; Airbnb paid $101.00 this month." (tab details)
+   ok   equal: no warning
+   ok   a base $1.00 off: one warning, both figures, on the Details tab
+   ok   a base above what Airbnb paid warns too; with no Airbnb figure read, nothing is checked
+   ok   a warning, never a refusal
+   ok   the direct payment on the statement is outside the base: the fee is 20% of the $100.00 Airbnb paid
+
+═══ 4. The sheet's import: a rate column, saved as the property's default fee rate, which a new statement starts from ═══
+  parsed: ok · rates "20", "12.5%", "", "abc", "15"
+   ok   the rate column is read as typed, empty cells kept empty
+   ok   a file with no rate column reads rate null
+  readRateText: "20" → {"kind":"rate","basisPoints":2000} · "12.5%" → {"kind":"rate","basisPoints":1250} · "" → {"kind":"none"} · "abc" → {"kind":"bad"} · "101" → {"kind":"bad"} · "0" → {"kind":"rate","basisPoints":0}
+  matched __TEST__ 1 Statement Rd: prices change true · rate 1500 → 2000 (changes true)
+  matched __TEST__ 2 Statement Rd: prices change true · rate 1250 → 1250 (changes false)
+  matched __TEST__ 3 Statement Rd: prices change true · rate as stored
+  unmatched __TEST__ 4 Statement Rd: the rate is not a percent
+  unmatched __TEST__ 9 Nowhere Rd: no property with this address
+   ok   row 1: the rate 15% → 20% changes
+   ok   row 2: "12.5%" reads as the stored 12.5%: no change
+   ok   row 3: an empty rate cell leaves the stored rate as it is
+   ok   a rate that is not a percent is not saved, and says so; the unknown address neither
+   ok   a file with no rate column changes no rate
+   ok   the suggested rate: the previous statement's, else the record's default
+  a new December statement after the import: fee rate "20", base ""
+   ok   a new statement's rate is prefilled from the imported default; the base stays empty (never filled in)
+
+all checks passed

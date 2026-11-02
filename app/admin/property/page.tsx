@@ -118,8 +118,8 @@ import {
   type ReportFor,
   type StatementDraftView,
 } from "@/app/lib/reports/model";
-import { STANDING_LABELS, laterReferences, moneyMonthsByProperty, previousStatement, propertyMonthState, propertyMonths, reportingStatus, statementOf, type FinishClaim, type PropertyMonthRow } from "@/app/lib/reports/statement";
-import { airbnbLineIdsOf, costCharges, frozenStatement, monthMoney, type Charge } from "@/app/lib/money/month";
+import { STANDING_LABELS, laterReferences, moneyMonthsByProperty, previousStatement, propertyMonthState, propertyMonths, reportingStatus, statementOf, type FinishClaim, type PlacedRow, type PropertyMonthRow } from "@/app/lib/reports/statement";
+import { airbnbLineIdsOf, costCharges, frozenStatement, monthMoney, placedRowsOf, type Charge } from "@/app/lib/money/month";
 import { statementPdf } from "@/app/lib/reports/statement-pdf";
 import { checkoutsInMonth, finishChecks, uncoveredStays, type IncomeFacts } from "@/app/lib/reports/checks";
 import type { PropertyStatementsState } from "../costs/EntryPane";
@@ -364,7 +364,9 @@ function PropertyPageInner() {
   /** Every statement that charges each of the property's entries (dispatch 37A): one working-out for every month. */
   const charges = useMemo(() => (data && costData ? costCharges({ propertyId, entries: costData.entries, reports: data.reports, management: data.management }) : null), [data, costData, propertyId]);
   /** The statement lines that came from an accepted Airbnb line copied into a draft before dispatch 37C (Kian's ruling M1: a claw-back takes revenue off). */
-  const airbnbLineIds = useMemo(() => airbnbLineIdsOf(fromFiles.kind === "ready" ? fromFiles.data.lines : []), [fromFiles]);
+  /** The rows of the files placed with typed lines, this property's (Kian's rulings of 2026-11-01): a negative one is Airbnb's money; a late one prints the day paid. */
+  const placed = useMemo(() => placedRowsOf(fromFiles.kind === "ready" ? fromFiles.data.unread : []).filter((row) => row.propertyId === propertyId), [fromFiles, propertyId]);
+  const airbnbLineIds = useMemo(() => airbnbLineIdsOf(fromFiles.kind === "ready" ? fromFiles.data.lines : [], placed), [fromFiles, placed]);
   /** The accepted lines read where they are stored (dispatch 37C, Kian's ruling M10), and the recorded direct payments (part B): the statements place them. */
   const platformLines = useMemo(() => [...platformLinesOf(fromFiles.kind === "ready" ? fromFiles.data.lines : []), ...directLinesOf(direct.kind === "ready" ? direct.data.payments.filter((p) => p.propertyId === propertyId) : [])], [fromFiles, direct, propertyId]);
   /** Which current finished statement prints each direct payment, and whether it is being corrected: a printed payment is locked (Kian's ruling). */
@@ -598,6 +600,7 @@ function PropertyPageInner() {
                 kept={keptMonths}
                 charges={charges}
                 airbnbLineIds={airbnbLineIds}
+                placed={placed}
                 platformLines={platformLines}
                 onFilesChanged={rereadFiles}
                 direct={direct}
@@ -654,6 +657,8 @@ interface MonthWorkProps {
   charges: ReadonlyMap<string, Charge[]>;
   /** The statement lines that came from an accepted Airbnb line copied into a draft before dispatch 37C. */
   airbnbLineIds: ReadonlySet<string>;
+  /** The rows of the files placed with typed lines on this property's statements (Kian's rulings of 2026-11-01). */
+  placed: PlacedRow[];
   /** The property's accepted lines read where they are stored (dispatch 37C). */
   platformLines: PlatformLineInput[];
   /** An accepted line was edited or sent back on the Income tab: the lines are read again. */
@@ -745,10 +750,11 @@ function MonthWork(props: MonthWorkProps) {
       airbnbLineIds: props.airbnbLineIds,
       charges: props.charges,
       platformLines: props.platformLines,
+      placed: props.placed,
     });
     // shownReportFor is derived from reportFor; comparing the object would redraw on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [propertyId, props.propertyName, month, entries, reports, parsed, typed.reference, typed.reportDate, typed.notes, supersedes, reportFor.name, reportFor.address, management, finishedReport, draft, props.airbnbLineIds, props.charges, props.platformLines]);
+  }, [propertyId, props.propertyName, month, entries, reports, parsed, typed.reference, typed.reportDate, typed.notes, supersedes, reportFor.name, reportFor.address, management, finishedReport, draft, props.airbnbLineIds, props.charges, props.platformLines, props.placed]);
   /** The draft built as it stands; null while the month is finished and not being corrected. */
   const built = money.build;
   const statement = money.statement;
@@ -799,7 +805,7 @@ function MonthWork(props: MonthWorkProps) {
   }, [props.fromFiles, files.pending, files.calendar, month, propertyId]);
 
   /** What Finish checks (dispatch 34, Kian's rulings of 2026-10-12): refused only without a Report For name; everything else warns. */
-  const checks = useMemo(() => (built?.kind === "ok" && !readOnly ? finishChecks({ statement: built.statement, reports, entries, income: incomeFacts, today, revenueCents: figures?.revenueCents, ...(directUnpaid ? { direct: directUnpaid } : {}) }) : null), [built, readOnly, reports, entries, incomeFacts, today, figures, directUnpaid]);
+  const checks = useMemo(() => (built?.kind === "ok" && !readOnly ? finishChecks({ statement: built.statement, reports, entries, income: incomeFacts, today, revenueCents: figures?.revenueCents, airbnbCents: figures?.airbnbCents, ...(directUnpaid ? { direct: directUnpaid } : {}) }) : null), [built, readOnly, reports, entries, incomeFacts, today, figures, directUnpaid]);
   /** The later statements that adjusted or carried from the month's finished one: the Delete and Correct dialogs name them (Kian's ruling of 2026-10-12). */
   const later = useMemo(() => (finishedReport ? laterReferences(finishedReport, reports) : []), [finishedReport, reports]);
   const laterWords = later.map(({ report, adjusted, carried }) => `${displayRef(report)} (${monthLabel(report.month)}) ${[adjusted ? "adjusted its costs" : null, carried ? "carried its balance" : null].filter(Boolean).join(" and ")}`);

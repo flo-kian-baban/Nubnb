@@ -4,8 +4,10 @@
  * admin either
  *   - places it with a typed line: the admin types the line on the property's statement as any line is typed (the
  *     property page's Income tab, its draft's own save and revision), then names that line here. The line must be on
- *     the property's statement draft for the row's month, typed (not a line read from a file). The decision keeps the
- *     property, the month, the line's ID, and its description and amount as they stood; or
+ *     the property's statement draft for the row's month — or, once that month is finished for the property, for the
+ *     next open month (Kian's ruling of 2026-11-01: a late row goes where a late file line goes under M11, and the
+ *     statement prints it with the day paid) — typed (not a line read from a file). The decision keeps the property,
+ *     the statement month, the line's ID, and its description and amount as they stood; or
  *   - marks it "not Nubnb's money", with a reason.
  * Either decision is logged in the row's history with who and when, and is not undone here: a placing is undone only
  * by the draft save, when the typed line it names is deleted from the property's draft for that month (saveDraft in
@@ -21,7 +23,9 @@ import type { Transaction } from 'firebase-admin/firestore';
 import { getAdminDb } from './admin';
 import { type Actor, type Refusal } from '@/app/lib/cleaners/model';
 import { EARNINGS_UNREAD_COLLECTION, draftIdOf, readEarningsUnread, type EarningsUnreadView, type UnreadDecision } from '@/app/lib/income/model';
-import { MONTHLY_REPORT_DRAFTS_COLLECTION, monthLabel, readStatementDraft } from '@/app/lib/reports/model';
+import { MONTHLY_REPORTS_COLLECTION, MONTHLY_REPORT_DRAFTS_COLLECTION, currentReports, monthLabel, readMonthlyReport, readStatementDraft } from '@/app/lib/reports/model';
+import { statementMonthFor, type PlacedRow } from '@/app/lib/reports/statement';
+import { placedRowsOf } from '@/app/lib/money/month';
 
 const UNREAD_ID = /^[0-9a-f]{64}$/;
 
@@ -80,8 +84,11 @@ async function decide(id: string, seen: number, make: (tx: Transaction, row: Ear
 }
 
 /**
- * Place a row with a typed line already on the property's statement for the row's month (its draft, open, finished
- * or being corrected: the line is on that statement either way). The decision copies the line as it stands.
+ * Place a row with a typed line already on the property's statement for the row's month (its draft, open or being
+ * corrected) — or, when the property's statement for that month is finished, on its next open statement (Kian's
+ * ruling of 2026-11-01: a late row goes where a late file line goes under M11; the statement prints the line with the
+ * day paid). The property's current finished statements are read in the transaction to know which month that is; the
+ * decision names that statement month. The decision copies the line as it stands.
  */
 export function placeUnread(actor: Actor, id: string, input: { seen: number; propertyId: string; lineId: string }, now: Date = new Date()): Promise<UnreadDecisionResult> {
   return decide(
@@ -89,18 +96,42 @@ export function placeUnread(actor: Actor, id: string, input: { seen: number; pro
     input.seen,
     async (tx, row) => {
       const db = getAdminDb();
-      const draftSnap = await tx.get(db.collection(MONTHLY_REPORT_DRAFTS_COLLECTION).doc(draftIdOf(input.propertyId, row.month)));
-      if (!draftSnap.exists) return { kind: 'no-such-line', month: row.month };
+      const reportsSnap = await tx.get(db.collection(MONTHLY_REPORTS_COLLECTION).where('propertyId', '==', input.propertyId));
+      const finished = new Set(currentReports(reportsSnap.docs.map((doc) => readMonthlyReport(doc.id, doc.data())).filter((report): report is NonNullable<typeof report> => report !== null)).map((report) => report.month));
+      const month = statementMonthFor(row.month, finished);
+      const draftSnap = await tx.get(db.collection(MONTHLY_REPORT_DRAFTS_COLLECTION).doc(draftIdOf(input.propertyId, month)));
+      if (!draftSnap.exists) return { kind: 'no-such-line', month };
       const draft = readStatementDraft(draftSnap.id, draftSnap.data() ?? {});
       if (!draft) return { kind: 'unreadable' };
       // A typed line: one the admin typed, never a line read from a file or a direct payment (those are not in a draft).
       const line = draft.lines.find((l) => l.id === input.lineId && l.platformLineId === undefined);
-      if (!line) return { kind: 'no-such-line', month: row.month };
-      return { kind: 'placed', propertyId: input.propertyId, month: row.month, lineId: line.id, description: line.description, amountCents: line.amountCents, at: now.toISOString(), actor };
+      if (!line) return { kind: 'no-such-line', month };
+      return { kind: 'placed', propertyId: input.propertyId, month, lineId: line.id, description: line.description, amountCents: line.amountCents, at: now.toISOString(), actor };
     },
     'placed',
     actor,
   );
+}
+
+// ─── The placed rows, as the statements read them ─────────────
+
+/** The rows placed on one property's statement for `month` (the decision's month), in a transaction when given one. One read per row, one when there are none. @throws if the read fails. */
+export async function placedRowsFor(propertyId: string, month: string, tx?: Transaction): Promise<PlacedRow[]> {
+  const query = getAdminDb().collection(EARNINGS_UNREAD_COLLECTION).where('decision.propertyId', '==', propertyId).where('decision.month', '==', month);
+  const snap = tx ? await tx.get(query) : await query.get();
+  return placedRowsOf(snap.docs.map((doc) => readEarningsUnread(doc.id, doc.data())).filter((row): row is EarningsUnreadView => row !== null));
+}
+
+/** Every placed row, for the tracker and the month's ZIP: one read per row, one when there are none. @throws if the read fails. */
+export async function placedRowsAll(): Promise<PlacedRow[]> {
+  const snap = await getAdminDb().collection(EARNINGS_UNREAD_COLLECTION).where('decision.kind', '==', 'placed').get();
+  return placedRowsOf(snap.docs.map((doc) => readEarningsUnread(doc.id, doc.data())).filter((row): row is EarningsUnreadView => row !== null));
+}
+
+/** The rows placed on `month`'s statements, any property's: the Income page's month read merges them with the month's own rows. @throws if the read fails. */
+export async function placedRowsOn(month: string): Promise<EarningsUnreadView[]> {
+  const snap = await getAdminDb().collection(EARNINGS_UNREAD_COLLECTION).where('decision.month', '==', month).get();
+  return snap.docs.map((doc) => readEarningsUnread(doc.id, doc.data())).filter((row): row is EarningsUnreadView => row !== null);
 }
 
 /** Mark a row "not Nubnb's money", with the admin's reason. */
