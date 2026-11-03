@@ -148,24 +148,28 @@ export const CLEANER_HISTORY_FROM = `${STATEMENTS_FROM_DEFAULT}-01`;
 /**
  * A cleaner's own cleanings for their History (Kian's ruling H4 of 2026-11-02, Build 1): every one of theirs dated on
  * or after the statements floor, read from the cleanings themselves — the query names the cleaner, each document is
- * checked again, and only the fields the list needs are read: never the amount, never the money (ruling H). One read
- * per cleaning of theirs since the floor; nothing else is read. Newest day first.
+ * checked again, and only the fields the list needs are read: never the amount, never the money (ruling H). Newest
+ * day first.
+ *
+ * With `days` (Build 3, Kian's ruling 7 of 2026-11-03: History reads only the month on screen), only the cleanings
+ * dated in that span, both ends included, through the composite index on `cleanerId` and `day`: one read per cleaning
+ * of theirs in the span (one when there is none), so the cost of opening History no longer grows with time. Without
+ * it, every cleaning of theirs since the floor, as before.
  *
  * @throws if the read fails — which is not an empty list.
  */
-export async function listCleanerCleanings(cleanerId: string): Promise<CleanerCleaning[]> {
+export async function listCleanerCleanings(cleanerId: string, days?: { from: string; to: string }): Promise<CleanerCleaning[]> {
   if (!isDocumentId(cleanerId)) return [];
-  const snap = await getAdminDb()
-    .collection(CLEANINGS_COLLECTION)
-    .where('cleanerId', '==', cleanerId)
-    .select('cleanerId', 'day', 'propertyId', 'propertyNameAtEntry', 'status', 'extra', 'jobId', 'actor', 'note', 'createdAt')
-    .get();
+  let query = getAdminDb().collection(CLEANINGS_COLLECTION).where('cleanerId', '==', cleanerId);
+  if (days) query = query.where('day', '>=', days.from < CLEANER_HISTORY_FROM ? CLEANER_HISTORY_FROM : days.from).where('day', '<=', days.to);
+  const snap = await query.select('cleanerId', 'day', 'propertyId', 'propertyNameAtEntry', 'status', 'extra', 'jobId', 'actor', 'note', 'createdAt').get();
   const out: CleanerCleaning[] = [];
   for (const doc of snap.docs) {
     const day: unknown = doc.get('day');
     const status: unknown = doc.get('status');
     const propertyId: unknown = doc.get('propertyId');
     if (doc.get('cleanerId') !== cleanerId || typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(day) || day < CLEANER_HISTORY_FROM) continue;
+    if (days && (day < days.from || day > days.to)) continue;
     if ((status !== 'logged' && status !== 'removed') || typeof propertyId !== 'string') continue;
     const actor: unknown = doc.get('actor');
     const jobId: unknown = doc.get('jobId');

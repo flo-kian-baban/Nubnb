@@ -83,3 +83,35 @@ export function deleteRefusal(pay: PayStanding, uncertain: number, name: string 
   }
   return null;
 }
+
+// ─── Before a payday's payment (Build 3, Kian's rulings of 2026-11-03) ───
+
+/** What a person's rows say still needs the admin and is dated before a payday: not in its due until decided. */
+export function needsBeforePayday(rows: readonly { kind: string; day: string | null; state: string }[], payday: string): { noAmount: number; extraAsked: number; waitingReview: number } {
+  const before = rows.filter((row) => row.kind !== 'payment' && row.day !== null && row.day < payday);
+  return {
+    noAmount: before.filter((row) => row.state === 'no-amount').length,
+    extraAsked: before.filter((row) => row.state === 'extra-asked').length,
+    waitingReview: before.filter((row) => row.state === 'waiting').length,
+  };
+}
+
+/**
+ * The questions asked, in order, before the person page's Pay records `amountCents` to `name` for `payday` (the one
+ * just passed, or today): once, when anything dated before the payday still needs an amount or a decision (it is not in
+ * the payday's due, and joins the next once decided); then K2 when the payment is larger than the balance ("Pay $X
+ * ahead?"). None when neither applies.
+ */
+export function paydayQuestions(rows: readonly { kind: string; day: string | null; state: string }[], payday: string, paydayWords: string, pay: Pick<PayStanding, 'balanceCents'>, amountCents: number, name: string): PayQuestion[] {
+  const questions: PayQuestion[] = [];
+  const needs = notCountedWords(needsBeforePayday(rows, payday));
+  if (needs.length > 0) {
+    questions.push({
+      title: `Pay ${name} while something dated before ${paydayWords} still needs you?`,
+      lines: [`${needs.map((part, i) => (i === 0 ? part[0].toUpperCase() + part.slice(1) : part)).join(', and ')}, dated before ${paydayWords}.`, `None of it is in what is due on ${paydayWords}; once decided, it joins the next payday.`],
+      confirm: 'Pay anyway',
+    });
+  }
+  questions.push(...recordQuestions({ balanceCents: pay.balanceCents, noAmount: 0, waitingReview: 0, cannotAddUp: 0 }, amountCents, name));
+  return questions;
+}

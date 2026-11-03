@@ -2064,18 +2064,25 @@ function toCleanerEntry(entry: CostEntryFields): CleanerEntry {
  * names the cleaner from the verified session, and each document is checked
  * again here. Only the fields the list needs are read. One read per entry.
  *
+ * With `sent` (Build 3, Kian's ruling 7 of 2026-11-03: History reads only
+ * the month on screen), only the entries whose `createdAt` lies in that span
+ * of instants (ISO-8601 UTC, both ends included), through the composite
+ * index on `cleanerId` and `createdAt`: one read per entry of theirs in the
+ * span (one when there is none). The route widens the span by a day each way
+ * and keeps the Toronto month after reading.
+ *
  * @throws if the read fails — which is not an empty list.
  */
-export async function listCleanerEntries(cleanerId: string): Promise<CleanerEntry[]> {
-  const snapshot = await getAdminDb()
-    .collection(COST_ENTRIES_COLLECTION)
-    .where('cleanerId', '==', cleanerId)
+export async function listCleanerEntries(cleanerId: string, sent?: { from: string; to: string }): Promise<CleanerEntry[]> {
+  let query = getAdminDb().collection(COST_ENTRIES_COLLECTION).where('cleanerId', '==', cleanerId);
+  if (sent) query = query.where('createdAt', '>=', sent.from).where('createdAt', '<=', sent.to);
+  const snapshot = await query
     .select('cleanerId', 'createdAt', 'propertyId', 'propertyNameAtEntry', 'lines', 'taxCents', 'history', 'status', 'statusReason', 'kind')
     .get();
 
   return snapshot.docs
     .map((doc) => readCostEntryFields(doc.id, doc.data()))
-    .filter((entry) => entry.cleanerId === cleanerId)
+    .filter((entry) => entry.cleanerId === cleanerId && (!sent || (typeof entry.createdAt === 'string' && entry.createdAt >= sent.from && entry.createdAt <= sent.to)))
     .map(toCleanerEntry)
     .sort(newestFirst);
 }

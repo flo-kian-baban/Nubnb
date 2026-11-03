@@ -5865,3 +5865,262 @@ marked through the app's own functions, a payment to Ana, a hand-logged typed cl
 Committed after these as "Build 2: one cleaner per job, labelled jobs, delete a job, no saved suggestions, one word per
 state" (the 69 paths plus CLAUDE.md by name, no trailer); the commit's tree scanned against a fresh export, pushed, the
 deployment verified from Vercel's record, /admin and /cleaner smoked as no one. Figures in the report's close-out.
+
+## 70. Build 3 of 3: the person page — pay, month calendar, metrics — Kian's rulings of 2026-11-02 (UX audit Q21–Q25) and 2026-11-03
+
+The third build of the UX audit (§68 Build 1, §69 Build 2). Kian's intent, in his words: "for any cleaner or handyman,
+an admin opens one page and sees, month by month, what they did, what Nubnb owes them and why, and pays them on payday
+in a few clicks. Paydays are the 1st and the 15th. Not everyone is paid on the same day. It stays simple." Built,
+verified on production behind the write guard, reported; committed only after Kian's review.
+
+### 70.1 Kian's rulings, in his words
+
+- "A payday pays everything counted and dated before it, minus payments: the 15th covers up to the 14th, the 1st up to
+  the last day of the previous month. The balance stays a running total; anything decided late joins the next payday."
+- "Item dates: a cleaning by its job's day; a receipt or work entry by the day it was sent."
+- "No time-spent metric (no start time is recorded)."
+- Item 1, the person page, replacing the pay view, reached from Team: "Head: name and role; 'Owed now' (everything
+  counted); 'Due on <next payday>' (counted and dated before it, minus payments), or 'Paid ahead $X', or 'Settled'. Pay:
+  amount filled with 'Due on <payday>' for the payday just passed or today, editable; method; date; one 'Pay' button.
+  It asks once if anything dated before the payday still needs an amount or a decision. Keep the PAYMENTS_CHANGED guard
+  and 'Pay $X ahead?'."
+- Item 2, "Needs you" on the same page: "every item of that person that needs an amount or a decision, each with its
+  action inline: type an amount (cleaning price filled; 'Last typed' only a placeholder); a noted cleaning: Approve at
+  cleaning price / Approve at amount / Decline, showing the note; a receipt or work entry: Approve / Reject with reason,
+  with a photo link for receipts. Same server routes and history as the Costs page and Cleanings tab, which stay as
+  they are."
+- Item 3, the month calendar, with a month switcher: "each day shows the person's jobs (unit, label, done or not),
+  receipts and work (amount, status), payments, and the 1st and 15th marked with what was due; clicking a day lists its
+  items. Desktop at 1280 and 1440 only."
+- Item 4, the month summary, above the calendar: "jobs done; marked on the day vs later; left Not marked; notes sent;
+  cleanings counted ($), receipts approved ($), work approved ($), average per cleaning; paid in the month; owed at
+  month end. Every figure from existing data."
+- Item 5: "The month's dated list (what counts, what was paid, what changed) defaults to the month on screen, not two
+  days."
+- Item 6, the Team page: "one row per person — Owed now, Due on next payday, 'n need you', next payday date, Open."
+- Item 7, the cleaner app's History: "read only the month on screen (fixes the read cost growing with time). Show reads
+  per open before and after with a year of seeded data."
+- "Scope: Team page, the person page (replacing the pay view), the History read in the cleaner app. Words from §69.2
+  only. No change to how anything is counted. Anything needing a ruling: stop that item, recommend, continue."
+
+### 70.2 What was built, by item
+
+1. **The paydays** (`app/lib/pay/payday.ts`, pure and client-safe). `nextPayday(today)` is the first 1st or 15th on or
+   after today (today itself when it is one); `lastPayday(today)` the one just passed or today; `cutoffOf(payday)` the
+   day before it (the 14th, or the month's last day). `dueOn(payday, rows, paidThrough)` sums the one function's rows
+   (balance.ts) that count, are dated before the payday and were *counting by the payday's day*, and subtracts the
+   payments: every payment on record for what is still due now (the head and the Pay box), or those dated before the
+   payday for what was due that morning (the calendar's markers). "Decided late" is read from each row's new
+   `countedAt` (balance.ts: the last event that took it from owing nothing to owing something — the mark with an
+   amount, the amount typed, the note decided, the approval, a card mark taken off; null while it does not count): an
+   item decided after a payday's day is not in that payday's due whatever its date, and joins the next one's; one decided
+   on the payday itself is in it. `dueWords` gives the head's second figure: "$X", "Paid ahead $X" while the balance is
+   below zero, "Settled" when nothing is due. The balance stays the running total it was (Owed now).
+2. **The person page** (`app/admin/cleaners/PersonPage.tsx`, replacing PayView.tsx, at `/admin/cleaners?person={id}`;
+   an old `?pay={id}` link opens it too; `&month=` keeps the month on screen in the address). The head: the name, role
+   and status, the regular properties and jobs ahead as before; then three tiles — **Owed now** (the running balance;
+   "Settled" or "Paid ahead $X" below), **Due on <next payday>** (what the next payday covers, "counted and dated up to
+   <cutoff>, minus payments"), and **Pay**: the amount filled with what is due on the payday just passed or today
+   ("Pay · due on Nov 15: $167.20"; "nothing due on Nov 15" leaves it empty), editable; the method; the date; one "Pay"
+   button. Before it sends, `paydayQuestions` (checks.ts) asks once when anything dated before that payday still needs an
+   amount or a decision — "Pay <name> while something dated before Nov 15 still needs you?", naming the counts in §69.2's
+   words and saying none of it is in the payday's due and joins the next once decided, "Pay anyway" — then K2, "Pay $X
+   ahead?", when the payment is larger than the balance. The record still carries `seen` (PAYMENTS_CHANGED). After a
+   payment the field follows what is still due (empty when the payday is settled); after a delete it clears (Build 2).
+3. **Needs you** (item 2): one table, by day — their cleanings that need an amount (the field as the Cleanings tab's:
+   the cleaning price or the job's amount fills it, "Last typed" is a placeholder, Save with an empty field saves
+   nothing, Save all), their cleanings with a note that needs a decision (the note shown; Approve at cleaning price,
+   Approve at this amount with a field, Decline), and their receipts and work that need a decision (Approve; Reject…
+   opening an inline reason the cleaner sees; Receipt photo, the Costs page's 60-second link in a new tab; a link to the
+   Costs page). Each action is the Costs page's or the Cleanings tab's own route (PATCH /api/admin/cleanings/[id] with
+   `change` or `extra`; POST /api/admin/cost-entries/[id]/status) with the same `seen` and the same history event; the
+   page replaces its copy with what the server stored (the Team page's `putCleaning`, new `putEntry`), so Owed now and
+   the dues follow without a reload. A row saved or decided here stays listed with what was done ("Saved $53.00 ·
+   Counted", "Approved at $61.00 · Counted", "Approved $212.34 · Counted", "Rejected: “…”") until the page is refreshed.
+4. **The month** (items 3, 4, 5; `app/lib/pay/month.ts`, pure). A switcher ("‹ November 2028 ›", back to January 2026,
+   forward to next month); above the calendar the **summary**: jobs done (their cleanings in the month, logged: counted
+   or not), with how many they marked on the job's day, how many later, how many the office recorded or logged, and how
+   many jobs are left Not marked (the Schedule's definition: checkout passed, assigned, unmarked); notes sent (cleanings
+   on which they sent a note, decided or not); cleanings counted ($, with the count and the average per cleaning);
+   receipts approved ($, with those paid on Nubnb's card said apart as not owed); work approved ($); paid in the month;
+   owed at month end (the running balance at the month's last day: counted items dated through it minus payments dated
+   through it). Every figure comes from the rows pay already computes, their cleanings and their jobs; nothing is
+   counted differently. The **calendar**: a Sunday-first grid; each day shows the person's jobs (the unit's name as the
+   admin knows it, the label — "Turnover", "Deep clean" — and its state in the Schedule's words: Done, Not marked,
+   Assigned, Removed by the office, Booking changed; a done job carries its cleaning's need, "Done · Needs an amount",
+   "Done · Needs a decision"), their cleanings with no job (logged by the office), receipts and work (amount, Approved /
+   Needs a decision / Rejected / Removed / Paid with Nubnb's card), payments ("Paid $X"), and the 1st and the 15th marked
+   "Payday · was due $X" (before today: payments dated before it subtracted) or "Payday · due $X" / "Settled"; up to
+   four items a day, then "+n more". Clicking a day lists its items in a panel under the grid. The **dated list** (what
+   counts, what was paid, what changed, with Delete… on a payment) shows the month on screen, with "Show all time".
+   Their jobs of the month are the page's one new read: `GET /api/admin/cleaners/[id]/month?month=` →
+   `memberJobsInMonth` (server-cleaning-jobs.ts), one query through the existing `cleanerIds` + `checkout` index, named
+   through the cleaner-facing names; read once per month opened while the page is open.
+5. **The Team page** (item 6): one row per person — Name (role, status), Code, **Owed now**, **Due on <next payday>**
+   (the header names the date), **Needs you** ("n need you", or "Nothing"), **Next payday** (the date), and **Open**
+   with the row's menu as before. The Schedule column left the list: the team's schedule is read when a person's page
+   opens and shown in its head. Earned and Paid left the row too (the person page's summary and list hold them).
+6. **The cleaner app's History** (item 7): `GET /api/cleaner/entries?month=yyyy-mm` answers the entries sent in that
+   Toronto month and the cleanings dated in it — `listCleanerEntries(id, span)` and `listCleanerCleanings(id, days)` take
+   a range, through two new composite indexes (`cost_entries`: `cleanerId`, `createdAt`; `cleanings`: `cleanerId`, `day`;
+   firestore.indexes.json). The screen reads the month on screen once, keeps each month read while it is open, and its
+   switcher reaches every month from this one back to the statements floor (`historyMonthRange`). Without `month` the
+   route answers as before. A cleaning whose job is in hand and no longer marked (undone since the month was read) is
+   left out (`historyItems`).
+
+### 70.3 The developer's choices (for Kian; none changes a statement or what an owner receives)
+
+- **Paydays are the same for everyone**: the 1st and the 15th, so "Next payday" is the same date in every row of the
+  Team page, and "Not everyone is paid on the same day" is served by the Pay box filling with the payday just passed or
+  today — the admin pays each person on whichever payday is theirs. No per-person payday setting (held, §70.8).
+- **"Decided late"** is the item's counted-since day against the payday's day (§70.2, 1): decided on the payday counts
+  for it; decided the day after joins the next. The alternative, by the admin's payment time, would make a payday's due
+  depend on when the admin pressed Pay rather than on the calendar.
+- **What the calendar marks on a past payday** is what was due that morning: payments dated before the payday
+  subtracted, the day's own payment listed beside it. The head and the Pay box subtract every payment on record, so a
+  payday paid — on the day or late — reads Settled.
+- **Owed now shows the figure** ("$61.00"), with the words "Settled" and "Paid ahead $X" for zero and below; the Team
+  row the same. The pay view's "$61.00 owed to Ana" is gone with the view.
+- **The Pay box has no Note field**: the ruling lists the amount, the method, the date and one button. Payments recorded
+  from the page carry no note; older payments' notes still show in the dated list and the calendar.
+- **Receipt photo** opens the Costs page's 60-second link in a new tab (a blank tab opened on the click, then pointed at
+  the link, so a popup blocker allows it); the full pane stays one click away ("Costs page").
+- **Reject needs a reason** typed inline (the cleaner sees it); approving needs nothing, as on the Costs page.
+- **The jobs done split** counts the cleaner's own marks by the Toronto day of the mark against the job's day; a
+  cleaning the office recorded or logged is "by the office", not "later".
+- **The dated list** defaults to the month on screen and offers "Show all time" rather than a date filter.
+- **The Team page no longer reads the team's schedule for the list** (three reads fewer per open); the person page's
+  head reads it on open.
+- **The month's jobs read uses the existing composite index** (cleanerIds + checkout) with both bounds; the two new
+  indexes are item 7's only.
+- **A month before the statements floor** answers empty lists in History (H4 stands); the switcher stops at the floor.
+
+### 70.4 Words
+
+Only §69.2's words for states: Needs an amount, Needs a decision, Counted, Settled, Paid ahead, Cleaning price; the
+Schedule's for a job (Done, Not marked, Assigned, Removed by the office, Booking changed) and the admin's entry labels
+(Approved, Rejected, Removed, Paid with Nubnb's card). New labels, not states: Owed now, Due on <date>, Needs you, Next
+payday, Payday, Pay, "covers up to", "was due".
+
+### 70.5 Tests
+
+`pay-payday` (new; tests/pay/payday.mjs): the paydays and cutoffs on eight dates; the cutoffs on rows (the 14th in the
+15th's due, the 15th not, the 31st in the 1st's, a receipt sent on the 10th and approved on the 16th in Dec 1's and not
+Nov 15's, one approved on the 15th in Nov 15's); Pay on the 15th then the 1st (the head, the Pay box's fill, Settled,
+Paid ahead, the markers); the questions before Pay (once, naming the three kinds; then "Pay $X ahead?"; nothing for an
+item dated after the payday); counted-since on every kind of row (mark, amount typed, note declined and approved, the
+card toggled); November's summary and calendar (jobs done and their split, Not marked, notes, the sums and the average,
+the card receipt apart, paid and owed at month end; the grid's edges; each day's items and tones); and History's reads
+over a year of made-up data on the in-memory Firestore: 852 reads for everything against 40 for November (34 cleanings
+of Nov 1–17, 6 entries), 1 for an empty month, the switcher's 25 months, and the month's jobs read at one read each plus
+the name. `admin-accounts` re-recorded for the new GET route (a read, not recorded). The suite: 35 checks identical but
+for those two.
+
+### 70.6 Verified on production (2026-11-03; the server's clock 2028-11-15, then 2028-11-16, then 2028-12-01)
+
+**Setup.** A build of HEAD plus this build's changed files (`work/`, built at 0 production reads with Firestore answered
+empty; HEAD alone in `work-before/` the same way) served on 127.0.0.1:4500 behind the write guard (every write
+ledgered; 0 refused), the read counter, every calendar fetch cut off, the refresh state stubbed for each day; the clock
+moved to 2028-11-15 18:00Z, then 2028-11-16, then 2028-12-01, the sessions re-minted at each; the browser's clock
+patched to the server's after every full load (the admin's "today" is the browser's). A `__TEST__` admin (ordinary
+level; never a real one), `__TEST__` Ana (cleaner) and Hal (handyman), Unlisted `__TEST__` properties P (prices) and Q
+(none) with made-up addresses and cut-off `__TEST__` calendar links. Opening export `2026-11-03T19-04-27Z` (612
+documents). The seed, through the app's own writers at their instants: Ana's jobs Oct 31, Nov 5 (marked Nov 6), Nov 9
+(never marked), Nov 12 on Q (no price), Nov 13 (with a note), Nov 14, Nov 15 (marked on the 15th), Nov 20 and a "Deep
+clean" added on Nov 28; a payment Nov 1; receipts Nov 9 (on Nubnb's card), Nov 10 (over $200, pending), Nov 11
+(approved automatically); Hal's work Nov 8, Nov 12 ×2 (pending).
+
+**Shown live** (`_harness/out/after.txt`; the report has the full lines): the Team page's head `Name, Code, Owed now,
+Due on Nov 15, Needs you, Next payday, Actions`, Ana `$228.20 | $167.20 | 3 need you | Nov 15 | Open`, Hal `Settled |
+Settled | 3 need you | Nov 15 | Open`, fitting at 1280 (the table 1158px in 1158px). Ana's page on Nov 15: Owed now
+$228.20, Due on Nov 15 $167.20 (the cleaning of the 15th left out, dated on the payday), Pay filled with 167.20; the
+question once, in the ruling's shape, naming the three items dated before Nov 15 that still needed the admin and that
+none is in the payday's due; Pay anyway → "Paid Ana $167.20 on Nov 15 (e-transfer)" → Owed now $61.00, Due on Nov 15
+Settled, the field empty; the day panel for Nov 15 (the payday, the job, the payment). Hal's page: three work rows
+approved, approved and rejected with a reason inline → Owed now $370.00, Due $370.00 → Pay → Settled. Nov 16: the amount
+typed into Q's cleaning ($53.00), the note approved at the cleaning price ($61.00), the receipt approved ($212.34), each
+through the Cleanings tab's and the Costs page's own routes (the histories as stored: `changed · admin · none →
+$53.00`, `extra-approved · admin`, `approved pending→approved · admin`, `rejected … "Not ours: …"`; the activity log's
+PATCH /api/admin/cleanings ×2, POST …/status ×4, POST /api/admin/payments ×4) → Owed now $387.34, Due on Dec 1
+$387.34, and "nothing due on Nov 15": the late decisions joined Dec 1. Dec 1: Pay filled with 387.34 → Settled; $50.00 →
+"Pay $50.00 ahead?" → Paid ahead $50.00 on both figures; November from the switcher: `5 jobs done · 4 marked on the day ·
+1 later · 3 Not marked`, notes 1, cleanings $297.00 (5, $59.40 each), receipts $257.54 (2) with $20.00 on the card apart,
+work $0.00, paid in the month $228.20, owed at month end $387.34; the markers `Nov 1 · was due $61.00`, `Nov 15 · was due
+$167.20`; Nov 20 and Nov 28 Not marked; the dated list of 10 rows; no sideways scroll at 1280 (the calendar 1160px).
+
+**The independent calculation** (`compute.mjs`, plain arithmetic over the raw documents read by exact path, each
+step's instant anchored on the documents): 40 comparisons, every one equal to the cent — Owed now, the dues, the Pay
+field, the needs-you count, November's seven figures and the two markers, at every step.
+
+**Item 7.** From memory, with Yara's year (730 cleanings, 122 receipts): a History open 853 reads on HEAD, 34 on this
+build (28 cleanings of Nov 1–14, 5 receipts, the session); October 74; back to November 0. On production this build's
+History answered 503 (`[cleaner-entries] list failed: code 9`): the composite indexes were not yet deployed (§70.8, 2; deployed on 2026-11-03 evening, §70.9).
+
+**Two production passes.** The first seeded the properties without a calendar link; when the cleaner app opened, the
+R1 refresh ran and the job sync, correctly, marked two of P's open jobs "Booking changed · Calendar link removed". Its
+data was deleted by exact path (55 paths) and the pass run again with cut-off links: 0 job updates by the sync.
+
+**Reads:** 3,798 against the 6,000 budget (both passes 3,560, the seeds 112, the independent calculation 104, cleanup 12,
+the activity read 10), the two exports (1,114 each) excluded. **Cleanup:** 55 Firestore paths by exact path each run, 0
+Storage objects; the closing export `2026-11-03T19-28-14Z` identical to the opening one (612 documents, 0 differences,
+18 collections). 34 screenshots OCR'd against every code and PIN: 0 hits. The tree scan against the opening export:
+clean. No rules change (`cleaning_jobs`, `cleanings`, `cost_entries`, `team_payments` are server-only already); the
+index file changes (§70.8, 2).
+
+### 70.7 LATER
+
+- The person page is desktop only (1280 and 1440), as ruled; below 1280 the calendar's seven columns squeeze.
+- The calendar shows four items a day and "+n more"; a day with more is read from its panel.
+- `historyMonthRange` offers every month back to the floor, empty or not; a cleaner with little history steps through
+  empty months. The before build offered only months with items.
+- The cleaner app's start call is unchanged (about 125 reads per open on production); item 7 touched History only.
+- The Team page's list is at the browser's today, as the admin always was; the person page's paydays too.
+
+### 70.8 Held for Kian — ruled on 2026-11-03 ("Build 3 approved")
+
+Kian's rulings on the five held items, in his words: "(1) paydays the 1st and 15th for everyone; (2) indexes first; (3)
+decided on the payday counts for it; (4) no note on Pay; (5) Schedule column on the person page." Each as built:
+
+1. **Paydays the 1st and the 15th for everyone.** The Team page's "Next payday" column shows the same date in every row,
+   and the Pay box fills with the payday just passed or today for whoever is being paid. No per-person payday.
+2. **Indexes first.** The two composite indexes item 7 needs (`cost_entries` cleanerId + createdAt; `cleanings`
+   cleanerId + day) are deployed from firestore.indexes.json and read READY before the commit is pushed; the release
+   order, the index status and the query check are in §70.9; the push and the deployment are in the build's report.
+3. **Decided on the payday counts for it.** "Decided late" is read by the item's counted-since day against the payday's
+   day (§70.3): an item decided on the payday itself is in that payday's due; one decided the day after joins the next.
+4. **No note on Pay.** The Pay box has amount, method, date and the one Pay button, as the ruling lists its parts.
+5. **The Schedule column lives on the person page.** The regular properties and the jobs ahead are in the person page's
+   head, not on the Team page's row.
+
+### 70.9 Release (2026-11-03 evening): indexes first, then the query check, then the commit
+
+Kian's order, each step only after the one before it passed: (1) deploy only the two new composite indexes and wait
+until both read READY; (2) from a local build reading production, read-only, run the cleaner History month query for
+one path free of test data and show it answers without an index error; (3) commit, scan the commit's tree, push, verify
+the deployment's SHA from Vercel's record, smoke /admin and /cleaner as no one. "If step 1 or 2 fails, stop and report.
+Do not push." Budget 500 reads, exports excluded. A fresh export (`2026-11-03T21-10-15Z`, 615 documents) was taken first.
+
+**Step 1.** Production held one composite index before (`cleaning_jobs`, READY). `firebase deploy --only
+firestore:indexes --non-interactive --project nubnb-fd02a` (firebase-tools 15.11.0; `--only firestore:indexes` touches
+no rules, and `--non-interactive` never deletes an index missing from the file) answered on its first run with Google's
+`HTTP Error: 503, The service is currently unavailable` on the `cost_entries` creation request — which the service had
+nevertheless accepted: the listing 20 s later showed that index CREATING and no `cleanings` index. The same command run
+again (idempotent: an index that exists is not requested twice) requested the remaining one and ended "Deploy
+complete!"; at 21:16:54Z both read CREATING. Listed every 30 s from 21:17:43Z (32 listings, kept raw in the build's report, `out/index-wait.txt`), both read
+READY at 21:33:40Z — about 17 minutes after they were requested — with the `cleaning_jobs` index unchanged. The check
+below ran after a margin of 90 s (a composite index's READY is not instant everywhere: a query 12 s after READY was
+once refused, 2026-10-15).
+
+**Step 2.** From the built copy of the tree as committed (`_harness/work`: HEAD plus this build's files, the copy the
+production pass ran on; every changed file compared equal to the tree before this step), reading production read-only
+(`VS_READONLY=1`: every write throws first), the route's two queries for month 2026-11 with the route's own bounds —
+`cost_entries` where cleanerId == id and createdAt in [2026-10-31T00:00:00.000Z, 2026-12-01T23:59:59.999Z]; `cleanings`
+where cleanerId == id and day in [2026-11-01, 2026-11-30] — for the ID `nobodyBuild3Check000`, which no cleaner holds
+(no test record; nothing created): answered in 543 ms with no index error, `entries [] (0) · cleanings [] (0)`, 2 reads
+billed (one per empty query). At the check, 21:35:38Z, all three indexes read READY. The route's session check needs a
+cleaner document, so the check calls the route's two list functions with the route's bounds rather than the HTTP route
+itself. Reads for the release: 2 of 500, exports excluded.
+
+**Step 3** — the commit, its tree scan, the push, the deployment's SHA and the smoke as no one — is recorded in the
+build's report (`~/Backups/Nubnb/build3-person/BUILD3-REPORT-2026-11-03.md`, section 12), since it happens after this
+file is committed.

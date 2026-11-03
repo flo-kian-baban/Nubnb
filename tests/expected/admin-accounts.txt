@@ -128,6 +128,7 @@
   GET    /api/admin/availability/status                       read, not recorded
   POST   /api/admin/cleaners/[id]/code                        recorded as "Changed a team member’s code"
   GET    /api/admin/cleaners/[id]/jobs                        read, not recorded
+  GET    /api/admin/cleaners/[id]/month                       read, not recorded
   PUT    /api/admin/cleaners/[id]/rate                        recorded as "Set a cleaner’s default rate"
   PATCH  /api/admin/cleaners/[id]                             recorded as "Changed a team member’s status"
   DELETE /api/admin/cleaners/[id]                             recorded as "Deleted a team member"
@@ -222,7 +223,7 @@
   POST   /api/properties                                      recorded as "Added a property"
   POST   /api/scrape-airbnb                                   recorded as "Read an Airbnb listing"
   POST   /api/upload-image                                    recorded as "Uploaded an image"
-  104 handlers through adminRoute; problems: 0
+  105 handlers through adminRoute; problems: 0
   routes still on the PIN-signed session: 0
   a route that unlocks an admin's PIN (the first version's per-admin lock): false
 

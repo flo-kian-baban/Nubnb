@@ -47,6 +47,7 @@ export const CHECKS = [
   { name: 'income-unread', script: 'income/unread.mjs', args: [] },
   { name: 'statements-phase5', script: 'statements/phase5.mjs', args: [] },
   { name: 'build2-jobs', script: 'schedule/build2.mjs', args: [] },
+  { name: 'pay-payday', script: 'pay/payday.mjs', args: [] },
 ];
 
 const argv = process.argv.slice(2);

@@ -1,0 +1,96 @@
+═══ 1. Paydays: the 1st and the 15th; the next one, the one just passed or today, and what each covers ═══
+  today 2028-11-01: next 2028-11-01 (covers up to 2028-10-31) · just passed or today 2028-11-01 (covers up to 2028-10-31)
+  today 2028-11-02: next 2028-11-15 (covers up to 2028-11-14) · just passed or today 2028-11-01 (covers up to 2028-10-31)
+  today 2028-11-14: next 2028-11-15 (covers up to 2028-11-14) · just passed or today 2028-11-01 (covers up to 2028-10-31)
+  today 2028-11-15: next 2028-11-15 (covers up to 2028-11-14) · just passed or today 2028-11-15 (covers up to 2028-11-14)
+  today 2028-11-16: next 2028-12-01 (covers up to 2028-11-30) · just passed or today 2028-11-15 (covers up to 2028-11-14)
+  today 2028-11-30: next 2028-12-01 (covers up to 2028-11-30) · just passed or today 2028-11-15 (covers up to 2028-11-14)
+  today 2028-12-01: next 2028-12-01 (covers up to 2028-11-30) · just passed or today 2028-12-01 (covers up to 2028-11-30)
+  today 2028-02-29: next 2028-03-01 (covers up to 2028-02-29) · just passed or today 2028-02-15 (covers up to 2028-02-14)
+   ok   the next payday is the first 1st or 15th on or after today
+   ok   the payday just passed or today
+   ok   the 15th covers up to the 14th; the 1st up to the last day of the month before
+
+═══ 2. Cutoffs: the 14th is in the 15th's due, the 15th is not; the 31st is in the 1st's; a receipt sent on the 10th and approved on the 16th joins the next payday ═══
+  due on Nov 1, as that morning (payments before it): earned $61.00 · paid $0.00 · due $61.00 (covers up to 2028-10-31)
+   ok   the cleaning of Oct 31 is in Nov 1's due
+  due on Nov 15, now (every payment): earned $167.20 · paid $61.00 · due $106.20 (covers up to 2028-11-14)
+   ok   Oct 31 and Nov 14 are in; Nov 15 is not; the receipt approved on the 15th is in; the one approved on the 16th is not (decided late)
+   ok   inPayday names exactly those three
+  due on Dec 1, now: earned $440.54 · paid $61.00 · due $379.54 (covers up to 2028-11-30)
+   ok   Dec 1 holds everything dated through Nov 30, the late-approved receipt included
+  counted since: Oct 31 2028-10-31T19:00:00.000Z · receipt approved late 2028-11-16T14:00:00.000Z · receipt approved on the day 2028-11-15T14:00:00.000Z
+   ok   each row says the Toronto day it started counting
+
+═══ 3. Pay on the 15th, then the 1st: balances, Settled, Paid ahead ═══
+  Nov 15 before paying: Owed now $167.20 owed · Due on 2028-11-15: $106.20 · Pay fills "due on 2028-11-15": $106.20
+   ok   on the 15th the head and the Pay box both read what the 15th covers; Owed now holds the 15th's cleaning too
+  Nov 15 after paying $106.20: Owed now $61.00 owed · Due on 2028-11-15: Settled · Pay fills: (empty)
+   ok   paid: the 15th reads Settled, the Pay box empties, Owed now is the cleaning of the 15th
+  Nov 20 (the receipt approved on the 16th now counts): Owed now $273.34 owed · Due on 2028-12-01: $273.34 · Pay fills "due on 2028-11-15": (empty)
+   ok   the late receipt joins Dec 1, not Nov 15: the Pay box stays empty for Nov 15
+  Dec 1: Due on 2028-12-01: $273.34 · Pay fills "due on 2028-12-01": $273.34
+   ok   on Dec 1 the Pay box fills with everything dated through Nov 30 that is not paid
+  Dec 1 after paying $273.34: Owed now Settled · Due on Dec 1: Settled
+   ok   Settled on both counts
+  Dec 1 after $50.00 more: Owed now Paid ahead $50.00 · Due on Dec 1: Paid ahead $50.00 [ahead]
+   ok   a payment past what is owed reads Paid ahead
+  November's markers (seen from Dec 1): 2028-11-01 was due $61.00 · 2028-11-15 was due $106.20
+   ok   the calendar marks each past payday with what was due that morning
+
+═══ 4. Before Pay: asked once when something dated before the payday still needs an amount or a decision; "Pay $X ahead?" ═══
+  "Pay Ana Test while something dated before Nov 15 still needs you?" / 1 cleaning needs an amount, and 1 cleaning with a note needs a decision, and 1 receipt or work entry needs a decision, dated before Nov 15. / None of it is in what is due on Nov 15; once decided, it joins the next payday. / [Pay anyway]
+   ok   one question, naming the three, before the payday
+  "Pay Ana Test while something dated before Nov 15 still needs you?" / 1 cleaning needs an amount, and 1 cleaning with a note needs a decision, and 1 receipt or work entry needs a decision, dated before Nov 15. / None of it is in what is due on Nov 15; once decided, it joins the next payday. / [Pay anyway]
+  "Pay $30.00 ahead?" / Ana Test is owed $61.00; this payment is $91.00. / Their balance will then read “Paid ahead $30.00”. / [Pay ahead]
+   ok   then K2 when the payment is larger than the balance
+   ok   a cleaning dated after the payday that needs an amount asks nothing for this payday
+
+═══ 5. Counted since: logged with an amount; typed later; a note declined; approved; the card toggled ═══
+  2028-11-14 cleaning counts · earned $61.00 · counted since 2028-11-14T19:00:00.000Z
+  2028-11-13 cleaning counts · earned $61.00 · counted since 2028-11-16T15:00:00.000Z
+  2028-11-13 cleaning counts · earned $71.00 · counted since 2028-11-16T15:30:00.000Z
+  2028-11-08 receipt nubnb-card · earned — · counted since not counting
+  2028-11-08 receipt counts · earned $45.20 · counted since 2028-11-10T12:00:00.000Z
+  2028-11-05 cleaning counts · earned $53.00 · counted since 2028-11-18T15:00:00.000Z
+   ok   a cleaning counts from its amount, its decision, or its mark
+   ok   a receipt counts again from the card mark taken off; one still on the card counts from nothing
+
+═══ 6. The month's figures and the calendar (November 2028, seen from Nov 18) ═══
+  6 jobs done · 4 marked on the day · 1 later · 1 by the office · 1 Not marked · notes sent 1
+  cleanings counted $244.00 (4, $61.00 per cleaning) · receipts approved $45.20 (1; on Nubnb's card $20.00) · work approved $120.00 (1) · paid in the month $228.20 · owed at month end $242.00
+   ok   jobs done 6: 4 on the day, 1 later, 1 by the office; 1 Not marked (Nov 9; Nov 20 and 28 are ahead); 1 note sent
+   ok   four cleanings count (the one with no amount and the noted one do not): the average is their mean
+   ok   receipts approved $45.20 with $20.00 more on the card, not owed; work $120.00
+   ok   paid in the month, and the running balance at Nov 30 (payments dated through it)
+  November 2028: 5 weeks, first row 2028-10-29 2028-10-30 2028-10-31 2028-11-01 2028-11-02 2028-11-03 2028-11-04, last row 2028-11-26 2028-11-27 2028-11-28 2028-11-29 2028-11-30 2028-12-01 2028-12-02
+   ok   the grid starts on the Sunday before the 1st (a Wednesday) and ends on the Saturday after the 30th
+  2028-11-01: Payday · covers up to Oct 31 · was due $61.00 [payday] | Payment · E-transfer · Paid $61.00 [paid]
+  2028-11-05: 14 Sample St · Turnover · Done [done]
+  2028-11-07: Test Lakeview Loft · Cleaning · Done [done]
+  2028-11-09: 14 Sample St · Turnover · Not marked [alert] | Receipt · Test Cozy Pad · 1 item · Paid with Nubnb's card · $20.00 [muted]
+  2028-11-11: Receipt · Test Cozy Pad · 1 item · Approved · $45.20 [done]
+  2028-11-12: 88 Example Ave · Turnover · Done · Needs an amount [needs]
+  2028-11-13: 14 Sample St · Turnover · Done · Needs a decision [needs]
+  2028-11-15: Payday · covers up to Nov 14 · was due $348.20 [payday] | 14 Sample St · Turnover · Done [done] | Payment · E-transfer · Paid $167.20 [paid]
+  2028-11-20: 14 Sample St · Turnover · Assigned [ahead]
+  2028-11-28: 14 Sample St · Deep clean · Assigned [ahead]
+   ok   Nov 1: the payday first (what was due that morning), then the payment
+   ok   a past unmarked job reads Not marked, one ahead Assigned
+   ok   a done job carries its cleaning's need
+   ok   a cleaning logged by hand stands on its own; an added job shows its label
+   ok   Nov 15: what was due that morning (everything counted and dated before it, minus the Nov 1 payment), the payment that day beside it
+   ok   five days outside the month fill the edges; today is marked
+
+═══ 7. The cleaner app's History: reads per open over a year of data, all of it (before) against one month (after) ═══
+  seeded 730 cleanings over 365 days and 122 receipts
+  before (everything of theirs): cleanings 730 rows, 730 reads · entries 122 rows, 122 reads · a History open: 852 reads plus the session
+  after (November 2028): cleanings 34 rows, 34 reads · entries 6 rows (a day each way, the route keeps the month), 6 reads · a History open: 40 reads plus the session
+   ok   the month read costs the month's documents (Nov 1–17 here, two a day), not the year's
+   ok   an empty month costs one read
+  the switcher's months: 25, from 2028-11 back to 2026-11
+   ok   every month from this one back to the statements floor
+  their jobs of November: 2028-11-03 14 Sample St, 2028-11-20 14 Sample St · 3 reads
+   ok   two jobs of the month, named by the address: one read each and one for the name
+
+all checks passed

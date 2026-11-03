@@ -1,18 +1,26 @@
 /**
  * POST /api/cleaner/entries — Log one receipt's costs for one property (cleaner-only).
- * GET  /api/cleaner/entries — The signed-in cleaner's own entries, newest first (dispatch 19).
+ * GET  /api/cleaner/entries?month=yyyy-mm — The signed-in cleaner's own entries and cleanings of one month (dispatch
+ *                                           19; the month since Build 3).
  *
- * GET answers `{ success: true, data: { entries: CleanerEntry[], cleanings: CleanerCleaning[] } }`: for each
+ * GET answers `{ success: true, data: { month, entries: CleanerEntry[], cleanings: CleanerCleaning[] } }`: for each
  * of this cleaner's entries, when it was sent, the property, how many lines,
  * what it adds up to now and what was sent, its status, and the reason when
  * it was rejected. Only the entries the verified session's cleaner sent —
  * the query names them and each document is checked again — and nothing
- * else: no receipt, no history, no other cleaner. One read per entry.
+ * else: no receipt, no history, no other cleaner.
  * `cleanings` (Kian's ruling H4 of 2026-11-02, Build 1): a cleaner's own
- * cleanings back to the statements floor, read field-masked from the
- * cleanings themselves, for a History that reaches every month, not only
- * the 45 days their job list does; never an amount. One read per cleaning
- * of theirs since the floor. Empty for a handyman, who cleans nothing.
+ * cleanings, read field-masked from the cleanings themselves, for a History
+ * that reaches every month back to the statements floor, not only the 45
+ * days their job list does; never an amount. Empty for a handyman, who
+ * cleans nothing.
+ * `month` (Kian's ruling 7 of 2026-11-03, Build 3): History reads only the
+ * month on screen — the entries sent in that Toronto month and the cleanings
+ * dated in it — so the cost of opening it no longer grows with time: one
+ * read per entry and per cleaning of theirs in the month (one each when
+ * there is none), plus the session check. Without `month`, everything of
+ * theirs, as before Build 3. A month before the statements floor answers
+ * empty lists.
  *
  * Request:  multipart/form-data with two parts, and an optional third —
  *             receipt  the photo: JPEG, PNG or WebP, at most 4 MiB
@@ -90,11 +98,15 @@
  */
 
 import {
+  apiError,
   apiSuccess,
   apiFailure,
   apiValidationError,
   noStore,
 } from '@/app/lib/api/safe-response';
+import { addDays, torontoDay } from '@/app/lib/availability/days';
+import { monthBounds } from '@/app/lib/pay/month';
+import { STATEMENTS_FROM_DEFAULT } from '@/app/lib/reports/model';
 import { LIMITS, READING_LIMITS, isReceiptType, type ReceiptRef } from '@/app/lib/cleaners/model';
 import { parseReadingPart } from '@/app/lib/cleaners/readings';
 import { DATED_BEFORE_STATEMENTS, DATED_BEFORE_STATEMENTS_CODE, recordDatedBeforeStatements } from '@/app/lib/cleaners/reading-date';
@@ -428,15 +440,32 @@ export async function POST(request: Request) {
   }
 }
 
+/** The Toronto month an entry was sent in, from its instant; null when it has none. */
+const sentMonth = (createdAt: string | null): string | null => {
+  const time = Date.parse(createdAt ?? '');
+  return Number.isFinite(time) ? torontoDay(new Date(time)).slice(0, 7) : null;
+};
+
 export async function GET(request: Request) {
   // ── Auth ──
   const session = await verifyCleanerSession(request);
   if (!session.ok) return noStore(apiFailure(session.refusal));
+  const month = new URL(request.url).searchParams.get('month');
+  if (month !== null && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return noStore(apiError('Invalid month: yyyy-mm', 400));
 
   try {
     const { id, role } = session.cleaner;
-    const [entries, cleanings] = await Promise.all([listCleanerEntries(id), role === 'cleaner' ? listCleanerCleanings(id) : Promise.resolve([])]);
-    return noStore(apiSuccess({ entries, cleanings }));
+    if (month === null) {
+      const [entries, cleanings] = await Promise.all([listCleanerEntries(id), role === 'cleaner' ? listCleanerCleanings(id) : Promise.resolve([])]);
+      return noStore(apiSuccess({ entries, cleanings }));
+    }
+    // Nothing is listed before the statements floor (H4).
+    if (month < STATEMENTS_FROM_DEFAULT) return noStore(apiSuccess({ month, entries: [], cleanings: [] }));
+    const { first, last } = monthBounds(month);
+    // The instants a day each way around the Toronto month (Toronto's midnight is 04:00 or 05:00 UTC), then the month kept.
+    const span = { from: `${addDays(first, -1)}T00:00:00.000Z`, to: `${addDays(last, 1)}T23:59:59.999Z` };
+    const [sent, cleanings] = await Promise.all([listCleanerEntries(id, span), role === 'cleaner' ? listCleanerCleanings(id, { from: first, to: last }) : Promise.resolve([])]);
+    return noStore(apiSuccess({ month, entries: sent.filter((entry) => sentMonth(entry.createdAt) === month), cleanings }));
   } catch (err) {
     // A read that failed is not an empty list.
     console.error(`[cleaner-entries] list failed: code ${errorCode(err)}`);

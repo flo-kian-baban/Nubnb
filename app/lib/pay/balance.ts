@@ -22,6 +22,11 @@
  * (one word per state, Kian's ruling of 2026-11-03): needs an amount, needs a decision, rejected, removed, paid with
  * Nubnb's card, given to another cleaner, deleted.
  *
+ * ── Counted since (Build 3, Kian's rulings of 2026-11-03) ──
+ * Each row that counts says when it started counting as it now stands (`countedAt`): the instant it was logged with
+ * an amount or approved, the amount typed into it, or its note decided. The paydays read it (payday.ts): an item
+ * decided after a payday joins the next one, whatever its date.
+ *
  * ── Changes (TEAM-PAY-PLAN.md §3) ──
  * No payment is tied to items, so a change after paying moves the running balance. Each item carries the changes
  * that moved what it adds, replayed from its own history: removed, rejected, an amount changed or corrected, marked
@@ -101,6 +106,8 @@ export interface PayRow {
   /** A change came after a payment that may have included it. */
   amber: boolean;
   payment: PaymentView | null;
+  /** When it started counting as it stands now (ISO-8601 UTC); null while it does not count, and on a payment. */
+  countedAt: string | null;
 }
 
 export interface MemberPay {
@@ -193,6 +200,12 @@ function cleaningRow(c: PayCleaning, memberId: string, covering: Covering): PayR
   const states = cleaningStates(c);
   if (!states.some((state) => state.cleanerId === memberId)) return null;
   const owed = (state: CleaningState) => (state.cleanerId === memberId && state.status === 'logged' && !state.extraAsked && typeof state.amount === 'number' ? state.amount : 0);
+  // When it started counting as it stands now: the last event that took it from owing nothing to owing something.
+  let countedAt: string | null = c.history.length === 0 && owed(states[0]) > 0 ? c.createdAt : null;
+  c.history.forEach((event, i) => {
+    if (owed(states[i]) === 0 && owed(states[i + 1]) > 0) countedAt = event.at;
+    else if (owed(states[i + 1]) === 0) countedAt = null;
+  });
 
   const changes: PayChange[] = [];
   let lastRemoved: PayChange | null = null;
@@ -217,7 +230,7 @@ function cleaningRow(c: PayCleaning, memberId: string, covering: Covering): PayR
   });
 
   const was = (change: PayChange | null) => (change && change.owedBefore > 0 ? ` · was ${formatCents(change.owedBefore)}` : '');
-  const base = { kind: 'cleaning' as const, id: c.id, day: c.day, at: c.createdAt, property: c.property?.internalName ?? c.property?.name ?? c.propertyNameAtEntry, detail: null, paidCents: null, amountCents: c.amountCents, changes, amber: changes.some((change) => change.afterPayment !== null), payment: null };
+  const base = { kind: 'cleaning' as const, id: c.id, day: c.day, at: c.createdAt, property: c.property?.internalName ?? c.property?.name ?? c.propertyNameAtEntry, detail: null, paidCents: null, amountCents: c.amountCents, changes, amber: changes.some((change) => change.afterPayment !== null), payment: null, countedAt: null as string | null };
   if (c.cleanerId !== memberId) {
     const moved = lastMoved as PayChange | null;
     return { ...base, earnedCents: null, state: 'moved', note: `${moved ? `${moved.words} ${byWords(moved.at, moved.by)}` : 'Given to another cleaner'}${was(moved)}` };
@@ -230,7 +243,7 @@ function cleaningRow(c: PayCleaning, memberId: string, covering: Covering): PayR
   if (c.amountCents === null) return { ...base, earnedCents: null, state: 'no-amount', note: 'Needs an amount' };
   // Their note holds the money until the office decides (ruling F; Build 2's one word): listed, not counted, whatever amount it arrived with.
   if (c.extra?.status === 'asked') return { ...base, earnedCents: null, state: 'extra-asked', note: `Needs a decision: “${c.extra.reason}”` };
-  return { ...base, earnedCents: c.amountCents, state: 'counts', note: null };
+  return { ...base, earnedCents: c.amountCents, state: 'counts', note: null, countedAt: countedAt ?? c.createdAt };
 }
 
 /** The status, who paid, and the total an entry had after each event of its history, replayed forward. */
@@ -252,6 +265,9 @@ function entryRow(e: PayEntry, covering: Covering): PayRow {
   const changes: PayChange[] = [];
   let lastStatus: { at: string; by: string | null; reason: string | null; owedBefore: number } | null = null;
   let lastCard: { at: string; by: string | null; owedBefore: number } | null = null;
+  // When it started counting as it stands now: the last event that took it from owing nothing to owing something
+  // (an entry approved automatically as it was sent counts from then).
+  let countedAt: string | null = null;
   history.forEach((event, i) => {
     const before = state;
     const next = { ...before };
@@ -260,10 +276,12 @@ function entryRow(e: PayEntry, covering: Covering): PayRow {
     if (action === 'paid_with_changed') next.paidWith = event.to ?? next.paidWith;
     if (action === 'line_corrected' || action === 'line_added' || action === 'tax_corrected') next.total = totalAfter(i + 1);
     state = next;
-    // What happened at the instant it was sent — submitted, and approved automatically — is the entry being made, not a change.
-    if (event.at === null || event.at === createdAt) return;
     const owedBefore = owedOf(before);
     const owedAfter = owedOf(next);
+    if (owedBefore === 0 && owedAfter > 0) countedAt = event.at ?? createdAt;
+    else if (owedAfter === 0) countedAt = null;
+    // What happened at the instant it was sent — submitted, and approved automatically — is the entry being made, not a change.
+    if (event.at === null || event.at === createdAt) return;
     let words: string | null = null;
     if (action === 'approved') words = before.status === 'pending' ? 'Approved' : 'Approved again';
     else if (action === 'rejected') words = `Rejected${event.reason ? `: ${event.reason}` : ''}`;
@@ -279,7 +297,7 @@ function entryRow(e: PayEntry, covering: Covering): PayRow {
   const total = e.linesNow.kind === 'ok' ? e.linesNow.totalCents : null;
   const lines = e.linesNow.kind === 'ok' ? e.linesNow.lines : [];
   const detail = kind === 'work' ? (lines[0]?.name ?? null) : e.linesNow.kind === 'ok' ? (lines.length === 1 ? '1 item' : `${lines.length} items`) : null;
-  const base = { kind, id: e.id, day, at: e.createdAt, property: e.property.internalName ?? e.property.name ?? e.property.nameAtEntry, detail, paidCents: null, amountCents: total, changes, amber: changes.some((change) => change.afterPayment !== null), payment: null };
+  const base = { kind, id: e.id, day, at: e.createdAt, property: e.property.internalName ?? e.property.name ?? e.property.nameAtEntry, detail, paidCents: null, amountCents: total, changes, amber: changes.some((change) => change.afterPayment !== null), payment: null, countedAt: null as string | null };
   const status = lastStatus as { at: string; by: string | null; reason: string | null; owedBefore: number } | null;
   const card = lastCard as { at: string; by: string | null; owedBefore: number } | null;
   const was = (owedBefore: number | undefined) => (owedBefore && owedBefore > 0 ? ` · was ${formatCents(owedBefore)}` : '');
@@ -290,13 +308,13 @@ function entryRow(e: PayEntry, covering: Covering): PayRow {
   if (e.status === 'removed') return { ...base, earnedCents: null, state: 'removed', note: `Removed${status ? ` ${byWords(status.at, status.by)}` : ''}${was(status?.owedBefore)}` };
   if (e.status !== 'approved') return { ...base, earnedCents: null, state: 'unknown', note: `Status as stored: ${e.status ?? 'none'}` };
   if (kind === 'receipt' && e.paidWith === 'nubnb-card') return { ...base, earnedCents: null, state: 'nubnb-card', note: `Paid with Nubnb's card${card ? ` · ${card.by ?? 'an admin'}, ${whenWords(card.at)}` : ''}${card && card.owedBefore > 0 ? ` · was owed ${formatCents(card.owedBefore)}` : ''}` };
-  return { ...base, earnedCents: total, state: 'counts', note: null };
+  return { ...base, earnedCents: total, state: 'counts', note: null, countedAt: countedAt ?? e.createdAt };
 }
 
 function paymentRow(p: PaymentView): PayRow {
   const recorded = `${whenWords(p.recordedAt)} by ${p.recordedBy.name ?? 'an admin'}`;
   const note = p.status === 'deleted' ? `Deleted ${whenWords(p.deletedAt)} by ${p.deletedBy?.name ?? 'an admin'} · recorded ${recorded}` : `Recorded ${recorded}`;
-  return { kind: 'payment', id: p.id, day: p.day, at: p.recordedAt, property: null, detail: p.note, earnedCents: null, paidCents: p.status === 'recorded' ? p.amountCents : null, amountCents: p.amountCents, state: p.status, note, changes: [], amber: false, payment: p };
+  return { kind: 'payment', id: p.id, day: p.day, at: p.recordedAt, property: null, detail: p.note, earnedCents: null, paidCents: p.status === 'recorded' ? p.amountCents : null, amountCents: p.amountCents, state: p.status, note, changes: [], amber: false, payment: p, countedAt: null };
 }
 
 /** "Cleaning · Loft", "Receipt · Cozy Pad · 3 items", "Work · Loft · Fixed the sink", "Payment · E-transfer · “Sept”". */

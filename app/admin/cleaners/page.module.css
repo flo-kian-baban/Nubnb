@@ -948,3 +948,405 @@ table td.payCol {
   font-size: 13px;
   color: rgba(255, 255, 255, 0.8);
 }
+
+/* ── The person page (Build 3, Kian's rulings of 2026-11-03): the head's figures and the Pay box ── */
+.personHead {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2.4fr);
+  gap: 12px;
+  margin: 0 0 12px;
+}
+.payBox {
+  gap: 10px;
+}
+.payBoxRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+.payBoxAmount {
+  width: 8em;
+}
+.payBoxButton {
+  height: 44px;
+  padding: 0 26px;
+}
+.payLinkButton {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #8dbbe8;
+  cursor: pointer;
+}
+.payLinkButton:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.payLinkButton:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ── Needs you: one table, each item with its action inline ── */
+.needsTable td {
+  vertical-align: top;
+}
+.needsWord {
+  display: block;
+  font-weight: 600;
+  color: #f6c069;
+  white-space: nowrap;
+}
+.needsNote {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  overflow-wrap: anywhere;
+}
+.needsAmount {
+  color: rgba(255, 255, 255, 0.7);
+  font-variant-numeric: tabular-nums;
+}
+.decideRow {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.decidePrimary {
+  background: rgba(110, 231, 160, 0.14);
+  color: #6ee7a0;
+  border-color: rgba(110, 231, 160, 0.3);
+}
+.decidePrimary:hover:not(:disabled) {
+  background: rgba(110, 231, 160, 0.22);
+}
+.reasonInput {
+  width: 240px;
+  height: 36px;
+}
+.doneRow td {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* ── The month: switcher, summary, calendar, the day picked, the dated list ── */
+.monthSection {
+  margin: 20px 0 0;
+}
+.monthHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+  margin: 0 0 14px;
+}
+.monthNav {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.monthTitle {
+  margin: 0;
+  min-width: 11em;
+  text-align: center;
+  font-size: 17px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: -0.01em;
+}
+.monthButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+}
+.monthButton:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+}
+.monthButton:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.monthButton:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 2px;
+}
+.monthNote {
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.summary {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0 0 14px;
+}
+.summaryTile {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  min-width: 0;
+}
+.summaryTile dt {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.45);
+}
+.summaryTile dd {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: #ffffff;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.summaryTile dd.summaryDetail {
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.5);
+}
+.summaryWarn {
+  background: rgba(240, 166, 58, 0.06);
+  border-color: rgba(240, 166, 58, 0.3);
+}
+.summaryWarn dd {
+  color: #f0a63a;
+}
+
+.calendar {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.015);
+}
+.calendarHead,
+.calendarWeek {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+.calendarWeekday {
+  padding: 8px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.45);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.dayCell {
+  min-height: 108px;
+  padding: 6px 8px 8px;
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+.calendarWeek .dayCell:last-child {
+  border-right: none;
+}
+.calendarWeek:last-child .dayCell {
+  border-bottom: none;
+}
+.dayCell:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+.dayOut {
+  background: rgba(0, 0, 0, 0.18);
+}
+.dayOut .dayNumber {
+  color: rgba(255, 255, 255, 0.3);
+}
+.dayToday .dayNumber {
+  background: #ffffff;
+  color: #1a1a1d;
+}
+.dayPayday {
+  background: rgba(127, 176, 224, 0.06);
+}
+.dayPicked {
+  background: rgba(127, 176, 224, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(127, 176, 224, 0.6);
+}
+.dayButton {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.dayButton:focus-visible {
+  outline: 2px solid #7fb0e0;
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.dayNumber {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 4px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.8);
+  font-variant-numeric: tabular-nums;
+}
+.dayPaydayMark {
+  font-size: 11px;
+  font-weight: 600;
+  color: #9cc4ec;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dayItems {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.dayItem {
+  display: flex;
+  flex-direction: column;
+  padding: 3px 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.35;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.8);
+}
+.dayItemWords {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.dayItemState {
+  font-weight: 600;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.dayMore {
+  background: none;
+  color: rgba(255, 255, 255, 0.5);
+}
+/* Tones: the Schedule's colours, so the two pages agree. */
+.tone_done {
+  background: rgba(110, 231, 160, 0.14);
+  color: #6ee7a0;
+}
+.tone_needs {
+  background: rgba(240, 166, 58, 0.16);
+  color: #f6c069;
+}
+.tone_alert {
+  background: rgba(239, 98, 98, 0.16);
+  color: #f19a9a;
+}
+.tone_ahead {
+  background: rgba(127, 176, 224, 0.14);
+  color: #9cc4ec;
+}
+.tone_paid {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+.tone_payday {
+  background: rgba(127, 176, 224, 0.1);
+  color: #9cc4ec;
+}
+.tone_muted {
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.dayPanel {
+  margin: 12px 0 0;
+  padding: 14px 18px;
+  border-radius: 14px;
+  background: rgba(127, 176, 224, 0.06);
+  border: 1px solid rgba(127, 176, 224, 0.25);
+}
+.dayPanelHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 8px;
+}
+.dayPanelTitle {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
+}
+.dayPanelList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dayPanelItem {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.dayPanelWords {
+  overflow-wrap: anywhere;
+}
+.dayPanelState {
+  font-weight: 600;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.listHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin: 20px 0 10px;
+}
+.listTitle {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
+}

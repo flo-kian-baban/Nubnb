@@ -42,27 +42,25 @@
  * not from a cleaner's rate. The stored default rate stays on the account,
  * unread; "Set rate" is gone from the row menu.
  *
- * Pay (Team pay, Kian's rulings of 2026-10-15): each row shows Earned, Paid
- * and Balance, worked out by the one function (app/lib/pay/balance.ts) from
- * the cost list this page already reads and every payment; the name and
- * "Pay" open the person's pay (PayView.tsx) at ?pay={id}, drawn from what
- * this page holds, so opening a person reads nothing more. A failed read
- * shows "could not be read", never a balance that might be wrong. The ID
- * moved to the person's pay, and every action but Pay behind the row's "⋯"
- * (RowMenu.tsx), to make room.
+ * Pay (Team pay, Kian's rulings of 2026-10-15; Build 3, his rulings of
+ * 2026-11-03): each row shows Owed now, Due on the next payday, how many
+ * items of theirs need the admin, the next payday's date and Open, worked
+ * out by the one function (app/lib/pay/balance.ts, pay/payday.ts) from the
+ * cost list this page already reads and every payment; the name and "Open"
+ * open the person's page (PersonPage.tsx) at ?person={id}&month={yyyy-mm},
+ * drawn from what this page holds plus their jobs of the month. A failed
+ * read shows "could not be read", never a balance that might be wrong. Every
+ * action but Open is behind the row's "⋯" (RowMenu.tsx).
  *
  * ── The Team page, round 1 (the audit of 2026-10-19; Kian's rulings K1–K5) ──
- * - A fourth read, the team's schedule (/api/admin/cleaners/schedule): each
- *   person's regular properties (Kian's ruling R5) and their open jobs from
- *   today on, shown in the row's Schedule cell; the count links to the
- *   Schedule filtered to them.
- * - The row's Balance says what of theirs is not counted, in the admin's one
- *   word per state (Build 2, Kian's ruling of 2026-11-03): "· n need an
- *   amount", "· n need a decision"; a zero balance reads "Settled" always
- *   (no dash, no "$0.00 so far"); the pay view types the missing amounts in
- *   place (PayView.tsx) and asks before a payment (K1, K2). The account's
- *   history moved from the pay view's head to the row's menu ("Account
- *   history", Build 2, item 6).
+ * - The team's schedule (/api/admin/cleaners/schedule): each person's
+ *   regular properties (Kian's ruling R5) and their open jobs from today on,
+ *   read when a person's page opens (Build 3) and shown in its head.
+ * - A zero balance reads "Settled" always (Build 2, Kian's ruling of
+ *   2026-11-03); the person page types the missing amounts and decides notes
+ *   and entries in place (PersonPage.tsx) and asks before a payment. The
+ *   account's history is in the row's menu ("Account history", Build 2,
+ *   item 6).
  * - Delete is refused on the page, at no read, while their balance is not
  *   zero or anything of theirs is not counted (Kian's ruling of 2026-10-15;
  *   K3), in the words the server refuses it with (pay/checks.ts).
@@ -132,9 +130,9 @@ import {
   type CleanerSummary,
 } from "@/app/lib/cleaners/model";
 import { Absent, FieldText } from "../leads/lead-display";
-import Link from "next/link";
 import { NewMemberDialog } from "./NewMemberDialog";
-import { PayView, plainClick } from "./PayView";
+import { PersonPage, plainClick } from "./PersonPage";
+import { dueOn, dueWords, nextPayday, paydayWords } from "@/app/lib/pay/payday";
 import { ReplaceRegularDialog, type ReplaceRegularProps } from "./ReplaceRegularDialog";
 import { RowMenu } from "../components/RowMenu";
 import { useAsk } from "../components/AskDialog";
@@ -248,8 +246,12 @@ function Cleaners() {
   const [replacing, setReplacing] = useState<ReplaceRegularProps | null>(null);
   /** The member whose account history is open, from the row's menu (Build 2, item 6). */
   const [historyOf, setHistoryOf] = useState<CleanerSummary | null>(null);
-  /** The person whose pay is open (?pay={id}), or null for the list. */
-  const payId = useSearchParams().get("pay");
+  /** The person whose page is open (?person={id}; ?pay={id} from older links), or null for the list; and the month on screen. */
+  const params = useSearchParams();
+  const personId = params.get("person") ?? params.get("pay");
+  const today = torontoDayOf(new Date());
+  const monthParam = params.get("month");
+  const month = monthParam !== null && /^\d{4}-(0[1-9]|1[0-2])$/.test(monthParam) ? monthParam : today.slice(0, 7);
 
   useEffect(() => {
     let cancelled = false;
@@ -313,7 +315,9 @@ function Cleaners() {
     };
   }, [attempt]);
 
+  // The team's schedule is read for a person's page head (regular properties, jobs ahead), not for the list (Build 3).
   useEffect(() => {
+    if (personId === null) return;
     let cancelled = false;
     fetchTeamSchedule().then((result) => {
       if (!cancelled) setSchedule(result.ok ? { kind: "ready", data: result.data } : { kind: "error", title: result.title });
@@ -321,7 +325,7 @@ function Cleaners() {
     return () => {
       cancelled = true;
     };
-  }, [attempt]);
+  }, [attempt, personId]);
 
   /** Ask the K4 question: the deactivate or delete lines, and a picker per regular property; the replacements, or null for no. */
   const askReplacing = (question: Omit<ReplaceRegularProps, "onAnswer">) =>
@@ -337,18 +341,22 @@ function Cleaners() {
   /** The active cleaners a property can go to, the person leaving left out. */
   const choicesWithout = (id: string) => (list.kind === "ready" ? list.cleaners.filter((c) => c.id !== id && c.role === "cleaner" && c.status === "active").map((c) => ({ id: c.id, name: c.name })) : []);
 
-  /** Open a person's pay, or go back to the list: the address changes, nothing is read again. */
-  const openPay = (id: string) => {
+  /** Open a person's page, or go back to the list: the address changes, nothing is read again. */
+  const personHref = (id: string, at?: string) => `/admin/cleaners?person=${encodeURIComponent(id)}${at ? `&month=${encodeURIComponent(at)}` : ""}`;
+  const openPerson = (id: string) => {
     clearNotice();
     setEditor(null);
-    window.history.pushState(null, "", `/admin/cleaners?pay=${encodeURIComponent(id)}`);
+    window.history.pushState(null, "", personHref(id));
     window.scrollTo(0, 0);
   };
-  const closePay = () => {
+  const closePerson = () => {
     clearNotice();
     window.history.pushState(null, "", "/admin/cleaners");
   };
-  const payHref = (id: string) => `/admin/cleaners?pay=${encodeURIComponent(id)}`;
+  /** The month on screen, kept in the address so a reload and the back button land on it. */
+  const showMonth = (at: string) => {
+    if (personId !== null) window.history.replaceState(null, "", personHref(personId, at));
+  };
 
   /** A payment as the server stored it, recorded or deleted, in place of the one held. */
   const putPayment = (payment: PaymentView) => {
@@ -359,7 +367,7 @@ function Cleaners() {
     );
   };
 
-  /** A cleaning as the server stored it after its amount was typed on the pay view: in place of the one held, and of its entry view. */
+  /** A cleaning as the server stored it after its amount was typed or its note decided on the person page: in place of the one held, and of its entry view. */
   const putCleaning = (cleaning: CleaningView) => {
     setPatterns((prev) => {
       if (prev.kind !== "ready") return prev;
@@ -367,13 +375,16 @@ function Cleaners() {
       return { ...prev, cleanings: prev.cleanings.map((c) => (c.id === cleaning.id ? cleaning : c)), entries: prev.entries.map((e) => (e.id === cleaning.id && e.kind === "cleaning" ? entry : e)) };
     });
   };
+  /** A receipt or work entry as the server stored it after a decision on the person page (Build 3): in place of the one held. */
+  const putEntry = (entry: CostEntryView) => {
+    setPatterns((prev) => (prev.kind !== "ready" ? prev : { ...prev, entries: prev.entries.map((e) => (e.id === entry.id ? entry : e)) }));
+  };
 
   const reload = () => {
     setList({ kind: "loading" });
     setPatterns({ kind: "loading" });
     setPayments({ kind: "loading" });
     setLocks({ kind: "loading" });
-    setSchedule({ kind: "loading" });
     setAttempt((n) => n + 1);
   };
 
@@ -632,7 +643,7 @@ function Cleaners() {
       <main className={shared.main}>
         {/* ── The page's own buttons, in its head (Kian's ruling of 2026-10-15: none in the navigation). A person's pay
              has a head of its own, with Refresh in it. ── */}
-        {payId === null && (
+        {personId === null && (
           <PageHead title="Team">
             <button type="button" className={shared.btnGhost} onClick={reload} disabled={list.kind === "loading"}>
               <RefreshCw size={15} aria-hidden />
@@ -663,17 +674,21 @@ function Cleaners() {
           />
         )}
 
-        {payId !== null ? (
-          <PayBranch
-            payId={payId}
+        {personId !== null ? (
+          <PersonBranch
+            personId={personId}
+            month={month}
+            today={today}
             list={list}
             patterns={patterns}
             payments={payments}
             schedule={schedule}
-            onBack={closePay}
+            onMonth={showMonth}
+            onBack={closePerson}
             onRetry={reload}
             onPayment={putPayment}
             onCleaning={putCleaning}
+            onEntry={putEntry}
             show={showNotice}
             clear={clearNotice}
             ask={ask}
@@ -783,10 +798,10 @@ function Cleaners() {
                     <tr>
                       <th>Name</th>
                       <th>Code</th>
-                      <th>Schedule</th>
-                      <th className={styles.payHead}>Earned</th>
-                      <th className={styles.payHead}>Paid</th>
-                      <th className={styles.payHead}>Balance</th>
+                      <th className={styles.payHead}>Owed now</th>
+                      <th className={styles.payHead}>Due on {paydayWords(nextPayday(today))}</th>
+                      <th>Needs you</th>
+                      <th>Next payday</th>
                       <th className={shared.actionsHeader}>Actions</th>
                     </tr>
                   </thead>
@@ -797,12 +812,12 @@ function Cleaners() {
                         <tr key={cleaner.id}>
                           <td className={styles.nameCell}>
                             <a
-                              href={payHref(cleaner.id)}
+                              href={personHref(cleaner.id)}
                               className={styles.nameLink}
                               onClick={(event) => {
                                 if (!plainClick(event)) return;
                                 event.preventDefault();
-                                openPay(cleaner.id);
+                                openPerson(cleaner.id);
                               }}
                             >
                               <FieldText value={cleaner.name} />
@@ -817,23 +832,20 @@ function Cleaners() {
                           <td>
                             <CodeCell code={cleaner.code} />
                           </td>
-                          <td className={styles.scheduleCell}>
-                            <ScheduleCell cleaner={cleaner} state={schedule} />
-                          </td>
-                          <PayCells pay={payOf(cleaner.id)} />
+                          <PayCells pay={payOf(cleaner.id)} today={today} />
                           <td className={styles.actionCell}>
                             <div className={styles.actionRow}>
                               {saving?.id === cleaner.id && <span className={styles.muted}>{saving.what === "delete" ? "Deleting…" : "Saving…"}</span>}
                               <a
-                                href={payHref(cleaner.id)}
+                                href={personHref(cleaner.id)}
                                 className={`${styles.rowAction} ${styles.rowActionLink}`}
                                 onClick={(event) => {
                                   if (!plainClick(event)) return;
                                   event.preventDefault();
-                                  openPay(cleaner.id);
+                                  openPerson(cleaner.id);
                                 }}
                               >
-                                Pay
+                                Open
                               </a>
                               {/* The rest behind "⋯" (TEAM-PAY-PLAN.md §4); no status action for a status that is neither: nothing to flip it to. */}
                               <RowMenu
@@ -924,14 +936,14 @@ function Cleaners() {
   );
 }
 
-/** A person's pay (?pay={id}), once the team, the cost list and the payments are in; a failed read is said, never shown as nothing. */
-function PayBranch({ payId, list, patterns, payments, schedule, onBack, onRetry, onPayment, onCleaning, show, clear, ask }: { payId: string; list: ListState; patterns: PatternsState; payments: PaymentsState; schedule: ScheduleState; onBack: () => void; onRetry: () => void; onPayment: (payment: PaymentView) => void; onCleaning: (cleaning: CleaningView) => void } & Pick<Parameters<typeof PayView>[0], "show" | "clear" | "ask">) {
+/** A person's page (?person={id}), once the team, the cost list and the payments are in; a failed read is said, never shown as nothing. */
+function PersonBranch({ personId, month, today, list, patterns, payments, schedule, onMonth, onBack, onRetry, onPayment, onCleaning, onEntry, show, clear, ask }: { personId: string; month: string; today: string; list: ListState; patterns: PatternsState; payments: PaymentsState; schedule: ScheduleState; onMonth: (month: string) => void; onBack: () => void; onRetry: () => void; onPayment: (payment: PaymentView) => void; onCleaning: (cleaning: CleaningView) => void; onEntry: (entry: CostEntryView) => void } & Pick<Parameters<typeof PersonPage>[0], "show" | "clear" | "ask">) {
   const failed = list.kind === "error" ? list.title : patterns.kind === "error" ? patterns.title : payments.kind === "error" ? payments.title : null;
   if (failed !== null) {
     return (
       <div className={`${shared.empty} ${shared.loadError}`} role="alert">
         <AlertTriangle size={48} strokeWidth={1} />
-        <h2>Their pay could not be worked out</h2>
+        <h2>Their page could not be worked out</h2>
         <p>Something it is worked out from has not loaded. Nothing is shown rather than a balance that might be wrong.</p>
         <code className={shared.loadErrorDetail}>{failed}</code>
         <button type="button" className={shared.btnPrimary} onClick={onRetry}>
@@ -945,11 +957,11 @@ function PayBranch({ payId, list, patterns, payments, schedule, onBack, onRetry,
     return (
       <div className={shared.loading}>
         <div className={shared.spinner} />
-        <p>Loading their pay…</p>
+        <p>Loading their page…</p>
       </div>
     );
   }
-  const member = list.cleaners.find((cleaner) => cleaner.id === payId);
+  const member = list.cleaners.find((cleaner) => cleaner.id === personId);
   if (!member) {
     return (
       <div className={shared.empty}>
@@ -963,51 +975,26 @@ function PayBranch({ payId, list, patterns, payments, schedule, onBack, onRetry,
     );
   }
   return (
-    <PayView
+    <PersonPage
       key={member.id}
       member={member}
       cleanings={patterns.cleanings}
-      entries={patterns.entries}
+      entries={patterns.entries.filter((entry) => entry.kind !== "cleaning")}
       payments={payments.payments}
       unreadablePayments={payments.unreadable}
       schedule={schedule.kind === "ready" ? { regular: schedule.data.regular[member.id] ?? [], upcoming: schedule.data.upcoming[member.id] ?? 0 } : null}
-      today={torontoDayOf(new Date())}
+      today={today}
+      month={month}
+      onMonth={onMonth}
       onBack={onBack}
       onRefresh={onRetry}
       onPayment={onPayment}
       onCleaning={onCleaning}
+      onEntry={onEntry}
       show={show}
       clear={clear}
       ask={ask}
     />
-  );
-}
-
-/**
- * The row's Schedule cell (round 1): the properties they are the regular cleaner for, and their open jobs from today
- * on, the count linking to the Schedule filtered to them. A handyman has neither; a failed read is said.
- */
-function ScheduleCell({ cleaner, state }: { cleaner: CleanerSummary; state: ScheduleState }) {
-  if (cleaner.role === "handyman") return <span className={styles.patternMuted}>Logs work</span>;
-  if (state.kind === "loading") return <span className={styles.patternMuted}>…</span>;
-  if (state.kind === "error") {
-    return (
-      <span className={styles.patternWarn} title={state.title}>
-        Could not be read
-      </span>
-    );
-  }
-  const regular = state.data.regular[cleaner.id] ?? [];
-  const upcoming = state.data.upcoming[cleaner.id] ?? 0;
-  return (
-    <>
-      <span className={styles.scheduleLine} title={regular.map((p) => p.name).join(", ") || undefined}>
-        {regular.length === 0 ? "Regular for no property" : `Regular for ${regular.length === 1 ? "1 property" : `${regular.length} properties`}`}
-      </span>
-      <Link href={`/admin/schedule?cleaner=${encodeURIComponent(cleaner.id)}`} prefetch={false} className={`${styles.scheduleLine} ${styles.scheduleLink}`}>
-        {upcoming === 0 ? "No job ahead" : upcoming === 1 ? "1 job ahead" : `${upcoming} jobs ahead`}
-      </Link>
-    </>
   );
 }
 
@@ -1023,8 +1010,13 @@ function WorthALook({ cleaner, state }: { cleaner: CleanerSummary; state: Patter
   );
 }
 
-/** Earned, Paid and Balance (Team pay, Kian's ruling 5 of 2026-10-15): worked out, loading, or said to be unreadable. */
-function PayCells({ pay }: { pay: RowPay }) {
+/**
+ * Owed now, Due on the next payday, what of theirs needs the admin, and the next payday's date (Team pay, Kian's ruling 5
+ * of 2026-10-15; Build 3, his rulings of 2026-11-03): worked out by the one function and the payday rule, loading, or
+ * said to be unreadable. The words are the admin's (§69.2): Settled, Paid ahead, Needs an amount, Needs a decision.
+ */
+function PayCells({ pay, today }: { pay: RowPay; today: string }) {
+  const next = nextPayday(today);
   if (pay.kind !== "ready") {
     const text = pay.kind === "loading" ? "…" : "Could not be read";
     return (
@@ -1033,29 +1025,27 @@ function PayCells({ pay }: { pay: RowPay }) {
           <span className={pay.kind === "error" ? styles.patternWarn : styles.muted}>{text}</span>
         </td>
         <td className={styles.payCell} />
-        <td className={styles.payCell} />
+        <td />
+        <td className={styles.payDay}>{dayText(next)}</td>
       </>
     );
   }
   const balance = balanceWords(pay.pay.balanceCents);
+  const due = dueWords(dueOn(next, pay.pay.rows).dueCents, pay.pay.balanceCents);
   const uncertain = pay.pay.cannotAddUp + pay.unreadable;
-  // What of theirs is not counted, in the admin's one word per state (Build 2): "2 need an amount", "1 needs a decision".
-  const needs = [pay.pay.noAmount > 0 ? `${pay.pay.noAmount} ${pay.pay.noAmount === 1 ? "needs" : "need"} an amount` : null, pay.pay.extraAsked + pay.pay.waitingReview > 0 ? `${pay.pay.extraAsked + pay.pay.waitingReview} ${pay.pay.extraAsked + pay.pay.waitingReview === 1 ? "needs" : "need"} a decision` : null].filter((x): x is string => x !== null);
+  const needs = pay.pay.noAmount + pay.pay.extraAsked + pay.pay.waitingReview;
+  const needsWords = [pay.pay.noAmount > 0 ? `${pay.pay.noAmount} ${pay.pay.noAmount === 1 ? "needs" : "need"} an amount` : null, pay.pay.extraAsked + pay.pay.waitingReview > 0 ? `${pay.pay.extraAsked + pay.pay.waitingReview} ${pay.pay.extraAsked + pay.pay.waitingReview === 1 ? "needs" : "need"} a decision` : null].filter((x): x is string => x !== null);
   return (
     <>
-      <td className={styles.payCell}>{formatCents(pay.pay.earnedCents)}</td>
-      <td className={styles.payCell}>{formatCents(pay.pay.paidCents)}</td>
       <td className={`${styles.payCell} ${balance.tone === "ahead" || uncertain > 0 ? styles.payWarn : ""}`}>
-        {/* One word for a zero balance (Build 2): "Settled", whatever still needs an amount or a decision beside it. */}
-        {balance.tone === "settled" ? <span className={needs.length > 0 ? styles.muted : undefined}>Settled</span> : balance.words}
-        {needs.map((words) => (
-          <span key={words} className={`${styles.payNote} ${styles.payWarn}`}>
-            {" "}
-            · {words}
-          </span>
-        ))}
+        {balance.tone === "owed" ? formatCents(pay.pay.balanceCents) : balance.words}
         {uncertain > 0 && <span className={styles.payNote}> · {uncertain === 1 ? "1 record" : `${uncertain} records`} left out</span>}
       </td>
+      <td className={`${styles.payCell} ${due.tone === "ahead" ? styles.payWarn : ""}`}>{due.words}</td>
+      <td className={needs > 0 ? styles.payWarn : styles.muted} title={needsWords.join(", ") || undefined}>
+        {needs === 0 ? "Nothing" : needs === 1 ? "1 needs you" : `${needs} need you`}
+      </td>
+      <td className={styles.payDay}>{dayText(next)}</td>
     </>
   );
 }

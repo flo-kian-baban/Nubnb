@@ -13,6 +13,34 @@
           "order": "ASCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "cost_entries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "cleanerId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "cleanings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "cleanerId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "day",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": []

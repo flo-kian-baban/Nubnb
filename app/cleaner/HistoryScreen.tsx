@@ -12,13 +12,17 @@
  * history, no other cleaner's work. A list that could not be loaded says so; it is never shown as empty. Cleanings
  * reach every month back to the statements floor (Kian's ruling H4 of 2026-11-02), read from the cleanings themselves;
  * within the 45 days the job list reaches a row is the job, with its Undo and grey words; further back it is the
- * cleaning's own words, with no Undo (an older cleaning is the office's). Entries, all of theirs.
+ * cleaning's own words, with no Undo (an older cleaning is the office's).
+ *
+ * One month at a time (Kian's ruling 7 of 2026-11-03, Build 3): the screen reads only the month on screen —
+ * GET /api/cleaner/entries?month= — so the cost of opening it no longer grows with the months; a month read once is
+ * kept while the screen is open, and the switcher reaches every month from this one back to the floor.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { loadMyEntries } from "@/app/lib/cleaner-client";
-import { historyItems, historyMonths, monthItems, monthWords, type HistoryItem } from "@/app/lib/cleaner-home";
+import { historyItems, historyMonthRange, monthItems, monthWords, type HistoryItem } from "@/app/lib/cleaner-home";
 import {
   ENTRY_STATUS_CLEANER_LABELS,
   formatCents,
@@ -65,34 +69,45 @@ const STATUS_CLASS: Record<EntryStatus, string> = {
 const rowDay = (day: string | null) => (day === null ? "—" : new Intl.DateTimeFormat("en-CA", { month: "short", day: "numeric" }).format(new Date(`${day}T12:00:00`)));
 
 export function HistoryScreen({ kind, properties, jobs, today, busyId, messages, onUndo, onBack, onSignedOut }: HistoryScreenProps) {
-  const [list, setList] = useState<ListState>({ kind: "loading" });
+  /** Each month read so far, by month (Build 3: one month at a time). */
+  const [lists, setLists] = useState<Record<string, ListState>>({});
   const [attempt, setAttempt] = useState(0);
   const [month, setMonth] = useState(today.slice(0, 7));
+  const months = useMemo(() => historyMonthRange(today), [today]);
+  /** The months read and kept: each is read once while the screen is open, or again on Try again. */
+  const read = useRef<Set<string>>(new Set());
 
   useEffect(() => {
+    if (read.current.has(month)) return;
+    read.current.add(month);
     let cancelled = false;
-    loadMyEntries().then((result) => {
-      if (cancelled) return;
+    loadMyEntries(month).then((result) => {
+      if (cancelled) {
+        read.current.delete(month);
+        return;
+      }
       if (result.kind === "signed-out") {
         onSignedOut();
         return;
       }
-      setList(result.kind === "ok" ? { kind: "ready", entries: result.entries, cleanings: result.cleanings } : { kind: result.kind });
+      if (result.kind !== "ok") read.current.delete(month);
+      setLists((was) => ({ ...was, [month]: result.kind === "ok" ? { kind: "ready", entries: result.entries, cleanings: result.cleanings } : { kind: result.kind } }));
     });
     return () => {
       cancelled = true;
     };
-  }, [attempt, onSignedOut]);
+  }, [month, attempt, onSignedOut]);
 
+  const list = useMemo<ListState>(() => lists[month] ?? { kind: "loading" }, [lists, month]);
   const items = useMemo(() => (list.kind === "ready" ? historyItems(jobs, list.entries, list.cleanings) : []), [jobs, list]);
-  const months = useMemo(() => historyMonths(items, today), [items, today]);
   const shown = useMemo(() => monthItems(items, month, months), [items, month, months]);
   const at = months.indexOf(month);
   const older = at >= 0 && at < months.length - 1 ? months[at + 1] : null;
   const newer = at > 0 ? months[at - 1] : null;
 
   const retry = () => {
-    setList({ kind: "loading" });
+    read.current.delete(month);
+    setLists((was) => ({ ...was, [month]: { kind: "loading" } }));
     setAttempt((n) => n + 1);
   };
 

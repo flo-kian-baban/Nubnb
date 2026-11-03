@@ -21,6 +21,7 @@
  */
 
 import { addDays, torontoDay } from '@/app/lib/availability/days';
+import { STATEMENTS_FROM_DEFAULT, addMonths } from '@/app/lib/reports/model';
 import type { CleanerCleaning, CleanerEntry } from '@/app/lib/cleaners/model';
 import type { CleanerJobView } from '@/app/lib/schedule/model';
 
@@ -159,10 +160,13 @@ export type HistoryItem =
  */
 export function historyItems(jobs: readonly CleanerJobView[], entries: readonly CleanerEntry[], cleanings: readonly CleanerCleaning[] = []): HistoryItem[] {
   const jobsById = new Map(jobs.filter((job) => job.markedAt !== null).map((job) => [job.id, job]));
+  const inHand = new Map(jobs.map((job) => [job.id, job]));
   const covered = new Set<string>();
   const items: HistoryItem[] = [];
   for (const cleaning of cleanings) {
     const job = cleaning.jobId === null ? undefined : jobsById.get(cleaning.jobId);
+    // A cleaning whose job is in hand and no longer marked was undone since the month was read (Build 3): it is gone.
+    if (!job && cleaning.jobId !== null && inHand.get(cleaning.jobId)?.markedAt === null) continue;
     if (job) {
       covered.add(job.id);
       items.push({ kind: 'job', day: job.checkout, at: job.markedAt as string, job });
@@ -192,6 +196,17 @@ export function historyMonths(items: readonly HistoryItem[], today: string): str
     if (month) months.add(month);
   }
   return [...months].sort((a, b) => b.localeCompare(a));
+}
+
+/**
+ * The months History can show since it reads one month at a time (Build 3, Kian's ruling 7 of 2026-11-03), newest
+ * first: every month from this one back to the statements floor (H4), whether or not it holds anything, so the switcher
+ * always opens on now and reaches every month the floor allows.
+ */
+export function historyMonthRange(today: string, floor: string = STATEMENTS_FROM_DEFAULT): string[] {
+  const months: string[] = [];
+  for (let month = today.slice(0, 7); month >= floor && months.length < 600; month = addMonths(month, -1)) months.push(month);
+  return months;
 }
 
 /** The items of one month, in History's order; items with no readable date go under the month shown when it is the newest. */

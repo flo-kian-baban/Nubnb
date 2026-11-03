@@ -62,6 +62,7 @@ import { cleanerFacingNamesOf, getCleanerFacingName, internalNameOf } from './se
 import { cleaningDayProblem, statementMonthOf, statementsPrinting } from './server-cleanings';
 import { latestPaymentDay, paymentOnOrAfter } from './server-pay';
 import type { PaymentView } from '@/app/lib/pay/model';
+import { monthBounds, type PersonJob } from '@/app/lib/pay/month';
 import { CLEANERS_COLLECTION, fieldText, roleOf, type Actor, type Refusal } from '@/app/lib/cleaners/model';
 import { CLEANINGS_COLLECTION, CLEANING_SCHEMA_VERSION, readCleaning, type Cleaning, type CleaningEvent } from '@/app/lib/cleanings/model';
 import { TIER_WORDS, markAmount, type AmountSource, type PresetKind } from '@/app/lib/cleanings/prices';
@@ -1145,6 +1146,44 @@ export async function unmarkedJobsOf(cleanerId: string): Promise<UnmarkedJob[]> 
   const facing = await cleanerFacingNamesOf(jobs.map((job) => job.propertyId));
   return jobs
     .map((job) => ({ id: job.id, propertyName: internalNameOf(facing, job.propertyId, job.propertyNameAtCreation), checkout: job.checkout, status: job.status }))
+    .sort((a, b) => a.checkout.localeCompare(b.checkout) || a.id.localeCompare(b.id));
+}
+
+/**
+ * A team member's jobs in one month (Build 3, Kian's rulings of 2026-11-03): every job they are on whose checkout
+ * falls in the month, with their mark on it, for their person page's calendar and summary. The query names them and
+ * the month's days through the composite index on `cleanerIds` and `checkout`; each job is checked again. Named as the
+ * admin names the property (its cleaner-facing name, else the title the job was made under). One read per job of
+ * theirs in the month (one when they have none), and one per property named.
+ *
+ * @throws if a read fails.
+ */
+export async function memberJobsInMonth(cleanerId: string, month: string): Promise<PersonJob[]> {
+  if (!isDocumentId(cleanerId)) return [];
+  const { first, last } = monthBounds(month);
+  const snap = await getAdminDb().collection(CLEANING_JOBS_COLLECTION).where('cleanerIds', 'array-contains', cleanerId).where('checkout', '>=', first).where('checkout', '<=', last).get();
+  const jobs = readJobs(snap.docs).jobs.filter((job) => job.cleanerIds.includes(cleanerId) && job.checkout >= first && job.checkout <= last);
+  const facing = await cleanerFacingNamesOf(jobs.map((job) => job.propertyId));
+  return jobs
+    .map((job): PersonJob => {
+      const a = job.assignments[cleanerId];
+      return {
+        id: job.id,
+        propertyId: job.propertyId,
+        propertyName: internalNameOf(facing, job.propertyId, job.propertyNameAtCreation),
+        checkout: job.checkout,
+        label: job.label,
+        origin: job.origin,
+        status: job.status,
+        change: job.status === 'booking-changed' && job.change ? { kind: job.change.kind, movedTo: job.change.movedTo } : null,
+        markedAt: a.markedAt,
+        cleaningId: a.cleaningId,
+        removedAt: a.removedAt,
+        note: a.note,
+        extraAsked: a.extraAsked,
+        amountCents: job.amountCents,
+      };
+    })
     .sort((a, b) => a.checkout.localeCompare(b.checkout) || a.id.localeCompare(b.id));
 }
 

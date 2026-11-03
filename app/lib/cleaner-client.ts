@@ -268,11 +268,14 @@ export async function loadStart(): Promise<StartResult> {
   return { kind: 'failed' };
 }
 
-/** This cleaner's own entries, newest first, with their status. A failure is never an empty list. */
-export async function loadMyEntries(): Promise<MyEntriesResult> {
+/**
+ * This cleaner's own entries and cleanings of one month (yyyy-mm; Build 3: History reads only the month on screen),
+ * newest first, with their status. A failure is never an empty list.
+ */
+export async function loadMyEntries(month: string): Promise<MyEntriesResult> {
   let res: Response;
   try {
-    res = await fetch('/api/cleaner/entries', { cache: 'no-store' });
+    res = await fetch(`/api/cleaner/entries?month=${encodeURIComponent(month)}`, { cache: 'no-store' });
   } catch {
     return { kind: 'offline' };
   }
