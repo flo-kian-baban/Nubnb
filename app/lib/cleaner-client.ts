@@ -12,7 +12,7 @@
  * Client-safe. From the cleaner library it imports only the model.
  */
 
-import type { CleanerEntry, CleanerStart } from '@/app/lib/cleaners/model';
+import type { CleanerCleaning, CleanerEntry, CleanerStart } from '@/app/lib/cleaners/model';
 import type { CleanerJobView } from '@/app/lib/schedule/model';
 
 /** The `entry` part of a send, exactly as POST /api/cleaner/entries reads it. */
@@ -82,7 +82,7 @@ export type JobActionResult =
 export type SendResult =
   /** Recorded now, or by an earlier send of the same receipt whose answer was lost. */
   | { kind: 'sent'; id: string; alreadyReceived: boolean }
-  /** The session ended (code changed, deactivated, 12 hours passed). Nothing was recorded. */
+  /** The session ended (code changed, deactivated, signed out). Nothing was recorded. */
   | { kind: 'signed-out' }
   /** The server turned the entry down as it stands. Nothing was recorded. */
   | { kind: 'refused'; code: string | null }
@@ -93,7 +93,8 @@ export type SendResult =
   | { kind: 'not-sent'; offline: boolean };
 
 export type MyEntriesResult =
-  | { kind: 'ok'; entries: CleanerEntry[] }
+  /** Their entries, and their cleanings back to the statements floor (Build 1, H4; empty from an older server or for a handyman). */
+  | { kind: 'ok'; entries: CleanerEntry[]; cleanings: CleanerCleaning[] }
   /** No session, or one that no longer holds: show the code screen. */
   | { kind: 'signed-out' }
   /** No answer at all. */
@@ -156,7 +157,10 @@ function isCleanerJob(data: unknown): data is CleanerJobView {
     (data.change === undefined || data.change === null || (isRecord(data.change) && typeof data.change.kind === 'string' && (data.change.movedTo === null || (isRecord(data.change.movedTo) && typeof data.change.movedTo.end === 'string')))) &&
     isTextOrNull(data.markedAt) &&
     typeof data.canUndo === 'boolean' &&
-    // Their note and extra ask on the mark (Kian's ruling F of 2026-11-01): words only, never an amount or the outcome.
+    // Why Undo is gone, and a mark the office recorded (Build 1 of 2026-11-02): absent on an older server's answer.
+    (data.undoBlocked === undefined || data.undoBlocked === null || data.undoBlocked === 'paid' || data.undoBlocked === 'statement') &&
+    (data.recordedByOffice === undefined || typeof data.recordedByOffice === 'boolean') &&
+    // Their note on the mark (Kian's ruling F of 2026-11-01; Build 1: the note is the reason): words only, never an amount or the outcome.
     (data.note === undefined || isTextOrNull(data.note)) &&
     (data.extraAsked === undefined || typeof data.extraAsked === 'boolean') &&
     isTextOrNull(data.markRefusal)
@@ -180,6 +184,22 @@ function isCleanerEntry(data: unknown): data is CleanerEntry {
     isTextOrNull(data.statusReason) &&
     typeof data.kind === 'string' &&
     isTextOrNull(data.description)
+  );
+}
+
+/** A cleaning as the server lists it for History (Build 1, H4): words only, never an amount. */
+function isCleanerCleaning(data: unknown): data is CleanerCleaning {
+  return (
+    isRecord(data) &&
+    typeof data.id === 'string' &&
+    typeof data.day === 'string' &&
+    typeof data.propertyId === 'string' &&
+    isTextOrNull(data.propertyNameAtEntry) &&
+    (data.status === 'logged' || data.status === 'removed') &&
+    typeof data.noteSent === 'boolean' &&
+    isTextOrNull(data.note) &&
+    isTextOrNull(data.jobId) &&
+    typeof data.recordedByOffice === 'boolean'
   );
 }
 
@@ -258,7 +278,9 @@ export async function loadMyEntries(): Promise<MyEntriesResult> {
   const body = await readJson(res);
   const data = isRecord(body.data) ? body.data : null;
   if (res.ok && data && Array.isArray(data.entries) && data.entries.every(isCleanerEntry)) {
-    return { kind: 'ok', entries: data.entries };
+    // The cleanings (Build 1, H4): absent from an older server's answer; a list not in shape is a failure, never shown short.
+    if (data.cleanings === undefined) return { kind: 'ok', entries: data.entries, cleanings: [] };
+    if (Array.isArray(data.cleanings) && data.cleanings.every(isCleanerCleaning)) return { kind: 'ok', entries: data.entries, cleanings: data.cleanings };
   }
   return { kind: 'failed' };
 }
@@ -288,20 +310,23 @@ export async function signIn(code: string): Promise<SignInResult> {
   return { kind: 'failed' };
 }
 
-/** What goes with a mark (Kian's ruling F): an optional note, and the reason when the cleaner asks for extra. No amount, ever. */
+/**
+ * What goes with a mark: an optional note for the office (Kian's ruling of 2026-11-02, Build 1, item 2). With a note the
+ * cleaning's money waits for the office, through the extra-asked mechanics of ruling F: the note is the reason. No
+ * amount, ever (ruling H).
+ */
 export interface MarkDetails {
   note: string | null;
-  extraReason: string | null;
 }
 
-/** Mark a job cleaned (with its note and extra ask), or undo one's own mark (POST /api/cleaner/jobs/[id]). Never throws. */
-export async function jobAction(jobId: string, action: 'mark' | 'undo', details: MarkDetails = { note: null, extraReason: null }): Promise<JobActionResult> {
+/** Mark a job cleaned (with its note), or undo one's own mark (POST /api/cleaner/jobs/[id]). Never throws. */
+export async function jobAction(jobId: string, action: 'mark' | 'undo', details: MarkDetails = { note: null }): Promise<JobActionResult> {
   let res: Response;
   try {
     res = await fetch(`/api/cleaner/jobs/${encodeURIComponent(jobId)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(action === 'mark' ? { action, note: details.note, extraReason: details.extraReason } : { action }),
+      body: JSON.stringify(action === 'mark' ? { action, note: details.note } : { action }),
       cache: 'no-store',
     });
   } catch {

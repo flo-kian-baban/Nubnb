@@ -417,7 +417,7 @@
 .sectionLabel {
   margin: 4px 0 8px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -613,7 +613,7 @@
   justify-content: space-between;
   margin: 0 0 4px;
   color: var(--muted);
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
 }
 
@@ -1007,7 +1007,7 @@
 .fieldHint {
   margin: 0;
   color: var(--muted);
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   line-height: 1.3;
 }
@@ -1059,13 +1059,13 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-height: 40px;
-  padding: 0 14px;
+  min-height: 44px;
+  padding: 0 16px;
   border: 1.5px solid var(--primary);
   border-radius: 999px;
   background: var(--surface);
   color: var(--primary);
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -1097,7 +1097,7 @@
   max-width: 60%;
   margin: 0;
   color: var(--muted);
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   text-align: right;
   overflow-wrap: anywhere;
@@ -1105,7 +1105,6 @@
 @media (max-width: 399px) {
   .barButton {
     padding: 0 12px;
-    font-size: 14px;
   }
 }
 
@@ -1177,7 +1176,7 @@
   border-radius: 999px;
   background: var(--soft);
   color: var(--ink);
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 700;
   letter-spacing: 0.01em;
 }
@@ -1245,6 +1244,8 @@
   top: 0;
   left: 0;
   right: 0;
+  /* Above the fallback panel, which also fills the view: Close stays reachable when the camera cannot be had (Build 1). */
+  z-index: 3;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -1470,7 +1471,7 @@
 .jobMessage {
   margin: 0;
   color: var(--danger);
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
 }
 /* The second line under the code boxes: what the next wrong code does, or when the lock ends (2026-10-14). */
@@ -1525,8 +1526,12 @@
 }
 /* A receipt or work begun and not sent, named over the home button. */
 .unsentNote {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   margin: 0;
-  padding: 8px 12px;
+  padding: 4px 4px 4px 12px;
   border-radius: 12px;
   background: var(--warn-soft);
   color: var(--warn-ink);
@@ -1572,10 +1577,8 @@
 }
 .sendToLabel {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
 }
 .sendToName {
   color: var(--ink);
@@ -1673,7 +1676,7 @@
 .listLabel {
   margin: 6px 0 8px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -1742,4 +1745,432 @@
   color: var(--muted);
   font-size: 15px;
   font-weight: 600;
+}
+
+/* ══════════════════════════════════════════════
+   Build 1 of the UX audit (Kian's rulings of 2026-11-02): the compact home, the Done pop-up, History by month, the
+   receipt with Send pinned and the total check, Sign out, the handyman's home. Body text 16 px or more, every target
+   44 px or more, every badge AA (item 12).
+   ══════════════════════════════════════════════ */
+
+/* A heading for screen readers only ("Your jobs"): the groups carry the visible words. */
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── The home's groups: "Today · Sat, Nov 18", said once ── */
+.jobGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.groupHead {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+/* A compact card (item 1): the thumbnail, the address and the times, then Done and Add receipt. */
+.jobRow {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 14px 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.jobHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.jobThumb {
+  display: block;
+  flex: none;
+  width: 72px;
+  height: 54px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--soft);
+}
+.jobMain {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.jobAddress {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.jobMeta {
+  margin: 0;
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.35;
+}
+/* A same-day turnover: one amber line (8.3:1 on its ground). */
+.sameDay {
+  align-self: flex-start;
+  margin: 2px 0 0;
+  padding: 4px 10px;
+  border-radius: 10px;
+  background: var(--warn-soft);
+  color: var(--warn-ink);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.jobButtons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.jobButtons .primary,
+.jobButtons .secondary {
+  min-height: 56px;
+  padding: 10px 8px;
+  font-size: 18px;
+}
+.jobButtons .secondary svg {
+  width: 22px;
+  height: 22px;
+}
+.jobRow > .secondary {
+  min-height: 52px;
+  font-size: 18px;
+}
+
+/* A cancelled or moved booking: one grey line (item 7). */
+.jobLine {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding: 12px 14px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 14px;
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1.35;
+}
+.jobLineName {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.jobLineWords {
+  font-weight: 600;
+}
+
+/* The grey words under Cleaned (item 4): no amount. */
+.undoWords {
+  margin: -4px 0 0;
+  color: var(--muted);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* ── The foot: who is signed in, and Sign out (item 5) ── */
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 16px;
+  color: var(--muted);
+  font-size: 16px;
+}
+.footWho {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.signOut {
+  flex: none;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 700;
+}
+.signOut:active:not(:disabled) {
+  background: var(--soft);
+}
+.signOut:disabled {
+  opacity: 0.5;
+}
+
+/* ── A bar pinned to the bottom of the screen that never covers a card (the screen is padded by its measured height) ── */
+.pinnedFixed {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 4;
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  background: var(--ground);
+}
+.pinnedInner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 560px;
+  margin: 0 auto;
+}
+.unsentDiscard {
+  flex: none;
+  min-height: 40px;
+  padding: 0 10px;
+  color: var(--warn-ink);
+  font-size: 16px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ── The app's own pop-up (AskDialog): Done, Undo, Start over, Discard ── */
+.dialogBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 16px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  background: rgba(0, 0, 0, 0.45);
+}
+.dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  max-width: 480px;
+  padding: 20px 18px 18px;
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+  color: var(--ink);
+}
+.dialogTitle {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+.dialogWords {
+  margin: 0;
+  color: var(--ink);
+  font-size: 17px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.dialogButtons {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.primaryDanger {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+.primaryDanger:active:not(:disabled) {
+  background: #8f1e17;
+}
+@media (min-width: 480px) {
+  .dialogBackdrop {
+    align-items: center;
+  }
+}
+
+/* ── The handyman's recent units (item 9) ── */
+.recent {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ── History by month (item 8) ── */
+.monthBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.monthButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 48px;
+  border: 1.5px solid var(--primary);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--primary);
+}
+.monthButton svg {
+  width: 26px;
+  height: 26px;
+}
+.monthButton:disabled {
+  opacity: 0.3;
+}
+.monthName {
+  flex: 1;
+  font-size: 20px;
+  font-weight: 800;
+  text-align: center;
+}
+.historySection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.historyRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.historyTop {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.historyDay {
+  flex: none;
+  min-width: 58px;
+  color: var(--muted);
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.historyName {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.historyMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  color: var(--muted);
+  font-size: 16px;
+}
+
+/* ── The receipt (item 6): Start over under the photo, the amount beside "×1", one tax line, Send pinned ── */
+.photoActions {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.amountRow {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+.amountCell {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.qtyButton {
+  flex: none;
+  min-width: 64px;
+  height: 54px;
+  padding: 0 12px;
+  border: 2px solid var(--line-strong);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.qtyButtonOpen {
+  border-color: var(--primary);
+  color: var(--ink);
+}
+.qtyRow {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+.taxRow {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.taxRow[inert] {
+  opacity: 0.55;
+}
+.totalCheck {
+  margin: 0;
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.totalCheck strong {
+  font-weight: 800;
+}
+.totalCheckOk {
+  color: var(--ok);
+}
+.totalCheckOff {
+  color: var(--warn-ink);
+}
+.totalOffWords {
+  margin: -6px 0 0;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: var(--warn-soft);
+  color: var(--warn-ink);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+/* ── The code screen's one line (item 5) ── */
+.codeTitle {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  text-align: center;
 }

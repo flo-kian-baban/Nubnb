@@ -36,7 +36,7 @@ import type { DocumentReference, Transaction } from 'firebase-admin/firestore';
 import { getAdminDb } from './admin';
 import { isDocumentId } from './server-leads';
 import { cleanerFacingNamesOf, internalNameOf } from './server-property-names';
-import { CLEANERS_COLLECTION, fieldText, roleOf, type Actor, type Refusal } from '@/app/lib/cleaners/model';
+import { CLEANERS_COLLECTION, fieldText, roleOf, type Actor, type CleanerCleaning, type Refusal } from '@/app/lib/cleaners/model';
 import {
   CLEANINGS_COLLECTION,
   CLEANING_LIMITS,
@@ -54,7 +54,7 @@ import { torontoDayOf } from '@/app/lib/costs/report';
 import { CLEANING_JOBS_COLLECTION, jobEvent, jobIdOf, readJob, type StoredJob } from '@/app/lib/schedule/model';
 import { paymentOnOrAfter } from './server-pay';
 import type { PaymentView } from '@/app/lib/pay/model';
-import { MONTHLY_REPORTS_COLLECTION, addMonths, currentReports, monthOfDay, readMonthlyReport } from '@/app/lib/reports/model';
+import { MONTHLY_REPORTS_COLLECTION, STATEMENTS_FROM_DEFAULT, addMonths, currentReports, monthOfDay, readMonthlyReport } from '@/app/lib/reports/model';
 import { statementMonthFor } from '@/app/lib/reports/statement';
 
 function grpcCode(err: unknown): string {
@@ -140,6 +140,48 @@ export async function listCleanings(known?: ReadonlyMap<string, PropertyNow> | n
   const { cleaners, properties } = await lookUps(distinct(cleanings.map((c) => c.cleanerId)), known === undefined ? propertyIds : known === null ? [] : propertyIds.filter((id) => !known.has(id)));
   const merged = known === null ? null : known === undefined ? properties : properties === null ? null : new Map([...known, ...properties]);
   return cleanings.map((c) => toView(c, cleaners, merged)).sort(byDay);
+}
+
+/** The first day a cleaner's History reaches: the statements floor (Kian's ruling H4 of 2026-11-02). */
+export const CLEANER_HISTORY_FROM = `${STATEMENTS_FROM_DEFAULT}-01`;
+
+/**
+ * A cleaner's own cleanings for their History (Kian's ruling H4 of 2026-11-02, Build 1): every one of theirs dated on
+ * or after the statements floor, read from the cleanings themselves — the query names the cleaner, each document is
+ * checked again, and only the fields the list needs are read: never the amount, never the money (ruling H). One read
+ * per cleaning of theirs since the floor; nothing else is read. Newest day first.
+ *
+ * @throws if the read fails — which is not an empty list.
+ */
+export async function listCleanerCleanings(cleanerId: string): Promise<CleanerCleaning[]> {
+  if (!isDocumentId(cleanerId)) return [];
+  const snap = await getAdminDb()
+    .collection(CLEANINGS_COLLECTION)
+    .where('cleanerId', '==', cleanerId)
+    .select('cleanerId', 'day', 'propertyId', 'propertyNameAtEntry', 'status', 'extra', 'jobId', 'actor', 'note', 'createdAt')
+    .get();
+  const out: CleanerCleaning[] = [];
+  for (const doc of snap.docs) {
+    const day: unknown = doc.get('day');
+    const status: unknown = doc.get('status');
+    const propertyId: unknown = doc.get('propertyId');
+    if (doc.get('cleanerId') !== cleanerId || typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(day) || day < CLEANER_HISTORY_FROM) continue;
+    if ((status !== 'logged' && status !== 'removed') || typeof propertyId !== 'string') continue;
+    const actor: unknown = doc.get('actor');
+    const jobId: unknown = doc.get('jobId');
+    out.push({
+      id: doc.id,
+      day,
+      propertyId,
+      propertyNameAtEntry: fieldText(doc.get('propertyNameAtEntry')),
+      status,
+      noteSent: status === 'logged' && doc.get('extra.status') === 'asked',
+      note: fieldText(doc.get('note')),
+      jobId: typeof jobId === 'string' ? jobId : null,
+      recordedByOffice: !!actor && typeof actor === 'object' && (actor as { role?: unknown }).role === 'admin',
+    });
+  }
+  return out.sort((a, b) => b.day.localeCompare(a.day) || String(b.id).localeCompare(String(a.id)));
 }
 
 /**

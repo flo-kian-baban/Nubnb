@@ -21,9 +21,14 @@
  * The token carries the cleaner's `sessionEpoch`, and every status change and
  * every code change bumps it. Deactivating a cleaner, or giving them a new
  * code, therefore ends every session they hold on the next request, and
- * reactivating them does not revive those sessions. The lifetime is 12
- * hours, absolute, with no refresh. Signing out (DELETE /api/cleaner/session)
- * clears the cookie on that phone only.
+ * reactivating them does not revive those sessions. A session has no
+ * lifetime of its own (Kian's ruling of 2026-11-02, Build 1, item 5: "No
+ * automatic expiry"; until then it ended by itself after 12 hours): it ends
+ * when the cleaner signs out on that phone (DELETE /api/cleaner/session,
+ * which clears the cookie there only), when their code changes, or when the
+ * account is deactivated or deleted. The cookie is kept for 400 days, the
+ * longest a browser keeps one; a phone that stays signed in is the accepted
+ * consequence.
  *
  * ── Order ──
  * Everything that needs no I/O — the keys, the cookie, the token's shape, its
@@ -44,7 +49,8 @@ import { CLEANER_AUTH_NOT_CONFIGURED, getCleanerSecrets } from './secrets';
 export const CLEANER_SESSION_COOKIE = 'nubnb_cleaner_session';
 /** The browser sends the cookie to /api/cleaner and below, and nowhere else. */
 export const CLEANER_SESSION_PATH = '/api/cleaner';
-export const CLEANER_SESSION_MAX_AGE = 43200; // 12 hours, absolute (seconds)
+/** How long the browser keeps the cookie: 400 days, the most browsers allow. The token itself never ages out (no automatic expiry, 2026-11-02). */
+export const CLEANER_SESSION_MAX_AGE = 400 * 86_400; // seconds
 
 const MAC_LABEL = 'nubnb:cleaner-session:v1:';
 
@@ -144,10 +150,11 @@ export function createCleanerToken(
 }
 
 /**
- * The claims of a token that is well-formed, correctly signed and in date —
- * issued no more than 12 hours ago and no more than a minute ahead of this
- * clock — or null. Pure: no I/O. Whether the cleaner is still active on the
- * same epoch is the caller's read.
+ * The claims of a token that is well-formed, correctly signed and not from
+ * the future — issued no more than a minute ahead of this clock — or null.
+ * A token never ages out (Kian's ruling of 2026-11-02: no automatic expiry);
+ * it stops holding when the cleaner's epoch moves. Pure: no I/O. Whether
+ * the cleaner is still active on the same epoch is the caller's read.
  */
 export function parseCleanerToken(
   token: string,
@@ -164,8 +171,7 @@ export function parseCleanerToken(
   if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;
 
   const issuedAtMs = Number(issued);
-  const age = nowMs - issuedAtMs;
-  if (age > CLEANER_SESSION_MAX_AGE * 1000 || -age > MAX_CLOCK_SKEW_MS) return null;
+  if (issuedAtMs - nowMs > MAX_CLOCK_SKEW_MS) return null;
 
   return { cleanerId, sessionEpoch: Number(epoch), issuedAtMs };
 }
@@ -225,7 +231,7 @@ export async function verifyCleanerSession(request: Request): Promise<CleanerSes
  *
  * Written as the Set-Cookie header itself, so that every attribute the
  * browser receives is on this one line: HttpOnly, SameSite=Strict, the
- * /api/cleaner path, the 12-hour Max-Age, and Secure in production. The
+ * /api/cleaner path, the 400-day Max-Age, and Secure in production. The
  * token needs no encoding — it is letters, digits, `.`, `_` and `-`.
  *
  * @throws if `token` is not one createCleanerToken made. The error never

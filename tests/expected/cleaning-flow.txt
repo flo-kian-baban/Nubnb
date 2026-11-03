@@ -66,8 +66,10 @@
    ok   a decided extra cannot be decided again
   the route's body: {"action":"mark","note":null,"extraReason":"x"} · undo true · an amount in a mark body: refused
    ok   a mark carries a note and a reason, never an amount (ruling H)
-  what the cleaner's app is sent per job: canUndo, change, checkInTime, checkOutTime, checkout, city, extraAsked, id, markRefusal, markedAt, nextCheckIn, note, propertyId, propertyName, status
-   ok   no amount, price or rate reaches the cleaner; the extra flag does
+  what the cleaner's app is sent per job: canUndo, change, checkInTime, checkOutTime, checkout, city, extraAsked, id, markRefusal, markedAt, nextCheckIn, note, propertyId, propertyName, recordedByOffice, status, undoBlocked
+  the phone's extra flag: approved false, declined false, undecided true (asked)
+   ok   no amount, price or rate reaches the cleaner; the extra flag does, while the ask waits
+   ok   once decided, approved or declined, the flag clears: the card reads "Cleaned" again, never the outcome
   a property with no calendar link (ruling G): "No calendar" (none, no-calendar)
    ok   no link reads "No calendar", grey
 

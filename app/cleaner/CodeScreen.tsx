@@ -1,7 +1,10 @@
 "use client";
 
 /**
- * The code screen: four boxes and the number pad, nothing else.
+ * The code screen: one line saying what to do, four boxes and the number pad, nothing else.
+ *
+ * The line reads "Enter your 4-digit code"; after a session ends — Sign out, a new code, the account deactivated — it
+ * reads "Signed out. Enter your code." (Kian's ruling of 2026-11-02, Build 1, item 5).
  *
  * One real input sits over the four boxes, so typing, deleting and pasting
  * behave as in any field; the boxes only show the digits. The fourth digit
@@ -42,7 +45,7 @@ function messageOf(state: CodeState): [string, string | null] | null {
   }
 }
 
-export function CodeScreen({ onCode }: { onCode: (code: string) => Promise<SignInResult> }) {
+export function CodeScreen({ onCode, signedOut = false }: { onCode: (code: string) => Promise<SignInResult>; /** A session just ended: the line says so. */ signedOut?: boolean }) {
   const [value, setValue] = useState("");
   const [state, setState] = useState<CodeState>({ kind: "idle" });
   const [focused, setFocused] = useState(false);
@@ -84,6 +87,7 @@ export function CodeScreen({ onCode }: { onCode: (code: string) => Promise<SignI
     <>
       <CleanerBar />
       <main className={styles.codeScreen}>
+        <h1 className={styles.codeTitle}>{signedOut ? "Signed out. Enter your code." : "Enter your 4-digit code"}</h1>
         <label className={`${styles.codeBoxes} ${wrong ? styles.codeBoxesWrong : ""}`}>
           {Array.from({ length: CODE_LENGTH }, (_, i) => (
             <span

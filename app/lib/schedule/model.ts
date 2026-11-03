@@ -523,10 +523,22 @@ export interface CleanerJobView {
    * or "Moved to <day>". Null while the booking stands.
    */
   change: { kind: ChangeKind; movedTo: { start: string; end: string } | null } | null;
-  /** Their own mark: when, and whether Undo still holds (no finished statement prints the cleaning, and the office has not removed it). */
+  /** Their own mark: when, and whether Undo still holds (no finished statement prints the cleaning, no payment to them covers its day, and the office has not removed it). */
   markedAt: string | null;
   canUndo: boolean;
-  /** Their note on the mark, and whether they asked for extra (ruling F): the card reads "Cleaned · extra asked" and "Sent to Nubnb", never an amount or the outcome. */
+  /**
+   * Why Undo is gone (Kian's ruling of 2026-11-02, Build 1, item 4): a payment to them covers its day, or a finished
+   * statement prints it; null while Undo holds, or the job is not marked. The card says it in grey words, never an amount.
+   */
+  undoBlocked: 'paid' | 'statement' | null;
+  /** The office recorded it cleaned for them (ruling E of 2026-11-01): the card reads "Recorded by the office" in grey (Build 1, item 4). */
+  recordedByOffice: boolean;
+  /**
+   * Their note on the mark, which holds the cleaning's money until the office decides (Kian's ruling of 2026-11-02,
+   * Build 1, item 2: the note is the reason, through the extra-asked mechanics of ruling F). `extraAsked` is true while
+   * that decision waits — the card reads "Cleaned · note sent" in amber — and false once the office decided, when the
+   * card reads "Cleaned" again: never an amount, never the outcome.
+   */
   note: string | null;
   extraAsked: boolean;
   /** Null when they can mark it now; otherwise why not: `removed` reads "Removed by the office". */

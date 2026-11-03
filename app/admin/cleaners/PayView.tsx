@@ -131,8 +131,9 @@ export function PayView({ member, cleanings, entries, payments, unreadablePaymen
   const waitingEntries = useMemo(() => pay.rows.filter((row) => row.state === "waiting"), [pay.rows]);
   /** Their cleanings whose extra ask waits for the office (ruling F), with an amount: listed with the reason, decided on the Cleanings tab. One with no amount is in the list above. */
   const extraCleanings = useMemo(() => cleanings.filter((c) => c.cleanerId === member.id && c.status === "logged" && c.extra?.status === "asked" && c.amountCents !== null).sort((a, b) => a.day.localeCompare(b.day) || a.createdAt.localeCompare(b.createdAt)), [cleanings, member.id]);
-  /** Receipts flagged as a possible second send (Phase 2): their reason says so. */
+  /** Receipts flagged as a possible second send (Phase 2): their reason says so; and those whose lines did not add up to the printed total (Build 1, 2026-11-02). */
   const flagged = useMemo(() => new Set(entries.filter((e) => (e.possibleDuplicates?.length ?? 0) > 0).map((e) => e.id)), [entries]);
+  const differs = useMemo(() => new Set(entries.filter((e) => e.totalDiffers !== undefined).map((e) => e.id)), [entries]);
   const [starts, setStarts] = useState<Starts>({ kind: "none" });
   /** The properties and jobs already asked for, so a set that only shrank is not read again. */
   const startsAsked = useRef<Set<string>>(new Set());
@@ -510,7 +511,7 @@ export function PayView({ member, cleanings, entries, payments, unreadablePaymen
                 <li key={row.id}>
                   {rowItemWords(row)}
                   {row.amountCents !== null && ` · ${formatCents(row.amountCents)}`}
-                  {row.day && ` · sent ${dayWords(row.day)}`} · {flagged.has(row.id) ? "Flagged as a possible second send: waiting for review" : "Waiting for review"} ·{" "}
+                  {row.day && ` · sent ${dayWords(row.day)}`} · {flagged.has(row.id) ? "Flagged as a possible second send: waiting for review" : differs.has(row.id) ? "Total differs from the receipt: waiting for review" : "Waiting for review"} ·{" "}
                   <Link href={`/admin/costs?entry=${encodeURIComponent(row.id)}`} prefetch={false} className={styles.payLink}>
                     Review on the Costs page
                   </Link>

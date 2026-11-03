@@ -297,6 +297,30 @@ async function printedAmong(byProperty: Map<string, string[]>): Promise<Set<stri
 /** What changed on a job, as a cleaner's card says it (Kian's ruling R2): null while the booking stands. */
 const changeOf = (job: StoredJob): CleanerJobView['change'] => (job.status === 'booking-changed' && job.change ? { kind: job.change.kind, movedTo: job.change.movedTo } : null);
 
+/** The office recorded this cleaner's mark (ruling E): the job's own `marked` event for their cleaning, by an admin. */
+const recordedByOffice = (job: StoredJob, cleanerId: string): boolean => {
+  const a = job.assignments[cleanerId];
+  return !!a && a.cleaningId !== null && job.history.some((event) => event.action === 'marked' && event.cleanerId === cleanerId && event.cleaningId === a.cleaningId && event.actor.role === 'admin');
+};
+
+/**
+ * Whether each of these cleanings still waits on its note (Build 1, item 2: the note is the reason; ruling F's extra
+ * ask): read field-masked, one read each, only for the marks that carried a note. A cleaning that cannot be found or
+ * read waits on nothing: the card then reads "Cleaned" rather than amber for ever.
+ *
+ * @throws if the read fails.
+ */
+async function stillAskedOf(cleaningIds: string[]): Promise<Set<string>> {
+  const asked = new Set<string>();
+  if (cleaningIds.length === 0) return asked;
+  const db = getAdminDb();
+  const docs = await db.getAll(...cleaningIds.map((id) => db.collection(CLEANINGS_COLLECTION).doc(id)), { fieldMask: ['extra', 'status'] });
+  for (const doc of docs) {
+    if (doc.exists && doc.get('status') === 'logged' && doc.get('extra.status') === 'asked') asked.add(doc.id);
+  }
+  return asked;
+}
+
 /**
  * A cleaner's jobs as their app shows them: the jobs they are on whose checkout is within the 45 days their list
  * reaches (Kian's answer of the evening), or ahead; a job whose booking changed only until its checkout day has
@@ -309,7 +333,9 @@ const changeOf = (job: StoredJob): CleanerJobView['change'] => (job.status === '
  * The cleanings their marks made are not read (2026-10-19, the Schedule's round 1): a mark's cleaning stands while the
  * mark does. Undo clears the mark when it deletes the cleaning; the office's removal or deletion leaves it "removed
  * by the office" (keepMarkRemoved); so a mark not removed is a logged cleaning of the job's property, read from the
- * job alone. Undo itself still reads the cleaning before it acts.
+ * job alone. Undo itself still reads the cleaning before it acts. One exception since Build 1 (2026-11-02): a mark
+ * that carried a note reads its cleaning's extra state (`stillAskedOf`, one read each), so the card's amber "note
+ * sent" clears to "Cleaned" once the office has decided, as Kian's ruling asks.
  *
  * `properties` names them: a map already read (the start call reads every property for its unit list), or a loader
  * the jobs' properties are read through, once the jobs are known (the re-read after a refresh).
@@ -325,12 +351,17 @@ export async function cleanerJobs(cleanerId: string, properties: ReadonlyMap<str
   const byProperty = new Map<string, string[]>();
   for (const job of marked) byProperty.set(job.propertyId, [...(byProperty.get(job.propertyId) ?? []), job.assignments[cleanerId].cleaningId as string]);
   const shown = mine.filter((job) => job.status === 'open' || job.checkout >= today || job.assignments[cleanerId].cleaningId !== null);
-  const [printed, named] = await Promise.all([printedAmong(byProperty), typeof properties === 'function' ? properties(distinct(shown.map((job) => job.propertyId))) : Promise.resolve(properties)]);
+  const noted = marked.filter((job) => job.assignments[cleanerId].extraAsked).map((job) => job.assignments[cleanerId].cleaningId as string);
+  const [printed, named, stillAsked] = await Promise.all([printedAmong(byProperty), typeof properties === 'function' ? properties(distinct(shown.map((job) => job.propertyId))) : Promise.resolve(properties), stillAskedOf(noted)]);
 
   return shown
     .map((job): CleanerJobView => {
       const a = job.assignments[cleanerId];
       const property = named.get(job.propertyId);
+      const standing = a.cleaningId !== null && a.removedAt === null;
+      // Never on a cleaning dated on or before a payment to them (`paidThrough`, its latest day): the office removes those.
+      const onStatement = standing && printed.has(a.cleaningId as string);
+      const paid = standing && paidThrough !== null && job.checkout <= paidThrough;
       return {
         id: job.id,
         propertyId: job.propertyId,
@@ -343,10 +374,11 @@ export async function cleanerJobs(cleanerId: string, properties: ReadonlyMap<str
         status: job.status,
         change: changeOf(job),
         markedAt: a.markedAt,
-        // Never on a cleaning dated on or before a payment to them (`paidThrough`, its latest day): the office removes those.
-        canUndo: a.cleaningId !== null && a.removedAt === null && !printed.has(a.cleaningId) && (paidThrough === null || job.checkout > paidThrough),
+        canUndo: standing && !onStatement && !paid,
+        undoBlocked: !standing ? null : onStatement ? 'statement' : paid ? 'paid' : null,
+        recordedByOffice: recordedByOffice(job, cleanerId),
         note: a.note,
-        extraAsked: a.extraAsked,
+        extraAsked: a.extraAsked && standing && stillAsked.has(a.cleaningId as string),
         markRefusal: markRefusal(job, cleanerId, today),
       };
     })
@@ -389,15 +421,19 @@ export function jobPropertiesOf(docs: { id: string; get: (field: string) => unkn
 
 /**
  * One job as this cleaner's app shows it, after a mark or an undo: its property read again (its name for cleaners,
- * city and listed times; two reads). `canUndo` is the caller's: true right after a mark, false after an undo.
+ * city and listed times; two reads), and the latest day a payment to them was made (one read), so a mark on a day a
+ * payment already covers shows "Can't undo: already paid" at once rather than Undo. `canUndo` is the caller's: true
+ * right after a mark (subject to that payment), false after an undo. A mark just made with a note waits on it.
  *
  * @throws if a read fails.
  */
 export async function oneCleanerJob(job: StoredJob, cleanerId: string, canUndo: boolean, today: string = torontoDay()): Promise<CleanerJobView> {
   const db = getAdminDb();
-  const [[doc], facing] = await Promise.all([db.getAll(db.collection('properties').doc(job.propertyId), { fieldMask: ['name', 'addressDetails', 'details'] }), getCleanerFacingName(job.propertyId)]);
+  const [[doc], facing, paidThrough] = await Promise.all([db.getAll(db.collection('properties').doc(job.propertyId), { fieldMask: ['name', 'addressDetails', 'details'] }), getCleanerFacingName(job.propertyId), canUndo ? latestPaymentDay(cleanerId) : Promise.resolve(null)]);
   const property = doc.exists ? jobPropertiesOf([doc], facing ? new Map([[job.propertyId, facing]]) : new Map()).get(job.propertyId) : undefined;
   const a = job.assignments[cleanerId];
+  const standing = !!a?.cleaningId && a.removedAt === null;
+  const paid = standing && paidThrough !== null && job.checkout <= paidThrough;
   return {
     id: job.id,
     propertyId: job.propertyId,
@@ -410,9 +446,11 @@ export async function oneCleanerJob(job: StoredJob, cleanerId: string, canUndo: 
     status: job.status,
     change: changeOf(job),
     markedAt: a?.markedAt ?? null,
-    canUndo: canUndo && !!a?.cleaningId && a.removedAt === null,
+    canUndo: canUndo && standing && !paid,
+    undoBlocked: canUndo && paid ? 'paid' : null,
+    recordedByOffice: recordedByOffice(job, cleanerId),
     note: a?.note ?? null,
-    extraAsked: a?.extraAsked ?? false,
+    extraAsked: standing && (a?.extraAsked ?? false),
     markRefusal: markRefusal(job, cleanerId, today),
   };
 }

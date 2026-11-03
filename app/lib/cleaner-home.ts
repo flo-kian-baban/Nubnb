@@ -1,23 +1,27 @@
 /**
  * What the cleaner app's home and History show, worked out from what the start call and the entries list send (Kian's
- * rulings of 2026-10-16, in CLAUDE.md under *Cleaner app*):
+ * rulings of 2026-10-16, in CLAUDE.md under *Cleaner app*, and his rulings of 2026-11-02, Build 1 of the UX audit):
  *
  *   - the jobs on the home screen: today's and tomorrow's (ruling 3), and before them any job whose checkout has
  *     passed that the cleaner can still mark — Mark cleaned holds from the checkout day on, within the 45 days their
  *     list reaches (the cleaning schedule, 2026-10-14), so a missed job is not hidden while it can still be marked —
  *     and stays there, cleaned, for the rest of the day it was marked, rather than vanishing under the cleaner's thumb;
+ *     within a day a same-day turnover comes first (Build 1, item 1), then by checkout time;
+ *   - the home's groups (Build 1): "Still to do" for a past job, then today, then tomorrow, each named once, so no
+ *     card repeats the day;
  *   - the property a new receipt starts on (ruling 5): the job marked cleaned that day, else the soonest job today,
  *     else none;
- *   - History (ruling 7): the jobs done and the entries sent, newest first, by day;
- *   - the badges on a job's card (Kian's ruling of 2026-10-17): Today, Tomorrow, Same-day turnover, Cleaned;
- *   - what a changed booking's card says (Kian's ruling R2 of 2026-10-19): "Cancelled: don't go", "Moved to <day>".
+ *   - History (ruling 7; Build 1, item 8): month by month, newest first, the jobs done and the entries sent;
+ *   - what a changed booking's card says (Kian's ruling R2 of 2026-10-19): "Cancelled: don't go", "Moved to <day>",
+ *     as one grey line (Build 1, item 7);
+ *   - the grey words under "Cleaned" (Build 1, item 4): recorded by the office; why Undo is gone. Never an amount.
  *
  * Pure and client-safe: no clock read (`today` is the server's Toronto day, from the start call), no storage, no
- * network. tests/cleaner/home.mjs runs it with made-up jobs.
+ * network. tests/cleaner/home.mjs and tests/cleaner/build1.mjs run it with made-up jobs.
  */
 
 import { addDays, torontoDay } from '@/app/lib/availability/days';
-import type { CleanerEntry } from '@/app/lib/cleaners/model';
+import type { CleanerCleaning, CleanerEntry } from '@/app/lib/cleaners/model';
 import type { CleanerJobView } from '@/app/lib/schedule/model';
 
 /** The Toronto day of an instant ("2026-10-16"), or null when it is not one. */
@@ -38,10 +42,21 @@ export function minutesOf(time: string | null): number | null {
   return ((half ? (hours % 12) + (half === 'P' ? 12 : 0) : hours) * 60) + minutes;
 }
 
-/** Soonest first: by checkout day, then by the property's checkout time (one with none last), then by name. */
+/** A same-day turnover: the next guest arrives on the checkout day, on a booking that still checks out then. */
+export function isSameDayTurnover(job: Pick<CleanerJobView, 'status' | 'nextCheckIn' | 'checkout'>): boolean {
+  return job.status === 'open' && job.nextCheckIn !== null && job.nextCheckIn === job.checkout;
+}
+
+/**
+ * Soonest first: by checkout day, then a same-day turnover before the rest (Build 1, item 1), then by the property's
+ * checkout time (one with none last), then by name. A changed booking, one grey line (item 7), goes under the day's
+ * cards.
+ */
 function bySoonest(a: CleanerJobView, b: CleanerJobView): number {
   const at = (job: CleanerJobView) => minutesOf(job.checkOutTime) ?? 24 * 60;
-  return a.checkout.localeCompare(b.checkout) || at(a) - at(b) || (a.propertyName ?? '').localeCompare(b.propertyName ?? '', 'en-CA') || a.id.localeCompare(b.id);
+  const sameDay = (job: CleanerJobView) => (isSameDayTurnover(job) ? 0 : 1);
+  const changed = (job: CleanerJobView) => (job.status === 'booking-changed' && job.markedAt === null ? 1 : 0);
+  return a.checkout.localeCompare(b.checkout) || changed(a) - changed(b) || sameDay(a) - sameDay(b) || at(a) - at(b) || (a.propertyName ?? '').localeCompare(b.propertyName ?? '', 'en-CA') || a.id.localeCompare(b.id);
 }
 
 /** A job whose checkout has passed, not marked, its booking unchanged, and markable now: still to do. */
@@ -64,6 +79,49 @@ export function homeJobs(jobs: readonly CleanerJobView[], today: string): Cleane
   return jobs.filter((job) => job.checkout === today || job.checkout === tomorrow || stillToMark(job, today) || markedToday(job, today)).sort(bySoonest);
 }
 
+/** One group of the home screen (Build 1, item 1): its heading, said once, and its jobs in order. */
+export interface HomeGroup {
+  key: 'past' | 'today' | 'tomorrow';
+  /** "Today · Sat, Nov 18". */
+  heading: string;
+  jobs: CleanerJobView[];
+}
+
+/** "Sat, Oct 24": a day as the cards name it. */
+export const cardDay = (day: string) => new Intl.DateTimeFormat('en-CA', { weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(`${day}T12:00:00`));
+
+/**
+ * The home's jobs in their groups: a past job still to do (or done today) under "Still to do", then today's, then
+ * tomorrow's, each heading naming the day once (Build 1: no card repeats the day line). An empty group is left out.
+ */
+export function homeGroups(jobs: readonly CleanerJobView[], today: string): HomeGroup[] {
+  const shown = homeJobs(jobs, today);
+  const tomorrow = addDays(today, 1);
+  const groups: HomeGroup[] = [
+    { key: 'past', heading: 'Still to do', jobs: shown.filter((job) => job.checkout < today) },
+    { key: 'today', heading: `Today · ${cardDay(today)}`, jobs: shown.filter((job) => job.checkout === today) },
+    { key: 'tomorrow', heading: `Tomorrow · ${cardDay(tomorrow)}`, jobs: shown.filter((job) => job.checkout === tomorrow) },
+  ];
+  return groups.filter((group) => group.jobs.length > 0);
+}
+
+/**
+ * The next guest, in the fewest words (Build 1, item 1): "Next guest today 4:00 PM", "Next guest tomorrow 4:00 PM" (a
+ * same-day turnover on tomorrow's job), "Next guest Sun, Nov 19"; null when none is on the calendar.
+ */
+export function guestWords(job: Pick<CleanerJobView, 'nextCheckIn' | 'checkInTime' | 'checkout'>, today: string): string | null {
+  if (!job.nextCheckIn) return null;
+  const time = job.checkInTime ? ` ${job.checkInTime}` : '';
+  if (job.nextCheckIn === job.checkout) {
+    if (job.checkout === today) return `Next guest today${time}`;
+    if (job.checkout === addDays(today, 1)) return `Next guest tomorrow${time}`;
+    return `Next guest the same day${time}`;
+  }
+  if (job.nextCheckIn === today) return `Next guest today${time}`;
+  if (job.nextCheckIn === addDays(today, 1)) return `Next guest tomorrow${time}`;
+  return `Next guest ${cardDay(job.nextCheckIn)}`;
+}
+
 /** The property a receipt is for: its ID and its name for cleaners. */
 export interface ReceiptProperty {
   id: string;
@@ -83,39 +141,83 @@ export function receiptProperty(jobs: readonly CleanerJobView[], today: string):
   return job ? { id: job.propertyId, name: job.propertyName } : null;
 }
 
-/** One line of History: a job done (marked by them, the office's removal included), or an entry they sent. */
+/**
+ * One line of History: a job done within the 45 days their job list reaches (marked by them, the office's removal
+ * included; its Undo and grey words come with it), a cleaning of theirs from further back, read from the cleanings
+ * themselves (Kian's ruling H4 of 2026-11-02: every month back to the statements floor), or an entry they sent.
+ */
 export type HistoryItem =
   | { kind: 'job'; day: string; at: string; job: CleanerJobView }
+  | { kind: 'cleaning'; day: string; at: string; cleaning: CleanerCleaning }
   | { kind: 'entry'; day: string | null; at: string; entry: CleanerEntry };
 
 /**
- * History, newest first: each job they marked, on its checkout day (a cleaning's day), and each entry they sent, on
- * the day it was sent; within a day, the latest first. An entry with no readable date goes last.
+ * History, newest first: each cleaning of theirs on its day — as its job when the job is in hand (the last 45 days:
+ * Undo holds there), else as the cleaning itself — a marked job whose cleaning the read did not return (deleted by the
+ * office: "Removed by the office"), and each entry they sent, on the day it was sent; within a day, the latest first.
+ * An entry with no readable date goes last.
  */
-export function historyItems(jobs: readonly CleanerJobView[], entries: readonly CleanerEntry[]): HistoryItem[] {
-  const items: HistoryItem[] = [
-    ...jobs.filter((job) => job.markedAt !== null).map((job): HistoryItem => ({ kind: 'job', day: job.checkout, at: job.markedAt as string, job })),
-    ...entries.map((entry): HistoryItem => ({ kind: 'entry', day: torontoDayOf(entry.createdAt), at: entry.createdAt ?? '', entry })),
-  ];
-  const idOf = (item: HistoryItem) => (item.kind === 'job' ? item.job.id : item.entry.id);
+export function historyItems(jobs: readonly CleanerJobView[], entries: readonly CleanerEntry[], cleanings: readonly CleanerCleaning[] = []): HistoryItem[] {
+  const jobsById = new Map(jobs.filter((job) => job.markedAt !== null).map((job) => [job.id, job]));
+  const covered = new Set<string>();
+  const items: HistoryItem[] = [];
+  for (const cleaning of cleanings) {
+    const job = cleaning.jobId === null ? undefined : jobsById.get(cleaning.jobId);
+    if (job) {
+      covered.add(job.id);
+      items.push({ kind: 'job', day: job.checkout, at: job.markedAt as string, job });
+    } else {
+      items.push({ kind: 'cleaning', day: cleaning.day, at: `${cleaning.day}T12:00:00.000Z`, cleaning });
+    }
+  }
+  for (const job of jobsById.values()) {
+    if (!covered.has(job.id)) items.push({ kind: 'job', day: job.checkout, at: job.markedAt as string, job });
+  }
+  for (const entry of entries) items.push({ kind: 'entry', day: torontoDayOf(entry.createdAt), at: entry.createdAt ?? '', entry });
+  const idOf = (item: HistoryItem) => (item.kind === 'job' ? item.job.id : item.kind === 'cleaning' ? item.cleaning.id : item.entry.id);
   return items.sort((a, b) => (b.day ?? '').localeCompare(a.day ?? '') || b.at.localeCompare(a.at) || idOf(a).localeCompare(idOf(b)));
+}
+
+/** The month of a History item, yyyy-mm; an undated entry belongs to no month and is listed under the month shown. */
+const monthOf = (item: HistoryItem): string | null => (item.day ? item.day.slice(0, 7) : null);
+
+/**
+ * The months History can show (Build 1, item 8), newest first: every month with an item, and this month even when it
+ * is empty, so the switcher always opens on now.
+ */
+export function historyMonths(items: readonly HistoryItem[], today: string): string[] {
+  const months = new Set<string>([today.slice(0, 7)]);
+  for (const item of items) {
+    const month = monthOf(item);
+    if (month) months.add(month);
+  }
+  return [...months].sort((a, b) => b.localeCompare(a));
+}
+
+/** The items of one month, in History's order; items with no readable date go under the month shown when it is the newest. */
+export function monthItems(items: readonly HistoryItem[], month: string, months: readonly string[]): HistoryItem[] {
+  const newest = months[0];
+  return items.filter((item) => monthOf(item) === month || (monthOf(item) === null && month === newest));
+}
+
+/** "November 2028": a month as the switcher names it. */
+export function monthWords(month: string): string {
+  return new Intl.DateTimeFormat('en-CA', { month: 'long', year: 'numeric' }).format(new Date(`${month}-15T12:00:00`));
 }
 
 /** A job card's badges (Kian's ruling of 2026-10-17), in this order: Today or Tomorrow by its checkout day; Same-day
  * turnover when the next guest arrives on the checkout day and the booking still checks out then (a cancelled or moved
  * booking has no turnover that day: its card says "Cancelled: don't go" or "Moved to <day>" alone); Cleaned once they
- * marked it (not a mark the office removed). */
+ * marked it (not a mark the office removed). Since Build 1 the cards carry only the same-day word; the day is the
+ * group's heading and Cleaned the green line. Kept for the tests and for whatever reads it. */
 export function jobBadges(job: CleanerJobView, today: string): string[] {
   const badges: string[] = [];
   if (job.checkout === today) badges.push('Today');
   if (job.checkout === addDays(today, 1)) badges.push('Tomorrow');
-  if (job.status === 'open' && job.nextCheckIn !== null && job.nextCheckIn === job.checkout) badges.push('Same-day turnover');
+  if (isSameDayTurnover(job)) badges.push('Same-day turnover');
   if (job.markedAt !== null && job.markRefusal !== 'removed') badges.push('Cleaned');
   return badges;
 }
-
-/** "Sat, Oct 24": a day as the cards name it. */
-const cardDay = (day: string) => new Intl.DateTimeFormat('en-CA', { weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(`${day}T12:00:00`));
 
 /**
  * What a changed booking's card says in place of Mark cleaned (Kian's ruling R2 of 2026-10-19): a cancelled one,
@@ -127,4 +229,17 @@ export function changedWords(job: Pick<CleanerJobView, 'change'>): { words: stri
   if (job.change?.kind === 'gone') return { words: 'Cancelled: don’t go', plain: true };
   if (job.change?.kind === 'moved' && job.change.movedTo) return { words: `Moved to ${cardDay(job.change.movedTo.end)}`, plain: true };
   return { words: 'Don’t go unless the office asks.', plain: false };
+}
+
+/**
+ * The grey words under "Cleaned" (Build 1, item 4), when they apply: the office recorded it for them; why Undo is gone.
+ * No amount, ever (ruling H). Nothing on a job whose Undo holds and which they marked themselves.
+ */
+export function cleanedWords(job: Pick<CleanerJobView, 'markedAt' | 'markRefusal' | 'canUndo' | 'undoBlocked' | 'recordedByOffice'>): string[] {
+  if (job.markedAt === null || job.markRefusal === 'removed') return [];
+  const words: string[] = [];
+  if (job.recordedByOffice) words.push('Recorded by the office');
+  if (!job.canUndo && job.undoBlocked === 'paid') words.push('Can’t undo: already paid');
+  if (!job.canUndo && job.undoBlocked === 'statement') words.push('Can’t undo: on a statement');
+  return words;
 }

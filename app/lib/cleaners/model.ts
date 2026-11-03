@@ -333,9 +333,9 @@ export const ENTRY_STATUS_LABELS: Record<EntryStatus, string> = {
   removed: 'Removed',
 };
 
-/** The same states in the cleaner app's words. */
+/** The same states in the cleaner app's words (Build 1 of 2026-11-02: "Waiting" for pending; the admin's labels stay apart). */
 export const ENTRY_STATUS_CLEANER_LABELS: Record<EntryStatus, string> = {
-  pending: 'Waiting for review',
+  pending: 'Waiting',
   approved: 'Approved',
   rejected: 'Rejected',
   removed: 'Removed',
@@ -473,6 +473,21 @@ export const DUPLICATE_HINTS = {
 
 /** A stored hint as read back; anything not in the written shape is left out. */
 export type DuplicateHintView = DuplicateHint;
+
+/**
+ * A receipt whose lines, as sent, do not add up to the total the receipt prints (Kian's ruling of 2026-11-02, Build 1,
+ * item 6): the reading read the printed total, the phone showed the difference in amber, and the cleaner sent it all
+ * the same — a mismatch never blocks sending. Written on the new entry when it is created, as `possibleDuplicates` is,
+ * and never later; absent when the totals agree or the receipt printed no readable total. A mark for the admin: the
+ * entry waits for a decision whatever its amount (the developer's choice of Build 1: a flagged receipt waits, as a
+ * possible second send does).
+ */
+export interface TotalDiffers {
+  /** The total the receipt prints, as the reading read it. */
+  printedTotalCents: number;
+  /** The lines plus the tax, as sent. */
+  sentTotalCents: number;
+}
 
 /**
  * What an entry approved automatically records about the rule it met
@@ -730,6 +745,8 @@ export interface CostEntryFields {
   paidWith: string;
   /** The earlier receipts this one may be a second send of (Phase 2, 2026-11-01); absent when there are none. */
   possibleDuplicates?: DuplicateHintView[];
+  /** The lines as sent do not add up to the total the receipt prints (Build 1, 2026-11-02): a mark for the admin; absent when they agree. */
+  totalDiffers?: TotalDiffers;
 }
 
 /**
@@ -780,6 +797,8 @@ export interface CostEntryView {
   paidWith: string;
   /** The earlier receipts this one may be a second send of (Phase 2, 2026-11-01): a flag for the admin; absent when there are none. */
   possibleDuplicates?: DuplicateHintView[];
+  /** The lines as sent do not add up to the total the receipt prints (Build 1, 2026-11-02): a mark for the admin; absent when they agree. */
+  totalDiffers?: TotalDiffers;
 }
 
 /**
@@ -940,6 +959,28 @@ export interface CleanerEntry {
   kind: string;
   /** On a work entry, the description as it now stands; null on a receipt. */
   description: string | null;
+}
+
+/**
+ * One of a cleaner's own cleanings, as their History lists it (Kian's ruling H4 of 2026-11-02, Build 1): read from the
+ * cleanings themselves, field-masked, every month back to the statements floor (STATEMENTS_FROM_DEFAULT), not only
+ * the 45 days their job list reaches. Never an amount (ruling H): no `amountCents`, nothing of the money. Words only.
+ */
+export interface CleanerCleaning {
+  id: string;
+  /** The day cleaned, yyyy-mm-dd: its month in History. */
+  day: string;
+  propertyId: string;
+  propertyNameAtEntry: string | null;
+  /** `logged`, or `removed` by the office. */
+  status: 'logged' | 'removed';
+  /** Their note still waits for the office's decision (ruling F's extra ask): the row reads "Cleaned · note sent". */
+  noteSent: boolean;
+  note: string | null;
+  /** The job whose mark made it; null when the office logged it by hand. */
+  jobId: string | null;
+  /** The office recorded or logged it for them: the row reads "Recorded by the office". */
+  recordedByOffice: boolean;
 }
 
 /** A property as the cleaner app lists it. */
@@ -1284,7 +1325,19 @@ export function readCostEntryFields(id: string, fields: Record<string, unknown>)
     paidWith: fields.paidWith === undefined || fields.paidWith === null ? 'team-member' : fieldText(fields.paidWith) ?? 'team-member',
     // Written on a new receipt only when the server found a possible earlier send (Phase 2, 2026-11-01).
     ...readDuplicateHints(fields.possibleDuplicates),
+    // Written on a new receipt only when its lines did not add up to the printed total (Build 1, 2026-11-02).
+    ...readTotalDiffers(fields.totalDiffers),
   };
+}
+
+/** `totalDiffers` as stored, or nothing at all: both figures must be whole cents, and differ. */
+function readTotalDiffers(value: unknown): { totalDiffers?: TotalDiffers } {
+  const mark = asMap(value);
+  if (!mark) return {};
+  const printed = mark.printedTotalCents;
+  const sent = mark.sentTotalCents;
+  if (typeof printed !== 'number' || !Number.isSafeInteger(printed) || typeof sent !== 'number' || !Number.isSafeInteger(sent) || printed === sent) return {};
+  return { totalDiffers: { printedTotalCents: printed, sentTotalCents: sent } };
 }
 
 /** `possibleDuplicates` as stored, or nothing at all when there are none: a hint must name an entry and say why. */
@@ -1591,6 +1644,20 @@ export function leftOutOfReading(output: ReadingOutput | null): { count: number;
 /** A calendar day, `YYYY-MM-DD`, in a time zone. */
 export function dayIn(timeZone: string, at: Date = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(at);
+}
+
+/**
+ * The grand total the receipt prints, as the model read it (Build 1 of 2026-11-02, item 6): "45.20", or "$1,045.20",
+ * as cents; null when the receipt printed none the model could read, or a figure the form could never reach. The
+ * phone shows it beside what its lines add up to; the server marks an entry whose lines differ from it. Never used
+ * to fill a line or the tax: it is a check, not a value.
+ */
+export function printedTotalOf(output: ReadingOutput | null): number | null {
+  const text = (output?.total ?? '').replace(/[\s$,]/g, '');
+  const match = /^(\d{1,6})\.(\d{2})$/.exec(text);
+  if (!match) return null;
+  const cents = Number(match[1]) * 100 + Number(match[2]);
+  return cents > 0 && cents <= LIMITS.LINE_TOTAL_MAX_CENTS ? cents : null;
 }
 
 /**

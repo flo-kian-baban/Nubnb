@@ -62,6 +62,22 @@ export function UnitPhoto({ src, className }: { src: string | null; className: s
   );
 }
 
+/** One unit as a row: its cover, its name for cleaners and its city, and a mark at the right: chosen, recent, or the way in. */
+export function UnitRow({ property, icon, onChoose }: { property: CleanerProperty; icon: "chosen" | "recent" | "next"; onChoose: (property: CleanerProperty) => void }) {
+  return (
+    <li>
+      <button type="button" className={`${styles.unitRow} ${icon === "chosen" ? styles.unitRowSelected : ""}`} onClick={() => onChoose(property)}>
+        <UnitPhoto src={property.photo?.thumb ?? null} className={styles.unitPhoto} />
+        <span className={styles.propertyText}>
+          <span className={styles.propertyName}>{property.name ?? "Unnamed property"}</span>
+          {property.city && <span className={styles.propertyCity}>{property.city}</span>}
+        </span>
+        {icon === "chosen" ? <Check className={styles.rowIcon} aria-label="Chosen" /> : icon === "recent" ? <Clock className={styles.rowIconMuted} aria-label="Recent" /> : <ChevronRight className={styles.rowIconMuted} aria-hidden />}
+      </button>
+    </li>
+  );
+}
+
 export function UnitList({ properties, recentPropertyIds, selectedId = null, onChoose, restLabel }: UnitListProps) {
   const [query, setQuery] = useState("");
 
@@ -84,28 +100,7 @@ export function UnitList({ properties, recentPropertyIds, selectedId = null, onC
     };
   }, [properties, recentPropertyIds, query]);
 
-  const row = (property: CleanerProperty, isRecent: boolean) => (
-    <li key={property.id}>
-      <button
-        type="button"
-        className={`${styles.unitRow} ${property.id === selectedId ? styles.unitRowSelected : ""}`}
-        onClick={() => onChoose(property)}
-      >
-        <UnitPhoto src={property.photo?.thumb ?? null} className={styles.unitPhoto} />
-        <span className={styles.propertyText}>
-          <span className={styles.propertyName}>{property.name ?? "Unnamed property"}</span>
-          {property.city && <span className={styles.propertyCity}>{property.city}</span>}
-        </span>
-        {property.id === selectedId ? (
-          <Check className={styles.rowIcon} aria-label="Chosen" />
-        ) : isRecent ? (
-          <Clock className={styles.rowIconMuted} aria-label="Recent" />
-        ) : (
-          <ChevronRight className={styles.rowIconMuted} aria-hidden />
-        )}
-      </button>
-    </li>
-  );
+  const row = (property: CleanerProperty, isRecent: boolean) => <UnitRow key={property.id} property={property} icon={property.id === selectedId ? "chosen" : isRecent ? "recent" : "next"} onChoose={onChoose} />;
 
   return (
     <>

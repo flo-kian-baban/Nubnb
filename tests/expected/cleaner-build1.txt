@@ -1,0 +1,94 @@
+═══ 1. The home: same-day turnovers first within a day, the day said once as a heading; History by month ═══
+  homeJobs: TESTJOB05, TESTJOB02, TESTJOB01, TESTJOB06, TESTJOB03, TESTJOB04
+   ok   the past job first, then today with the same-day turnover before the 10:00 job and the moved booking last, then tomorrow with its same-day job first
+  homeGroups: past "Still to do" [05] · today "Today · Sat, Nov 18" [02,01,06] · tomorrow "Tomorrow · Sun, Nov 19" [03,04]
+   ok   three groups, each day named once in its heading
+  guestWords(today's same-day turnover) → "Next guest today 4:00 PM"
+   ok   today's same-day turnover
+  guestWords(tomorrow's same-day turnover) → "Next guest tomorrow 4:00 PM"
+   ok   tomorrow's same-day turnover
+  guestWords(the next guest in three days) → "Next guest Tue, Nov 21"
+   ok   the next guest in three days
+  guestWords(no next guest) → null
+   ok   no next guest
+  a moved booking's line: {"words":"Moved to Fri, Nov 24","plain":true}
+   ok   a moved booking reads "Moved to <day>" (one grey line on the home)
+  historyMonths: 2028-11, 2028-10, 2028-09 · November 2028: Y1,11,Y3 · October 2028: 12 · September 2028: Y2
+   ok   months newest first, this month always there; an undated entry under the newest month
+   ok   with nothing yet, the switcher opens on this month alone
+
+═══ 2. Done with no note counts at once; Done with a note waits for the office (the note is the reason) ═══
+  no note: marked · $83.00 (short) · extra null · note null · entry approved · pay earned $83.00
+   ok   with no note the cleaning counts at once, at the cleaning price
+  with a note: marked · $83.00 (short) · extra asked "More time: very dirty" · note "More time: very dirty" · entry pending · pay earned $0.00, extraAsked 1
+   ok   with a note the cleaning is made and the note is the reason the money waits (ruling F's mechanics)
+   ok   the noted cleaning counts nowhere until the office decides
+   ok   the job's assignment carries the note and the flag
+  the phone: plain extraAsked false, canUndo true; noted extraAsked true ("Cleaned · note sent"), canUndo true
+   ok   the card reads "Cleaned" for the plain mark and "Cleaned · note sent" for the noted one
+   ok   no amount, price or rate reaches the cleaner (keys: canUndo, change, checkInTime, checkOutTime, checkout, city, extraAsked, id, markRefusal, markedAt, nextCheckIn, note, propertyId, propertyName, recordedByOffice, status, undoBlocked)
+   ok   an amount in a mark body is refused (ruling H)
+
+═══ 3. "Approve at cleaning price": one click counts the noted cleaning at the price it arrived with; the amber clears ═══
+  decided: decided · $83.00 (short) · extra approved by Test admin · last event extra-approved · pay earned $83.00
+   ok   approved at the cleaning price: the amount it arrived with now counts in pay
+  the phone after the decision: noted extraAsked false · note still "More time: very dirty"
+   ok   the card's amber clears to "Cleaned": never the outcome, never an amount
+  a second note declined: decided · $83.00 counts · extra declined
+   ok   declined: the cleaning price counts (ruling F)
+
+═══ 4. "Recorded by the office"; "Can't undo: already paid"; "Can't undo: on a statement" ═══
+  recorded by the office: recorded · the phone: recordedByOffice true, canUndo true, undoBlocked null · words ["Recorded by the office"]
+   ok   an office-recorded mark says so in grey
+   ok   the cleaner's own mark with Undo says nothing extra
+  after a payment dated Nov 15: the Nov 15 job canUndo false, undoBlocked paid → ["Can’t undo: already paid"]; the Nov 16 job canUndo true, undoBlocked null
+   ok   a cleaning on or before the latest payment day: "Can't undo: already paid"
+   ok   a cleaning after that day keeps its Undo
+  a finished statement prints the Nov 16 cleaning: canUndo false, undoBlocked statement → ["Can’t undo: on a statement"]
+   ok   a cleaning a finished statement prints: "Can't undo: on a statement"
+  the answer right after a mark on a paid day: canUndo false, undoBlocked paid, recordedByOffice false
+   ok   the mark's own answer already says "already paid" when a payment covers its day
+
+═══ 5. A session never ages out; a token from the future is still refused ═══
+  issued Oct 1: after 13 hours holds · after 30 days holds · two minutes before it was issued refused · cookie Max-Age 400 days
+   ok   the token holds after 13 hours and after 30 days (it ended after 12 hours before)
+   ok   a token issued more than a minute ahead of the clock is refused
+   ok   the cookie is kept 400 days, the most a browser allows
+
+═══ 6. The printed total against the lines: shown on the phone, a mark for the admin, never a refusal ═══
+  printedTotalOf("45.20") → 4520
+   ok   printed total "45.20" reads as 4520
+  printedTotalOf("$1,045.20") → 104520
+   ok   printed total "$1,045.20" reads as 104520
+  printedTotalOf("45") → null
+   ok   printed total "45" reads as null
+  printedTotalOf("-5.00") → null
+   ok   printed total "-5.00" reads as null
+  printedTotalOf(null) → null
+   ok   printed total null reads as null
+  printedTotalOf("999999.99") → 99999999
+   ok   printed total "999999.99" reads as 99999999
+  printedTotalOf("1000000.00") → null
+   ok   printed total "1000000.00" reads as null
+  lines $45.20, the receipt prints $45.20: approved (approved automatically) · printedTotalCents 4520 · totalDiffers (absent) · read back: no mark
+   ok   the totals agree: no mark, approved automatically under $200.00 as before
+  lines $45.20, the receipt prints $47.20: pending · printedTotalCents 4720 · totalDiffers {"printedTotalCents":4720,"sentTotalCents":4520} · read back: Total differs from the receipt: it prints $47.20; the lines add up to $45.20.
+   ok   a difference never blocks sending; the entry waits for a decision (the developer's choice: a flagged receipt waits; this one is also a same-amount duplicate of the first)
+   ok   the mark carries both figures and reads in the admin's words
+  no readable printed total: approved (approved automatically) · printedTotalCents (absent) · totalDiffers (absent) · read back: no mark
+   ok   a receipt with no readable total is not marked
+  no reading at all: approved (approved automatically) · printedTotalCents (absent) · totalDiffers (absent) · read back: no mark
+   ok   no reading, no mark
+   ok   a stored mark whose figures agree, or are not whole cents, reads as no mark
+
+═══ 7. History: a cleaning 60 days before the clock shows in its month, read from the cleanings themselves ═══
+  the cleaner's cleanings read: 5 · days 2028-11-17, 2028-11-16, 2028-11-15, 2028-11-14, 2028-09-19 · keys day, id, jobId, note, noteSent, propertyId, propertyNameAtEntry, recordedByOffice, status
+   ok   the 60-day cleaning is read; one dated before November 2026 is not
+   ok   no amount, price or rate in the list (ruling H)
+   ok   the office-recorded cleaning says so; the cleaner's own does not
+  History items: 2028-11-17 job; 2028-11-16 job; 2028-11-15 job; 2028-11-14 job; 2028-09-19 cleaning · months 2028-11, 2028-09
+   ok   the 60-day cleaning is a September row, as the cleaning itself (no job in hand, so no Undo)
+   ok   a cleaning within 45 days is its job, once (Undo and the grey words come with it)
+   ok   the switcher offers November and September
+
+every check passed

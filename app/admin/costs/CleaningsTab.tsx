@@ -612,7 +612,8 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
                     </td>
                     <td className={styles.noteCell}>
                       {reason}
-                      {c.note && <span className={p.note}> · note: {c.note}</span>}
+                      {/* Since Build 1 (2026-11-02) the cleaner's note is the reason: said once. */}
+                      {c.note && c.note !== reason && <span className={p.note}> · note: {c.note}</span>}
                     </td>
                     <td className={p.num}>
                       {amountWords(c.amountCents)}
@@ -628,23 +629,27 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
                           className={styles.amountForm}
                           onSubmit={(event) => {
                             event.preventDefault();
-                            void decide(c, "approve", approveAt[c.id] ?? null);
+                            if ((approveAt[c.id] ?? "").trim() !== "") void decide(c, "approve", approveAt[c.id]);
                           }}
                         >
+                          {/* One click at the cleaning price it arrived with (Kian's ruling of 2026-11-02, Build 1, item 3); beside it a new amount, and Decline. */}
+                          <button type="button" className={`${p.btnPrimary} ${p.btnSmall}`} disabled={busy !== null || c.amountCents === null} onClick={() => void decide(c, "approve", null)} title={c.amountCents === null ? "No cleaning price to approve at: type an amount" : `Approve at ${amountWords(c.amountCents)}, the cleaning price it arrived with`}>
+                            {busy === c.id ? "Saving…" : "Approve at cleaning price"}
+                          </button>
                           <span className={styles.amountField}>
                             <input
                               className={`${p.textInput} ${p.amountInput} ${styles.amountInline}`}
                               inputMode="decimal"
                               aria-label={`New amount for ${nameOf(c)}, ${shortDay(c.day)}, ${cleanerNameOf(c)}`}
                               placeholder={c.amountCents === null ? "" : amountField(c.amountCents)}
-                              title="Approve at this amount; leave it empty to approve at the amount it arrived with"
+                              title="Approve at this amount instead"
                               value={approveAt[c.id] ?? ""}
                               onChange={(e) => setApproveAt((was) => ({ ...was, [c.id]: e.target.value }))}
                               disabled={busy !== null}
                             />
                           </span>
-                          <button type="submit" className={`${p.btnPrimary} ${p.btnSmall}`} disabled={busy !== null || (c.amountCents === null && (approveAt[c.id] ?? "").trim() === "")}>
-                            {busy === c.id ? "Saving…" : (approveAt[c.id] ?? "").trim() === "" ? "Approve" : "Approve at this amount"}
+                          <button type="submit" className={`${p.btnGhost} ${p.btnSmall}`} disabled={busy !== null || (approveAt[c.id] ?? "").trim() === ""}>
+                            Approve at this amount
                           </button>
                           <button type="button" className={`${p.btnGhost} ${p.btnSmall}`} disabled={busy !== null || c.amountCents === null} onClick={() => void decide(c, "decline", null)} title={c.amountCents === null ? "No base amount to fall back on: approve at an amount" : "The base amount counts"}>
                             Decline
@@ -741,7 +746,8 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
                   </td>
                   <td className={styles.noteCell}>
                     {c.note ?? ""}
-                    {c.extra && <span className={p.note}>{c.note ? " · " : ""}extra: {c.extra.reason}</span>}
+                    {/* The note is the reason since Build 1 (2026-11-02): said once. */}
+                    {c.extra && c.extra.reason !== c.note && <span className={p.note}>{c.note ? " · " : ""}extra: {c.extra.reason}</span>}
                   </td>
                   {charges !== null && <td className={styles.chargedCell}>{chargedWords(c)}</td>}
                   <td>

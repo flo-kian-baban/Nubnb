@@ -188,6 +188,7 @@ import { MonthTab } from "./MonthTab";
 import { statementMonthFor } from "@/app/lib/reports/statement";
 import { useAsk } from "../components/AskDialog";
 import { duplicateHints, duplicateWords } from "@/app/lib/costs/duplicates";
+import { TOTAL_DIFFERS_MARK, totalDiffers, totalDiffersWords } from "@/app/lib/costs/marks";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
 
@@ -1395,6 +1396,12 @@ function EntryRow({
           {duplicateHints(entry).length > 0 && (
             <span className={styles.dupMark} title={duplicateHints(entry).map(duplicateWords).join(" · ")}>
               Possible duplicate
+            </span>
+          )}
+          {/* Lines that did not add up to the total the receipt prints (Build 1, 2026-11-02): the two figures, in the pane. */}
+          {totalDiffers(entry) && (
+            <span className={styles.dupMark} title={totalDiffersWords(totalDiffers(entry)!)}>
+              {TOTAL_DIFFERS_MARK}
             </span>
           )}
         </span>

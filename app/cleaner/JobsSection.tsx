@@ -1,23 +1,24 @@
 "use client";
 
 /**
- * A cleaner's jobs on their home screen (Kian's rulings of 2026-10-16): today's and tomorrow's, with Mark cleaned, and
- * before them any job whose checkout has passed that they can still mark, or marked today (homeJobs,
- * app/lib/cleaner-home.ts). Jobs marked on an earlier day are in History.
+ * A cleaner's jobs on their home screen (Kian's rulings of 2026-10-16; rebuilt to his rulings of 2026-11-02, Build 1
+ * of the UX audit): today's and tomorrow's, and before them any job whose checkout has passed that they can still
+ * mark, or marked today (homeGroups, app/lib/cleaner-home.ts), each day named once as a heading. Within a day a
+ * same-day turnover comes first.
  *
- * One card per job (Kian's ruling of 2026-10-17: the public site's look): the unit's cover photo across the top, its
- * stored 400-pixel copy rounded as the public cards, with the public site's blue badges on it — Today, Tomorrow,
- * Same-day turnover (the next guest arrives on the checkout day), Cleaned — then the day, the property by its name for
- * cleaners, its checkout time and when the next guest arrives, and what can be done. Mark cleaned opens on the checkout day; it is one tap, with no amount and no photo
- * (the cleaning schedule, 2026-10-14). A job whose booking changed says so and cannot be marked: "Cancelled: don't
- * go", or "Moved to <day>" (Kian's ruling R2 of 2026-10-19), else "Don't go unless the office asks". A cleaned job reads
- * "Cleaned · Undo" — Undo while no finished statement prints its cleaning and no payment covers its day — with "Add a
- * receipt for this unit" (ruling 6). A mark whose cleaning the office deleted or removed reads "Removed by the office",
- * with no Undo, until the office reopens it; then the job reads Mark cleaned again.
+ * One compact card per job (item 1): the unit's small thumbnail, its address, "Checkout 11:00 AM", "Next guest today
+ * 4:00 PM" or the next guest's day, and two big buttons: "Done" and "Add receipt" (the unit filled in). No city, no
+ * greeting, no repeated day line, no badge: a same-day turnover says so in one amber line.
  *
- * Mark cleaned opens a short form on the card (Kian's ruling F of 2026-11-01): an optional note, and "Ask for extra",
- * which needs a reason and has no amount field. With it, the card reads "Cleaned · extra asked" in amber and "Sent to
- * Nubnb": never an amount, never the outcome. No amount is shown anywhere in this app (ruling H).
+ * Done (item 2) opens the app's own pop-up (DoneDialog): the unit and day, an optional note for the office, and
+ * "Confirm done" / "Cancel". With no note the cleaning counts at once; with a note it is made but its money waits for
+ * the office (the note is the reason, through ruling F's extra-asked mechanics). Afterwards the card reads "Cleaned"
+ * in green, or "Cleaned · note sent" in amber until the office decides, then "Cleaned" again — never an amount, never
+ * the outcome (ruling H). Undo asks once, "Undo Cleaned?" (item 4). Grey words under "Cleaned" when they apply:
+ * "Recorded by the office", "Can't undo: already paid", "Can't undo: on a statement".
+ *
+ * A cancelled or moved booking is one grey line (item 7): "<unit> · Cancelled: don't go", "<unit> · Moved to <day>".
+ * A mark the office removed reads "Removed by the office", with no Undo, until the office reopens it.
  */
 
 import { useState } from "react";
@@ -25,13 +26,15 @@ import { Camera, Check, X } from "lucide-react";
 import type { CleanerJobView } from "@/app/lib/schedule/model";
 import type { MarkDetails } from "@/app/lib/cleaner-client";
 import type { CleanerProperty } from "@/app/lib/cleaners/model";
-import { dayText } from "@/app/lib/availability/days";
-import { changedWords, jobBadges } from "@/app/lib/cleaner-home";
+import { CLEANING_LIMITS } from "@/app/lib/cleanings/model";
+import { addDays } from "@/app/lib/availability/days";
+import { cardDay, changedWords, cleanedWords, guestWords, homeGroups, isSameDayTurnover } from "@/app/lib/cleaner-home";
 import styles from "./cleaner.module.css";
+import { AskDialog } from "./AskDialog";
 import { UnitPhoto } from "./UnitList";
 
 interface JobsSectionProps {
-  /** The home screen's jobs, soonest first (homeJobs). */
+  /** Their jobs as they now stand; the home's groups are worked out here. */
   jobs: CleanerJobView[];
   today: string;
   /** The job whose mark or undo is in flight. */
@@ -40,30 +43,16 @@ interface JobsSectionProps {
   messages: Record<string, string>;
   onMark: (job: CleanerJobView, details: MarkDetails) => void;
   onUndo: (job: CleanerJobView) => void;
-  /** "Add a receipt for this unit": a receipt starting on this job's property. */
+  /** "Add receipt": a receipt starting on this job's property. */
   onAddReceipt: (job: CleanerJobView) => void;
   /** A property's cover as its stored small copies, from the start call's list; null for none. */
   photoOf: (propertyId: string) => CleanerProperty["photo"];
 }
 
 /** "Wed, Oct 14". */
-export const weekday = (day: string) => new Intl.DateTimeFormat("en-CA", { weekday: "short", month: "short", day: "numeric" }).format(new Date(`${day}T12:00:00`));
+export const weekday = cardDay;
 
-/** The day under the photo: the date itself when a Today or Tomorrow badge says which day it is. */
-function dayLine(job: CleanerJobView, today: string): string {
-  if (job.checkout < today) return `Checkout was ${weekday(job.checkout)}`;
-  return weekday(job.checkout);
-}
-
-
-function guestLine(job: CleanerJobView, today: string): string | null {
-  if (!job.nextCheckIn) return null;
-  const time = job.checkInTime ? ` ${job.checkInTime}` : "";
-  if (job.nextCheckIn === job.checkout) return `Next guest ${job.checkout === today ? "today" : "the same day"}${time}`;
-  return `Next guest ${dayText(job.nextCheckIn)}`;
-}
-
-/** What a marked job says: "Cleaned · Undo" (ruling 6), "Cleaned · extra asked" in amber with "Sent to Nubnb" (ruling F), or the office's removal. Shared with History. */
+/** What a marked job says (shared with History): "Cleaned · Undo", "Cleaned · note sent" in amber, the office's removal, and the grey words under it. */
 export function CleanedLine({ job, busy, disabled, onUndo }: { job: CleanerJobView; busy: boolean; disabled: boolean; onUndo: () => void }) {
   if (job.markRefusal === "removed") {
     return (
@@ -73,12 +62,13 @@ export function CleanedLine({ job, busy, disabled, onUndo }: { job: CleanerJobVi
       </p>
     );
   }
-  const extra = job.extraAsked === true;
+  const noted = job.extraAsked === true;
+  const words = cleanedWords(job);
   return (
     <>
-      <p className={`${styles.jobState} ${extra ? styles.jobStateExtra : ""}`}>
+      <p className={`${styles.jobState} ${noted ? styles.jobStateExtra : ""}`}>
         <Check aria-hidden />
-        <span>{extra ? "Cleaned · extra asked" : "Cleaned"}</span>
+        <span>{noted ? "Cleaned · note sent" : "Cleaned"}</span>
         {job.canUndo && (
           <>
             <span aria-hidden> · </span>
@@ -88,169 +78,168 @@ export function CleanedLine({ job, busy, disabled, onUndo }: { job: CleanerJobVi
           </>
         )}
       </p>
-      {extra && <p className={styles.jobSent}>Sent to Nubnb</p>}
+      {words.length > 0 && <p className={styles.undoWords}>{words.join(" · ")}</p>}
     </>
   );
 }
 
-/**
- * The short form Mark cleaned opens (Kian's ruling F): a note, optional; "Ask for extra", with its reason, required
- * when asked; then Mark cleaned. No amount field, and no amount anywhere (ruling H).
- */
-function MarkForm({ busy, onMark, onCancel }: { busy: boolean; onMark: (details: MarkDetails) => void; onCancel: () => void }) {
+/** The pop-up behind Done (item 2): the unit and day, a note for the office, "Confirm done" and "Cancel". */
+function DoneDialog({ job, busy, onConfirm, onCancel }: { job: CleanerJobView; busy: boolean; onConfirm: (details: MarkDetails) => void; onCancel: () => void }) {
   const [note, setNote] = useState("");
-  const [extra, setExtra] = useState(false);
-  const [reason, setReason] = useState("");
-  const [problem, setProblem] = useState<string | null>(null);
-  const submit = () => {
-    if (extra && reason.trim() === "") {
-      setProblem("Say why you are asking for extra.");
-      return;
-    }
-    onMark({ note: note.trim() === "" ? null : note.trim(), extraReason: extra ? reason.trim() : null });
-  };
+  const trimmed = note.trim();
   return (
-    <div className={styles.markForm} role="group" aria-label="Mark cleaned">
+    <AskDialog
+      title="Done?"
+      words={
+        <>
+          <strong>{job.propertyName ?? "Property"}</strong> · {cardDay(job.checkout)}
+        </>
+      }
+      confirmLabel="Confirm done"
+      busy={busy}
+      onConfirm={() => onConfirm({ note: trimmed === "" ? null : trimmed })}
+      onCancel={onCancel}
+    >
       <label className={styles.markLabel}>
-        <span className={styles.fieldLabel}>Note for the office (optional)</span>
-        <textarea className={`${styles.field} ${styles.markText}`} value={note} maxLength={300} rows={2} placeholder="Anything the office should know" onChange={(e) => setNote(e.target.value)} disabled={busy} />
+        <span className={styles.fieldLabel}>Note for the office, e.g. extra work or more time</span>
+        <textarea className={`${styles.field} ${styles.markText}`} value={note} maxLength={CLEANING_LIMITS.NOTE_MAX} rows={3} onChange={(e) => setNote(e.target.value)} disabled={busy} />
       </label>
-      <button
-        type="button"
-        className={`${styles.markToggle} ${extra ? styles.markToggleOn : ""}`}
-        aria-pressed={extra}
-        onClick={() => {
-          setExtra((on) => !on);
-          setProblem(null);
-        }}
-        disabled={busy}
-      >
-        <span className={styles.markToggleBox} aria-hidden>
-          {extra && <Check />}
-        </span>
-        <span>Ask for extra</span>
-      </button>
-      {extra && (
-        <label className={styles.markLabel}>
-          <span className={styles.fieldLabel}>Why?</span>
-          <textarea
-            className={`${styles.field} ${styles.markText} ${problem ? styles.fieldInvalid : ""}`}
-            value={reason}
-            maxLength={300}
-            rows={2}
-            placeholder="What needed extra work"
-            aria-invalid={problem ? true : undefined}
-            onChange={(e) => {
-              setReason(e.target.value);
-              setProblem(null);
-            }}
-            disabled={busy}
-          />
-        </label>
-      )}
-      {problem && (
-        <p className={styles.fieldProblem} role="alert">
-          {problem}
-        </p>
-      )}
-      <button type="button" className={styles.primary} onClick={submit} disabled={busy} aria-busy={busy || undefined}>
-        {busy ? "Saving…" : "Mark cleaned"}
-      </button>
-      <button type="button" className={styles.textButton} onClick={onCancel} disabled={busy}>
-        Cancel
-      </button>
-    </div>
+    </AskDialog>
+  );
+}
+
+/** The pop-up behind Undo (item 4): one question. */
+function UndoDialog({ job, busy, onConfirm, onCancel }: { job: CleanerJobView; busy: boolean; onConfirm: () => void; onCancel: () => void }) {
+  return (
+    <AskDialog
+      title="Undo Cleaned?"
+      words={
+        <>
+          <strong>{job.propertyName ?? "Property"}</strong> · {cardDay(job.checkout)}
+        </>
+      }
+      confirmLabel="Undo"
+      cancelLabel="Keep it"
+      busy={busy}
+      danger
+      onConfirm={onConfirm}
+      onCancel={onCancel}
+    />
   );
 }
 
 export function JobsSection({ jobs, today, busyId, messages, onMark, onUndo, onAddReceipt, photoOf }: JobsSectionProps) {
-  /** The job whose mark form is open; one at a time. */
+  /** The job whose Done pop-up is open, and the one whose Undo question is; one at a time. */
   const [marking, setMarking] = useState<string | null>(null);
+  const [undoing, setUndoing] = useState<string | null>(null);
+  const groups = homeGroups(jobs, today);
+  const markingJob = marking === null ? null : (jobs.find((job) => job.id === marking) ?? null);
+  const undoingJob = undoing === null ? null : (jobs.find((job) => job.id === undoing) ?? null);
+
+  const card = (job: CleanerJobView) => {
+    const changed = job.status === "booking-changed";
+    const marked = job.markedAt !== null;
+    const removed = job.markRefusal === "removed";
+    // A cancelled or moved booking: one grey line, nothing to press (item 7).
+    if (changed && !marked) {
+      const { words, plain } = changedWords(job);
+      return (
+        <li key={job.id} className={styles.jobLine}>
+          <span className={styles.jobLineName}>{job.propertyName ?? "Property"}</span>
+          <span className={styles.jobLineWords}>
+            {plain ? words : `Booking changed · ${words}`}
+          </span>
+        </li>
+      );
+    }
+    const guest = guestWords(job, today);
+    const sameDay = isSameDayTurnover(job);
+    const canMark = !changed && job.markRefusal === null;
+    return (
+      <li key={job.id} className={styles.jobRow}>
+        <div className={styles.jobHead}>
+          <UnitPhoto src={photoOf(job.propertyId)?.thumb ?? null} className={styles.jobThumb} />
+          <div className={styles.jobMain}>
+            <p className={styles.jobAddress}>{job.propertyName ?? "Property"}</p>
+            <p className={styles.jobMeta}>
+              {job.checkout < today ? `Checkout was ${cardDay(job.checkout)}` : job.checkOutTime ? `Checkout ${job.checkOutTime}` : "Checkout"}
+              {guest && !sameDay && ` · ${guest}`}
+            </p>
+            {sameDay && <p className={styles.sameDay}>Same-day turnover{guest ? ` · ${guest}` : ""}</p>}
+          </div>
+        </div>
+        {marked ? (
+          <>
+            <CleanedLine job={job} busy={busyId === job.id} disabled={busyId !== null} onUndo={() => setUndoing(job.id)} />
+            {changed && !removed && <p className={styles.jobNote}>The booking changed after it was marked. The office decides.</p>}
+            {!removed && (
+              <button type="button" className={styles.secondary} onClick={() => onAddReceipt(job)}>
+                <Camera aria-hidden />
+                <span>Add receipt</span>
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            {job.markRefusal === "too-early" && <p className={styles.jobNote}>Done opens {job.checkout === addDays(today, 1) ? "tomorrow" : cardDay(job.checkout)}</p>}
+            <div className={styles.jobButtons}>
+              {canMark && (
+                <button type="button" className={styles.primary} onClick={() => setMarking(job.id)} disabled={busyId !== null} aria-busy={busyId === job.id || undefined}>
+                  {busyId === job.id ? "Saving…" : "Done"}
+                </button>
+              )}
+              <button type="button" className={styles.secondary} onClick={() => onAddReceipt(job)}>
+                <Camera aria-hidden />
+                <span>Add receipt</span>
+              </button>
+            </div>
+          </>
+        )}
+        {messages[job.id] && (
+          <p className={styles.jobMessage} role="alert">
+            {messages[job.id]}
+          </p>
+        )}
+      </li>
+    );
+  };
+
   return (
     <section aria-labelledby="jobs-heading" className={styles.jobs}>
-      <h2 id="jobs-heading" className={styles.sectionLabel}>
+      <h2 id="jobs-heading" className={styles.visuallyHidden}>
         Your jobs
       </h2>
-      {jobs.length === 0 ? (
+      {groups.length === 0 ? (
         <p className={styles.jobsEmpty}>No jobs today or tomorrow.</p>
       ) : (
-        <ul className={styles.jobList}>
-          {jobs.map((job) => {
-            const changed = job.status === "booking-changed";
-            const marked = job.markedAt !== null;
-            const removed = job.markRefusal === "removed";
-            const guest = guestLine(job, today);
-            const badges = jobBadges(job, today);
-            return (
-              <li key={job.id} className={`${styles.jobCard} ${changed && !marked ? styles.jobCardChanged : ""}`}>
-                <div className={styles.jobPhotoWrap}>
-                  <UnitPhoto src={photoOf(job.propertyId)?.card ?? null} className={styles.jobPhoto} />
-                  {badges.length > 0 && (
-                    <p className={styles.badges}>
-                      {badges.map((badge) => (
-                        <span key={badge} className={styles.badge}>
-                          {badge}
-                        </span>
-                      ))}
-                    </p>
-                  )}
-                </div>
-                <div className={styles.jobBody}>
-                  <p className={styles.jobDay}>
-                    {dayLine(job, today)}
-                    {changed && !changedWords(job).plain && <span className={styles.jobChanged}> · Booking changed</span>}
-                  </p>
-                  <p className={styles.jobProperty}>
-                    <span className={styles.propertyName}>{job.propertyName ?? "Property"}</span>
-                    {job.city && <span className={styles.propertyCity}>{job.city}</span>}
-                  </p>
-                  {!changed && (
-                    <p className={styles.jobTimes}>
-                      Checkout {job.checkOutTime ?? ""}
-                      {guest && ` · ${guest}`}
-                    </p>
-                  )}
-                  {marked ? (
-                    <>
-                      <CleanedLine job={job} busy={busyId === job.id} disabled={busyId !== null} onUndo={() => onUndo(job)} />
-                      {changed && !removed && <p className={styles.jobNote}>The booking changed after it was marked. The office decides.</p>}
-                      {!removed && (
-                        <button type="button" className={styles.secondary} onClick={() => onAddReceipt(job)}>
-                          <Camera aria-hidden />
-                          <span>Add a receipt for this unit</span>
-                        </button>
-                      )}
-                    </>
-                  ) : changed ? (
-                    <p className={changedWords(job).plain ? styles.jobChangedNote : styles.jobNote}>{changedWords(job).words}</p>
-                  ) : job.markRefusal === "too-early" ? (
-                    <p className={styles.jobNote}>Mark cleaned opens {weekday(job.checkout)}</p>
-                  ) : job.markRefusal === null ? (
-                    marking === job.id ? (
-                      <MarkForm
-                        busy={busyId === job.id}
-                        onMark={(details) => {
-                          onMark(job, details);
-                          setMarking(null);
-                        }}
-                        onCancel={() => setMarking(null)}
-                      />
-                    ) : (
-                      <button type="button" className={styles.primary} onClick={() => setMarking(job.id)} disabled={busyId !== null} aria-busy={busyId === job.id || undefined}>
-                        {busyId === job.id ? "Saving…" : "Mark cleaned"}
-                      </button>
-                    )
-                  ) : null}
-                  {messages[job.id] && (
-                    <p className={styles.jobMessage} role="alert">
-                      {messages[job.id]}
-                    </p>
-                  )}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+        groups.map((group) => (
+          <div key={group.key} className={styles.jobGroup}>
+            <h3 className={styles.groupHead}>{group.heading}</h3>
+            <ul className={styles.jobList}>{group.jobs.map(card)}</ul>
+          </div>
+        ))
+      )}
+      {markingJob && (
+        <DoneDialog
+          job={markingJob}
+          busy={busyId === markingJob.id}
+          onConfirm={(details) => {
+            onMark(markingJob, details);
+            setMarking(null);
+          }}
+          onCancel={() => setMarking(null)}
+        />
+      )}
+      {undoingJob && (
+        <UndoDialog
+          job={undoingJob}
+          busy={busyId === undoingJob.id}
+          onConfirm={() => {
+            onUndo(undoingJob);
+            setUndoing(null);
+          }}
+          onCancel={() => setUndoing(null)}
+        />
       )}
     </section>
   );

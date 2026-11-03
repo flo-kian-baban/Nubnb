@@ -30,7 +30,8 @@
  *      try before a lock says so. A failed read is 503: access is never
  *      granted on an error;
  *   7. a session token is issued in an HTTP-only cookie scoped to
- *      /api/cleaner, good for 12 hours.
+ *      /api/cleaner, kept until the cleaner signs out or their code
+ *      changes (no automatic expiry, Kian's ruling of 2026-11-02).
  *
  * Reads: none for a malformed code; one for a locked connection; otherwise
  * the lock twice, the code, and the cleaner when the code names one

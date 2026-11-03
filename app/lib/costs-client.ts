@@ -110,7 +110,9 @@ function isCostEntryView(data: unknown): data is CostEntryView {
     // Who paid for a receipt (2026-10-15): every entry the server sends carries it.
     typeof data.paidWith === 'string' &&
     // A possible second send (Phase 2, 2026-11-01): absent, or the hints.
-    (data.possibleDuplicates === undefined || Array.isArray(data.possibleDuplicates))
+    (data.possibleDuplicates === undefined || Array.isArray(data.possibleDuplicates)) &&
+    // Lines that did not add up to the printed total (Build 1, 2026-11-02): absent, or the two figures.
+    (data.totalDiffers === undefined || isRecord(data.totalDiffers))
   );
 }
 

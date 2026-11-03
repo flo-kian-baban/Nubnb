@@ -187,10 +187,15 @@ check((await cl.decideExtra(ADMIN, asked2.id, 'approve', undefined, 2, null)).ki
 const schema = sc.JobActionSchema.safeParse({ action: 'mark', note: '  ', extraReason: 'x' });
 console.log(`  the route's body: ${schema.success ? JSON.stringify(schema.data) : 'refused'} · undo ${sc.JobActionSchema.safeParse({ action: 'undo' }).success} · an amount in a mark body: ${sc.JobActionSchema.safeParse({ action: 'mark', amount: '83.00' }).success ? 'ACCEPTED' : 'refused'}`);
 check(schema.success && schema.data.note === null && !sc.JobActionSchema.safeParse({ action: 'mark', amount: '83.00' }).success, 'a mark carries a note and a reason, never an amount (ruling H)');
-const cleanerView = await sj.cleanerJobsRead(ANA.id, '2028-11-16');
+// A third ask, still undecided, beside the two decided above (Build 1 of 2026-11-02: the phone's flag follows the cleaning).
+const jobF3 = seedJob(P, '2028-11-15', '2028-11-18', [ANA]);
+const asked3 = await mark(ANA, jobF3, '2028-11-18', { note: null, extraReason: 'Still waiting on this one' });
+const cleanerView = await sj.cleanerJobsRead(ANA.id, '2028-11-18');
 const keys = [...new Set(cleanerView.flatMap((j) => Object.keys(j)))].sort();
 console.log(`  what the cleaner's app is sent per job: ${keys.join(', ')}`);
-check(!keys.some((k) => /amount|price|cents|rate/i.test(k)) && cleanerView.find((j) => j.id === jobF)?.extraAsked === true, 'no amount, price or rate reaches the cleaner; the extra flag does');
+console.log(`  the phone's extra flag: approved ${cleanerView.find((j) => j.id === jobF)?.extraAsked}, declined ${cleanerView.find((j) => j.id === jobF2)?.extraAsked}, undecided ${cleanerView.find((j) => j.id === jobF3)?.extraAsked} (${asked3.extra})`);
+check(!keys.some((k) => /amount|price|cents|rate/i.test(k)) && cleanerView.find((j) => j.id === jobF3)?.extraAsked === true, 'no amount, price or rate reaches the cleaner; the extra flag does, while the ask waits');
+check(cleanerView.find((j) => j.id === jobF)?.extraAsked === false && cleanerView.find((j) => j.id === jobF2)?.extraAsked === false, 'once decided, approved or declined, the flag clears: the card reads "Cleaned" again, never the outcome');
 const jobG = { propertyId: P, checkout: '2028-11-16', status: 'open', changedAfterMark: false, change: null, cleaners: [] };
 const noLink = standing.cleaningStanding([], { today: '2028-11-16', hasCalendar: false, calendarRead: false });
 console.log(`  a property with no calendar link (ruling G): "${noLink.label}" (${noLink.tone}, ${noLink.key})`);

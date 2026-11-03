@@ -5410,3 +5410,189 @@ Revenue does not move between the last two rows: the positive placed line was re
 counts in "what Airbnb paid", so the fee's base grows by its $162.35 and the fee by $32.47 (928.046 rounds half up to
 $928.05). With the base still typed at the old figure, Finish's check said "The fee's base is $4,507.88; Airbnb paid
 $4,640.23 this month." until the base was typed again (K4). Cleanup by exact ID and path; exports identical.
+
+## 68. Build 1 of 3: the cleaner and handyman apps — Kian's rulings of 2026-11-02 (from the UX audit)
+
+Kian's dispatch of 2026-11-02, after the read-only audit (`~/Backups/Nubnb/ux-audit-1102/UX-AUDIT-2026-11-02.md`):
+"the app is a simple control centre. A cleaner opens it, sees the units they are assigned to first, and for each one
+can mark it done (with an optional note), add a receipt, and nothing else they need to think about. A handyman sees
+his units, adds work, and sees his past work." Thirteen numbered items; the admin side limited to item 3 and the mark
+for a receipt total that differs. Builds 2 and 3 are the admin's. Commit after his review.
+
+### 68.1 What changed, by item
+
+1. **Home.** `homeGroups` (cleaner-home.ts) puts a past job still to do under "Still to do", then "Today · Sat, Nov 18",
+   then "Tomorrow · …", each day said once; within a day a same-day turnover comes first, then by checkout time, a
+   changed booking last. A card (JobsSection.tsx) is the unit's 200-pixel thumbnail, the address, "Checkout 11:00 AM ·
+   Next guest Tue, Nov 21" (`guestWords`: "today", "tomorrow", or the day), one amber line "Same-day turnover · Next
+   guest today 4:00 PM" when it is one, and two big buttons, Done and Add receipt (the unit filled in). Tomorrow's
+   card reads "Done opens tomorrow" and offers Add receipt. "Toronto", "Hi Ana", the day line and the blue badges are
+   gone. The 64-unit list left the home: one pinned button, "All properties", opens the property screen (search,
+   recent first), and the unit chosen opens the camera. The pinned bar is `position: fixed` and the screen is padded by
+   the bar's measured height (`usePinnedHeight`), so it never covers a card; a receipt begun and not sent turns it into
+   "Finish the receipt · <unit>".
+2. **Done.** The app's own pop-up (AskDialog.tsx): "Done?", the unit and day, a note box labelled "Note for the office,
+   e.g. extra work or more time", and "Confirm done" / "Cancel". The route takes `{ action: 'mark', note }`; the note is
+   the reason: `markCleaned(…, { note, extraReason: note })`, so the cleaning carries `note` and `extra.status 'asked'`
+   with the same words, through ruling F's mechanics unchanged. No note: the cleaning counts at once. The card then
+   reads "Cleaned" (green) or "Cleaned · note sent" (amber). `cleanerJobs` reads the extra state of each noted mark's
+   cleaning (`stillAskedOf`, one field-masked read per noted mark), so `extraAsked` is false once the office decided
+   and the amber clears to "Cleaned" — never approved, declined or an amount. "Sent to Nubnb" is gone.
+3. **Admin, minimal.** The Cleanings tab's "Extra asked" rows: one click "Approve at cleaning price" (the amount it
+   arrived with), beside the typed-amount "Approve at this amount" and Decline; the Schedule chip's "Approve" is
+   relabelled the same. Where the note and the reason are the same words, the admin reads them once.
+4. **Undo** asks once in the app's own pop-up: "Undo Cleaned?" · Undo / Keep it. Grey words under "Cleaned"
+   (`cleanedWords`): "Recorded by the office" (the job's `marked` event for that cleaning by an admin), "Can't undo:
+   already paid" (a payment to them dated on or after the day: `undoBlocked: 'paid'`), "Can't undo: on a statement"
+   (`'statement'`). `oneCleanerJob` reads the latest payment day too, so a mark on a day already paid says so at once.
+   No amount.
+5. **Sign out and the code screen.** "Signed in as <name> · Sign out" at the foot of the home (cleaner and handyman):
+   DELETE /api/cleaner/session, then the code screen reading "Signed out. Enter your code."; the same line after any
+   401 on a page that held a session; a phone with no session reads "Enter your 4-digit code". **No automatic expiry:**
+   `parseCleanerToken` no longer refuses a token by age (a token from more than a minute in the future is still
+   refused); the cookie's Max-Age is 400 days, the most a browser keeps one. A session ends by Sign out, a new code, or
+   a deactivation (the epoch). The 12-hour lifetime of D2 (2026-09-28) is retired.
+6. **Receipt.** Send pinned at the bottom with the property line and the total check; the screen padded by the bar's
+   height. Each line: "Item n" and "Amount"; "How many" behind a "×1" button that opens the stepper (open by itself when
+   the reading gave a quantity other than 1). One tax line, "Tax (if on the receipt)"; the 15-word hint is gone. "Start
+   over" under the photo beside "Take again", asking once. The reader's printed total (`printedTotalOf`, model.ts:
+   "45.20" or "$1,045.20", never negative) is compared with the lines plus the tax: "Receipt total $45.20 · your lines
+   $45.20 ✓" in green, or the two figures in amber with "Different from the receipt. You can still send." The server
+   writes `printedTotalCents` on every new receipt that had one, and `totalDiffers: { printedTotalCents,
+   sentTotalCents }` when they differ; the Costs queue row and the entry's pane show "Total differs from the receipt:
+   it prints $47.20; the lines add up to $45.20."; the pay view's waiting line says why it waits. The "From the photo"
+   and "Edited" pills (12 px) are gone: nothing under 16 px on the screen.
+7. **A changed booking** is one grey dashed line under the day's cards: "<unit> · Moved to Fri, Nov 24", "<unit> ·
+   Cancelled: don't go". Nothing to press.
+8. **History** month by month, newest first, a switcher ("‹ November 2028 ›", disabled at the ends; this month always
+   there): "Cleanings · n" (day, unit, Cleaned with Undo while it holds, "Cleaned · note sent", "Removed by the office")
+   and "Receipts · n" (day, unit, total, Waiting / Approved / Rejected + the reason; "Changed by the office. You sent
+   $X." as before). `ENTRY_STATUS_CLEANER_LABELS.pending` is "Waiting". No pay figure, no cleaning amount.
+9. **Handyman home.** "Add work" pinned (the property screen, or "Finish the work · <unit>" with Discard, asking once),
+   "Recent" (up to five units; a tap starts work for that unit), one "All properties" button to the same property
+   screen, "My work" on the bar, Sign out at the foot. The 64-row list left the home.
+10. **Work form.** "What you did", "Price" with the hint "The final price you charge Nubnb, everything included.", the
+    property line and Send. The second "Price —" line, "Start over", the tax sentence and the character counter are
+    gone.
+11. **My work.** The History screen with `kind: 'work'`: month by month, "Work · n", each entry with its description,
+    price and status.
+12. **Measures.** Every target 44 px or more (the bar's buttons 44, Done and Add receipt 56, "×1" 54, Sign out 44, the
+    month arrows 48×52); body text 16 px or more (section heads, labels, hints, pills, the property label); the only
+    coloured words are AA (the amber line 8.3:1, "Cleaned · note sent" 5.0:1). No horizontal scroll at 360.
+13. **Kept:** drafts on the phone (text in localStorage, the photo in IndexedDB), "Not confirmed. Tap Done again — it
+    won't be counted twice." and the receipt's "Tap Send again", the possible-duplicate flag, the $200 automatic
+    approval (a flagged receipt and anything over $200 wait).
+
+### 68.2 The developer's choices (none changes a statement or what an owner receives)
+
+- **A receipt whose lines differ from the printed total waits for a decision**, as a possible second send does
+  (`autoApprove` requires no mark). Kian's words were "it marks the entry for the admin"; a mark that counted at once
+  would sit in the queue's unseen fold only. The alternative — mark it and still approve under $200 — is one condition
+  in `createCostEntry`. Recommended: keep it waiting; the reading can misread a total, and an admin look is cheap.
+- **The note is stored twice**, as `note` and as `extra.reason`, with the same words: ruling F's shape is untouched,
+  every reader (Schedule, Cleanings tab, pay view, Finish, the home's chip) works unchanged, and the admin screens say
+  it once where the two are equal. An older page that still sends `extraReason` is taken as before.
+- **A noted mark's cleaning is read on the start call** (one field-masked read per noted mark in the 45 days), the
+  only read of a mark's cleaning the cleaner app makes; the alternative, clearing the job's `extraAsked` flag on the
+  decision, would lose the record that they asked.
+- **Tomorrow's card** has no Done button ("Done opens tomorrow") rather than a disabled one, which reads as broken on a
+  phone; Add receipt stays.
+- **Undo stays on an office-recorded mark** where the rules allow it (ruling E: it counts exactly as their own mark);
+  the grey words say who recorded it.
+- **A handyman's unsent work** can be discarded from the home ("Discard", asking once), since "Start over" left the
+  form.
+- **History keeps a cleaning's Undo**, so yesterday's slip can still be undone from there.
+- **The session cookie is 400 days**, the longest Chrome and Safari keep one; "no automatic expiry" cannot outlive the
+  browser's own limit. A cleaner who never signs out on a lost phone stays signed in until their code is changed:
+  worth a line under Accepted risks in CLAUDE.md, in Kian's words.
+- **`jobBadges`** stays exported (tests, and nothing else reads it); the cards no longer draw badges.
+
+### 68.3 Tests
+
+`cleaner-build1` (new; tests/cleaner/build1.mjs): the home's order and groups, the next guest's words, History's
+months; Done with and without a note on the in-memory store, the phone's flag, no amount on the wire; "Approve at
+cleaning price" and the amber clearing; the three grey lines, including the answer right after a mark on a paid day;
+a token after 13 hours and 30 days, one from the future; `printedTotalOf` and the mark on `createCostEntry` (agree,
+differ, no readable total, no reading), the reader's refusal of a mark whose figures agree. `cleaning-flow` re-recorded:
+its last section adds a third, undecided ask and shows the flag true only while the ask waits (two keys added to the
+cleaner's job). The suite is otherwise identical.
+
+### 68.4 Verified (2026-11-02, late; the server's clock 2028-11-18)
+
+A local build of HEAD (`work-before`) and one of HEAD plus the changed files (`work`), each built at 0 production reads,
+served from `~/Backups/Nubnb/build1-apps/_harness` reading production behind the write guard; the test records seeded
+through the app's own server functions (a test admin, "__TEST__ Ana" the cleaner, "__TEST__ Hal" the handyman, three
+Unlisted `__TEST__` properties with made-up addresses as their cleaner-facing names, eleven of Ana's jobs and two of
+Hal's work entries); sessions minted, no code ever typed; the Gemini stand-in on 127.0.0.1:4590; every real calendar
+cut off. Screens at 390 and 360 (and the admin's at 1440) in `~/Backups/Nubnb/build1-apps/before-*.png` and
+`after-*.png` (76 files, OCR-scanned: no code or PIN in any; the code screen's empty boxes read as digits, as in the
+audit). Reads 3,837 of 6,000, the two exports excluded; 0 refused writes; cleanup by exact path (50 Firestore paths, 2
+Storage objects proved by hash first); the opening and closing exports (612 documents) identical; the repository
+scanner clean over the tracked and changed files.
+
+- **Done with no note counts at once:** Ana's Done on today's same-day job (P, 3 nights) made the cleaning at $61.00
+  (short), `extra` none; `memberPay` read it as `counts $61.00` straight away. Two taps (Done, Confirm done).
+- **Done with a note waits:** on yesterday's job the note "More time: very dirty after the party" became
+  `extra asked` with the same words as `note`; pay listed it as `extra-asked`, earned unchanged; the card read
+  "Cleaned · note sent" in amber (rgb 154, 100, 0). Two taps plus typing.
+- **One click at the cleaning price:** the Cleanings tab's "Extra asked" row showed "Approve at cleaning price ·
+  Approve at this amount (disabled until typed) · Decline"; one click: "Approved $61.00 · goes on November 2028's
+  statement", `amountFrom short`, pay `counts $61.00`. Ana's reload then read "Cleaned" with Undo and nothing else:
+  no outcome, no amount; History likewise.
+- **The receipt total:** the stand-in printed $47.20 for lines of $45.20: the pinned bar read "Receipt total $47.20 ·
+  your lines $45.20" in amber with "Different from the receipt. You can still send."; sent in 3 taps from the card;
+  stored pending with `totalDiffers {4720, 4520}`; the Costs queue row carried "Total differs from the receipt" and the
+  pane the sentence with both figures. A second receipt whose total matched read "✓" and was approved automatically
+  under $200. "All properties" → a unit → the camera → Send: 4 taps.
+- **Undo asked once** ("Undo Cleaned? · Undo / Keep it"); Keep it kept it; Undo put Done back. History showed
+  "Recorded by the office" under R's Nov 17 cleaning and "Can't undo: already paid" under Nov 16, Nov 10 and Oct 28
+  (the seeded payment dated Nov 16), with the month switcher reaching October.
+- **Sign out:** the foot's Sign out gave "Signed out. Enter your code."; `/api/cleaner/start` then answered 401; the
+  same token imported again opened the app (no expiry); a phone with no session read "Enter your 4-digit code".
+- **Hal:** the home listed his two recent units and "All properties"; a recent unit → the form → Send: 2 taps; My work
+  listed three entries month by month (Waiting, Waiting, Approved) with description and price; an unsent form left
+  "Not sent yet · [P] · Discard" over "Finish the work", and Discard asked once.
+- **Measures (390 unless said):** the cleaner's home 10.2 screens / 530 words / 67 targets (1 under 44 px) / 7 texts
+  under 16 px / 3 badges below AA → 2.0 screens / 132 words / 11 targets (0) / 1 (the NUBNB wordmark, 14 px) / 0; the
+  pinned bar's top sat 92 px below the last card's bottom at the end of the scroll; the receipt 1.4 screens, Send
+  below the fold, 8 texts under 16 px, one tag below AA → 1.2 screens, Send pinned, 0, 0; Hal's home 7.4 screens / 390
+  words → 1.0 / 23; the work form's 13-word sentence gone; no horizontal scroll at 360 on the home, the receipt or the
+  form. The property list behind "All properties" is unchanged (7.3 screens, 386 words: the 61 units).
+
+### 68.5 Kian's rulings of 2026-11-02 on the held items, in his words, and what changed
+
+"Build 1 approved."
+
+- **H1:** "as built (a mismatched receipt waits for a decision whatever the amount). No change."
+- **H2:** "do NOT add to CLAUDE.md. Add to ~/Backups/Nubnb/private-accepted-risks.md (never committed): 'No automatic
+  sign-out (Kian, 2026-11-02). A lost or shared phone stays signed in until the office changes that person's code or
+  deactivates them. Changing the code signs the phone out.'" Done there; nothing in the repository.
+- **H3:** "admin words for a noted cleaning move to Build 2."
+- **H4:** "fix now. History shows cleanings for every month back to November 2026 (the statements floor), not only 45
+  days. Read them from the cleanings themselves, field-masked, per cleaner. Show the read cost per History open before
+  and after."
+
+**H4, what changed.** `listCleanerCleanings(cleanerId)` (server-cleanings.ts): `cleanings where cleanerId == <id>`,
+field-masked to day, property, status, extra, jobId, actor, note and createdAt — never the amount — each document
+checked for the cleaner again, days before `CLEANER_HISTORY_FROM` (2026-11-01, from STATEMENTS_FROM_DEFAULT) left out,
+newest first. GET /api/cleaner/entries answers `{ entries, cleanings }` (`cleanings` empty for a handyman; the phone
+takes an older server's answer without it as none). `historyItems(jobs, entries, cleanings)` lists each cleaning on
+its day — as its job when the job is in hand (the 45 days: Undo and the grey words come with it), else as the cleaning
+itself, with no Undo (an older cleaning is the office's, Kian's answer of 2026-10-14) — plus a marked job whose
+cleaning the read did not return ("Removed by the office"). The History screen draws the cleaning rows ("Cleaned",
+"Cleaned · note sent" in amber, "Removed by the office", "Recorded by the office" in grey), and the month switcher
+reaches every month with a row.
+
+**Read cost per History open, measured on the local server (one cleaner with two cleanings and no entries):** before
+2 reads (the session document, the entries query); after 4 reads (the same two, plus the cleanings query at one read
+per cleaning of theirs since the floor). In general: 2 + the entries of theirs + their cleanings since November 2026,
+each at least one; a cleaner at about two cleanings a day reaches some 60 reads per History open after a month and
+some 700 after a year — the price of a History that reaches every month, as ruled. The start call is unchanged: one
+request per page load on both builds (counted at the server with an access log), 123 reads on a cleaner with one job;
+a doubled figure seen in the H4 pass was the harness reloading the page it already had open before opening it again.
+
+**Test** (`cleaner-build1` §7, re-recorded): a cleaning 60 days before the clock, read by `listCleanerCleanings`, placed
+under September by `historyItems` as the cleaning itself while the 45-day ones stay their jobs; one dated before
+November 2026 left out; no amount in the list. **Live:** Ana's History on the before build showed Oct 29 only and no
+switcher; on the after build November (nothing), October (Oct 29 · Cleaned · Undo) and September (Sep 19 · Cleaned),
+`h4-before-history-november-390.png`, `h4-history-after-november-390.png`, `h4-history-after-september-390.png`.

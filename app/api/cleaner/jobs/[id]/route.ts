@@ -5,9 +5,11 @@
  * Body: `{ action: 'mark', note?: string | null, extraReason?: string | null }` or `{ action: 'undo' }`.
  *   mark — by a cleaner on the job, from its checkout day on, never on a job whose booking changed: a 37B cleaning is
  *          made at once, at the amount the rule gives (never typed by the cleaner, and never shown to them). Sent
- *          again after a lost answer, it makes nothing twice. The cleaner's optional note, and their "Ask for extra"
- *          with its reason (Kian's ruling F of 2026-11-01), go on the cleaning and the job; an asked extra holds the
- *          cleaning's money until the office decides. The answer carries no amount and never the outcome.
+ *          again after a lost answer, it makes nothing twice. The cleaner's optional note goes on the cleaning and
+ *          the job, and holds the cleaning's money until the office decides (Kian's ruling of 2026-11-02, Build 1,
+ *          item 2: the note is the reason, through the extra-asked mechanics of ruling F of 2026-11-01; the separate
+ *          "Ask for extra" is gone from the app, and an `extraReason` an older page still sends is taken as the
+ *          reason). The answer carries no amount and never the outcome.
  *   undo — their own mark, until a finished statement prints the cleaning, within the 45 days their list reaches,
  *          and never once a payment to them is dated on or after it (Kian's ruling of 2026-10-15: such a cleaning is
  *          not deleted; 409 CLEANING_BEFORE_PAYMENT, in words with no amount: the app shows no pay, Kian's ruling of
@@ -56,7 +58,9 @@ export async function POST(request: Request, context: RouteContext) {
 
   const cleaner = { id: cleanerId, name };
   if (parsed.data.action === 'mark') {
-    const outcome = await markCleaned(cleaner, id, new Date(), { note: parsed.data.note, extraReason: parsed.data.extraReason });
+    // A note is the reason the money waits (Build 1, item 2): it goes on the cleaning as its extra ask.
+    const note = parsed.data.note;
+    const outcome = await markCleaned(cleaner, id, new Date(), { note, extraReason: parsed.data.extraReason ?? note });
     if (outcome.kind === 'too-early') return noStore(apiFailure({ status: 409, code: 'JOB_NOT_YET', message: `Mark cleaned opens on ${dayText(outcome.opensOn)}.`, hint: 'Nothing was recorded.' }));
     if (outcome.kind === 'bad-day') return noStore(apiFailure({ status: 409, code: 'BAD_DAY', message: outcome.problem, hint: 'Nothing was recorded. Ask the office.' }));
     if (outcome.kind !== 'marked' && outcome.kind !== 'already') return noStore(apiFailure(MARK_REFUSALS[outcome.kind]));

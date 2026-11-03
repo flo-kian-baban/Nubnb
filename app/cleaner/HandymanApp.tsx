@@ -1,43 +1,30 @@
 "use client";
 
 /**
- * The handyman's flow (dispatch 24), at the same /cleaner page: the start
- * route says the account's role, and CleanerApp hands over here.
+ * The handyman's flow (dispatch 24; Kian's rulings of 2026-11-02, Build 1, items 9–11), at the same /cleaner page: the
+ * start route says the account's role, and CleanerApp hands over here.
  *
- *   home → (property) → work → sent
+ *   home → (which property) → work → sent
  *
- * The home screen (Kian's rulings of 2026-10-16 and 2026-10-17) lists every
- * unit, "All units", recent ones first, where a tap starts work for that
- * unit; then one button, "Add work", and History on its bar; no pay. A
- * handyman has no jobs, so nothing is prefilled: "Add work" opens the
- * property list, and the chosen property then sits in bold above Send, with
- * Change, as on a cleaner's receipt. Work begun and not sent is opened again
- * instead of a new piece.
+ * The home screen: "Add work" pinned, his recent units (up to five; a tap starts work for that unit), "All properties"
+ * with search behind one button, "My work" on the bar, and Sign out at the foot. One list to pick a unit: the property
+ * screen, recent first. A unit tapped on the home skips it. The chosen property sits in bold above Send, with Change.
+ * Work begun and not sent is opened again instead of a new piece; the home names it and offers Discard, asking once.
+ * "My work" lists his entries month by month, each with its description, price and status.
  *
  * The same shape as the cleaner's flow, without the photo, the items and
  * the reading: the draft lives on the phone (work-draft.ts) until the
  * server confirms it; each screen opened is a history entry, so the phone's
  * Back goes to the screen before; a send carries the draft's one-time key,
- * so sending again after a lost answer is safe. History lists their own
- * entries and what became of each, through the same list route.
+ * so sending again after a lost answer is safe.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { sendWork } from "@/app/lib/cleaner-client";
+import { sendWork, signOut } from "@/app/lib/cleaner-client";
 import { newSubmissionKey } from "@/app/lib/cleaner-draft";
-import {
-  clearWorkDraft,
-  isEmptyWorkDraft,
-  loadWorkDraft,
-  newWorkDraft,
-  readPrice,
-  saveWorkDraft,
-  toWorkPayload,
-  workProblems,
-  type WorkDraft,
-  type WorkStep,
-} from "@/app/lib/work-draft";
+import { clearWorkDraft, isEmptyWorkDraft, loadWorkDraft, newWorkDraft, readPrice, saveWorkDraft, toWorkPayload, workProblems, type WorkDraft, type WorkStep } from "@/app/lib/work-draft";
 import type { CleanerProperty, CleanerStart } from "@/app/lib/cleaners/model";
+import { AskDialog } from "./AskDialog";
 import { HomeScreen } from "./HomeScreen";
 import { PropertyScreen } from "./PropertyScreen";
 import { WorkScreen } from "./WorkScreen";
@@ -51,8 +38,11 @@ interface HandymanAppProps {
   onSignedOut: () => void;
 }
 
-/** A screen over the step: the property list, History. */
+/** A screen over the step: the property list, My work. */
 type View = "picker" | "history";
+
+/** How many recent units the home shows (item 9). */
+const RECENT_SHOWN = 5;
 
 const OFFLINE = "No signal. Your work is saved on this phone. Send it when you have signal.";
 const NOT_CONFIRMED = "Not confirmed. Tap Send again — it won’t be counted twice.";
@@ -85,9 +75,11 @@ export function HandymanApp({ start, onSignedOut }: HandymanAppProps) {
   const [sendMessage, setSendMessage] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [showProblems, setShowProblems] = useState(false);
-  /** The property list or History, open over the step; null when none is. */
+  /** The property list or My work, open over the step; null when none is. */
   const [view, setView] = useState<View | null>(null);
   const [recent, setRecent] = useState(start.recentPropertyIds);
+  const [askingDiscard, setAskingDiscard] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
 
   const draftRef = useRef(draft);
   const stepsPushedRef = useRef(0);
@@ -146,7 +138,7 @@ export function HandymanApp({ start, onSignedOut }: HandymanAppProps) {
     window.scrollTo(0, 0);
   };
 
-  /** Open the property list or History over the step, as a new history entry, so Back closes it. */
+  /** Open the property list or My work over the step, as a new history entry, so Back closes it. */
   const openView = (next: View) => {
     const step = draftRef.current.step;
     if (next === "picker") pickerOverRef.current = step;
@@ -186,7 +178,7 @@ export function HandymanApp({ start, onSignedOut }: HandymanAppProps) {
     else openView("picker");
   };
 
-  /** A unit tapped in "All units": work for it. Work begun and not sent is opened instead, taking the unit if it has none. */
+  /** A recent unit tapped on the home: work for it. Work begun and not sent is opened instead, taking the unit if it has none. */
   const startWorkFor = (property: CleanerProperty) => {
     const current = draftRef.current;
     if (begun(current)) {
@@ -213,14 +205,22 @@ export function HandymanApp({ start, onSignedOut }: HandymanAppProps) {
     closeView();
   };
 
-  const startOver = () => {
-    if (!window.confirm("Clear this? What you typed will be removed.")) return;
+  const discard = () => {
+    setAskingDiscard(false);
     setShowProblems(false);
     setSendMessage(null);
     setNotice(null);
     commit(newWorkDraft());
     window.history.replaceState({ workStep: "home" }, "");
     window.scrollTo(0, 0);
+  };
+
+  const signOutNow = async () => {
+    if (signingOut) return;
+    setSigningOut(true);
+    await signOut();
+    setSigningOut(false);
+    onSignedOut();
   };
 
   const send = async (propertyName: string) => {
@@ -274,23 +274,13 @@ export function HandymanApp({ start, onSignedOut }: HandymanAppProps) {
   };
 
   const propertyName = draft.propertyId === null ? null : (start.properties.find((p) => p.id === draft.propertyId)?.name ?? draft.propertyName);
+  const recentUnits = recent.map((pid) => start.properties.find((p) => p.id === pid)).filter((p): p is CleanerProperty => !!p).slice(0, RECENT_SHOWN);
 
   let screen;
   if (view === "picker") {
     screen = <PropertyScreen properties={start.properties} recentPropertyIds={recent} selectedId={draft.propertyId} onChoose={chooseProperty} onBack={closeView} />;
   } else if (view === "history") {
-    screen = (
-      <HistoryScreen
-        properties={start.properties}
-        jobs={NO_JOBS}
-        today={start.today}
-        busyId={null}
-        messages={NO_MESSAGES}
-        onUndo={() => {}}
-        onBack={closeView}
-        onSignedOut={historySignedOut}
-      />
-    );
+    screen = <HistoryScreen kind="work" properties={start.properties} jobs={NO_JOBS} today={start.today} busyId={null} messages={NO_MESSAGES} onUndo={() => {}} onBack={closeView} onSignedOut={historySignedOut} />;
   } else if (sent) {
     screen = (
       <DoneScreen
@@ -304,32 +294,20 @@ export function HandymanApp({ start, onSignedOut }: HandymanAppProps) {
       />
     );
   } else if (draft.step === "work") {
-    screen = (
-      <WorkScreen
-        property={draft.propertyId === null ? null : { name: propertyName }}
-        draft={draft}
-        problems={showProblems ? workProblems(draft) : {}}
-        propertyProblem={showProblems && draft.propertyId === null}
-        sending={sending}
-        sendMessage={sendMessage}
-        onBack={stepBack}
-        onChange={change}
-        onChangeProperty={() => openView("picker")}
-        onSend={() => send(propertyName ?? "Property")}
-        onStartOver={startOver}
-      />
-    );
+    screen = <WorkScreen property={draft.propertyId === null ? null : { name: propertyName }} draft={draft} problems={showProblems ? workProblems(draft) : {}} propertyProblem={showProblems && draft.propertyId === null} sending={sending} sendMessage={sendMessage} onBack={stepBack} onChange={change} onChangeProperty={() => openView("picker")} onSend={() => send(propertyName ?? "Property")} />;
   } else {
     screen = (
       <HomeScreen
         cleanerName={start.cleaner.name}
         kind="work"
         unsent={begun(draft) ? { propertyName } : null}
-        properties={start.properties}
-        recentPropertyIds={recent}
-        onUnit={startWorkFor}
+        recent={{ properties: recentUnits, onUnit: startWorkFor }}
         onAdd={addWork}
+        onAllProperties={() => openView("picker")}
+        onDiscard={begun(draft) ? () => setAskingDiscard(true) : undefined}
         onHistory={() => openView("history")}
+        onSignOut={() => void signOutNow()}
+        signingOut={signingOut}
       />
     );
   }
@@ -341,10 +319,9 @@ export function HandymanApp({ start, onSignedOut }: HandymanAppProps) {
           {notice}
         </p>
       )}
-      {!kept && !sent && view === null && draft.step === "work" && (
-        <p className={styles.note}>This phone can’t keep a copy. Keep this page open until it is sent.</p>
-      )}
+      {!kept && !sent && view === null && draft.step === "work" && <p className={styles.note}>This phone can’t keep a copy. Keep this page open until it is sent.</p>}
       {screen}
+      {askingDiscard && <AskDialog title="Discard this work?" words="What you typed will be removed." confirmLabel="Discard" cancelLabel="Keep it" danger onConfirm={discard} onCancel={() => setAskingDiscard(false)} />}
     </>
   );
 }

@@ -2,12 +2,17 @@
  * POST /api/cleaner/entries — Log one receipt's costs for one property (cleaner-only).
  * GET  /api/cleaner/entries — The signed-in cleaner's own entries, newest first (dispatch 19).
  *
- * GET answers `{ success: true, data: { entries: CleanerEntry[] } }`: for each
+ * GET answers `{ success: true, data: { entries: CleanerEntry[], cleanings: CleanerCleaning[] } }`: for each
  * of this cleaner's entries, when it was sent, the property, how many lines,
  * what it adds up to now and what was sent, its status, and the reason when
  * it was rejected. Only the entries the verified session's cleaner sent —
  * the query names them and each document is checked again — and nothing
  * else: no receipt, no history, no other cleaner. One read per entry.
+ * `cleanings` (Kian's ruling H4 of 2026-11-02, Build 1): a cleaner's own
+ * cleanings back to the statements floor, read field-masked from the
+ * cleanings themselves, for a History that reaches every month, not only
+ * the 45 days their job list does; never an amount. One read per cleaning
+ * of theirs since the floor. Empty for a handyman, who cleans nothing.
  *
  * Request:  multipart/form-data with two parts, and an optional third —
  *             receipt  the photo: JPEG, PNG or WebP, at most 4 MiB
@@ -97,6 +102,7 @@ import { saveReceipt, sniffReceiptType } from '@/app/lib/cleaners/receipts';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { getCleanerSecrets } from '@/app/lib/cleaners/secrets';
 import { CLEANER_SESSION_INVALID, requireRole, verifyCleanerSession } from '@/app/lib/cleaners/session';
+import { listCleanerCleanings } from '@/app/lib/firebase/server-cleanings';
 import {
   DuplicateSubmissionError,
   SessionRevokedError,
@@ -428,7 +434,9 @@ export async function GET(request: Request) {
   if (!session.ok) return noStore(apiFailure(session.refusal));
 
   try {
-    return noStore(apiSuccess({ entries: await listCleanerEntries(session.cleaner.id) }));
+    const { id, role } = session.cleaner;
+    const [entries, cleanings] = await Promise.all([listCleanerEntries(id), role === 'cleaner' ? listCleanerCleanings(id) : Promise.resolve([])]);
+    return noStore(apiSuccess({ entries, cleanings }));
   } catch (err) {
     // A read that failed is not an empty list.
     console.error(`[cleaner-entries] list failed: code ${errorCode(err)}`);

@@ -89,6 +89,7 @@ import {
 } from "@/app/lib/cleaners/model";
 import { distributionText, splitText, type CleanerPattern } from "@/app/lib/costs/patterns";
 import { duplicateHints, duplicateHref, duplicateWords } from "@/app/lib/costs/duplicates";
+import { totalDiffers, totalDiffersWords } from "@/app/lib/costs/marks";
 import {
   cleanerLabel,
   entryMonth,
@@ -462,6 +463,13 @@ export function EntryPane({ entry, pdf, pattern, statements, onChanged, onDelete
                 </span>
               </p>
             ))}
+            {/* The lines as sent did not add up to the total the receipt prints (Build 1, 2026-11-02): both figures; the photo decides. */}
+            {totalDiffers(entry) && (
+              <p className={styles.dupNote}>
+                <AlertTriangle size={14} aria-hidden />
+                <span>{totalDiffersWords(totalDiffers(entry)!)} Check the photo, then correct a line or approve as sent.</span>
+              </p>
+            )}
             {entry.status === "rejected" && (
               <p className={styles.reasonText}>
                 Reason, as the cleaner sees it: <FieldText value={entry.statusReason} />

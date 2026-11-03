@@ -1,58 +1,39 @@
 "use client";
 
 /**
- * The receipt (Kian's ruling 4 of 2026-10-16): after the camera, one screen with the property, the items and the
- * tax, all editable, and Send. The photo is read while the cleaner is here (below); the property it starts on is the
- * day's job (ruling 5), in bold above Send, with Change (PropertyChoice).
+ * The receipt (Kian's ruling 4 of 2026-10-16; rebuilt to his rulings of 2026-11-02, Build 1, item 6): after the
+ * camera, one screen with the photo, the lines, the tax and the property, and Send pinned at the bottom.
  *
- * What was bought: one card per receipt line — the item, how many, and the
- * amount on the receipt, which is the line's total as printed: for all of
- * that item together, never for one (D1; the quantity is never multiplied
- * into it). Under the amount, a line that follows "How many" says so in
- * words ("For all 3 together, as printed"), because "Price paid" beside
- * "How many" read as either. Item names are suggested from the ones already
- * in use, so the same thing is picked rather than typed a new way. The total
- * is shown to check against the receipt; it is added up here for display
+ * Each line is the item and the amount as printed — the line's total for all of that item together, never for one
+ * (D1); the quantity is never multiplied into it. "How many" hides behind a small "×1" control (default 1): a tap
+ * opens the stepper. One short tax line, "Tax (if on the receipt)". "Start over" sits under the photo with "Take
+ * again". Item names are suggested from the ones already in use.
+ *
+ * The reader also reads the total the receipt prints: the pinned bar shows "Receipt total $45.20 · your lines
+ * $45.20 ✓", or the two figures in amber when they differ, with "Different from the receipt. You can still send." A
+ * difference never blocks sending; the server marks the entry for the admin. The total here is added up for display
  * only and never stored.
  *
- * The receipt photo stays at the top, and opens full size, so the items can
- * be read off it; "Take again" opens the camera for a new one.
- *
  * ── Read from the photo (dispatches 20 and 21) ──
- * While the photo is being read the items and the tax are locked: nothing
- * can be typed there, and a panel says the receipt is being read. The
- * property can be checked and changed meanwhile. When the answer comes the
- * lines are there, each marked "From the photo" until the cleaner changes
- * it, then "Edited"; the tax the receipt prints fills the tax field, never a
- * line. A reading that failed unlocks the form for typing, with a quiet
- * note. Every line is the cleaner's to change, remove or add to, and what
- * they send is what is stored.
- *
- * ── Tax (dispatch 21) ──
- * Tax is its own field under the items, never a line among them: an item
- * line is something that was bought. The total is the items plus the tax.
+ * While the photo is being read the items and the tax are locked: nothing can be typed there, and a panel says the
+ * receipt is being read. The property can be checked and changed meanwhile. When the answer comes the lines are
+ * there; the tax the receipt prints fills the tax field, never a line. A reading that failed unlocks the form for
+ * typing, with a quiet note. Every line is the cleaner's to change, remove or add to, and what they send is what is
+ * stored. No tag under 16 px: the "From the photo" and "Edited" pills are gone; the server keeps the record of what
+ * was read and what was changed.
  */
 
 import { useMemo, useState, type ReactNode } from "react";
 import { Minus, Plus, X } from "lucide-react";
-import {
-  isEdited,
-  itemsCents,
-  lineProblems,
-  readPrice,
-  readQuantity,
-  readTax,
-  stepQuantity,
-  taxProblem,
-  type DraftLine,
-  type LineProblems,
-} from "@/app/lib/cleaner-draft";
+import { itemsCents, lineProblems, readPrice, readQuantity, readTax, stepQuantity, taxProblem, type DraftLine, type LineProblems } from "@/app/lib/cleaner-draft";
 import { LIMITS, formatCents } from "@/app/lib/cleaners/model";
 import { DATED_BEFORE_STATEMENTS } from "@/app/lib/cleaners/reading-date";
 import { fold, matchRank } from "@/app/lib/cleaners/text";
 import styles from "./cleaner.module.css";
+import { AskDialog } from "./AskDialog";
 import { CleanerBar } from "./CleanerBar";
 import { PropertyChoice } from "./PropertyChoice";
+import { usePinnedHeight } from "./usePinnedHeight";
 
 /** How many suggestions show under an item at once. */
 const SUGGESTIONS_SHOWN = 5;
@@ -73,9 +54,10 @@ interface ReceiptScreenProps {
   lines: DraftLine[];
   itemNames: string[];
   reading: ReadingStatus;
-  /** The tax as typed, and what the reading filled in (null when it filled none), to tell an edit. */
+  /** The tax as typed. */
   tax: string;
-  taxFromReading: string | null;
+  /** The total the receipt prints, as the reading read it; null when there is no reading or it printed none. */
+  printedTotalCents: number | null;
   /** After a Send with something missing: show what, under each field, and at the property when none is chosen. */
   showProblems: boolean;
   /** Upload progress from 0 to 1 while sending; null otherwise. */
@@ -108,15 +90,6 @@ function suggest(itemNames: string[], typed: string): string[] {
     .map(({ name }) => name);
 }
 
-/**
- * What the amount is, in words that follow "How many": the receipt's amount
- * for all of them together, never for one.
- */
-function amountHint(quantity: string | null): string {
-  if (quantity === null || quantity === "1") return "As printed on the receipt";
-  return /^[0-9]+$/.test(quantity) ? `For all ${quantity} together, as printed` : "For all of it together, as printed";
-}
-
 /** The line under the photo once the reading has answered. Nothing while there is nothing to say. */
 function ReadingNote({ reading }: { reading: ReadingStatus }) {
   if (reading.kind === "none" || reading.kind === "reading") return null;
@@ -138,8 +111,7 @@ function ReadingNote({ reading }: { reading: ReadingStatus }) {
   return (
     <p className={styles.readingNote} role="status">
       {applied === 1 ? "1 line" : `${applied} lines`} read from the photo. Check each one.
-      {leftOut.count > 0 &&
-        ` ${leftOut.count === 1 ? "One line" : `${leftOut.count} lines`} on the receipt (${formatCents(leftOut.cents)}) couldn’t be added here, so the total below will differ from the receipt.`}
+      {leftOut.count > 0 && ` ${leftOut.count === 1 ? "One line" : `${leftOut.count} lines`} on the receipt (${formatCents(leftOut.cents)}) couldn’t be added here.`}
     </p>
   );
 }
@@ -153,23 +125,7 @@ function Problem({ id, text }: { id: string; text?: string }) {
   );
 }
 
-function ItemName({
-  id,
-  value,
-  itemNames,
-  invalid,
-  describedBy,
-  onChange,
-  onPicked,
-}: {
-  id: string;
-  value: string;
-  itemNames: string[];
-  invalid: boolean;
-  describedBy?: string;
-  onChange: (name: string) => void;
-  onPicked: () => void;
-}) {
+function ItemName({ id, value, itemNames, invalid, describedBy, onChange, onPicked }: { id: string; value: string; itemNames: string[]; invalid: boolean; describedBy?: string; onChange: (name: string) => void; onPicked: () => void }) {
   const [open, setOpen] = useState(false);
   const suggestions = useMemo(() => (open ? suggest(itemNames, value) : []), [open, itemNames, value]);
   const listId = `${id}-suggestions`;
@@ -223,74 +179,69 @@ function ItemName({
   );
 }
 
-function ItemCard({
-  line,
-  number,
-  removable,
-  itemNames,
-  problems,
-  onChange,
-  onRemove,
-}: {
-  line: DraftLine;
-  number: number;
-  removable: boolean;
-  itemNames: string[];
-  problems: LineProblems;
-  onChange: (change: Partial<Omit<DraftLine, "key">>) => void;
-  onRemove: () => void;
-}) {
+function ItemCard({ line, number, removable, itemNames, problems, onChange, onRemove }: { line: DraftLine; number: number; removable: boolean; itemNames: string[]; problems: LineProblems; onChange: (change: Partial<Omit<DraftLine, "key">>) => void; onRemove: () => void }) {
   const base = `line-${line.key}`;
   const quantity = readQuantity(line.quantity);
   const focusPrice = () => document.getElementById(`${base}-price`)?.focus();
   const hasProblem = Object.keys(problems).length > 0;
+  // "How many" (item 6): behind "×1" until tapped, or already open when it is not 1 or cannot be read.
+  const [qtyOpen, setQtyOpen] = useState(false);
+  const showQty = qtyOpen || quantity !== "1";
 
   return (
     <li className={styles.itemCard} data-problem={hasProblem || undefined}>
       <div className={styles.itemHead}>
-        <span className={styles.itemNumberWrap}>
-          <span className={styles.itemNumber}>Item {number}</span>
-          {line.ai &&
-            (isEdited(line) ? (
-              <span className={`${styles.aiTag} ${styles.aiTagEdited}`}>Edited</span>
-            ) : (
-              <span className={styles.aiTag}>From the photo</span>
-            ))}
-        </span>
+        <label className={styles.fieldLabel} htmlFor={`${base}-name`}>
+          Item {number}
+        </label>
         {removable && (
           <button type="button" className={styles.removeButton} aria-label={`Remove item ${number}`} onClick={onRemove}>
             <X aria-hidden />
           </button>
         )}
       </div>
-
-      <label className={styles.fieldLabel} htmlFor={`${base}-name`}>
-        Item
-      </label>
-      <ItemName
-        id={`${base}-name`}
-        value={line.name}
-        itemNames={itemNames}
-        invalid={!!problems.name}
-        describedBy={problems.name ? `${base}-name-problem` : undefined}
-        onChange={(name) => onChange({ name })}
-        onPicked={focusPrice}
-      />
+      <ItemName id={`${base}-name`} value={line.name} itemNames={itemNames} invalid={!!problems.name} describedBy={problems.name ? `${base}-name-problem` : undefined} onChange={(name) => onChange({ name })} onPicked={focusPrice} />
       <Problem id={`${base}-name-problem`} text={problems.name} />
 
-      <div className={styles.itemRow}>
-        <div className={styles.itemRowCell}>
+      <div className={styles.amountRow}>
+        <div className={styles.amountCell}>
+          <label className={styles.fieldLabel} htmlFor={`${base}-price`}>
+            Amount
+          </label>
+          <div className={`${styles.priceField} ${problems.price ? styles.fieldInvalid : ""}`}>
+            <span aria-hidden>$</span>
+            <input
+              id={`${base}-price`}
+              type="text"
+              inputMode="decimal"
+              placeholder="0.00"
+              value={line.price}
+              autoComplete="off"
+              enterKeyHint="done"
+              aria-invalid={!!problems.price}
+              aria-describedby={problems.price ? `${base}-price-problem` : undefined}
+              onChange={(e) => onChange({ price: e.target.value })}
+              // "8" becomes "8.00": what will be sent, shown before it is.
+              onBlur={() => {
+                const read = readPrice(line.price);
+                if (read && read.text !== line.price) onChange({ price: read.text });
+              }}
+            />
+          </div>
+        </div>
+        <button type="button" className={`${styles.qtyButton} ${showQty ? styles.qtyButtonOpen : ""}`} aria-expanded={showQty} aria-controls={`${base}-qty`} aria-label={`How many: ${line.quantity}`} onClick={() => setQtyOpen((open) => !open)}>
+          ×{quantity ?? line.quantity}
+        </button>
+      </div>
+      <Problem id={`${base}-price-problem`} text={problems.price} />
+
+      {showQty && (
+        <div id={`${base}-qty`} className={styles.qtyRow}>
           <label className={styles.fieldLabel} htmlFor={`${base}-quantity`}>
             How many
           </label>
           <div className={styles.stepper}>
-            <button
-              type="button"
-              className={styles.stepButton}
-              aria-label="One fewer"
-              disabled={quantity === null || Number(quantity) <= 1}
-              onClick={() => onChange({ quantity: stepQuantity(line.quantity, -1) })}
-            >
+            <button type="button" className={styles.stepButton} aria-label="One fewer" disabled={quantity === null || Number(quantity) <= 1} onClick={() => onChange({ quantity: stepQuantity(line.quantity, -1) })}>
               <Minus aria-hidden />
             </button>
             <input
@@ -308,48 +259,13 @@ function ItemCard({
                 if (read !== null && read !== line.quantity) onChange({ quantity: read });
               }}
             />
-            <button
-              type="button"
-              className={styles.stepButton}
-              aria-label="One more"
-              onClick={() => onChange({ quantity: stepQuantity(line.quantity, 1) })}
-            >
+            <button type="button" className={styles.stepButton} aria-label="One more" onClick={() => onChange({ quantity: stepQuantity(line.quantity, 1) })}>
               <Plus aria-hidden />
             </button>
           </div>
           <Problem id={`${base}-quantity-problem`} text={problems.quantity} />
         </div>
-
-        <div className={styles.itemRowCell}>
-          <label className={styles.fieldLabel} htmlFor={`${base}-price`}>
-            Amount on receipt
-          </label>
-          <div className={`${styles.priceField} ${problems.price ? styles.fieldInvalid : ""}`}>
-            <span aria-hidden>$</span>
-            <input
-              id={`${base}-price`}
-              type="text"
-              inputMode="decimal"
-              placeholder="0.00"
-              value={line.price}
-              autoComplete="off"
-              enterKeyHint="done"
-              aria-invalid={!!problems.price}
-              aria-describedby={problems.price ? `${base}-price-hint ${base}-price-problem` : `${base}-price-hint`}
-              onChange={(e) => onChange({ price: e.target.value })}
-              // "8" becomes "8.00": what will be sent, shown before it is.
-              onBlur={() => {
-                const read = readPrice(line.price);
-                if (read && read.text !== line.price) onChange({ price: read.text });
-              }}
-            />
-          </div>
-          <p id={`${base}-price-hint`} className={styles.fieldHint}>
-            {amountHint(quantity)}
-          </p>
-          <Problem id={`${base}-price-problem`} text={problems.price} />
-        </div>
-      </div>
+      )}
     </li>
   );
 }
@@ -368,12 +284,15 @@ function PhotoViewer({ url, onClose }: { url: string; onClose: () => void }) {
 }
 
 export function ReceiptScreen(props: ReceiptScreenProps) {
-  const { property, photoUrl, lines, itemNames, reading, tax, taxFromReading, showProblems, sending, sendMessage, totalCents } = props;
+  const { property, photoUrl, lines, itemNames, reading, tax, printedTotalCents, showProblems, sending, sendMessage, totalCents } = props;
   const [viewing, setViewing] = useState(false);
+  const [askingStartOver, setAskingStartOver] = useState(false);
+  const [barRef, barHeight] = usePinnedHeight();
   /** Nothing can be typed while the receipt is being read (dispatch 21), nor while a send is in flight. */
   const locked = reading.kind === "reading" || sending !== null;
   const taxIssue = showProblems ? taxProblem(tax) : undefined;
-  const taxTag = taxFromReading === null ? null : tax === taxFromReading ? "From the photo" : "Edited";
+  const taxRead = readTax(tax);
+  const differs = printedTotalCents !== null && printedTotalCents !== totalCents;
 
   let sendLabel: ReactNode = "Send";
   if (sending !== null) sendLabel = sending < 1 ? `Sending… ${Math.round(sending * 100)}%` : "Sending…";
@@ -383,8 +302,8 @@ export function ReceiptScreen(props: ReceiptScreenProps) {
   return (
     <>
       <CleanerBar onBack={props.onBack} backDisabled={sending !== null} />
-      <main className={styles.screen}>
-        <h1 className={styles.title}>What did you buy?</h1>
+      <main className={styles.screen} style={{ paddingBottom: barHeight + 16 }}>
+        <h1 className={styles.title}>Receipt</h1>
 
         {photoUrl && (
           <div className={styles.photoRow}>
@@ -393,9 +312,14 @@ export function ReceiptScreen(props: ReceiptScreenProps) {
               <img src={photoUrl} alt="" />
               <span>See the receipt</span>
             </button>
-            <button type="button" className={styles.textButton} onClick={props.onRetake} disabled={sending !== null}>
-              Take again
-            </button>
+            <div className={styles.photoActions}>
+              <button type="button" className={styles.textButton} onClick={props.onRetake} disabled={sending !== null}>
+                Take again
+              </button>
+              <button type="button" className={styles.textButton} onClick={() => setAskingStartOver(true)} disabled={locked}>
+                Start over
+              </button>
+            </div>
           </div>
         )}
         {reading.kind === "reading" && (
@@ -409,16 +333,7 @@ export function ReceiptScreen(props: ReceiptScreenProps) {
         {/* Nothing changes while the receipt is being read, or under a send in flight. */}
         <ol className={styles.itemList} inert={locked}>
           {lines.map((line, i) => (
-            <ItemCard
-              key={line.key}
-              line={line}
-              number={i + 1}
-              removable={lines.length > 1}
-              itemNames={itemNames}
-              problems={showProblems ? lineProblems(line) : {}}
-              onChange={(change) => props.onChangeLine(line.key, change)}
-              onRemove={() => props.onRemoveLine(line.key)}
-            />
+            <ItemCard key={line.key} line={line} number={i + 1} removable={lines.length > 1} itemNames={itemNames} problems={showProblems ? lineProblems(line) : {}} onChange={(change) => props.onChangeLine(line.key, change)} onRemove={() => props.onRemoveLine(line.key)} />
           ))}
         </ol>
 
@@ -429,68 +344,41 @@ export function ReceiptScreen(props: ReceiptScreenProps) {
           </button>
         )}
 
-        {/* The tax, apart from the items (dispatch 21). */}
-        <div className={`${styles.taxCard} ${taxIssue ? styles.taxCardProblem : ""}`} inert={locked} data-problem={taxIssue ? true : undefined}>
-          <div className={styles.itemHead}>
-            <span className={styles.itemNumberWrap}>
-              <span className={styles.itemNumber}>Tax</span>
-              {taxTag && <span className={`${styles.aiTag} ${taxTag === "Edited" ? styles.aiTagEdited : ""}`}>{taxTag}</span>}
-            </span>
-          </div>
+        {/* The tax, apart from the items (dispatch 21), one line (item 6). */}
+        <div className={`${styles.taxRow} ${taxIssue ? styles.taxCardProblem : ""}`} inert={locked} data-problem={taxIssue ? true : undefined}>
           <label className={styles.fieldLabel} htmlFor="entry-tax">
-            Tax on the receipt
+            Tax (if on the receipt)
           </label>
           <div className={`${styles.priceField} ${taxIssue ? styles.fieldInvalid : ""}`}>
             <span aria-hidden>$</span>
-            <input
-              id="entry-tax"
-              type="text"
-              inputMode="decimal"
-              placeholder="0.00"
-              value={tax}
-              autoComplete="off"
-              enterKeyHint="done"
-              aria-invalid={!!taxIssue}
-              aria-describedby={taxIssue ? "entry-tax-hint entry-tax-problem" : "entry-tax-hint"}
-              onChange={(e) => props.onChangeTax(e.target.value)}
-              onBlur={() => {
-                const read = readTax(tax);
-                if (read && read.text !== tax) props.onChangeTax(read.text);
-              }}
-            />
+            <input id="entry-tax" type="text" inputMode="decimal" placeholder="0.00" value={tax} autoComplete="off" enterKeyHint="done" aria-invalid={!!taxIssue} aria-describedby={taxIssue ? "entry-tax-problem" : undefined} onChange={(e) => props.onChangeTax(e.target.value)} onBlur={() => taxRead && taxRead.text !== tax && props.onChangeTax(taxRead.text)} />
           </div>
-          <p id="entry-tax-hint" className={styles.fieldHint}>
-            The HST, or GST and QST together, as printed. Leave it empty if the receipt shows none.
-          </p>
           <Problem id="entry-tax-problem" text={taxIssue} />
         </div>
+      </main>
 
-        <button type="button" className={styles.startOver} onClick={props.onStartOver} disabled={locked}>
-          Start over
-        </button>
-
-        <div className={styles.bottomBar}>
+      <div ref={barRef} className={styles.pinnedFixed}>
+        <div className={styles.pinnedInner}>
           {sendMessage && (
             <p className={styles.problem} role="alert">
               {sendMessage}
             </p>
           )}
-          <p className={styles.totalParts}>
-            <span>Items {formatCents(itemsCents(lines))}</span>
-            <span>Tax {readTax(tax) ? formatCents(readTax(tax)!.cents) : "—"}</span>
+          <p className={`${styles.totalCheck} ${printedTotalCents === null ? "" : differs ? styles.totalCheckOff : styles.totalCheckOk}`} aria-live="polite">
+            {printedTotalCents === null ? (
+              <>
+                Your lines <strong>{formatCents(itemsCents(lines) + (taxRead?.cents ?? 0))}</strong>
+              </>
+            ) : (
+              <>
+                Receipt total <strong>{formatCents(printedTotalCents)}</strong> · your lines <strong>{formatCents(totalCents)}</strong>
+                {differs ? "" : " ✓"}
+              </>
+            )}
           </p>
-          <p className={styles.total}>
-            <span>Total</span>
-            <span>{formatCents(totalCents)}</span>
-          </p>
+          {differs && <p className={styles.totalOffWords}>Different from the receipt. You can still send.</p>}
           <PropertyChoice property={property} problem={showProblems && property === null} disabled={sending !== null} onChange={props.onChangeProperty} />
-          <button
-            type="button"
-            className={styles.primary}
-            onClick={props.onSend}
-            disabled={locked}
-            aria-live="polite"
-          >
+          <button type="button" className={styles.primary} onClick={props.onSend} disabled={locked} aria-live="polite">
             {sendLabel}
           </button>
           {sending !== null && (
@@ -499,7 +387,22 @@ export function ReceiptScreen(props: ReceiptScreenProps) {
             </div>
           )}
         </div>
-      </main>
+      </div>
+
+      {askingStartOver && (
+        <AskDialog
+          title="Start over?"
+          words="What you typed and the photo will be removed."
+          confirmLabel="Start over"
+          cancelLabel="Keep it"
+          danger
+          onConfirm={() => {
+            setAskingStartOver(false);
+            props.onStartOver();
+          }}
+          onCancel={() => setAskingStartOver(false)}
+        />
+      )}
     </>
   );
 }

@@ -163,6 +163,8 @@ import {
   type ReportExportEntry,
   type ReportExportView,
   type ReviewStatus,
+  type TotalDiffers,
+  printedTotalOf,
 } from '@/app/lib/cleaners/model';
 
 /**
@@ -747,6 +749,11 @@ export async function createCostEntry(input: NewCostEntry): Promise<CostEntryCre
   // Phase 2 (2026-11-01): a possible second send of a receipt already held is flagged for the admin, never refused,
   // and waits for a decision: it is not approved automatically (Kian's ruling of 2026-11-01).
   const possibleDuplicates = await findPossibleDuplicates({ propertyId: entry.propertyId, sha256: receipt.sha256, sentTotalCents, nowMs: Date.now() });
+  // Build 1 (2026-11-02, item 6): the lines as sent against the total the receipt prints, as the verified reading read
+  // it. A difference never blocks sending; it marks the entry for the admin, and the entry waits for a decision as a
+  // flagged receipt does (the developer's choice; see model.ts TotalDiffers).
+  const printedTotalCents = reading ? printedTotalOf(reading.record.output) : null;
+  const totalDiffers: TotalDiffers | null = printedTotalCents !== null && printedTotalCents !== sentTotalCents ? { printedTotalCents, sentTotalCents } : null;
 
   try {
     const db = getAdminDb();
@@ -772,7 +779,7 @@ export async function createCostEntry(input: NewCostEntry): Promise<CostEntryCre
 
       // The rule (dispatch 24): the entry as sent, lines plus tax, strictly under the threshold — and never a receipt
       // flagged as a possible second send: it waits for a decision whatever its amount (Kian's ruling of 2026-11-01).
-      const autoApprove = sentTotalCents < LIMITS.AUTO_APPROVE_UNDER_CENTS && possibleDuplicates.length === 0;
+      const autoApprove = sentTotalCents < LIMITS.AUTO_APPROVE_UNDER_CENTS && possibleDuplicates.length === 0 && totalDiffers === null;
       const approved: HistoryEvent = {
         at: now,
         action: 'approved',
@@ -821,6 +828,9 @@ export async function createCostEntry(input: NewCostEntry): Promise<CostEntryCre
         photoSha256: receipt.sha256,
         sentTotalCents,
         ...(possibleDuplicates.length > 0 ? { possibleDuplicates } : {}),
+        // Build 1 (2026-11-02): the printed total as read, and the mark when the lines did not add up to it.
+        ...(printedTotalCents !== null ? { printedTotalCents } : {}),
+        ...(totalDiffers ? { totalDiffers } : {}),
       });
       tx.create(sentRef, {
         schemaVersion: COST_ENTRY_SUBMISSION_SCHEMA_VERSION,
@@ -1108,6 +1118,7 @@ function toView(
     month: entry.month,
     paidWith: entry.paidWith,
     ...(entry.possibleDuplicates ? { possibleDuplicates: entry.possibleDuplicates } : {}),
+    ...(entry.totalDiffers ? { totalDiffers: entry.totalDiffers } : {}),
   };
 }
 

@@ -67,7 +67,11 @@ const SeenSchema = z.number().int().min(0).max(1_000_000);
 /** A job's ID: a property's auto ID and its checkout day. */
 export const JobIdSchema = z.string().regex(/^[A-Za-z0-9]{1,64}_\d{4}-\d{2}-\d{2}$/, 'Not a job ID');
 
-/** POST /api/cleaner/jobs/[id]: Mark cleaned with the cleaner's optional note and "Ask for extra" (its reason required when asked), or Undo. */
+/**
+ * POST /api/cleaner/jobs/[id]: Mark cleaned with the cleaner's optional note — which holds the money until the office
+ * decides (Kian's ruling of 2026-11-02, Build 1, item 2) — or Undo. `extraReason` stays for an older page; the route
+ * takes a note as the reason.
+ */
 export const JobActionSchema = z.discriminatedUnion('action', [
   z.strictObject({
     action: z.literal('mark'),

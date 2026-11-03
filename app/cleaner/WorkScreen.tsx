@@ -1,16 +1,16 @@
 "use client";
 
 /**
- * A handyman's one screen for a piece of work (dispatch 24): what was done, the price, and the property it is for, in
- * bold above Send, with Change (as on a cleaner's receipt, Kian's ruling 5 of 2026-10-16). No photo, no items, no
- * reading: handymen send no receipts, and a work entry is a detailed description of what was done plus the price
- * charged to Nubnb, materials included (Kian's ruling of 2026-11-01), which the description's hint asks for. Send goes
- * to POST /api/cleaner/work; the entry always waits for an admin's approval.
+ * A handyman's one screen for a piece of work (dispatch 24; Kian's ruling of 2026-11-02, Build 1, item 10): the unit,
+ * "What you did", and "Price" with one hint, "The final price you charge Nubnb, everything included." No tax question,
+ * no second price line, no Start over (the home offers Discard on unsent work). The property sits in bold above Send,
+ * with Change (Kian's ruling 5 of 2026-10-16). Send goes to POST /api/cleaner/work; the entry always waits for an
+ * admin's approval.
  */
 
 import { useEffect, useRef, type ReactNode } from "react";
 import { readPrice, type WorkDraft, type WorkProblems } from "@/app/lib/work-draft";
-import { LIMITS, formatCents } from "@/app/lib/cleaners/model";
+import { LIMITS } from "@/app/lib/cleaners/model";
 import styles from "./cleaner.module.css";
 import { CleanerBar } from "./CleanerBar";
 import { PropertyChoice } from "./PropertyChoice";
@@ -30,7 +30,6 @@ interface WorkScreenProps {
   onChange: (change: Partial<Pick<WorkDraft, "description" | "price">>) => void;
   onChangeProperty: () => void;
   onSend: () => void;
-  onStartOver: () => void;
 }
 
 function Problem({ id, text }: { id: string; text?: string }) {
@@ -42,9 +41,8 @@ function Problem({ id, text }: { id: string; text?: string }) {
   );
 }
 
-export function WorkScreen({ property, draft, problems, propertyProblem, sending, sendMessage, onBack, onChange, onChangeProperty, onSend, onStartOver }: WorkScreenProps) {
+export function WorkScreen({ property, draft, problems, propertyProblem, sending, sendMessage, onBack, onChange, onChangeProperty, onSend }: WorkScreenProps) {
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
-  const price = readPrice(draft.price);
 
   // The description takes the keyboard on arrival.
   useEffect(() => {
@@ -58,11 +56,11 @@ export function WorkScreen({ property, draft, problems, propertyProblem, sending
     <>
       <CleanerBar onBack={onBack} backDisabled={sending} />
       <main className={styles.screen}>
-        <h1 className={styles.title}>What did you do?</h1>
+        <h1 className={styles.title}>Work</h1>
 
         <div className={`${styles.taxCard} ${problems.description ? styles.taxCardProblem : ""}`} inert={sending} data-problem={problems.description ? true : undefined}>
           <label className={styles.fieldLabel} htmlFor="work-description">
-            Work done
+            What you did
           </label>
           <textarea
             id="work-description"
@@ -74,12 +72,9 @@ export function WorkScreen({ property, draft, problems, propertyProblem, sending
             autoComplete="off"
             autoCapitalize="sentences"
             aria-invalid={!!problems.description}
-            aria-describedby={problems.description ? "work-description-hint work-description-problem" : "work-description-hint"}
+            aria-describedby={problems.description ? "work-description-problem" : undefined}
             onChange={(e) => onChange({ description: e.target.value })}
           />
-          <p id="work-description-hint" className={styles.fieldHint}>
-            What you did, in detail. Include any parts in the price. {draft.description.length}/{LIMITS.WORK_DESCRIPTION_MAX}
-          </p>
           <Problem id="work-description-problem" text={problems.description} />
         </div>
 
@@ -107,14 +102,10 @@ export function WorkScreen({ property, draft, problems, propertyProblem, sending
             />
           </div>
           <p id="work-price-hint" className={styles.fieldHint}>
-            What you are charging for this work, tax included if you charge it.
+            The final price you charge Nubnb, everything included.
           </p>
           <Problem id="work-price-problem" text={problems.price} />
         </div>
-
-        <button type="button" className={styles.startOver} onClick={onStartOver} disabled={sending}>
-          Start over
-        </button>
 
         <div className={styles.bottomBar}>
           {sendMessage && (
@@ -122,10 +113,6 @@ export function WorkScreen({ property, draft, problems, propertyProblem, sending
               {sendMessage}
             </p>
           )}
-          <p className={styles.total}>
-            <span>Price</span>
-            <span>{price ? formatCents(price.cents) : "—"}</span>
-          </p>
           <PropertyChoice property={property} problem={propertyProblem} disabled={sending} onChange={onChangeProperty} />
           <button type="button" className={styles.primary} onClick={onSend} disabled={sending} aria-live="polite">
             {sendLabel}

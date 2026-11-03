@@ -621,8 +621,8 @@ function JobRow(props: {
                     <span className={`${styles.chipWords} ${styles.chipExtra}`}>
                       extra asked · {a.cleaning.amountCents === null ? "no amount yet" : `${formatCents(a.cleaning.amountCents)} ${a.cleaning.amountFrom ? AMOUNT_SOURCE_WORDS[a.cleaning.amountFrom] : ""}`}
                       <span className={styles.chipActions}>
-                        <button type="button" className={styles.chipAction} onClick={() => onExtra(a, "approve")} disabled={saving !== null || a.cleaning.amountCents === null} title="Approve at the amount it arrived with">
-                          Approve
+                        <button type="button" className={styles.chipAction} onClick={() => onExtra(a, "approve")} disabled={saving !== null || a.cleaning.amountCents === null} title="Approve at the cleaning price it arrived with (one click)">
+                          Approve at cleaning price
                         </button>
                         <button type="button" className={styles.chipAction} onClick={() => onExtra(a, "amount")} disabled={saving !== null} title="Approve at a new amount">
                           Amount…
