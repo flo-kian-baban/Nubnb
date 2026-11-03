@@ -163,6 +163,8 @@ function isCleanerJob(data: unknown): data is CleanerJobView {
     // Their note on the mark (Kian's ruling F of 2026-11-01; Build 1: the note is the reason): words only, never an amount or the outcome.
     (data.note === undefined || isTextOrNull(data.note)) &&
     (data.extraAsked === undefined || typeof data.extraAsked === 'boolean') &&
+    // A job added by hand carries its label (Build 2); a turnover none; an older server sends neither.
+    (data.label === undefined || isTextOrNull(data.label)) &&
     isTextOrNull(data.markRefusal)
   );
 }

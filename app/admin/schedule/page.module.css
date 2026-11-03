@@ -437,3 +437,23 @@
   outline: 2px solid #7fb0e0;
   outline-offset: 1px;
 }
+
+/* ── Build 2 (2026-11-03): the row's menu ("Amount…", "Delete…"), and a job's label ── */
+.menuTrigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  width: 36px;
+  padding: 6px 0;
+}
+.actionRow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.jobLabel {
+  font-weight: 600;
+}

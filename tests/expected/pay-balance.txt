@@ -4,7 +4,7 @@
    2026-10-21 · Cleaning · Test Lakeview Loft · earned $60.00 · paid — · amount $60.00 · counts
        Amount typed Oct 22 by Test Admin: $60.00 (owed $0.00 → $60.00)
    2026-10-20 · Payment · E-transfer · “Oct 1–15” · earned — · paid $150.00 · amount $150.00 · recorded · Recorded Oct 20 by Test Admin
-   2026-10-13 · Receipt · Test Cozy Pad · 1 item · earned — · paid — · amount $250.00 · waiting · Waiting for review
+   2026-10-13 · Receipt · Test Cozy Pad · 1 item · earned — · paid — · amount $250.00 · waiting · Needs a decision
    2026-10-12 · Receipt · Test Loft · 1 item · earned — · paid — · amount $25.00 · nubnb-card · Paid with Nubnb's card · Test Admin, Oct 14 · was owed $25.00
        Approved Oct 12 by Test Admin (owed $0.00 → $25.00)
        Marked paid with Nubnb's card Oct 14 by Test Admin (owed $25.00 → $0.00)
@@ -12,7 +12,7 @@
        Rejected Oct 12 by Test Admin: Not a work expense (owed $0.00 → $0.00)
    2026-10-10 · Cleaning · Test Lakeview Loft · earned — · paid — · amount $60.00 · removed · Removed Oct 22 by Test Admin · was $60.00 · AMBER
        Removed Oct 22 by Test Admin (owed $60.00 → $0.00) · after the payment of Oct 20 [amber]
-   2026-10-09 · Cleaning · Test Bayview · earned — · paid — · amount — · no-amount · No amount yet
+   2026-10-09 · Cleaning · Test Bayview · earned — · paid — · amount — · no-amount · Needs an amount
    2026-10-07 · Receipt · Test Cozy Pad · 1 item · earned $33.90 · paid — · amount $33.90 · counts · AMBER
        Approved Oct 8 by Test Admin (owed $0.00 → $30.00)
        Corrected Oct 23 by Test Admin: $30.00 → $33.90 (owed $30.00 → $33.90) · after the payment of Oct 20 [amber]

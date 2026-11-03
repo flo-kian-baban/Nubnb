@@ -75,7 +75,7 @@ import { UnreadDecided, UnreadGaps } from "./UnreadGaps";
 import { AdminSelect } from "../components/AdminSelect";
 import { PinGate } from "../components/PinGate";
 import { NoticeBanner, useNotice } from "../components/Notice";
-import { RowMenu } from "../cleaners/RowMenu";
+import { RowMenu } from "../components/RowMenu";
 import { amountField, readAmount } from "../costs/cost-display";
 import { formatCents } from "@/app/lib/cleaners/model";
 import { torontoDayOf } from "@/app/lib/costs/report";

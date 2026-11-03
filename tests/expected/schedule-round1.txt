@@ -9,7 +9,7 @@
    ok   a job that already has someone on it is not changed
 
 ═══ 2. The job sync gives each new job to its regular cleaner ═══
-  outcome: {"created":6,"changed":0,"watched":0,"unreadable":0,"failed":null} · reads 11 (cleaners 4, cleaning_jobs 1, property_regular_cleaners 6)
+  outcome: {"created":6,"changed":0,"watched":0,"unreadable":0,"failed":null} · reads 12 (cleaners 4, cleaning_jobs 1, deleted_cleaning_jobs 1, property_regular_cleaners 6)
   TESTPROPround1aaaa1 (Ana, active): on it TESTCLEANERround1ana · last event assigned by regular cleaner
   TESTPROPround1aaaa2 (Ben, deactivated): on it nobody · last event created by calendar
   TESTPROPround1aaaa3 (an account deleted): on it nobody · last event created by calendar
@@ -19,7 +19,7 @@
    ok   P1: Ana is on it, made then assigned
    ok   the others: nobody on them ("Needs a cleaner")
    ok   a job made before the regular cleaner was set is not changed (no backfill)
-  the same run again: {"created":0,"changed":0,"watched":6,"unreadable":0,"failed":null} · reads 6 (cleaning_jobs 6): nothing to make, so no regular cleaner is read
+  the same run again: {"created":0,"changed":0,"watched":6,"unreadable":0,"failed":null} · reads 7 (cleaning_jobs 6, deleted_cleaning_jobs 1): nothing to make, so no regular cleaner is read
    ok   no job to make: the records are not read
 
 ═══ 3. Setting a regular cleaner ═══

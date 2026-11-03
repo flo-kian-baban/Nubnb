@@ -1,7 +1,21 @@
 /**
  * The cleaning schedule, phase 1 (Kian's rulings of 2026-10-14, in CLAUDE.md
  * under *Cleaning schedule*): the job, its assignments, and how a page reads
- * them. Pure and dependency-free, like app/lib/availability, the same for the
+ * them.
+ *
+ * ── Build 2 (Kian's rulings of 2026-11-02 and 2026-11-03; schema version 3) ──
+ * A job has exactly one cleaner: `cleanerIds` stays an array for the stored
+ * shape and the queries, and every write keeps it at one or none. An admin can
+ * add any number of jobs on one property and day: a job added by hand gets its
+ * own ID, the turnover's ID with a six-character suffix, and a `label` ("Deep
+ * clean", "Extra visit"); a calendar job's label is null and reads "Turnover".
+ * An admin can delete a job: it and its cleaning go, unless that cleaning is
+ * counted in a recorded payment or printed on a finished statement; a deleted
+ * calendar job leaves a marker (`deleted_cleaning_jobs`, keyed by the job's
+ * ID, holding the booking) that the sync honours, so the next calendar read
+ * does not make it again — unless the booking changed, when it may.
+ * "Cleaned · extra asked" became "Cleaned · needs a decision": one word per
+ * state in the admin. Pure and dependency-free, like app/lib/availability, the same for the
  * pages and the server: nothing here imports Next, Firebase or anything under
  * `@/`.
  *
@@ -59,8 +73,15 @@ import { addDays, dayText } from '../availability/days';
 import type { PresetKind } from '../cleanings/prices';
 
 export const CLEANING_JOBS_COLLECTION = 'cleaning_jobs';
-/** Version 2 (2026-11-01): origin, tier, the per-job amount, each mark's note and extra ask. */
-export const JOB_SCHEMA_VERSION = 2;
+/** Version 2 (2026-11-01): origin, tier, the per-job amount, each mark's note and extra ask. Version 3 (Build 2, 2026-11-03): the label of a job added by hand. */
+export const JOB_SCHEMA_VERSION = 3;
+
+/** A job added by hand is labelled in at most this many characters ("Deep clean", "Extra visit"). */
+export const JOB_LABEL_MAX = 40;
+/** What a calendar job is called where a label is shown. */
+export const TURNOVER_LABEL = 'Turnover';
+/** What a job added by hand is called when the admin types no label (Build 2). */
+export const DEFAULT_JOB_LABEL = 'Extra visit';
 
 /** A job is made this many days before its checkout (Kian's ruling 1: two days). */
 export const CREATE_DAYS_AHEAD = 2;
@@ -193,6 +214,8 @@ export interface CleaningJob {
   tier: PresetKind | null;
   /** The amount an admin set on this job (ruling B): what a mark on it takes, with one cleaner; null for none. */
   amountCents: number | null;
+  /** The label an admin gave a job added by hand (Build 2): "Deep clean", "Extra visit"; null on a calendar job, which reads "Turnover". */
+  label: string | null;
   /** The next stay's first night on or after `checkout`; equal to it on a same-day turnover; null when none is on the calendar. */
   nextCheckIn: string | null;
   status: JobStatus;
@@ -209,6 +232,24 @@ export type StoredJob = CleaningJob & { id: string };
 /** A job's ID: the property and its checkout day. Property IDs are Firestore auto IDs, so the underscore is never theirs. */
 export function jobIdOf(propertyId: string, checkout: string): string {
   return `${propertyId}_${checkout}`;
+}
+
+/**
+ * A job added by hand (Build 2): the turnover's ID with a six-character suffix, so any number of jobs can sit on one
+ * property and day beside the calendar's one. The suffix is lowercase letters and digits, drawn by the server.
+ */
+export function addedJobIdOf(propertyId: string, checkout: string, suffix: string): string {
+  return `${jobIdOf(propertyId, checkout)}_${suffix}`;
+}
+
+/** Every job ID the routes accept: a property's auto ID and a day, with or without an added job's suffix. */
+export const JOB_ID_PATTERN = /^[A-Za-z0-9]{1,64}_\d{4}-\d{2}-\d{2}(?:_[a-z0-9]{6})?$/;
+export const isJobId = (value: unknown): value is string => typeof value === 'string' && JOB_ID_PATTERN.test(value);
+
+/** The property and the day a job's ID names, suffix or not; null for an ID not in shape. */
+export function jobIdParts(id: string): { propertyId: string; checkout: string; added: boolean } | null {
+  const match = /^([A-Za-z0-9]{1,64})_(\d{4}-\d{2}-\d{2})(_[a-z0-9]{6})?$/.exec(id);
+  return match ? { propertyId: match[1], checkout: match[2], added: match[3] !== undefined } : null;
 }
 
 // ─── Reading strictly ──────────────────────────────────────────
@@ -275,10 +316,15 @@ function readChange(value: unknown): JobChange | null | undefined {
 export function readJob(id: string, fields: Record<string, unknown>): StoredJob | null {
   const { propertyId, propertyNameAtCreation, checkout, reservation, calendarKey, nextCheckIn, status, cleanerIds, assignments, createdAt, history } = fields;
   if (typeof fields.schemaVersion !== 'number') return null;
-  if (!isText(propertyId) || !isTextOrNull(propertyNameAtCreation) || !isDay(checkout) || id !== jobIdOf(propertyId, checkout)) return null;
+  if (!isText(propertyId) || !isTextOrNull(propertyNameAtCreation) || !isDay(checkout)) return null;
   // Version 2 (2026-11-01): origin, tier and the per-job amount; a version 1 job is the calendar's, with none of them.
   const origin = fields.origin === undefined ? 'calendar' : fields.origin;
   if (origin !== 'calendar' && origin !== 'admin') return null;
+  // The ID is the turnover's; a job added by hand may carry a suffix (Build 2), a calendar job never.
+  if (id !== jobIdOf(propertyId, checkout) && !(origin === 'admin' && /^_[a-z0-9]{6}$/.test(id.slice(jobIdOf(propertyId, checkout).length)) && id.startsWith(jobIdOf(propertyId, checkout)))) return null;
+  // Version 3 (Build 2): the label of a job added by hand; absent before, and null on a calendar job.
+  const label = fields.label === undefined ? null : fields.label;
+  if (!isTextOrNull(label) || (label !== null && (origin !== 'admin' || label.length > JOB_LABEL_MAX))) return null;
   const tier = fields.tier === undefined ? null : fields.tier;
   if (!(tier === null || tier === 'short' || tier === 'mid' || tier === 'long')) return null;
   const amountCents = fields.amountCents === undefined ? null : fields.amountCents;
@@ -312,6 +358,7 @@ export function readJob(id: string, fields: Record<string, unknown>): StoredJob 
     origin,
     tier: tier as PresetKind | null,
     amountCents: amountCents as number | null,
+    label,
     nextCheckIn,
     status,
     change,
@@ -359,6 +406,40 @@ export function isSameDay(job: Pick<CleaningJob, 'status' | 'checkout' | 'nextCh
 
 /** What Take off says when Save would take nobody off (Kian's instruction of 2026-11-01): nothing is sent. */
 export const NOBODY_TAKEN_OFF = 'Nobody was taken off';
+
+/** What a job is called where its label is shown: the one an admin gave it, else "Turnover" (Build 2). */
+export function jobLabel(job: Pick<CleaningJob, 'label'>): string {
+  return job.label ?? TURNOVER_LABEL;
+}
+
+// ─── A deleted calendar job (Build 2) ─────────────────────────
+
+export const DELETED_JOBS_COLLECTION = 'deleted_cleaning_jobs';
+
+/**
+ * `deleted_cleaning_jobs/{jobId}`: the one record a deleted calendar job leaves, keyed by the turnover (its job ID:
+ * the property and the checkout day) and holding the booking it ended (the reservation's UID and first night). The
+ * sync makes no job for a stay that still ends that day under the same UID and first night; a booking that changed
+ * (another UID, or another first night) may make a new one. Nothing else is kept: no cleaner, no amount, no history.
+ */
+export interface DeletedJobMarker {
+  schemaVersion: number;
+  propertyId: string;
+  checkout: string;
+  reservation: { uid: string; start: string };
+  deletedAt: string;
+  deletedBy: JobActor;
+}
+
+export const DELETED_JOB_SCHEMA_VERSION = 1;
+
+/** A stored marker, read strictly: null when not in shape. */
+export function readDeletedJob(id: string, fields: Record<string, unknown>): (DeletedJobMarker & { id: string }) | null {
+  const { propertyId, checkout, reservation, deletedAt, deletedBy } = fields;
+  if (typeof fields.schemaVersion !== 'number' || !isText(propertyId) || !isDay(checkout) || id !== jobIdOf(propertyId, checkout)) return null;
+  if (!isRecord(reservation) || !isText(reservation.uid) || !isDay(reservation.start) || !isText(deletedAt) || !isActor(deletedBy)) return null;
+  return { id, schemaVersion: fields.schemaVersion, propertyId, checkout, reservation: { uid: reservation.uid, start: reservation.start }, deletedAt, deletedBy };
+}
 
 /** The cleaners a Take off takes off the job: those on it and no longer ticked. None: NOBODY_TAKEN_OFF, nothing sent. */
 export function takenOff(job: Pick<CleaningJob, 'cleanerIds'>, picked: readonly string[]): string[] {
@@ -435,8 +516,8 @@ export function jobState(job: Pick<JobView, 'status' | 'change' | 'checkout' | '
   if (job.assignees.some((a) => a.removedAt !== null)) return { label: 'Removed by the office', tone: 'removed' };
   if (marked === 0) return { label: 'Assigned', tone: 'assigned' };
   if (marked < job.cleanerIds.length) return { label: `${marked} of ${job.cleanerIds.length} done`, tone: 'partial' };
-  // Every cleaner marked it, and one asked for extra the office has not decided (Kian's ruling F): amber.
-  if (job.assignees.some((a) => a.cleaning?.extra === 'asked')) return { label: 'Cleaned · extra asked', tone: 'extra' };
+  // Marked, with a note the office has not decided (Kian's ruling F; Build 2's one word for it): amber.
+  if (job.assignees.some((a) => a.cleaning?.extra === 'asked')) return { label: 'Cleaned · needs a decision', tone: 'extra' };
   return { label: 'Done', tone: 'done' };
 }
 
@@ -517,6 +598,8 @@ export interface CleanerJobView {
   checkOutTime: string | null;
   checkInTime: string | null;
   nextCheckIn: string | null;
+  /** The label of a job added by hand (Build 2), so two jobs on one unit and day read apart; null on a turnover. */
+  label: string | null;
   status: JobStatus;
   /**
    * What changed, on a job whose booking changed (Kian's ruling R2 of 2026-10-19): its card reads "Cancelled: don't go"

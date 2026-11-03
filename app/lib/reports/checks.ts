@@ -263,13 +263,14 @@ export function finishChecks(input: CheckInputs): FinishChecks {
   const extraAsked = waitingCleanings.filter((entry) => entry.linesNow.kind === 'unreadable' && entry.linesNow.reason === EXTRA_ASKED).length;
   const noAmount = waitingCleanings.length - extraAsked;
   const stillPending = Math.max(0, s.pendingLeftOut - waitingCleanings.length);
-  if (stillPending > 0) warnings.push({ key: 'pending', text: `${plural(stillPending, 'entry', 'entries')} sent in ${month} ${stillPending === 1 ? 'is' : 'are'} still pending and not in it.`, tab: 'costs' });
+  if (stillPending > 0) warnings.push({ key: 'pending', text: `${plural(stillPending, 'entry', 'entries')} sent in ${month} ${stillPending === 1 ? 'needs' : 'need'} a decision and ${stillPending === 1 ? 'is' : 'are'} not in it.`, tab: 'costs' });
   const next = statementMonthFor(s.month, new Set([...currentReports(input.reports).map((report) => report.month), s.month]));
+  // Build 2 (Kian's ruling of 2026-11-03): one word per state — "needs an amount", "needs a decision".
   if (noAmount > 0) {
-    warnings.push({ key: 'no-amount', text: noAmount === 1 ? `1 cleaning has no amount yet; it will go on ${monthLabel(next)}'s statement once typed.` : `${noAmount} cleanings have no amount yet; they will go on ${monthLabel(next)}'s statement once typed.`, tab: 'costs' });
+    warnings.push({ key: 'no-amount', text: noAmount === 1 ? `1 cleaning needs an amount; it will go on ${monthLabel(next)}'s statement once typed.` : `${noAmount} cleanings need an amount; they will go on ${monthLabel(next)}'s statement once typed.`, tab: 'costs' });
   }
   if (extraAsked > 0) {
-    warnings.push({ key: 'extra-asked', text: extraAsked === 1 ? `1 cleaning waits for a decision on extra asked; it will go on ${monthLabel(next)}'s statement once decided.` : `${extraAsked} cleanings wait for a decision on extra asked; they will go on ${monthLabel(next)}'s statement once decided.`, tab: 'costs' });
+    warnings.push({ key: 'extra-asked', text: extraAsked === 1 ? `1 cleaning with a note needs a decision; it will go on ${monthLabel(next)}'s statement once decided.` : `${extraAsked} cleanings with a note need a decision; they will go on ${monthLabel(next)}'s statement once decided.`, tab: 'costs' });
   }
 
   // ── The PDF (S25) and the date (S13) ──

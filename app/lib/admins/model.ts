@@ -456,6 +456,8 @@ const ACTION_WORDS: [method: string, path: RegExp, words: string][] = [
   // The cleaning flow (Kian's rulings of 2026-11-01): a job added by hand, and a job recorded cleaned by the office.
   ['POST', new RegExp(`^/api/admin/cleaning-jobs$`), 'Added a cleaning job by hand'],
   ['POST', new RegExp(`^/api/admin/cleaning-jobs/${ID}/record$`), 'Recorded a cleaning job as cleaned'],
+  // Build 2 (Kian's ruling of 2026-11-03): a job deleted, with its cleaning; the one record of the delete.
+  ['DELETE', new RegExp(`^/api/admin/cleaning-jobs/${ID}$`), 'Deleted a cleaning job'],
   ['DELETE', new RegExp(`^/api/admin/cleaners/locks/${ID}$`), 'Lifted a cleaner sign-in lock'],
   ['POST', new RegExp(`^/api/admin/cleanings$`), 'Logged a cleaning'],
   ['PATCH', new RegExp(`^/api/admin/cleanings/${ID}$`), 'Changed or removed a cleaning'],

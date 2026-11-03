@@ -343,9 +343,9 @@ function Sheet() {
                       <th>Address</th>
                       <th title="The reference less its month: a new statement starts as <Mon>-<stem>">Reference stem</th>
                       <th title="What a new statement's fee starts from">Fee rate (%)</th>
-                      <th title={`The base price of a cleaning after a stay of ${TIER_NIGHTS.short}, in dollars`}>Cleaning: short ({TIER_NIGHTS.short})</th>
-                      <th title={`The base price of a cleaning after a stay of ${TIER_NIGHTS.mid}, in dollars`}>Cleaning: mid ({TIER_NIGHTS.mid})</th>
-                      <th title={`The base price of a cleaning after a stay of ${TIER_NIGHTS.long}, in dollars`}>Cleaning: long ({TIER_NIGHTS.long})</th>
+                      <th title={`The cleaning price after a stay of ${TIER_NIGHTS.short}, in dollars`}>Cleaning: short ({TIER_NIGHTS.short})</th>
+                      <th title={`The cleaning price after a stay of ${TIER_NIGHTS.mid}, in dollars`}>Cleaning: mid ({TIER_NIGHTS.mid})</th>
+                      <th title={`The cleaning price after a stay of ${TIER_NIGHTS.long}, in dollars`}>Cleaning: long ({TIER_NIGHTS.long})</th>
                     </tr>
                   </thead>
                   <tbody>

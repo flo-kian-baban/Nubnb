@@ -158,8 +158,10 @@ for (const [label, f] of cases7) {
   seen7.push(v);
   console.log(`  ${label}\n    ${show(v)}`);
 }
-check(seen7[0].step.key === 'extra' && seen7[0].step.label === 'Decide extra for Oct 1' && seen7[0].step.href === `/admin/costs?tab=cleanings&property=${P(70)}&from=2026-10-01&to=2026-10-01&cleaning=TESTCLEANING0070b` && seen7[0].under.extra && seen7[0].under.attention, 'an extra from any day: its step links to the cleaning on the Cleanings tab; under Extra asked and Needs attention');
-check(seen7[1].step.when === '2026-10-09' && seen7[1].step.title.includes('the cleaner asked') && seen7[1].step.title.includes('1 other extra too'), 'the earliest first, the others counted');
+// Build 2 (Kian's ruling of 2026-11-03): the step reads "Decide the note from <day>" and the chip "Needs a decision".
+check(seen7[0].step.key === 'extra' && seen7[0].step.label === 'Decide the note from Oct 1' && seen7[0].step.href === `/admin/costs?tab=cleanings&property=${P(70)}&from=2026-10-01&to=2026-10-01&cleaning=TESTCLEANING0070b` && seen7[0].under.extra && seen7[0].under.attention, 'a note from any day: its step links to the cleaning on the Cleanings tab; under Needs a decision and Needs attention');
+check(seen7[1].step.when === '2026-10-09' && seen7[1].step.title.includes('left a note') && seen7[1].step.title.includes('1 other note too'), 'the earliest first, the others counted');
+check(home.CHIPS.find((x) => x.key === 'extra')?.label === 'Needs a decision', 'the chip\'s one word: "Needs a decision"');
 check(seen7[2].step.key === 'extra' && seen7[2].under.blocked && seen7[2].under.extra, 'before Add Report For name; both chips');
 check(seen7[3].step.key === 'not-marked' && seen7[3].under.extra && seen7[3].chipSteps.extra?.href === `/admin/costs?tab=cleanings&property=${P(73)}&from=2026-10-12&to=2026-10-12&cleaning=TESTCLEANING0073a`, 'after Not marked; still under Extra asked, where the row shows the extra\'s step');
 check(Object.keys(seen7[0].chipSteps).length === 0 && Object.keys(seen7[4].chipSteps).length === 0, 'a row whose Next step is the extra, or with none, shows its own step under the chip');

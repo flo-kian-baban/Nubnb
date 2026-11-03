@@ -69,11 +69,12 @@ for (const [label, pay, cents] of cases) {
   console.log(`  ${label}: ${questions.length === 0 ? 'no question' : questions.map(q).join(' THEN ')}`);
 }
 check(checks.recordQuestions(standing(30_000), 30_000, 'Test Ana').length === 0, 'nothing waiting and not above the balance: no question');
-check(checks.recordQuestions(standing(30_000, 2, 1), 30_000, 'Test Ana').length === 1 && /2 cleanings have no amount yet, and 1 receipt or work entry is waiting for review/.test(checks.recordQuestions(standing(30_000, 2, 1), 30_000, 'Test Ana')[0].lines[0]), 'K1 names the counts');
+// Build 2 (Kian's ruling of 2026-11-03): one word per state in K1's counts, and K2 reads "Pay $X ahead?".
+check(checks.recordQuestions(standing(30_000, 2, 1), 30_000, 'Test Ana').length === 1 && /2 cleanings need an amount, and 1 receipt or work entry needs a decision/.test(checks.recordQuestions(standing(30_000, 2, 1), 30_000, 'Test Ana')[0].lines[0]), 'K1 names the counts');
 check(/balance of \$300\.00 owed does not include them/.test(checks.recordQuestions(standing(30_000, 2, 1), 30_000, 'Test Ana')[0].lines[1]), 'K1 says the balance does not include them');
-check(checks.recordQuestions(standing(30_000), 50_300, 'Test Ana')[0].title === 'This pays $203.00 more than Test Ana is owed. Record it as an advance?', 'K2 in Kian\'s words, $X the amount above the balance');
-check(checks.recordQuestions(standing(30_000, 1), 50_300, 'Test Ana').map((x) => x.confirm).join(',') === 'Record anyway,Record as an advance', 'both: K1 first, then K2');
-check(checks.recordQuestions(standing(-2_000), 5_300, 'Test Ana')[0].title.startsWith('This pays $53.00 more'), 'paid ahead already: the whole payment is above what is owed');
+check(checks.recordQuestions(standing(30_000), 50_300, 'Test Ana')[0].title === 'Pay $203.00 ahead?' && checks.recordQuestions(standing(30_000), 50_300, 'Test Ana')[0].lines[1] === 'Their balance will then read “Paid ahead $203.00”.', 'K2 in Kian\'s words of 2026-11-03, $X the amount above the balance');
+check(checks.recordQuestions(standing(30_000, 1), 50_300, 'Test Ana').map((x) => x.confirm).join(',') === 'Record anyway,Pay ahead', 'both: K1 first, then K2');
+check(checks.recordQuestions(standing(-2_000), 5_300, 'Test Ana')[0].title === 'Pay $53.00 ahead?' && checks.recordQuestions(standing(-2_000), 5_300, 'Test Ana')[0].lines[1] === 'Their balance will then read “Paid ahead $73.00”.', 'paid ahead already: the whole payment is above what is owed, and the balance after it is said');
 check(checks.recordQuestions(standing(-2_000, 1), 1_000, 'Test Ana')[0].lines[1] === 'The balance, paid ahead $20.00, does not include them.', 'a balance below zero reads "paid ahead" in K1 (Kian\'s ruling of 2026-11-01)');
 
 // ═══ 2. K3: the delete refusal ═══
@@ -93,8 +94,8 @@ for (const [label, pay, uncertain] of [
 }
 check(checks.deleteRefusal(standing(0), 0, 'Test Ana') === null, 'settled with nothing waiting: may be deleted');
 check(checks.deleteRefusal(standing(1_250), 0, 'Test Ana')?.code === 'MEMBER_HAS_BALANCE', 'a balance: MEMBER_HAS_BALANCE');
-check(checks.deleteRefusal(standing(0, 2), 0, 'Test Ana')?.code === 'MEMBER_HAS_OUTSTANDING' && /2 cleanings have no amount yet/.test(checks.deleteRefusal(standing(0, 2), 0, 'Test Ana').message), 'only cleanings with no amount: MEMBER_HAS_OUTSTANDING, naming them');
-check(checks.deleteRefusal(standing(0, 0, 1), 0, 'Test Ana')?.code === 'MEMBER_HAS_OUTSTANDING' && /waiting for review/.test(checks.deleteRefusal(standing(0, 0, 1), 0, 'Test Ana').message), 'only an entry under review: refused too');
+check(checks.deleteRefusal(standing(0, 2), 0, 'Test Ana')?.code === 'MEMBER_HAS_OUTSTANDING' && /2 cleanings need an amount/.test(checks.deleteRefusal(standing(0, 2), 0, 'Test Ana').message), 'only cleanings that need an amount: MEMBER_HAS_OUTSTANDING, naming them');
+check(checks.deleteRefusal(standing(0, 0, 1), 0, 'Test Ana')?.code === 'MEMBER_HAS_OUTSTANDING' && /needs a decision/.test(checks.deleteRefusal(standing(0, 0, 1), 0, 'Test Ana').message), 'only an entry that needs a decision: refused too');
 check([standing(1_250), standing(0, 2), standing(0, 0, 1), standing(0), standing(0, 0, 0, 1)].every((pay) => (checks.deleteRefusal(pay, 0, 'Test Ana')?.hint ?? 'Deactivate them instead. Nothing was deleted.') === 'Deactivate them instead. Nothing was deleted.'), 'every refusal points to Deactivate');
 
 // ═══ 3. The pay view's field: preset, then the recommendation, then empty; never a share ═══
@@ -118,13 +119,13 @@ const waiting = [
 ];
 const earlier = [facts('t1', P2, '2028-11-09', 7_300, 'typed', `${P2}_2028-11-09`), facts('t2', P2, '2028-11-05', 9_300, 'typed', null, 'long')];
 const all = [...earlier, ...waiting.map(([, c]) => c)];
-// The pay view's rule: a preset or a recommendation is put in the field; a split or nothing leaves it empty.
-const fieldOf = (start) => (start.kind === 'preset' || start.kind === 'recommendation' ? (start.cents / 100).toFixed(2) : '');
+// The pay view's rule since Build 2 (Kian's ruling of 2026-11-03, item 3): the cleaning price fills the field; a recommendation is a placeholder, never a value; a share of an older two-cleaner job, or nothing, leaves it empty.
+const fieldOf = (start) => pr.fieldStart(start).value;
 const starts = waiting.map(([label, c]) => [label, pr.missingAmountStart(prices[c.propertyId] ?? null, all, jobs, c)]);
 for (const [label, start] of starts) console.log(`  ${label}: ${JSON.stringify(start)} → field "${fieldOf(start)}"`);
 check(starts[0][1].kind === 'preset' && fieldOf(starts[0][1]) === '83.00' && starts[1][1].kind === 'preset' && fieldOf(starts[1][1]) === '123.00', 'a preset for the tier: the field opens with it');
-check(starts[2][1].kind === 'split' && fieldOf(starts[2][1]) === '', 'two cleaners on the job: never prefilled, with a preset or not');
-check(starts[3][1].kind === 'recommendation' && fieldOf(starts[3][1]) === '73.00' && pr.recommendationWords(starts[3][1].tier, starts[3][1].cents) === 'Last typed for short-term: $73.00', 'no preset: the last amount typed there in the tier, labelled');
+check(starts[2][1].kind === 'none' && fieldOf(starts[2][1]) === '', 'an older job with two cleaners (before one cleaner per job): never prefilled, with a price or not');
+check(starts[3][1].kind === 'recommendation' && fieldOf(starts[3][1]) === '' && pr.fieldStart(starts[3][1]).placeholder === '73.00' && pr.fieldStart(starts[3][1]).words === 'Last typed for short-term: $73.00', 'no price: the last amount typed there in the tier is a placeholder with its words, never the field\'s value (never save a suggestion)');
 check(starts[4][1].kind === 'none' && fieldOf(starts[4][1]) === '', 'no preset and nothing typed: empty');
 check(starts[5][1].kind === 'none', 'a preset for the other tier only: nothing for this one');
 

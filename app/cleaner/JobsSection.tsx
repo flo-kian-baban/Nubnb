@@ -161,9 +161,10 @@ export function JobsSection({ jobs, today, busyId, messages, onMark, onUndo, onA
           <UnitPhoto src={photoOf(job.propertyId)?.thumb ?? null} className={styles.jobThumb} />
           <div className={styles.jobMain}>
             <p className={styles.jobAddress}>{job.propertyName ?? "Property"}</p>
+            {/* A job the office added by hand says what it is (Build 2): its label, not a checkout. */}
             <p className={styles.jobMeta}>
-              {job.checkout < today ? `Checkout was ${cardDay(job.checkout)}` : job.checkOutTime ? `Checkout ${job.checkOutTime}` : "Checkout"}
-              {guest && !sameDay && ` · ${guest}`}
+              {job.label ? `${job.label}${job.checkout < today ? ` · ${cardDay(job.checkout)}` : ""}` : job.checkout < today ? `Checkout was ${cardDay(job.checkout)}` : job.checkOutTime ? `Checkout ${job.checkOutTime}` : "Checkout"}
+              {!job.label && guest && !sameDay && ` · ${guest}`}
             </p>
             {sameDay && <p className={styles.sameDay}>Same-day turnover{guest ? ` · ${guest}` : ""}</p>}
           </div>

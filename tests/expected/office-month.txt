@@ -69,7 +69,7 @@
       F · Airbnb lines waiting · 2 Airbnb lines wait on the Income page.
       G · an office cost for December · It has costs, an adjustment or a carried balance to settle.
       K · November closed owing NuBNB · November 2026 closed owing NuBNB $300.00; this statement does not carry it.
-      L · a pending entry · 1 entry sent in December 2026 is still pending and not in it.
+      L · a pending entry · 1 entry sent in December 2026 needs a decision and is not in it.
       N · a November cost on December (November finished) · It has costs, an adjustment or a carried balance to settle.
     unsettled: [{"title":"__TEST__ Unknown Flat","rows":1,"amountCents":20000}]
 

@@ -27,11 +27,18 @@
  * ── The amount rule (replacing 37B's "last paid for the property, else the cleaner's default rate") ──
  * - A cleaner's Mark cleaned on a job with exactly one cleaner: the long-term preset when the stay behind the job is 28
  *   nights or more, else the short-term preset; with no matching preset, no amount (the cleaning waits for an admin).
- * - A job with two or more cleaners: every cleaner's cleaning arrives with no amount; the admin types the split.
+ * - (Until Build 2, 2026-11-03: a job with two or more cleaners gave every cleaning no amount, and the admin typed
+ *   the split. A job now has one cleaner, Kian's ruling of 2026-11-03; only reading an older cleaning keeps "split".)
  * - A cleaning logged by hand prefills from the same rule: the stay's length when its property has a job that day,
  *   else the short-term preset. The admin can change it.
- * - Each cleaning records where its amount came from (short-term preset, long-term preset, typed).
- * - The cleaner's default rate is no longer used anywhere. Changing a preset never changes an existing cleaning.
+ * - Each cleaning records where its amount came from (a tier's cleaning price, the job's amount, or typed).
+ * - The cleaner's default rate is no longer used anywhere. Changing a price never changes an existing cleaning.
+ *
+ * ── One word (Build 2, Kian's ruling of 2026-11-03) ──
+ * The record is the property's "cleaning price" wherever an admin reads it: not a preset, a base price or "the
+ * property's price". The identifiers below keep their old names; only the words shown changed.
+ * A missing amount's field never opens holding a suggestion: "Last typed for <tier>: $X" is a grey placeholder,
+ * never a value, and Save with an empty field saves nothing (`fieldStart`).
  *
  * Pure and dependency-free: nothing here imports Next, Firebase or anything under `@/`. The server
  * (app/lib/firebase/server-cleaning-prices.ts, server-cleaning-jobs.ts, server-cleanings.ts), the pages and the tests
@@ -186,24 +193,22 @@ export function jobTier(job: Pick<JobForAmount, 'reservation' | 'checkout' | 'ti
 /** Where a cleaning's amount came from: a preset, the amount set on its job (ruling B), or typed by an admin. */
 export type AmountSource = PresetKind | 'typed' | 'job';
 
-/** The words of each source (Kian's ruling: "short-term preset", "long-term preset", "typed"; ruling B: "set on the job"). */
-export const AMOUNT_SOURCE_WORDS: Record<AmountSource, string> = { short: 'short-term preset', mid: 'mid-term preset', long: 'long-term preset', typed: 'typed', job: 'set on the job' };
+/** The words of each source (Build 2's one word, "cleaning price"; ruling B: "set on the job"). */
+export const AMOUNT_SOURCE_WORDS: Record<AmountSource, string> = { short: 'short-term cleaning price', mid: 'mid-term cleaning price', long: 'long-term cleaning price', typed: 'typed', job: 'set on the job' };
 
-/** What a Mark cleaned's amount started from: a preset, the job's own amount, or a split between several cleaners (no amount; the admin types each share). */
-export type MarkSuggestedFrom = PresetKind | 'split' | 'job';
+/** What a Mark cleaned's amount started from: a tier's cleaning price, or the job's own amount. */
+export type MarkSuggestedFrom = PresetKind | 'job';
 
 /**
  * The amount a cleaner's Mark cleaned gives the cleaning (Kian's ruling of 2026-10-19, with rulings A and B of
- * 2026-11-01). Exactly one cleaner on the job: the amount set on the job when it has one, else the preset its tier
- * takes — long-term from 28 nights, mid-term from 7, short-term below, or the tier an admin chose for a job added by
- * hand — and no amount when the property has no such preset. Two or more cleaners: no amount, whatever is set; the
- * admin types the split. Never typed by the cleaner, and never shown to them. An admin's Record as cleaned (ruling E)
- * takes exactly this.
+ * 2026-11-01; one cleaner per job since Build 2): the amount set on the job when it has one, else the cleaning price
+ * its tier takes — long-term from 28 nights, mid-term from 7, short-term below, or the tier an admin chose for a job
+ * added by hand — and no amount when the property has no such price. Never typed by the cleaner, and never shown to
+ * them. An admin's Record as cleaned (ruling E) takes exactly this.
  */
 export function markAmount(prices: CleaningPrices | null, job: JobForAmount): { from: MarkSuggestedFrom; cents: number | null; amountFrom: AmountSource | null; nights: number; tier: PresetKind } {
   const nights = jobNights(job);
   const tier = jobTier(job);
-  if (job.cleanerIds.length >= 2) return { from: 'split', cents: null, amountFrom: null, nights, tier };
   if (typeof job.amountCents === 'number') return { from: 'job', cents: job.amountCents, amountFrom: 'job', nights, tier };
   const cents = presetCents(prices, tier);
   return { from: tier, cents, amountFrom: cents === null ? null : tier, nights, tier };
@@ -230,7 +235,7 @@ export function amountSourceOf(suggestion: { from: PresetKind | 'job'; cents: nu
  * 37B's rule started them from: last paid, the cleaner's default rate, or typed when the amount differs from it.
  */
 export function amountSourceWords(cleaning: { amountCents: number | null; amountFrom?: AmountSource | null; suggested: { from: string; cents: number | null } }): string {
-  if (cleaning.amountCents === null) return cleaning.suggested.from === 'split' ? 'no amount yet: several cleaners on the job' : 'no amount yet';
+  if (cleaning.amountCents === null) return cleaning.suggested.from === 'split' ? 'needs an amount: several cleaners were on the job' : 'needs an amount';
   if (cleaning.amountFrom) return AMOUNT_SOURCE_WORDS[cleaning.amountFrom];
   if (cleaning.suggested.cents === cleaning.amountCents) {
     if (cleaning.suggested.from === 'last') return 'last paid for the property (before presets)';
@@ -239,7 +244,7 @@ export function amountSourceWords(cleaning: { amountCents: number | null; amount
   return 'typed';
 }
 
-/** What the hints need of a cleaning's job: its stay's nights, how many cleaners were on it, its tier, and the amount set on it. */
+/** What the hints need of a cleaning's job: its stay's nights, how many cleaners were on it (one since Build 2; older jobs may say more), its tier, and the amount set on it. */
 export interface JobFacts {
   nights: number;
   cleaners: number;
@@ -251,14 +256,13 @@ export interface JobFacts {
 
 const tierOfFacts = (job: JobFacts): PresetKind => job.tier ?? presetKind(job.nights);
 
-/** The hint under an amount field while a cleaning waits for one: the amount its job or its presets could start from. */
+/** The hint under an amount field while a cleaning needs one: the amount its job or its cleaning prices could start from. */
 export function waitingHint(prices: CleaningPrices | null, job: JobFacts | null): string {
   const words = (cents: number | null) => (cents === null ? 'none' : `$${(cents / 100).toFixed(2)}`);
-  if (!job) return prices && (prices.shortTermCents !== null || prices.midTermCents !== null || prices.longTermCents !== null) ? `Presets: short ${words(prices.shortTermCents)}, mid ${words(prices.midTermCents)}, long ${words(prices.longTermCents)}` : 'No preset for this property';
+  if (!job) return prices && (prices.shortTermCents !== null || prices.midTermCents !== null || prices.longTermCents !== null) ? `Cleaning prices: short ${words(prices.shortTermCents)}, mid ${words(prices.midTermCents)}, long ${words(prices.longTermCents)}` : 'No cleaning price for this property';
   const tier = tierOfFacts(job);
-  const base = typeof job.amountCents === 'number' ? `set on the job ${words(job.amountCents)}` : `${TIER_WORDS[tier]} preset ${words(presetCents(prices, tier))}`;
-  const stay = `${job.nights === 0 ? `${TIER_WORDS[tier]} job` : job.nights === 1 ? '1 night' : `${job.nights} nights`}: ${base}`;
-  return job.cleaners >= 2 ? `${job.cleaners} cleaners on this job · ${stay} in all` : stay;
+  const base = typeof job.amountCents === 'number' ? `set on the job ${words(job.amountCents)}` : `${TIER_WORDS[tier]} cleaning price ${words(presetCents(prices, tier))}`;
+  return `${job.nights === 0 ? `${TIER_WORDS[tier]} job` : job.nights === 1 ? '1 night' : `${job.nights} nights`}: ${base}`;
 }
 
 // ─── Typed prices ──────────────────────────────────────────────
@@ -457,50 +461,6 @@ export function matchPriceRows(rows: readonly CsvPriceRow[], properties: readonl
   return { matched, unmatched };
 }
 
-// ─── A second cleaner after a mark (Kian's instruction of 2026-10-19, the second round) ───
-
-/** What the Schedule knows of a cleaner on a job, as far as this rule needs. */
-export interface AssigneeFacts {
-  cleanerId: string;
-  name: string | null;
-  nameAtAssignment: string | null;
-  /** The cleaning their mark made, as it stands; null when not marked, or removed by the office. */
-  cleaning: { status: string | null; amountCents: number | null; amountFrom?: AmountSource | null } | null;
-}
-
-/** A question in the shape Nubnb's dialog asks (AskDialog's Question), written out so this file needs no app import. */
-export interface PriceQuestion {
-  title: string;
-  lines: string[];
-  confirm: string;
-}
-
-/**
- * Adding a cleaner to a job where another cleaner's mark already made a cleaning with an amount asks first (Kian's
- * instruction of 2026-10-19): "<name>'s cleaning already carries $X (<short-term|long-term> preset). With two cleaners,
- * the amounts need splitting: edit them on the Cleanings tab." Confirming assigns as before; no amount changes by
- * itself. Null when nothing is added, when the job would still have one cleaner, or when no cleaning on it carries an
- * amount (a waiting one, or one removed by the office, carries none).
- */
-export function secondCleanerQuestion(job: { cleanerIds: readonly string[]; assignees: readonly AssigneeFacts[] }, nextCleanerIds: readonly string[]): PriceQuestion | null {
-  const added = nextCleanerIds.filter((id) => !job.cleanerIds.includes(id));
-  if (added.length === 0 || nextCleanerIds.length < 2) return null;
-  const carrying = job.assignees.filter((a) => nextCleanerIds.includes(a.cleanerId) && a.cleaning !== null && a.cleaning.status === 'logged' && a.cleaning.amountCents !== null);
-  if (carrying.length === 0) return null;
-  const words = (a: AssigneeFacts) => {
-    const from = a.cleaning?.amountFrom;
-    return from ? AMOUNT_SOURCE_WORDS[from] : 'amount as recorded';
-  };
-  const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
-  const line = (a: AssigneeFacts) => `${a.name ?? a.nameAtAssignment ?? 'A cleaner'}’s cleaning already carries ${money(a.cleaning!.amountCents!)} (${words(a)}).`;
-  const count = nextCleanerIds.length === 2 ? 'two' : nextCleanerIds.length === 3 ? 'three' : `${nextCleanerIds.length}`;
-  return {
-    title: line(carrying[0]),
-    lines: [...carrying.slice(1).map(line), `With ${count} cleaners, the amounts need splitting: edit them on the Cleanings tab.`],
-    confirm: 'Assign anyway',
-  };
-}
-
 // ─── The admin-typed recommendation (Kian's ruling of 2026-10-19, the second round) ───
 // "For unsure rows, we just keep it open as input by admin, and we keep that input item as a recommendation for next
 // time (based on if it's short term or long term)."
@@ -541,25 +501,41 @@ export function recommendedAmount(cleanings: readonly CleaningFacts[], jobs: Rea
   return latest ? { cents: latest.amountCents as number, day: latest.day, cleaningId: latest.id } : null;
 }
 
-/** The words over a prefilled recommendation: "Last typed for short-term: $73.00". */
+/** The words beside a recommendation (a grey placeholder since Build 2, never a value): "Last typed for short-term: $73.00". */
 export function recommendationWords(tier: PresetKind, cents: number): string {
   return `Last typed for ${TIER_WORDS[tier]}: $${(cents / 100).toFixed(2)}`;
 }
 
 /**
- * What a field for a missing amount opens with (Kian's ruling): the property's preset for the tier, when it has one
- * (shown as the hint, as before: a preset replaces the recommendation completely); else the admin-typed recommendation,
- * prefilled and labelled, confirmed by Enter or Save; else nothing. A share of a job with several cleaners is never
- * prefilled: its hint says the preset for them all. The tier is the job's stay, else short-term.
+ * What a field for a missing amount starts from (Kian's ruling of 2026-10-19): the property's cleaning price for the
+ * tier, when it has one (a price replaces the recommendation completely); else the most recent amount an admin typed
+ * there in that tier; else nothing. The tier is the job's stay, else short-term. How the field shows it is
+ * `fieldStart`'s (Build 2): a cleaning price or the job's amount fills the field, a recommendation is a placeholder.
  */
-export function missingAmountStart(prices: CleaningPrices | null, cleanings: readonly CleaningFacts[], jobs: Readonly<Record<string, JobFacts>>, cleaning: CleaningFacts): { kind: 'preset'; tier: PresetKind; cents: number } | { kind: 'job'; tier: PresetKind; cents: number } | { kind: 'split'; tier: PresetKind; cleaners: number } | { kind: 'recommendation'; tier: PresetKind; cents: number; day: string } | { kind: 'none'; tier: PresetKind } {
+export function missingAmountStart(prices: CleaningPrices | null, cleanings: readonly CleaningFacts[], jobs: Readonly<Record<string, JobFacts>>, cleaning: CleaningFacts): { kind: 'preset'; tier: PresetKind; cents: number } | { kind: 'job'; tier: PresetKind; cents: number } | { kind: 'recommendation'; tier: PresetKind; cents: number; day: string } | { kind: 'none'; tier: PresetKind } {
   const job = cleaning.jobId !== null ? jobs[cleaning.jobId] : undefined;
   const tier: PresetKind = job ? tierOfFacts(job) : 'short';
-  if (job && job.cleaners >= 2) return { kind: 'split', tier, cleaners: job.cleaners };
-  // The amount set on the job beats the base price (ruling B).
+  // A share of an older job with two or more cleaners (before one cleaner per job): nothing is offered; the admin types it.
+  if (job && job.cleaners >= 2) return { kind: 'none', tier };
+  // The amount set on the job beats the cleaning price (ruling B).
   if (job && typeof job.amountCents === 'number') return { kind: 'job', tier, cents: job.amountCents };
   const preset = presetCents(prices, tier);
   if (preset !== null) return { kind: 'preset', tier, cents: preset };
   const recommended = recommendedAmount(cleanings, jobs, cleaning.propertyId, tier);
   return recommended ? { kind: 'recommendation', tier, cents: recommended.cents, day: recommended.day } : { kind: 'none', tier };
+}
+
+/**
+ * How a missing amount's field opens (Kian's ruling of 2026-11-03, Build 2, item 3: "Never save a suggestion"): the
+ * property's cleaning price, or the amount set on the job, fills the field — each is an amount an admin set, which the
+ * ruling allows — while "Last typed for <tier>: $X" is a grey placeholder, never a value, so Save with an empty field
+ * saves nothing. `value` is what the field holds, `placeholder` what it shows in grey, `words` what stands beside it.
+ */
+export function fieldStart(start: ReturnType<typeof missingAmountStart> | null): { value: string; placeholder: string; words: string } {
+  const money = (cents: number) => (cents / 100).toFixed(2);
+  if (!start) return { value: '', placeholder: '', words: '' };
+  if (start.kind === 'preset') return { value: money(start.cents), placeholder: money(start.cents), words: `${TIER_WORDS[start.tier][0].toUpperCase()}${TIER_WORDS[start.tier].slice(1)} cleaning price: $${money(start.cents)}` };
+  if (start.kind === 'job') return { value: money(start.cents), placeholder: money(start.cents), words: `Set on the job: $${money(start.cents)}` };
+  if (start.kind === 'recommendation') return { value: '', placeholder: money(start.cents), words: recommendationWords(start.tier, start.cents) };
+  return { value: '', placeholder: '', words: 'No cleaning price and nothing typed for this property yet: type the amount.' };
 }

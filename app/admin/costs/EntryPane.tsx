@@ -1176,7 +1176,7 @@ function describe(event: HistoryEventView): ReactNode {
       return (
         <>
           {event.actor?.role === "system" ? "Approved automatically" : `${HISTORY_ACTION_LABELS[event.action]} by ${by}`}
-          {event.from !== null && <> · was {statusWord(event.from)}</>}
+          {event.from !== null && <> · was {event.from === "pending" ? "needing a decision" : statusWord(event.from)}</>}
           {event.reason !== null && <span className={styles.historyReason}>“{event.reason}”</span>}
         </>
       );

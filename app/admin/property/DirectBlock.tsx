@@ -21,7 +21,7 @@ import { useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import type { Notice } from "../components/Notice";
 import { useAsk } from "../components/AskDialog";
-import { RowMenu } from "../cleaners/RowMenu";
+import { RowMenu } from "../components/RowMenu";
 import { ArrangementDialog, PaymentMonthsDialog, RecordPaymentDialog, type ArrangementDialogMode } from "../components/DirectDialogs";
 import { formatCents } from "@/app/lib/cleaners/model";
 import { monthLabel, monthOfDay, monthRange, type Line } from "@/app/lib/reports/model";

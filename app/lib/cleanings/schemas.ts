@@ -5,6 +5,7 @@
 
 import { z } from 'zod';
 import { CLEANING_LIMITS } from './model';
+import { JOB_ID_PATTERN, JOB_LABEL_MAX } from '@/app/lib/schedule/model';
 
 const CONTROL_CHARACTER = /\p{Cc}/u;
 
@@ -64,8 +65,8 @@ export const ChangeCleaningSchema = z.discriminatedUnion('action', [
 
 const TierSchema = z.enum(['short', 'mid', 'long']);
 const SeenSchema = z.number().int().min(0).max(1_000_000);
-/** A job's ID: a property's auto ID and its checkout day. */
-export const JobIdSchema = z.string().regex(/^[A-Za-z0-9]{1,64}_\d{4}-\d{2}-\d{2}$/, 'Not a job ID');
+/** A job's ID: a property's auto ID and its checkout day, with a job added by hand's suffix or not (Build 2). */
+export const JobIdSchema = z.string().regex(JOB_ID_PATTERN, 'Not a job ID');
 
 /**
  * POST /api/cleaner/jobs/[id]: Mark cleaned with the cleaner's optional note — which holds the money until the office
@@ -81,25 +82,31 @@ export const JobActionSchema = z.discriminatedUnion('action', [
   z.strictObject({ action: z.literal('undo') }),
 ]);
 
-/** POST /api/admin/cleaning-jobs (ruling C): a job by hand. */
+/** POST /api/admin/cleaning-jobs (ruling C): a job by hand, with its label (Build 2: "Deep clean", "Extra visit"; "Extra visit" when none is typed). */
 export const AddJobSchema = z.strictObject({
   propertyId: IdSchema,
   checkout: DaySchema,
   cleanerId: IdSchema.nullable(),
   tier: TierSchema,
   amount: AmountSchema.nullable().optional().default(null),
+  label: text(JOB_LABEL_MAX).optional().default(null),
 });
 
-/** PATCH /api/admin/cleaning-jobs/[id]: who is on it (as before), a one-step swap (ruling D), or the job's own amount (ruling B). */
+/** PATCH /api/admin/cleaning-jobs/[id]: who is on it (one cleaner, or nobody: Build 2), a one-step swap (ruling D), or the job's own amount (ruling B). */
 export const JobPatchSchema = z.union([
-  z.strictObject({ cleanerIds: z.array(IdSchema).max(10, 'At most 10 cleaners on one job'), seen: SeenSchema }),
+  z.strictObject({ cleanerIds: z.array(IdSchema).max(1, 'A job has one cleaner'), seen: SeenSchema }),
   z.strictObject({ action: z.literal('swap'), from: IdSchema, to: IdSchema, seen: SeenSchema }),
   z.strictObject({ action: z.literal('amount'), amount: AmountSchema.nullable(), seen: SeenSchema }),
 ]);
 
-/** POST /api/admin/cleaning-jobs/[id]/record (ruling E): the cleaners to record it cleaned for. */
+/** POST /api/admin/cleaning-jobs/[id]/record (ruling E): the cleaner to record it cleaned for (one per job since Build 2). */
 export const RecordJobSchema = z.strictObject({
-  cleanerIds: z.array(IdSchema).min(1, 'Name a cleaner').max(10),
+  cleanerIds: z.array(IdSchema).min(1, 'Name a cleaner').max(1, 'A job has one cleaner'),
+  seen: SeenSchema,
+});
+
+/** DELETE /api/admin/cleaning-jobs/[id] (Build 2, item 2): as the admin saw it. */
+export const DeleteJobSchema = z.strictObject({
   seen: SeenSchema,
 });
 

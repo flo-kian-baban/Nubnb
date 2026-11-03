@@ -1,23 +1,27 @@
 "use client";
 
 /**
- * A team member's other actions, behind "⋯" beside Pay (TEAM-PAY-PLAN.md §4: the row's three pay columns need the
- * room the buttons took). Nubnb's own menu, as the header's account menu is: it opens under its button, closes on a
- * pick, a click elsewhere, Escape, or the page scrolling, and is drawn fixed to the window so the table's scrolling
- * box cannot cut it off.
+ * A row's other actions, behind "⋯" (TEAM-PAY-PLAN.md §4: the Team page's row needed the room its buttons took; shared
+ * with the Schedule since Build 2, 2026-11-03, where "Amount" and "Delete…" live in it, Kian's ruling: the per-job
+ * amount is set from the row's menu, not a button on every row). Nubnb's own menu, as the header's account menu is: it
+ * opens under its button, closes on a pick, a click elsewhere, Escape, or the page scrolling, and is drawn fixed to the
+ * window so the table's scrolling box cannot cut it off. The trigger's look is the page's (`triggerClassName`).
  */
 
 import { useEffect, useRef, useState } from "react";
 import { MoreHorizontal } from "lucide-react";
-import styles from "./page.module.css";
+import styles from "./RowMenu.module.css";
 
 export interface RowMenuItem {
   label: string;
   onSelect: () => void;
   danger?: boolean;
+  /** Shown, but not to be chosen, with why in the tooltip. */
+  disabled?: boolean;
+  title?: string;
 }
 
-export function RowMenu({ label, items, disabled }: { label: string; items: RowMenuItem[]; disabled?: boolean }) {
+export function RowMenu({ label, items, disabled, triggerClassName }: { label: string; items: RowMenuItem[]; disabled?: boolean; /** The page's own look for the "⋯" button; the Team page's dark ghost button when not given. */ triggerClassName?: string }) {
   const [at, setAt] = useState<{ top: number; right: number } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -55,18 +59,20 @@ export function RowMenu({ label, items, disabled }: { label: string; items: RowM
   };
 
   return (
-    <div ref={rootRef} className={styles.rowMenuRoot}>
-      <button ref={triggerRef} type="button" className={`${styles.rowAction} ${styles.rowMenuTrigger}`} aria-haspopup="menu" aria-expanded={at !== null} aria-label={label} title={label} disabled={disabled} onClick={toggle}>
+    <div ref={rootRef} className={styles.root}>
+      <button ref={triggerRef} type="button" className={triggerClassName ?? styles.trigger} aria-haspopup="menu" aria-expanded={at !== null} aria-label={label} title={label} disabled={disabled} onClick={toggle}>
         <MoreHorizontal size={16} aria-hidden />
       </button>
       {at && (
-        <div className={styles.rowMenu} role="menu" aria-label={label} style={{ top: at.top, right: at.right }}>
+        <div className={styles.menu} role="menu" aria-label={label} style={{ top: at.top, right: at.right }}>
           {items.map((item) => (
             <button
               key={item.label}
               type="button"
               role="menuitem"
-              className={`${styles.rowMenuItem} ${item.danger ? styles.rowMenuItemDanger : ""}`}
+              className={`${styles.item} ${item.danger ? styles.itemDanger : ""}`}
+              disabled={item.disabled}
+              title={item.title}
               onClick={() => {
                 setAt(null);
                 item.onSelect();

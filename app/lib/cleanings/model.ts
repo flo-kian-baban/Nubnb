@@ -72,6 +72,7 @@
  */
 
 import type { Actor, CostEntryView, HistoryEventView, LookupState } from '@/app/lib/cleaners/model';
+import { STATEMENTS_FROM_DEFAULT, monthLabel } from '@/app/lib/reports/model';
 import type { AmountSource } from './prices';
 
 export const CLEANINGS_COLLECTION = 'cleanings';
@@ -348,12 +349,12 @@ export function cleaningEntryView(c: CleaningView): CostEntryView {
   });
 }
 
-/** What a cleaning's own amount column says while it waits for one (schema version 2). */
-export const NO_AMOUNT_YET = 'No amount yet: an admin types it in the Cleanings tab.';
-/** The same, for a job several cleaners were on (Kian's ruling of 2026-10-19: the admin types the split). */
-export const NO_AMOUNT_SPLIT = 'No amount yet: several cleaners were on the job, so an admin types each share in the Cleanings tab.';
-/** What a cleaning's amount column says while its cleaner's "Ask for extra" waits for the office (Kian's ruling F of 2026-11-01). */
-export const EXTRA_ASKED = 'Extra asked by the cleaner: the amount waits for an admin’s decision in the Cleanings tab.';
+/** What a cleaning's own amount column says while it needs one (schema version 2; Build 2's one word, "Needs an amount"). */
+export const NO_AMOUNT_YET = 'Needs an amount: an admin types it in the Cleanings tab.';
+/** The same, for a job several cleaners were on before Build 2 (one cleaner per job since): read, never written now. */
+export const NO_AMOUNT_SPLIT = 'Needs an amount: several cleaners were on the job, so an admin types each share in the Cleanings tab.';
+/** What a cleaning's amount column says while the cleaner's note holds its money (Kian's ruling F of 2026-11-01; Build 2's one word, "Needs a decision"). */
+export const EXTRA_ASKED = 'Needs a decision: the cleaner’s note holds the amount until an admin decides in the Cleanings tab.';
 
 /** A cleaning as an entry, its fields in the order 37B wrote them. */
 function entryView(c: CleaningView, status: string, lines: CostEntryView['lines'], linesNow: CostEntryView['linesNow']): CostEntryView {
@@ -392,11 +393,21 @@ function entryView(c: CleaningView, status: string, lines: CostEntryView['lines'
   };
 }
 
-/** The extra's state in words, for admins: "Extra asked: <reason>", "Extra approved by Kian, Nov 20", "Extra declined by Kian, Nov 20". */
+/** The note's state in words, for admins (Build 2's one word): "Needs a decision: “<note>”", "Approved by Kian", "Declined by Kian". */
 export function extraWords(extra: CleaningExtra): string {
   const by = extra.decidedBy?.name ? ` by ${extra.decidedBy.name}` : '';
-  if (extra.status === 'asked') return `Extra asked: ${extra.reason}`;
-  return `Extra ${extra.status}${by}`;
+  if (extra.status === 'asked') return `Needs a decision: “${extra.reason}”`;
+  return `${extra.status === 'approved' ? 'Approved' : 'Declined'}${by}`;
+}
+
+/**
+ * Where a cleaning's money goes once it counts, in words (Build 2, item 6): "goes on November 2028's statement", or,
+ * for a cleaning dated before the statements floor, "counts in pay; statements start November 2026" — never a statement
+ * month before the floor. `statementMonth` is the server's answer (its month's statement, or the next open one's).
+ */
+export function countsWords(day: string, statementMonth: string, floor = STATEMENTS_FROM_DEFAULT): string {
+  if (day.slice(0, 7) < floor) return `counts in pay; statements start ${monthLabel(floor)}`;
+  return `goes on ${monthLabel(statementMonth)}'s statement`;
 }
 
 /** Whether an entry the statements read is a cleaning. */

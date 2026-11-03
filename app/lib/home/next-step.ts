@@ -17,9 +17,9 @@
  *   Check <day> was cleaned      a job from 14 days back whose checkout passed, assigned, with someone on it who has
  *                                not marked it cleaned and whose mark the office did not remove, the earliest
  *                                ("Not marked", Kian's ruling R3 of 2026-10-19)
- *   Decide extra for <day>       a cleaning whose cleaner asked for extra and the office has not decided, however long
- *                                ago, the earliest (Kian's ruling F of 2026-11-01; the "Extra asked" chip, Phase 3 of
- *                                2026-11-01): its money waits, off the statement and out of pay, until it is decided
+ *   Decide the note from <day>   a cleaning whose cleaner left a note the office has not decided, however long ago,
+ *                                the earliest (Kian's ruling F of 2026-11-01; the chip reads "Needs a decision" since
+ *                                Build 2, 2026-11-03): its money waits, off the statement and out of pay, until decided
  *   Add Report For name          a statement owed while Finish would refuse it
  *   Review n Airbnb lines        the month due's lines waiting on the Income page
  *   Record direct payment        a direct payment overdue
@@ -66,7 +66,7 @@ export const CHIPS: readonly { key: ChipKey; label: string }[] = [
   { key: 'review', label: 'Airbnb lines to review' },
   { key: 'cleaner', label: 'Needs a cleaner' },
   { key: 'not-marked', label: 'Not marked' },
-  { key: 'extra', label: 'Extra asked' },
+  { key: 'extra', label: 'Needs a decision' },
   { key: 'calendar', label: 'Calendar not read' },
   { key: 'direct', label: 'Direct overdue' },
 ];
@@ -155,9 +155,9 @@ export function rowView(f: RowFacts): RowView {
     extras.length > 0
       ? {
           key: 'extra',
-          label: `Decide extra for ${dayText(extras[0].day)}`,
+          label: `Decide the note from ${dayText(extras[0].day)}`,
           href: cleaningHref(f.propertyId, extras[0].day, extras[0].cleaningId),
-          title: `Cleaned ${dayText(extras[0].day)}: ${extras[0].cleanerName ?? 'the cleaner'} asked for extra; its money waits until it is decided${extras.length > 1 ? ` · ${plural(extras.length - 1, 'other extra', 'other extras')} too` : ''}`,
+          title: `Cleaned ${dayText(extras[0].day)}: ${extras[0].cleanerName ?? 'the cleaner'} left a note; the cleaning needs a decision before its money counts${extras.length > 1 ? ` · ${plural(extras.length - 1, 'other note', 'other notes')} too` : ''}`,
           when: extras[0].day,
         }
       : null;

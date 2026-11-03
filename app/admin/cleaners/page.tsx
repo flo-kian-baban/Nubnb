@@ -56,10 +56,13 @@
  *   person's regular properties (Kian's ruling R5) and their open jobs from
  *   today on, shown in the row's Schedule cell; the count links to the
  *   Schedule filtered to them.
- * - The row's Balance says "· n waiting" while anything of theirs is not
- *   counted (a cleaning with no amount, a receipt or work under review), and
- *   reads "Settled" only when nothing waits; the pay view types the missing
- *   amounts in place (PayView.tsx) and asks before a payment (K1, K2).
+ * - The row's Balance says what of theirs is not counted, in the admin's one
+ *   word per state (Build 2, Kian's ruling of 2026-11-03): "· n need an
+ *   amount", "· n need a decision"; a zero balance reads "Settled" always
+ *   (no dash, no "$0.00 so far"); the pay view types the missing amounts in
+ *   place (PayView.tsx) and asks before a payment (K1, K2). The account's
+ *   history moved from the pay view's head to the row's menu ("Account
+ *   history", Build 2, item 6).
  * - Delete is refused on the page, at no read, while their balance is not
  *   zero or anything of theirs is not counted (Kian's ruling of 2026-10-15;
  *   K3), in the words the server refuses it with (pay/checks.ts).
@@ -90,6 +93,9 @@ import type { CostEntryView } from "@/app/lib/cleaners/model";
 import { cleaningEntryView, type CleaningView } from "@/app/lib/cleanings/model";
 import { fetchPayments } from "@/app/lib/pay-client";
 import { balanceWords, memberPay, type MemberPay } from "@/app/lib/pay/balance";
+import { accountEventWords } from "@/app/lib/cleaners/model";
+import { Dialog } from "../property/editor/controls";
+import ed from "../property/editor/editor.module.css";
 import { deleteRefusal } from "@/app/lib/pay/checks";
 import type { PaymentView } from "@/app/lib/pay/model";
 import { formatCents } from "@/app/lib/cleaners/model";
@@ -130,7 +136,7 @@ import Link from "next/link";
 import { NewMemberDialog } from "./NewMemberDialog";
 import { PayView, plainClick } from "./PayView";
 import { ReplaceRegularDialog, type ReplaceRegularProps } from "./ReplaceRegularDialog";
-import { RowMenu } from "./RowMenu";
+import { RowMenu } from "../components/RowMenu";
 import { useAsk } from "../components/AskDialog";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
@@ -240,6 +246,8 @@ function Cleaners() {
   const [schedule, setSchedule] = useState<ScheduleState>({ kind: "loading" });
   /** The K4 question open now: a deactivation or delete of a regular cleaner, with a picker per property. */
   const [replacing, setReplacing] = useState<ReplaceRegularProps | null>(null);
+  /** The member whose account history is open, from the row's menu (Build 2, item 6). */
+  const [historyOf, setHistoryOf] = useState<CleanerSummary | null>(null);
   /** The person whose pay is open (?pay={id}), or null for the list. */
   const payId = useSearchParams().get("pay");
 
@@ -831,9 +839,11 @@ function Cleaners() {
                               <RowMenu
                                 label={`More for ${displayName(cleaner.name)}`}
                                 disabled={busy}
+                                triggerClassName={`${styles.rowAction} ${styles.rowMenuTrigger}`}
                                 items={[
                                   { label: cleaner.code === null ? "Set code" : "Change code", onSelect: () => openEditor(cleaner) },
                                   ...(next ? [{ label: next === "deactivated" ? "Deactivate" : "Reactivate", onSelect: () => changeStatus(cleaner, next) }] : []),
+                                  { label: "Account history", onSelect: () => setHistoryOf(cleaner) },
                                   { label: "Delete…", danger: true, onSelect: () => remove(cleaner) },
                                 ]}
                               />
@@ -888,6 +898,28 @@ function Cleaners() {
       )}
       {dialog}
       {replacing && <ReplaceRegularDialog key={replacing.title} {...replacing} />}
+      {historyOf && (
+        // The account's events in words, never a code (K5): where "Account history" lives since Build 2 (item 6).
+        <Dialog
+          title={`Account history · ${displayName(historyOf.name)}`}
+          onClose={() => setHistoryOf(null)}
+          actions={
+            <button type="button" className={`${ed.btn} ${ed.btnGhost}`} onClick={() => setHistoryOf(null)}>
+              Close
+            </button>
+          }
+        >
+          {(historyOf.history ?? []).length === 0 ? (
+            <p>No events on record.</p>
+          ) : (
+            <ul className={styles.historyList}>
+              {(historyOf.history ?? []).map((event, i) => (
+                <li key={i}>{accountEventWords(event)}</li>
+              ))}
+            </ul>
+          )}
+        </Dialog>
+      )}
     </div>
   );
 }
@@ -930,8 +962,6 @@ function PayBranch({ payId, list, patterns, payments, schedule, onBack, onRetry,
       </div>
     );
   }
-  const pattern = member.role === "handyman" ? null : patterns.patterns.find((p) => p.cleanerId === member.id);
-  const patternWords = member.role === "handyman" ? null : pattern ? `${distributionText(pattern)}${pattern.worthALook ? ` · Worth a look: ${pattern.reasons.join("; ")}` : ""}` : "no receipts";
   return (
     <PayView
       key={member.id}
@@ -941,7 +971,6 @@ function PayBranch({ payId, list, patterns, payments, schedule, onBack, onRetry,
       payments={payments.payments}
       unreadablePayments={payments.unreadable}
       schedule={schedule.kind === "ready" ? { regular: schedule.data.regular[member.id] ?? [], upcoming: schedule.data.upcoming[member.id] ?? 0 } : null}
-      patternWords={patternWords}
       today={torontoDayOf(new Date())}
       onBack={onBack}
       onRefresh={onRetry}
@@ -1010,15 +1039,21 @@ function PayCells({ pay }: { pay: RowPay }) {
   }
   const balance = balanceWords(pay.pay.balanceCents);
   const uncertain = pay.pay.cannotAddUp + pay.unreadable;
-  const waiting = pay.pay.waiting;
+  // What of theirs is not counted, in the admin's one word per state (Build 2): "2 need an amount", "1 needs a decision".
+  const needs = [pay.pay.noAmount > 0 ? `${pay.pay.noAmount} ${pay.pay.noAmount === 1 ? "needs" : "need"} an amount` : null, pay.pay.extraAsked + pay.pay.waitingReview > 0 ? `${pay.pay.extraAsked + pay.pay.waitingReview} ${pay.pay.extraAsked + pay.pay.waitingReview === 1 ? "needs" : "need"} a decision` : null].filter((x): x is string => x !== null);
   return (
     <>
       <td className={styles.payCell}>{formatCents(pay.pay.earnedCents)}</td>
       <td className={styles.payCell}>{formatCents(pay.pay.paidCents)}</td>
       <td className={`${styles.payCell} ${balance.tone === "ahead" || uncertain > 0 ? styles.payWarn : ""}`}>
-        {/* "Settled" only when nothing waits (round 1): a dash with items not counted would read as nothing owed. */}
-        {balance.tone === "settled" ? waiting > 0 ? <span className={styles.muted}>$0.00 so far</span> : <span className={styles.muted}>—</span> : balance.words}
-        {waiting > 0 && <span className={`${styles.payNote} ${styles.payWarn}`}> · {waiting === 1 ? "1 waiting" : `${waiting} waiting`}</span>}
+        {/* One word for a zero balance (Build 2): "Settled", whatever still needs an amount or a decision beside it. */}
+        {balance.tone === "settled" ? <span className={needs.length > 0 ? styles.muted : undefined}>Settled</span> : balance.words}
+        {needs.map((words) => (
+          <span key={words} className={`${styles.payNote} ${styles.payWarn}`}>
+            {" "}
+            · {words}
+          </span>
+        ))}
         {uncertain > 0 && <span className={styles.payNote}> · {uncertain === 1 ? "1 record" : `${uncertain} records`} left out</span>}
       </td>
     </>

@@ -108,7 +108,7 @@ export function cleaningAmountAt(cleaning: { amountCents: number | null; history
 
 /** A cleaning's history as an owner's workbook prints it: what happened, by the office, and only the day and amount changed — never who cleaned or the note. */
 function cleaningHistoryRows(ref: string, cleaning: NonNullable<ReturnType<typeof cleaningOf>>, n: number): Cell[][] {
-  const words = (fields: { day?: string; amountCents?: number | null } | undefined) => [fields?.day, fields?.amountCents === undefined ? undefined : fields.amountCents === null ? 'no amount yet' : formatCents(fields.amountCents)].filter(Boolean).join(', ');
+  const words = (fields: { day?: string; amountCents?: number | null } | undefined) => [fields?.day, fields?.amountCents === undefined ? undefined : fields.amountCents === null ? 'needs an amount' : formatCents(fields.amountCents)].filter(Boolean).join(', ');
   return cleaning.history.slice(0, n).map((event) => [text(ref), text(whenWords(event.at)), text(event.action), null, null, text(ACTOR_WORDS[event.actor.role] ?? event.actor.role), null, text(words(event.before)), text(words(event.after))]);
 }
 
@@ -468,7 +468,7 @@ export function cleaningsWorkbook(input: CleaningsInput): Uint8Array<ArrayBuffer
       day(c.day),
       text(names.get(c.propertyId) ?? c.propertyNameAtEntry ?? 'Unknown property'),
       text(c.cleanerNameAtEntry ?? 'Unknown cleaner'),
-      c.amountCents === null ? text('No amount yet') : money(c.amountCents),
+      c.amountCents === null ? text('Needs an amount') : money(c.amountCents),
       text(c.status === 'removed' ? 'Removed' : 'Logged'),
       text(c.note ?? ''),
       text(charges.length === 0 ? 'No statement yet' : charges.map((charge) => `${monthLabel(charge.month)}${charge.finished ? '' : ' (not finished)'} ${formatCents(charge.cents)}`).join('; ')),

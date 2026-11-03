@@ -51,7 +51,7 @@ import {
 import { PROPERTY_CLEANING_PRICES_COLLECTION, amountSourceOf, handLogSuggestion, jobNights, jobTier, readCleaningPrices, type CleaningPrices, type JobFacts, type PresetKind } from '@/app/lib/cleanings/prices';
 import { pricesInTx } from './server-cleaning-prices';
 import { torontoDayOf } from '@/app/lib/costs/report';
-import { CLEANING_JOBS_COLLECTION, jobEvent, jobIdOf, readJob, type StoredJob } from '@/app/lib/schedule/model';
+import { CLEANING_JOBS_COLLECTION, JOB_ID_PATTERN, jobEvent, jobIdOf, readJob, type StoredJob } from '@/app/lib/schedule/model';
 import { paymentOnOrAfter } from './server-pay';
 import type { PaymentView } from '@/app/lib/pay/model';
 import { MONTHLY_REPORTS_COLLECTION, STATEMENTS_FROM_DEFAULT, addMonths, currentReports, monthOfDay, readMonthlyReport } from '@/app/lib/reports/model';
@@ -197,7 +197,7 @@ export async function amountStarts(propertyIds: readonly string[], jobIds: reado
   const db = getAdminDb();
   // A property ID as Nubnb issues them (a Firestore auto ID, or a test's letters and digits); never a path.
   const properties = [...new Set(propertyIds.filter((id) => /^[A-Za-z0-9_-]{1,64}$/.test(id)))];
-  const jobs = [...new Set(jobIds.filter((id) => /^[A-Za-z0-9]{1,64}_\d{4}-\d{2}-\d{2}$/.test(id)))];
+  const jobs = [...new Set(jobIds.filter((id) => JOB_ID_PATTERN.test(id)))];
   const [priceDocs, jobDocs] = await Promise.all([
     properties.length ? db.getAll(...properties.map((id) => db.collection(PROPERTY_CLEANING_PRICES_COLLECTION).doc(id))) : Promise.resolve([]),
     jobs.length ? db.getAll(...jobs.map((id) => db.collection(CLEANING_JOBS_COLLECTION).doc(id)), { fieldMask: [...JOB_FACTS_FIELDS] }) : Promise.resolve([]),
@@ -271,7 +271,7 @@ export async function listTeamChoices(): Promise<TeamChoice[]> {
  */
 export async function waitingJobsOf(cleanings: readonly Pick<Cleaning, 'amountCents' | 'amountFrom' | 'status' | 'jobId' | 'extra'>[]): Promise<Record<string, JobFacts>> {
   // The waiting ones, the typed ones (the recommendation), and those whose extra ask waits for a decision (ruling F).
-  const ids = [...new Set(cleanings.filter((c) => c.status === 'logged' && c.jobId !== null && (c.amountCents === null || c.amountFrom === 'typed' || c.extra?.status === 'asked')).map((c) => c.jobId as string))].filter((id) => /^[A-Za-z0-9]{1,64}_\d{4}-\d{2}-\d{2}$/.test(id));
+  const ids = [...new Set(cleanings.filter((c) => c.status === 'logged' && c.jobId !== null && (c.amountCents === null || c.amountFrom === 'typed' || c.extra?.status === 'asked')).map((c) => c.jobId as string))].filter((id) => JOB_ID_PATTERN.test(id));
   if (ids.length === 0) return {};
   const db = getAdminDb();
   const docs = await db.getAll(...ids.map((id) => db.collection(CLEANING_JOBS_COLLECTION).doc(id)), { fieldMask: [...JOB_FACTS_FIELDS] });

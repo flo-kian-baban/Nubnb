@@ -3,8 +3,9 @@
 /**
  * The Nubnb-only sections (dispatch 30): what the public never sees, kept
  * apart from the listing — whether the property is on the site and in
- * reporting (Status), the name cleaners see and the regular cleaner
- * (Cleaners), the statements record (Statements) and the calendar link
+ * reporting (Status), the name cleaners see, the regular cleaner and the
+ * cleaning prices (Cleaning & prices, Kian's ruling of 2026-11-03), the
+ * statements record (Statements) and the calendar link
  * (Calendar). The first three live in their own server-only collections and
  * are saved by their own routes; the calendar link is on the document but
  * stripped from every public read. The regular cleaner (Kian's ruling R5 of
@@ -65,7 +66,7 @@ export function CleanersSection({ ctx }: { ctx: SectionContext }) {
   const locked = cleanerNameState === "loading" || cleanerNameState === "unavailable";
   const title = draft.property.name?.trim() || "the title";
   return (
-    <Panel title="Cleaners" state={ctx.state} internal>
+    <Panel title="Cleaning & prices" state={ctx.state} internal>
       <Tile title="Name for cleaners" span={8}>
         <TextInput
           field="cleanerName"
@@ -104,8 +105,8 @@ const same = (a: Typed, b: Typed) => priceKey(a.short) === priceKey(b.short) && 
 const problemOf = (fields: Typed) => (readPriceText(fields.short).kind === "bad" ? "The short-term price is dollars and cents, like 75 or 75.00." : readPriceText(fields.mid).kind === "bad" ? "The mid-term price is dollars and cents, like 75 or 75.00." : readPriceText(fields.long).kind === "bad" ? "The long-term price is dollars and cents, like 115 or 115.00." : null);
 
 /**
- * Cleaning prices (Kian's ruling of 2026-10-19; three tiers by Kian's ruling A of 2026-11-01): the property's base
- * price per tier — short-term for a stay of 1–6 nights, mid-term for 7–27, long-term for 28 or more. A Mark cleaned
+ * Cleaning prices (Kian's ruling of 2026-10-19; three tiers by Kian's ruling A of 2026-11-01; "cleaning price" is the
+ * one word since Build 2): the property's cleaning price per tier — short-term for a stay of 1–6 nights, mid-term for 7–27, long-term for 28 or more. A Mark cleaned
  * takes the one the job's tier calls for, unless an amount was set on the job; the admin can change any cleaning's
  * amount. Saved on their own through their own route into a server-only record, 800 ms after the last change and when
  * the cursor leaves the tile, as the Report For sheet saves; a change never touches an existing cleaning.
@@ -231,7 +232,7 @@ function CleaningPricesTile({ ctx }: { ctx: SectionContext }) {
           {words}
         </span>
       ) : (
-        <span className={styles.hint}>The base price per tier, by the booking&rsquo;s nights: a Mark cleaned takes the one its job calls for, unless an amount was set on the job; with several cleaners on a job, or no price, it waits for an amount. Any cleaning&rsquo;s amount can be changed. Saved on their own, shortly after typing; cleanings already made keep their amounts.</span>
+        <span className={styles.hint}>The cleaning price per tier, by the booking&rsquo;s nights: a mark takes the one its job calls for, unless an amount was set on the job; with no price, the cleaning needs an amount. Any cleaning&rsquo;s amount can be changed. Saved on their own, shortly after typing; cleanings already made keep their amounts.</span>
       )}
     </Tile>
   );

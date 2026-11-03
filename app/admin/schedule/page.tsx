@@ -36,18 +36,26 @@
  *
  * The cleaning flow (Kian's rulings of 2026-11-01):
  *   - "Add a job" (C): any property, with or without a calendar, any date, any active cleaner or nobody yet, a tier
- *     (short by default), and the job's own amount when typed (B). The calendar never touches it.
+ *     (short by default), a label (Build 2) and the job's own amount when typed (B). The calendar never touches it.
  *   - "Change cleaner" (D): one swap, logged; the old cleaner's app drops the job and the new one's shows it.
- *   - "Record as cleaned" (E): on a job whose day has come, for its assigned cleaners not yet marked: the same
- *     cleaning, amount, statement line and pay as their own mark; the history names the admin.
- *   - "Amount" (B): the job's own amount, which beats the base price; locked once a mark's cleaning counts its money.
- *   - A mark with "Ask for extra" (F) reads "Cleaned · extra asked" in amber; its reason and note stand under the
- *     cleaner's chip with Approve, Amount… and Decline; the cleaner's app is never told the outcome.
+ *   - "Record as cleaned" (E): on a job whose day has come, for its cleaner, not yet marked: the same cleaning,
+ *     amount, statement line and pay as their own mark; the history names the admin.
+ *   - "Amount…" (B), in the row's menu: the job's own amount, which beats the cleaning price; locked once a mark's
+ *     cleaning counts its money.
+ *   - A mark with a note (F) reads "Cleaned · needs a decision" in amber; the note stands under the cleaner's chip
+ *     with Approve at cleaning price, Amount… and Decline; the cleaner's app is never told the outcome.
+ *
+ * Build 2 (Kian's rulings of 2026-11-02 and 2026-11-03):
+ *   - A job has one cleaner: Assign is a single choice (one cleaner, or nobody); Change cleaner swaps the one.
+ *   - Any number of jobs can be added on one property and day, each with its label, cleaner and amount.
+ *   - "Delete…", in the row's menu: one question ("Delete this job? It can't be undone."); the job and its cleaning
+ *     go, unless the cleaning is counted in a payment or printed on a statement (refused, the reason in one sentence).
+ *   - One word per state: "needs an amount", "needs a decision", "cleaning price".
  */
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, Check, ChevronDown, ChevronRight, ClipboardCheck, DollarSign, Plus, RefreshCw, Repeat, RotateCcw, UserMinus, UserPlus, Users } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, ChevronRight, ClipboardCheck, Plus, RefreshCw, Repeat, RotateCcw, UserMinus, UserPlus, Users } from "lucide-react";
 import { refreshCalendarsNow, useCalendarRunWatched, useCalendarsRead, useCalendarsRefreshed, useCalendarsRefreshing, watchCalendarRun } from "@/app/lib/calendar-refresh-client";
 import { AdminHeader } from "../components/AdminHeader";
 import { PageHead } from "../components/PageHead";
@@ -56,17 +64,18 @@ import { useAsk } from "../components/AskDialog";
 import { DateRangeField, type DatePreset } from "../components/DateRangeField";
 import { PinGate } from "../components/PinGate";
 import { NoticeBanner, useNotice } from "../components/Notice";
+import { RowMenu } from "../components/RowMenu";
 import { Dialog, Tick } from "../property/editor/controls";
 import ed from "../property/editor/editor.module.css";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
-import { addJobByHand, decideJobExtra, fetchRegularCleaner, fetchSchedule, mergeJob, recordJobCleaned, reopenJobFor, setJobAmountOf, setJobCleaners, setRegularCleanerOf, swapJobCleaner, withCleaning, type RegularCleanerAnswer, type ScheduleAnswer } from "@/app/lib/schedule-client";
+import { addJobByHand, decideJobExtra, deleteJob, fetchRegularCleaner, fetchSchedule, mergeJob, recordJobCleaned, reopenJobFor, setJobAmountOf, setJobCleaners, setRegularCleanerOf, swapJobCleaner, withCleaning, type RegularCleanerAnswer, type ScheduleAnswer } from "@/app/lib/schedule-client";
 import { fetchAvailabilityProperties } from "@/app/lib/availability-client";
 import { addDays, dayText, isDay, minutesBetween } from "@/app/lib/availability/days";
-import { NOBODY_TAKEN_OFF, changeWords, isSameDay, jobState, takenOff, type AssigneeView, type JobView, type TeamMember } from "@/app/lib/schedule/model";
+import { DEFAULT_JOB_LABEL, JOB_LABEL_MAX, NOBODY_TAKEN_OFF, changeWords, isSameDay, jobLabel, jobState, takenOff, type AssigneeView, type JobView, type TeamMember } from "@/app/lib/schedule/model";
 import { regularCleanerQuestion } from "@/app/lib/schedule/regular";
-import { AMOUNT_SOURCE_WORDS, PRESET_KINDS, TIER_NIGHTS, TIER_WORDS, jobNights, jobTier, secondCleanerQuestion, type PresetKind } from "@/app/lib/cleanings/prices";
-import { amountField, readAmountCents } from "@/app/lib/cleanings/model";
+import { AMOUNT_SOURCE_WORDS, PRESET_KINDS, TIER_NIGHTS, TIER_WORDS, jobNights, jobTier, type PresetKind } from "@/app/lib/cleanings/prices";
+import { amountField, countsWords, readAmountCents } from "@/app/lib/cleanings/model";
 import { formatCents } from "@/app/lib/cleaners/model";
 
 type Loaded = { kind: "loading" } | { kind: "ready"; answer: ScheduleAnswer } | { kind: "error"; title: string; detail?: string; status: number };
@@ -237,13 +246,11 @@ function Schedule() {
     if (result.data.changed) show({ tone: "success", title: `Saved who is on ${job.property.name ?? "the job"} · ${dayText(job.checkout)}.` });
   };
 
-  /** A moved booking's cleaners, put on the job at its new checkout: one click, the admin's (ruling 2). */
+  /** A moved booking's cleaner, put on the job at its new checkout while it has nobody: one click, the admin's (ruling 2). */
   const sameCleanersTo = async (from: JobView, target: JobView) => {
     if (saving) return;
-    const wanted = [...new Set([...target.cleanerIds, ...from.cleanerIds.filter((cid) => active.some((member) => member.id === cid))])];
-    // A cleaner added where another's mark already carries an amount: asked first (Kian's instruction of 2026-10-19).
-    const question = secondCleanerQuestion(target, wanted);
-    if (question && !(await ask(question))) return;
+    const wanted = target.cleanerIds.length > 0 ? target.cleanerIds : from.cleanerIds.filter((cid) => active.some((member) => member.id === cid)).slice(0, 1);
+    if (wanted.length === 0) return;
     setSaving(target.id);
     const result = await setJobCleaners(target.id, wanted, target.history.length);
     setSaving(null);
@@ -278,6 +285,34 @@ function Schedule() {
   };
 
   const replaceJob = (next: JobView) => setLoaded((prev) => (prev.kind === "ready" ? { kind: "ready", answer: { ...prev.answer, jobs: prev.answer.jobs.map((job) => (job.id === next.id ? next : job)) } } : prev));
+  const dropJob = (id: string) => setLoaded((prev) => (prev.kind === "ready" ? { kind: "ready", answer: { ...prev.answer, jobs: prev.answer.jobs.filter((job) => job.id !== id) } } : prev));
+
+  /**
+   * Delete a job (Kian's ruling of 2026-11-03, Build 2, item 2): one question, no reason asked; the job and its cleaning
+   * go, unless the cleaning is counted in a payment or printed on a statement, when the server refuses with the reason.
+   */
+  const remove = async (job: JobView) => {
+    if (saving) return;
+    const where = `${job.property.name ?? job.propertyNameAtCreation ?? "the property"} · ${dayText(job.checkout)} · ${jobLabel(job)}`;
+    const marked = job.assignees.filter((a) => a.cleaningId !== null);
+    const yes = await ask({
+      title: "Delete this job? It can't be undone.",
+      lines: [where, marked.length > 0 ? `${marked.map((a) => a.name ?? a.nameAtAssignment ?? "a cleaner").join(", ")} marked it: the cleaning goes with it.` : job.cleanerIds.length > 0 ? `${job.assignees.map((a) => a.name ?? "a cleaner").join(", ")} is on it: it leaves their app.` : null],
+      confirm: "Delete",
+      danger: true,
+    });
+    if (!yes) return;
+    setSaving(job.id);
+    const result = await deleteJob(job.id, job.history.length);
+    setSaving(null);
+    if (!result.ok) {
+      // The one sentence the server refuses with, as the notice's title.
+      show(result.unknown ? { tone: "warning", title: "The job may or may not have been deleted. Reload to see.", detail: result.title } : { tone: "error", title: result.title, detail: result.detail });
+      return;
+    }
+    dropJob(job.id);
+    show({ tone: "success", title: `Deleted ${where}.`, detail: result.data.deleted.cleanings > 0 ? `${result.data.deleted.cleanings === 1 ? "Its cleaning went" : "Its cleanings went"} with it.` : undefined });
+  };
   const unknownOrError = (result: { unknown: boolean; title: string; detail?: string }, what: string) => show(result.unknown ? { tone: "warning", title: `${what} may or may not have been saved. Reload to see.`, detail: result.title } : { tone: "error", title: result.title, detail: result.detail });
 
   /** A job added by hand (ruling C): the page reads its days again, widened to the new job's day when it lies outside them. */
@@ -319,8 +354,8 @@ function Schedule() {
     for (const made of result.data.cleanings) next = withCleaning(next, made.cleanerId, { amountCents: made.amountCents, status: "logged", extra: null });
     replaceJob(next);
     const who = result.data.cleanings.map((made) => next.assignees.find((a) => a.cleanerId === made.cleanerId)?.name ?? "a cleaner").join(", ");
-    const amounts = result.data.cleanings.map((made) => (made.amountCents === null ? "no amount yet" : formatCents(made.amountCents))).join(", ");
-    show({ tone: "success", title: `Recorded ${job.property.name ?? "the job"} · ${dayText(job.checkout)} as cleaned for ${who} (${amounts}).`, detail: `It goes on ${result.data.statementMonth}'s statement and into their pay, as their own mark would.` });
+    const amounts = result.data.cleanings.map((made) => (made.amountCents === null ? "needs an amount" : formatCents(made.amountCents))).join(", ");
+    show({ tone: "success", title: `Recorded ${job.property.name ?? "the job"} · ${dayText(job.checkout)} as cleaned for ${who} (${amounts}).`, detail: `It ${countsWords(job.checkout, result.data.statementMonth)} and counts in their pay, as their own mark would.` });
   };
 
   /** The job's own amount (ruling B), set, changed or cleared. */
@@ -336,7 +371,7 @@ function Schedule() {
     setPricing(null);
     if (result.data.cleaningsChanged > 0) await load(range?.from, range?.to);
     else replaceJob(mergeJob(job, result.data.job, team));
-    if (result.data.changed) show({ tone: "success", title: amount === null ? `Cleared the amount on ${job.property.name ?? "the job"} · ${dayText(job.checkout)}: the base price applies.` : `${job.property.name ?? "The job"} · ${dayText(job.checkout)}: $${amount} on the job${result.data.cleaningsChanged > 0 ? `, and its waiting cleaning follows it` : ""}.` });
+    if (result.data.changed) show({ tone: "success", title: amount === null ? `Cleared the amount on ${job.property.name ?? "the job"} · ${dayText(job.checkout)}: the cleaning price applies.` : `${job.property.name ?? "The job"} · ${dayText(job.checkout)}: $${amount} on the job${result.data.cleaningsChanged > 0 ? `, and its cleaning follows it` : ""}.` });
   };
 
   /** The extra a cleaner asked for (ruling F): approved at its amount or a new one, or declined, from the row. */
@@ -351,7 +386,7 @@ function Schedule() {
     }
     setExtraAt(null);
     replaceJob(withCleaning(job, a.cleanerId, { extra: decision === "approve" ? "approved" : "declined", amountCents: result.data.cleaning.amountCents, amountFrom: amount !== undefined ? "typed" : a.cleaning.amountFrom, seen: result.data.cleaning.history.length }));
-    show({ tone: "success", title: `${decision === "approve" ? "Approved" : "Declined"} the extra ${a.name ?? "the cleaner"} asked for on ${job.property.name ?? "the job"} · ${dayText(job.checkout)}: ${result.data.cleaning.amountCents === null ? "no amount yet" : formatCents(result.data.cleaning.amountCents)} counts.` });
+    show({ tone: "success", title: `${decision === "approve" ? "Approved" : "Declined"} the note from ${a.name ?? "the cleaner"} on ${job.property.name ?? "the job"} · ${dayText(job.checkout)}: ${result.data.cleaning.amountCents === null ? "it still needs an amount" : `${formatCents(result.data.cleaning.amountCents)} counts`}.`, detail: `It ${countsWords(job.checkout, result.data.statementMonth)}.` });
   };
 
   const propertyGroups = useMemo(() => {
@@ -397,6 +432,7 @@ function Schedule() {
                 onSwap={() => setSwapping(job)}
                 onRecord={() => setRecording(job)}
                 onAmount={() => setPricing(job)}
+                onDelete={() => void remove(job)}
                 onExtra={(a, decision) => (decision === "amount" ? setExtraAt({ job, a }) : void decideExtra(job, a, decision))}
               />
             ))}
@@ -488,7 +524,8 @@ function Schedule() {
           team={team}
           othersThatDay={(cid) => (answer ? answer.jobs.filter((other) => other.checkout === assigning.job.checkout && other.id !== assigning.job.id && other.cleanerIds.includes(cid)).length : 0)}
           busy={saving === assigning.job.id}
-          onToggle={(cid) => setAssigning((prev) => (prev ? { ...prev, picked: prev.picked.includes(cid) ? prev.picked.filter((x) => x !== cid) : [...prev.picked, cid] } : prev))}
+          // One cleaner per job (Build 2): Assign picks one, or nobody; Take off (a changed booking) unticks whoever is on it.
+          onToggle={(cid) => setAssigning((prev) => (prev ? { ...prev, picked: prev.mode === "take-off" ? (prev.picked.includes(cid) ? prev.picked.filter((x) => x !== cid) : [...prev.picked, cid]) : prev.picked.includes(cid) ? [] : [cid] } : prev))}
           onClose={() => setAssigning(null)}
           onSave={saveAssign}
           onRegularSaved={(title) => show({ tone: "success", title })}
@@ -497,8 +534,8 @@ function Schedule() {
       {adding && <AddJobDialog active={active} today={today ?? ""} busy={saving === "add"} onClose={() => setAdding(false)} onAdded={onAdded} setBusy={(on) => setSaving(on ? "add" : null)} show={show} />}
       {swapping && <SwapDialog job={swapping} active={active} busy={saving === swapping.id} onClose={() => setSwapping(null)} onSwap={(from, to) => void swap(swapping, from, to)} />}
       {recording && <RecordDialog job={recording} busy={saving === recording.id} onClose={() => setRecording(null)} onRecord={(ids) => void record(recording, ids)} />}
-      {pricing && <AmountDialog title={`Amount on ${pricing.property.name ?? "the job"} · ${dayText(pricing.checkout)}`} words={`What a mark on this job takes instead of the base price (${TIER_WORDS[jobTier(pricing)]}). Leave it empty to clear it.`} initial={pricing.amountCents === null ? "" : amountField(pricing.amountCents)} allowEmpty busy={saving === pricing.id} confirm="Save" onClose={() => setPricing(null)} onSave={(amount) => void price(pricing, amount)} />}
-      {extraAt && <AmountDialog title={`Approve the extra ${extraAt.a.name ?? "the cleaner"} asked for, at a new amount`} words={`Asked for: ${extraAt.a.note ? `${extraAt.a.note} · ` : ""}the reason stands on the cleaning. The amount it arrived with: ${extraAt.a.cleaning?.amountCents === null ? "none yet" : formatCents(extraAt.a.cleaning?.amountCents ?? 0)}.`} initial={extraAt.a.cleaning?.amountCents == null ? "" : amountField(extraAt.a.cleaning.amountCents)} allowEmpty={false} busy={saving === extraAt.job.id} confirm="Approve at this amount" onClose={() => setExtraAt(null)} onSave={(amount) => void decideExtra(extraAt.job, extraAt.a, "approve", amount ?? undefined)} />}
+      {pricing && <AmountDialog title={`Amount on ${pricing.property.name ?? "the job"} · ${dayText(pricing.checkout)} · ${jobLabel(pricing)}`} words={`What a mark on this job takes instead of the property’s ${TIER_WORDS[jobTier(pricing)]} cleaning price. Leave it empty to clear it.`} initial={pricing.amountCents === null ? "" : amountField(pricing.amountCents)} allowEmpty busy={saving === pricing.id} confirm="Save" onClose={() => setPricing(null)} onSave={(amount) => void price(pricing, amount)} />}
+      {extraAt && <AmountDialog title={`Approve the note from ${extraAt.a.name ?? "the cleaner"} at a new amount`} words={`The note: “${extraAt.a.note ?? ""}”. The amount it arrived with: ${extraAt.a.cleaning?.amountCents === null ? "none yet" : formatCents(extraAt.a.cleaning?.amountCents ?? 0)}.`} initial={extraAt.a.cleaning?.amountCents == null ? "" : amountField(extraAt.a.cleaning.amountCents)} allowEmpty={false} busy={saving === extraAt.job.id} confirm="Approve at this amount" onClose={() => setExtraAt(null)} onSave={(amount) => void decideExtra(extraAt.job, extraAt.a, "approve", amount ?? undefined)} />}
       {dialog}
     </div>
   );
@@ -543,14 +580,16 @@ function JobRow(props: {
   onSwap: () => void;
   onRecord: () => void;
   onAmount: () => void;
+  onDelete: () => void;
   onExtra: (a: AssigneeView, decision: "approve" | "decline" | "amount") => void;
 }) {
-  const { job, today, moveTarget, saving, onAssign, onTakeOff, onSameTo, onReopen, onSwap, onRecord, onAmount, onExtra } = props;
+  const { job, today, moveTarget, saving, onAssign, onTakeOff, onSameTo, onReopen, onSwap, onRecord, onAmount, onDelete, onExtra } = props;
   const state = jobState(job, today);
   const name = job.property.name ?? job.propertyNameAtCreation ?? "Unknown property";
   const unread = job.calendar.status === "failed";
   const takeOff = job.status !== "open" && unmarked(job).length > 0;
-  const sameTo = job.status !== "open" && moveTarget !== null && moveTarget.status === "open" && job.cleanerIds.some((cid) => !moveTarget.cleanerIds.includes(cid));
+  // One cleaner per job (Build 2): a moved booking's cleaner goes to the new job only while it has nobody.
+  const sameTo = job.status !== "open" && moveTarget !== null && moveTarget.status === "open" && moveTarget.cleanerIds.length === 0 && job.cleanerIds.length > 0;
   const tier = jobTier(job);
   const nights = jobNights(job);
   /** Someone on it, not marked, not removed: who Change cleaner swaps and Record as cleaned records (rulings D and E). */
@@ -571,7 +610,9 @@ function JobRow(props: {
       </td>
       <td>
         <span className={styles.turnover}>
-          <span>{job.property.checkOut ?? "Checkout"}</span>
+          {/* The job's label (Build 2): "Turnover" on the calendar's, the admin's words on one added by hand. */}
+          <span className={styles.jobLabel}>{jobLabel(job)}</span>
+          {job.origin !== "admin" && <span>{job.property.checkOut ?? "Checkout"}</span>}
           {isSameDay(job) ? (
             <span className={styles.sameDay} title={`The next guest checks in the same day${job.property.checkIn ? `, ${job.property.checkIn}` : ""}`}>
               Same day
@@ -583,7 +624,7 @@ function JobRow(props: {
           <span className={styles.tierNote} title={`${TIER_WORDS[tier]}: ${TIER_NIGHTS[tier]}`}>
             {job.origin === "admin" ? `${TIER_WORDS[tier]} job` : `${nights === 1 ? "1 night" : `${nights} nights`} · ${TIER_WORDS[tier]}`}
           </span>
-          {job.amountCents !== null && <span className={styles.amountChip} title="The amount set on this job: a mark takes it instead of the base price">{formatCents(job.amountCents)} on the job</span>}
+          {job.amountCents !== null && <span className={styles.amountChip} title="The amount set on this job: a mark takes it instead of the cleaning price">{formatCents(job.amountCents)} on the job</span>}
         </span>
       </td>
       <td>
@@ -606,8 +647,8 @@ function JobRow(props: {
                     {a.name ?? "Unnamed"}
                     {a.state === "missing" ? " (deleted)" : a.status && a.status !== "active" ? " (deactivated)" : ""}
                     {removed && <span className={styles.chipNote}> removed by the office</span>}
-                    {done && a.cleaning && a.cleaning.status === "logged" && a.cleaning.amountCents === null && <span className={styles.chipNote}> no amount</span>}
-                    {done && a.cleaning?.extra === "asked" && <span className={styles.chipNote}> extra asked</span>}
+                    {done && a.cleaning && a.cleaning.status === "logged" && a.cleaning.amountCents === null && <span className={styles.chipNote}> needs an amount</span>}
+                    {done && a.cleaning?.extra === "asked" && <span className={styles.chipNote}> needs a decision</span>}
                   </span>
                   {canReopen(job, a) && (
                     <button type="button" className={styles.chipAction} onClick={() => onReopen(job, a)} disabled={saving !== null} aria-label={`Reopen for ${a.name ?? "this cleaner"}`}>
@@ -615,11 +656,11 @@ function JobRow(props: {
                       Reopen
                     </button>
                   )}
-                  {/* The cleaner's note on their mark, and their extra ask with its three decisions (ruling F). */}
-                  {done && a.note && <span className={styles.chipWords}>note: {a.note}</span>}
+                  {/* The cleaner's note on their mark (ruling F; Build 2's one word): "Needs a decision" with the note's words, and the three decisions. */}
+                  {done && a.note && a.cleaning?.extra !== "asked" && <span className={styles.chipWords}>note: “{a.note}”</span>}
                   {done && a.cleaning?.extra === "asked" && a.cleaning.status === "logged" && (
                     <span className={`${styles.chipWords} ${styles.chipExtra}`}>
-                      extra asked · {a.cleaning.amountCents === null ? "no amount yet" : `${formatCents(a.cleaning.amountCents)} ${a.cleaning.amountFrom ? AMOUNT_SOURCE_WORDS[a.cleaning.amountFrom] : ""}`}
+                      Needs a decision: “{a.note ?? ""}” · {a.cleaning.amountCents === null ? "needs an amount" : `${formatCents(a.cleaning.amountCents)} ${a.cleaning.amountFrom ? AMOUNT_SOURCE_WORDS[a.cleaning.amountFrom] : ""}`}
                       <span className={styles.chipActions}>
                         <button type="button" className={styles.chipAction} onClick={() => onExtra(a, "approve")} disabled={saving !== null || a.cleaning.amountCents === null} title="Approve at the cleaning price it arrived with (one click)">
                           Approve at cleaning price
@@ -627,13 +668,13 @@ function JobRow(props: {
                         <button type="button" className={styles.chipAction} onClick={() => onExtra(a, "amount")} disabled={saving !== null} title="Approve at a new amount">
                           Amount…
                         </button>
-                        <button type="button" className={styles.chipAction} onClick={() => onExtra(a, "decline")} disabled={saving !== null || a.cleaning.amountCents === null} title="Decline: the base amount counts">
+                        <button type="button" className={styles.chipAction} onClick={() => onExtra(a, "decline")} disabled={saving !== null || a.cleaning.amountCents === null} title="Decline: the cleaning price counts">
                           Decline
                         </button>
                       </span>
                     </span>
                   )}
-                  {done && a.cleaning?.extra && a.cleaning.extra !== "asked" && <span className={styles.chipWords}>extra {a.cleaning.extra}</span>}
+                  {done && a.cleaning?.extra && a.cleaning.extra !== "asked" && <span className={styles.chipWords}>note {a.cleaning.extra}</span>}
                 </span>
               );
             })}
@@ -645,33 +686,41 @@ function JobRow(props: {
       </td>
       <td className={styles.actions}>
         <span className={styles.actionStack}>
-          {job.status === "open" && (
-            <button type="button" className={shared.btnGhost} onClick={onAssign} disabled={saving !== null}>
-              <UserPlus size={14} aria-hidden />
-              <span>{job.cleanerIds.length === 0 ? "Assign" : "Cleaners"}</span>
-            </button>
-          )}
-          {canSwap && (
-            <button type="button" className={shared.btnGhost} onClick={onSwap} disabled={saving !== null} title="One cleaner off, another on, in one step">
-              <Repeat size={14} aria-hidden />
-              <span>Change cleaner</span>
-            </button>
-          )}
-          {canRecord && (
-            <button type="button" className={shared.btnGhost} onClick={onRecord} disabled={saving !== null} title="Mark it cleaned for its cleaner, exactly as their own mark would">
-              <ClipboardCheck size={14} aria-hidden />
-              <span>Record as cleaned</span>
-            </button>
-          )}
-          {open && !amountLocked && (
-            <button type="button" className={shared.btnGhost} onClick={onAmount} disabled={saving !== null} title="The job's own amount, which a mark takes instead of the base price">
-              <DollarSign size={14} aria-hidden />
-              <span>{job.amountCents === null ? "Amount" : "Amount…"}</span>
-            </button>
-          )}
+          <span className={styles.actionRow}>
+            {/* One cleaner per job (Build 2): Assign while nobody is on it; Change cleaner once someone is, until they mark. */}
+            {job.status === "open" && job.cleanerIds.length === 0 && (
+              <button type="button" className={shared.btnGhost} onClick={onAssign} disabled={saving !== null}>
+                <UserPlus size={14} aria-hidden />
+                <span>Assign</span>
+              </button>
+            )}
+            {canSwap && (
+              <button type="button" className={shared.btnGhost} onClick={onSwap} disabled={saving !== null} title="The cleaner off, another on, in one step">
+                <Repeat size={14} aria-hidden />
+                <span>Change cleaner</span>
+              </button>
+            )}
+            {canRecord && (
+              <button type="button" className={shared.btnGhost} onClick={onRecord} disabled={saving !== null} title="Mark it cleaned for its cleaner, exactly as their own mark would">
+                <ClipboardCheck size={14} aria-hidden />
+                <span>Record as cleaned</span>
+              </button>
+            )}
+            {/* The rest behind "⋯" (Kian's ruling of 2026-11-03: the amount from the row's menu, not a button on every row). */}
+            <RowMenu
+              label={`More for ${name} · ${dayText(job.checkout)}`}
+              disabled={saving !== null}
+              triggerClassName={`${shared.btnGhost} ${styles.menuTrigger}`}
+              items={[
+                ...(open && job.cleanerIds.length > 0 ? [{ label: "Who cleans…", onSelect: onAssign }] : []),
+                ...(open ? [{ label: job.amountCents === null ? "Amount…" : `Amount… (${formatCents(job.amountCents)} on the job)`, onSelect: onAmount, disabled: amountLocked, title: amountLocked ? "Its cleaning already counts its money: change the amount on the Cleanings tab" : "The job's own amount, which a mark takes instead of the cleaning price" }] : []),
+                { label: "Delete…", danger: true, onSelect: onDelete },
+              ]}
+            />
+          </span>
           {sameTo && moveTarget && (
             <button type="button" className={shared.btnGhost} onClick={() => onSameTo(job, moveTarget)} disabled={saving !== null}>
-              <span>Same cleaners to {dayText(moveTarget.checkout)}</span>
+              <span>Same cleaner to {dayText(moveTarget.checkout)}</span>
             </button>
           )}
           {takeOff && (
@@ -721,17 +770,11 @@ function AssignDialog(props: {
     };
   }, [job.propertyId, mode]);
   const current = regular.kind === "ready" ? regular.data.regular : null;
-  /** The one active cleaner ticked, when exactly one is and they are not already the regular cleaner. */
+  /** The one active cleaner ticked, when they are not already the regular cleaner. */
   const candidate = picked.length === 1 && regular.kind === "ready" && current?.cleanerId !== picked[0] ? (active.find((member) => member.id === picked[0]) ?? null) : null;
-  /**
-   * Save, asking first when a cleaner is added to a job where another cleaner's mark already carries an amount (Kian's
-   * instruction of 2026-10-19): "<name>'s cleaning already carries $X (<preset>). With two cleaners, the amounts need
-   * splitting: edit them on the Cleanings tab." Confirming assigns as before; no amount changes by itself.
-   */
+  /** Save: one cleaner, or nobody (Build 2: a job has one cleaner, so there is no second to ask about). */
   const save = async () => {
     if (busy) return;
-    const question = mode === "assign" ? secondCleanerQuestion(job, picked) : null;
-    if (question && !(await ask(question))) return;
     onSave();
   };
   const makeRegular = async () => {
@@ -817,10 +860,17 @@ function AssignDialog(props: {
       }
     >
       <div className={styles.dialogBody}>
+        <p className={styles.muted}>One cleaner per job: tick who cleans it, or Nobody. For a second cleaner, add another job on the same day.</p>
         {active.length === 0 && onJob.length === 0 ? (
           <p>No active cleaner. Add one on the Team page.</p>
         ) : (
           <ul className={styles.pickList}>
+            {/* Nobody: the job stays, with nobody on it, until someone is picked. */}
+            <li className={styles.pickRow}>
+              <Tick checked={picked.length === 0} onChange={() => picked.length > 0 && onToggle(picked[0])} label="Nobody on this job" disabled={busy || job.assignees.some((a) => a.cleaningId !== null)} title={job.assignees.some((a) => a.cleaningId !== null) ? "Marked it cleaned: stays on it" : undefined} />
+              <span className={styles.pickName}>Nobody</span>
+              <span className={styles.muted}>{picked.length === 0 ? "needs a cleaner" : ""}</span>
+            </li>
             {active.map((member) => {
               const onIt = job.assignees.find((a) => a.cleanerId === member.id);
               const marked = onIt?.cleaningId ?? null;
@@ -883,6 +933,8 @@ function AddJobDialog(props: { active: TeamMember[]; today: string; busy: boolea
   const [cleanerId, setCleanerId] = useState("");
   const [tier, setTier] = useState<PresetKind>("short");
   const [amount, setAmount] = useState("");
+  /** Its label (Build 2): "Deep clean", "Extra visit"; what the row and the cleaner's card call it. */
+  const [label, setLabel] = useState(DEFAULT_JOB_LABEL);
   const [said, setSaid] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -905,7 +957,7 @@ function AddJobDialog(props: { active: TeamMember[]; today: string; busy: boolea
     }
     setSaid(null);
     setBusy(true);
-    const result = await addJobByHand({ propertyId, checkout: day, cleanerId: cleanerId === "" ? null : cleanerId, tier, amount: cents === null ? null : amountField(cents) });
+    const result = await addJobByHand({ propertyId, checkout: day, cleanerId: cleanerId === "" ? null : cleanerId, tier, amount: cents === null ? null : amountField(cents), label: label.trim() === "" ? null : label.trim() });
     setBusy(false);
     if (!result.ok) {
       if (result.unknown) show({ tone: "warning", title: "The job may or may not have been added. Reload to see.", detail: result.title });
@@ -946,16 +998,20 @@ function AddJobDialog(props: { active: TeamMember[]; today: string; busy: boolea
           </div>
         </div>
         <div className={styles.dialogRow}>
+          <label className={styles.dialogField}>
+            <span className={styles.dialogLabel}>Label</span>
+            <input className={styles.amountInput} value={label} maxLength={JOB_LABEL_MAX} placeholder={DEFAULT_JOB_LABEL} onChange={(e) => setLabel(e.target.value)} disabled={busy} aria-label="Label" />
+          </label>
           <div className={styles.dialogField}>
             <span className={styles.dialogLabel}>Tier</span>
             <AdminSelect label="Tier" value={tier} onChange={(value) => setTier((PRESET_KINDS as readonly string[]).includes(value) ? (value as PresetKind) : "short")} groups={[{ options: PRESET_KINDS.map((kind) => ({ value: kind, label: `${TIER_WORDS[kind][0].toUpperCase()}${TIER_WORDS[kind].slice(1)} (${TIER_NIGHTS[kind]})` })) }]} disabled={busy} />
           </div>
           <label className={styles.dialogField}>
             <span className={styles.dialogLabel}>Amount on the job ($, optional)</span>
-            <input className={styles.amountInput} inputMode="decimal" value={amount} placeholder="Base price" onChange={(e) => setAmount(e.target.value)} disabled={busy} aria-label="Amount on the job" />
+            <input className={styles.amountInput} inputMode="decimal" value={amount} placeholder="Cleaning price" onChange={(e) => setAmount(e.target.value)} disabled={busy} aria-label="Amount on the job" />
           </label>
         </div>
-        <p className={styles.muted}>It reaches the cleaner’s app like any job and is marked the same way. The calendar never changes it. With no amount, a mark takes the property’s {TIER_WORDS[tier]} base price.</p>
+        <p className={styles.muted}>It reaches the cleaner’s app like any job and is marked the same way. The calendar never changes it. With no amount, a mark takes the property’s {TIER_WORDS[tier]} cleaning price. Any number of jobs can share a property and a day: one cleaner each.</p>
         {said && (
           <p className={styles.warn} role="alert">
             {said}
@@ -966,11 +1022,11 @@ function AddJobDialog(props: { active: TeamMember[]; today: string; busy: boolea
   );
 }
 
-/** Change cleaner (ruling D): who comes off (not yet marked) and who goes on, in one step. */
+/** Change cleaner (ruling D; one cleaner per job since Build 2): the cleaner comes off (not yet marked), another goes on, in one step. */
 function SwapDialog({ job, active, busy, onClose, onSwap }: { job: JobView; active: TeamMember[]; busy: boolean; onClose: () => void; onSwap: (from: string, to: string) => void }) {
   const name = job.property.name ?? job.propertyNameAtCreation ?? "the property";
   const leaving = job.assignees.filter((a) => a.cleaningId === null);
-  const [from, setFrom] = useState(leaving[0]?.cleanerId ?? "");
+  const from = leaving[0]?.cleanerId ?? "";
   const [to, setTo] = useState("");
   const [said, setSaid] = useState<string | null>(null);
   const choices = active.filter((m) => !job.cleanerIds.includes(m.id));
@@ -998,7 +1054,7 @@ function SwapDialog({ job, active, busy, onClose, onSwap }: { job: JobView; acti
         <div className={styles.dialogRow}>
           <div className={styles.dialogField}>
             <span className={styles.dialogLabel}>Off the job</span>
-            <AdminSelect label="Off the job" value={from} onChange={setFrom} groups={[{ options: leaving.map((a) => ({ value: a.cleanerId, label: a.name ?? "Unnamed" })) }]} disabled={busy || leaving.length <= 1} />
+            <span className={styles.pickName}>{leaving[0]?.name ?? "Unnamed"}</span>
           </div>
           <div className={styles.dialogField}>
             <span className={styles.dialogLabel}>On the job</span>
@@ -1016,11 +1072,11 @@ function SwapDialog({ job, active, busy, onClose, onSwap }: { job: JobView; acti
   );
 }
 
-/** Record as cleaned (ruling E): for which of the assigned cleaners not yet marked. */
+/** Record as cleaned (ruling E; one cleaner per job since Build 2): for the job's cleaner, not yet marked. */
 function RecordDialog({ job, busy, onClose, onRecord }: { job: JobView; busy: boolean; onClose: () => void; onRecord: (cleanerIds: string[]) => void }) {
   const name = job.property.name ?? job.propertyNameAtCreation ?? "the property";
   const open = job.assignees.filter((a) => a.cleaningId === null);
-  const [picked, setPicked] = useState<string[]>(open.map((a) => a.cleanerId));
+  const picked = open.slice(0, 1).map((a) => a.cleanerId);
   return (
     <Dialog
       title={`Record ${name} · ${dayText(job.checkout)} as cleaned?`}
@@ -1038,14 +1094,9 @@ function RecordDialog({ job, busy, onClose, onRecord }: { job: JobView; busy: bo
     >
       <div className={styles.dialogBody}>
         <p className={styles.muted}>It counts exactly as if the cleaner marked it: the same amount, statement line and pay. The job’s history names you.</p>
-        <ul className={styles.pickList}>
-          {open.map((a) => (
-            <li key={a.cleanerId} className={styles.pickRow}>
-              <Tick checked={picked.includes(a.cleanerId)} onChange={() => setPicked((was) => (was.includes(a.cleanerId) ? was.filter((x) => x !== a.cleanerId) : [...was, a.cleanerId]))} label={`Record for ${a.name ?? "Unnamed"}`} disabled={busy} />
-              <span className={styles.pickName}>{a.name ?? "Unnamed"}</span>
-            </li>
-          ))}
-        </ul>
+        <p>
+          Record for <strong>{open[0]?.name ?? "Unnamed"}</strong> · {jobLabel(job)}
+        </p>
       </div>
     </Dialog>
   );

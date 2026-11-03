@@ -7,30 +7,30 @@
  * more, except what their missing amounts start from (below), read once when they have any.
  *
  * At the top, who they are: role, status, the properties they are the regular cleaner for and their jobs ahead (the
- * Team page, round 1, 2026-10-19), a cleaner's last 90 days of receipts in words, and the account's history in words —
- * never a code: the server blanks a code change's old and new codes before they leave it (Kian's ruling K5). Then their
- * Earned, Paid and Balance over all time (ruling 3: no pay periods; below zero "Paid ahead $X" in amber, Kian's ruling
- * of 2026-11-01).
+ * Team page, round 1, 2026-10-19). The 90-day receipt line and the database ID left the head, and the account's history
+ * moved to the Team row's menu (Kian's ruling of 2026-11-03, Build 2, item 6). Then their Earned, Paid and Balance over
+ * all time (ruling 3: no pay periods; below zero "Paid ahead $X" in amber, Kian's ruling of 2026-11-01; zero
+ * "Settled").
  *
- * ── Not counted yet (the Team page audit's one change, 2026-10-19) ──
- * Their cleanings with no amount, each with an amount field and Save, plus "Save all"; their cleanings whose extra ask
- * waits for the office, each with its reason and a link to the decision on the Cleanings tab (Kian's ruling F of
- * 2026-11-01); and their receipts and work waiting for review, a receipt flagged as a possible second send said so,
- * linked to the Costs page (Phase 3, 2026-11-01: every item not counted is listed, by its reason). Each field opens as the Cleanings tab's does (Kian's ruling of
- * 2026-10-19, the second round; prices.ts `missingAmountStart`): the property's preset for the tier when it has one,
- * else "Last typed for <short-term|long-term>: $X", else empty; a share of a job with several cleaners is never
- * prefilled. Nothing is charged until Save or Save all: each save is the Cleanings tab's own route and history rules
- * (PATCH /api/admin/cleanings/[id], one event per cleaning), and the saved cleaning replaces the page's copy, so
- * Earned and Balance follow without a reload.
+ * ── Needs an amount or a decision (the Team page audit's one change, 2026-10-19; Build 2's words) ──
+ * Their cleanings that need an amount, each with an amount field and Save, plus "Save all"; their cleanings with a
+ * note that needs a decision, each with the note's words and a link to the decision on the Cleanings tab (Kian's
+ * ruling F of 2026-11-01); and their receipts and work that need a decision, a receipt flagged as a possible second
+ * send said so, linked to the Costs page (Phase 3, 2026-11-01: every item not counted is listed, by its reason). Each
+ * field opens as the Cleanings tab's does (prices.ts `missingAmountStart`, `fieldStart`): the property's cleaning price
+ * for the tier, or the job's amount, fills it; "Last typed for <tier>: $X" is a grey placeholder, never a value (Kian's
+ * ruling of 2026-11-03: never save a suggestion), and Save with an empty field saves nothing. Nothing is charged until
+ * Save or Save all: each save is the Cleanings tab's own route and history rules (PATCH /api/admin/cleanings/[id], one
+ * event per cleaning), and the saved cleaning replaces the page's copy, so Earned and Balance follow without a reload.
  *
  * ── Record a payment (ruling 2; Kian's rulings K1 and K2 of 2026-10-19) ──
  * The amount, the day paid, how, and a note, in Nubnb's own controls. Before it is sent, Nubnb asks (pay/checks.ts):
  * while anything of theirs is not counted, naming the counts and that the balance does not include them (K1); and
- * when the payment is larger than the balance, "This pays $X more than <name> is owed. Record it as an advance?" (K2).
- * Both still allowed. The amount field holds the balance owed until the admin types in it, and follows it as amounts
- * are saved (Phase 3, 2026-11-01: typing the missing amounts and then paying records the whole balance, not the one
- * the page opened with). After a payment is deleted, the amount field refills with that payment's amount. The record
- * carries what the page saw of their payments, and the server refuses it when another was recorded or deleted since.
+ * when the payment is larger than the balance, "Pay $X ahead?" (K2, in Kian's words of 2026-11-03). Both still
+ * allowed. The amount field holds the balance owed until the admin types in it, and follows it as amounts are saved
+ * (Phase 3, 2026-11-01: typing the missing amounts and then paying records the whole balance, not the one the page
+ * opened with). After a payment is deleted, the amount field clears (Build 2, item 6). The record carries what the
+ * page saw of their payments, and the server refuses it when another was recorded or deleted since.
  *
  * Then a date filter, with what was earned and paid in it and the balance at its start and end, over every item and
  * payment of theirs by date, newest first: counted or not, with what changed each and when, and a change after a
@@ -48,9 +48,9 @@ import { AdminSelect } from "../components/AdminSelect";
 import { DateRangeField, type DatePreset } from "../components/DateRangeField";
 import type { Notice } from "../components/Notice";
 import type { Question } from "../components/AskDialog";
-import { CLEANER_ROLE_LABELS, CLEANER_STATUS_LABELS, accountEventWords, formatCents, isCleanerRole, isCleanerStatus, type CleanerSummary, type CostEntryView } from "@/app/lib/cleaners/model";
+import { CLEANER_ROLE_LABELS, CLEANER_STATUS_LABELS, formatCents, isCleanerRole, isCleanerStatus, type CleanerSummary, type CostEntryView } from "@/app/lib/cleaners/model";
 import { amountField, cleaningHref, readAmountCents, type CleaningView } from "@/app/lib/cleanings/model";
-import { TIER_WORDS, missingAmountStart, recommendationWords, waitingHint, type CleaningPrices } from "@/app/lib/cleanings/prices";
+import { fieldStart, missingAmountStart, type CleaningPrices } from "@/app/lib/cleanings/prices";
 import { changeCleaning, fetchAmountStarts } from "@/app/lib/costs-client";
 import { inRange, presetRange, shortDay } from "@/app/lib/costs/report";
 import { balanceWords, changeWords, dayWords, memberPay, rowItemWords, type PayChange, type PayRow } from "@/app/lib/pay/balance";
@@ -70,8 +70,6 @@ interface PayViewProps {
   unreadablePayments: number;
   /** The properties they are the regular cleaner for and their open jobs from today on; null while that read is out or failed. */
   schedule: { regular: RegularProperty[]; upcoming: number } | null;
-  /** A cleaner's last 90 days of receipts in words; null for a handyman or while unread. */
-  patternWords: string | null;
   today: string;
   onBack: () => void;
   /** Read the team, the cost list and the payments again: the Team page's Refresh, in this page's head. */
@@ -112,7 +110,7 @@ type Starts = { kind: "none" } | { kind: "loading" } | { kind: "ready"; prices: 
 /** The property's name as the admin shows it. */
 const propertyWords = (c: CleaningView) => c.property.internalName ?? c.property.name ?? c.propertyNameAtEntry ?? "Unknown property";
 
-export function PayView({ member, cleanings, entries, payments, unreadablePayments, schedule, patternWords, today, onBack, onRefresh, onPayment, onCleaning, show, clear, ask }: PayViewProps) {
+export function PayView({ member, cleanings, entries, payments, unreadablePayments, schedule, today, onBack, onRefresh, onPayment, onCleaning, show, clear, ask }: PayViewProps) {
   const name = member.name !== null && member.name.trim() !== "" ? member.name : "this team member";
   const [range, setRange] = useState(() => presetRange("this-month", today));
   const pay = useMemo(() => memberPay(member.id, { cleanings, entries, payments }, range), [member.id, cleanings, entries, payments, range]);
@@ -178,30 +176,25 @@ export function PayView({ member, cleanings, entries, payments, unreadablePaymen
     if (starts.kind !== "ready") return null;
     return missingAmountStart(starts.prices[c.propertyId] ?? null, cleanings, starts.jobs, c);
   };
-  /** What a field holds: what was typed, else what it opened with — the preset, or the recommendation (Kian's ruling: confirmed by Enter, Save or Save all). */
+  /** What a field holds: what was typed, else what it opened with — the cleaning price or the job's amount; a recommendation is a placeholder only (Build 2: never save a suggestion). */
   const fieldOf = (c: CleaningView) => {
     if (typing[c.id] !== undefined) return typing[c.id];
-    const start = startOf(c);
-    return start && (start.kind === "preset" || start.kind === "job" || start.kind === "recommendation") ? amountField(start.cents) : "";
+    return fieldStart(startOf(c)).value;
   };
   const fieldWords = (c: CleaningView): string => {
     if (starts.kind === "loading") return "Reading what it starts from…";
     if (starts.kind === "failed") return "Could not read what it starts from: type the amount.";
     const start = startOf(c);
     if (!start) return "";
-    const job = c.jobId !== null ? (starts.kind === "ready" ? starts.jobs[c.jobId] ?? null : null) : null;
-    if (start.kind === "preset") return `${TIER_WORDS[start.tier][0].toUpperCase()}${TIER_WORDS[start.tier].slice(1)} preset: ${formatCents(start.cents)}`;
-    if (start.kind === "job") return `Set on the job: ${formatCents(start.cents)}`;
-    if (start.kind === "recommendation") return recommendationWords(start.tier, start.cents);
-    if (start.kind === "split") return waitingHint(starts.kind === "ready" ? starts.prices[c.propertyId] ?? null : null, job);
-    return "No preset and nothing typed for this property yet: type the amount.";
+    return fieldStart(start).words;
   };
 
   const failed = (result: { title: string; detail?: string; unknown: boolean }, what: string) =>
     show(result.unknown ? { tone: "warning", title: `The cleaning may or may not have been ${what}. Refresh to see what is on record.`, detail: result.title } : { tone: "error", title: result.title, detail: result.detail });
 
-  /** One cleaning's amount saved through the Cleanings tab's route: the server's copy replaces the page's. */
+  /** One cleaning's amount saved through the Cleanings tab's route: the server's copy replaces the page's. An empty field saves nothing (Build 2, item 3). */
   const saveOne = async (c: CleaningView): Promise<boolean> => {
+    if (fieldOf(c).trim() === "") return false;
     const cents = readAmountCents(fieldOf(c));
     if (cents === null) {
       show({ tone: "error", title: `Type the amount for ${propertyWords(c)}, ${shortDay(c.day)}: dollars and cents above $0.00, like 65.00.` });
@@ -310,9 +303,9 @@ export function PayView({ member, cleanings, entries, payments, unreadablePaymen
       return;
     }
     onPayment(result.data.payment);
-    // The amount field refills with that payment's amount (the Team page, round 1), so a correction is not retyped.
-    setAmount(amountField(payment.amountCents));
-    show({ tone: "success", title: `Deleted the payment of ${formatCents(payment.amountCents)} on ${dayWords(payment.day)}.`, detail: `It stays in ${name}'s history, struck through, and no longer counts as paid. The amount field holds ${formatCents(payment.amountCents)} again.` });
+    // The amount field clears (Kian's ruling of 2026-11-03, Build 2, item 6): the deleted figure is not re-offered.
+    setAmountTyped("");
+    show({ tone: "success", title: `Deleted the payment of ${formatCents(payment.amountCents)} on ${dayWords(payment.day)}.`, detail: `It stays in ${name}'s history, struck through, and no longer counts as paid.` });
   };
 
   const balance = balanceWords(pay.balanceCents);
@@ -327,7 +320,6 @@ export function PayView({ member, cleanings, entries, payments, unreadablePaymen
   const inDates = pay.range;
   const notCounted = notCountedWords(pay);
   const fieldsReady = waitingCleanings.filter((c) => fieldOf(c).trim() !== "").length;
-  const history = member.history ?? [];
 
   return (
     <>
@@ -347,8 +339,9 @@ export function PayView({ member, cleanings, entries, payments, unreadablePaymen
             <span>Team</span>
           </a>
           <h2 className={styles.payTitle}>{name}</h2>
+          {/* No database ID and no 90-day receipt line here (Build 2, item 6); the account's history is in the Team row's menu. */}
           <p className={styles.payMeta}>
-            {role} · {status} · <span className={styles.mono}>ID {member.id}</span>
+            {role} · {status}
           </p>
           {/* The schedule (the Team page, round 1): the properties they are the regular cleaner for, and their jobs ahead. */}
           {member.role !== "handyman" && (
@@ -376,17 +369,6 @@ export function PayView({ member, cleanings, entries, payments, unreadablePaymen
               )}
             </p>
           )}
-          {patternWords !== null && <p className={styles.payMeta}>Last 90 days: {patternWords}</p>}
-          {history.length > 0 && (
-            <details className={styles.payHistory}>
-              <summary>Account history · {history.length}</summary>
-              <ul>
-                {history.map((event, i) => (
-                  <li key={i}>{accountEventWords(event)}</li>
-                ))}
-              </ul>
-            </details>
-          )}
         </div>
         <button type="button" className={shared.btnGhost} onClick={onRefresh} disabled={busy !== null}>
           <RefreshCw size={15} aria-hidden />
@@ -410,7 +392,7 @@ export function PayView({ member, cleanings, entries, payments, unreadablePaymen
           <span className={styles.payFigureValue}>
             {balance.tone === "owed" ? `${formatCents(pay.balanceCents)} owed to ${name}` : balance.tone === "ahead" ? `Paid ahead ${formatCents(-pay.balanceCents)}` : "Settled"}
           </span>
-          {notCounted.length > 0 && <span className={`${styles.payFigureDetail} ${styles.payWarn}`}>not counting what waits below</span>}
+          {notCounted.length > 0 && <span className={`${styles.payFigureDetail} ${styles.payWarn}`}>not counting what needs an amount or a decision below</span>}
         </div>
       </div>
       {(pay.cannotAddUp > 0 || unreadablePayments > 0) && (
@@ -420,16 +402,16 @@ export function PayView({ member, cleanings, entries, payments, unreadablePaymen
         </ul>
       )}
 
-      {/* ── Not counted yet (the audit's one change): amounts typed here, reviews linked ── */}
+      {/* ── Needs an amount or a decision (the audit's one change; Build 2's words): amounts typed here, decisions linked ── */}
       {(waitingRows.length > 0 || extraCleanings.length > 0 || waitingEntries.length > 0) && (
         <section className={styles.notCounted} aria-labelledby="pay-not-counted-title">
           <h2 id="pay-not-counted-title" className={styles.codeEditorTitle}>
-            Not counted yet · {waitingCleanings.length + extraCleanings.length + waitingEntries.length}
+            Needs an amount or a decision · {waitingCleanings.length + extraCleanings.length + waitingEntries.length}
           </h2>
           <p className={styles.notCountedNote}>{notCounted.length > 0 ? `${notCounted.map((part, i) => (i === 0 ? part[0].toUpperCase() + part.slice(1) : part)).join(", and ")}. The balance above does not include them.` : "Everything is counted now: the amounts saved here are in Earned and Balance."}</p>
           {waitingRows.length > 0 && (
             <>
-              <table className={styles.waitingTable} aria-label="Cleanings with no amount">
+              <table className={styles.waitingTable} aria-label="Cleanings that need an amount">
                 <thead>
                   <tr>
                     <th>Day</th>
@@ -440,6 +422,7 @@ export function PayView({ member, cleanings, entries, payments, unreadablePaymen
                 <tbody>
                   {waitingRows.map((c) => {
                     const start = startOf(c);
+                    const opens = fieldStart(start);
                     const saved = savedHere.get(c.id);
                     return (
                       <tr key={c.id}>
@@ -447,7 +430,7 @@ export function PayView({ member, cleanings, entries, payments, unreadablePaymen
                         <td>{propertyWords(c)}</td>
                         <td className={styles.payCol}>
                           {saved ? (
-                            <span className={styles.waitingSaved}>Saved {formatCents(saved.cents)} · counted</span>
+                            <span className={styles.waitingSaved}>Saved {formatCents(saved.cents)} · Counted</span>
                           ) : (
                             <form
                               className={styles.waitingForm}
@@ -463,6 +446,7 @@ export function PayView({ member, cleanings, entries, payments, unreadablePaymen
                                   autoComplete="off"
                                   aria-label={`Amount for ${propertyWords(c)}, ${shortDay(c.day)}, ${name}`}
                                   title={fieldWords(c)}
+                                  placeholder={opens.placeholder}
                                   value={fieldOf(c)}
                                   onChange={(e) => setTyping((was) => ({ ...was, [c.id]: e.target.value }))}
                                   disabled={busy !== null}
@@ -487,17 +471,17 @@ export function PayView({ member, cleanings, entries, payments, unreadablePaymen
                   <button type="button" className={`${shared.btnPrimary} ${styles.createBtn}`} onClick={() => void saveAll()} disabled={busy !== null || fieldsReady === 0}>
                     {busy === "all" ? "Saving…" : `Save all (${fieldsReady})`}
                   </button>
-                  <span className={styles.notCountedNote}>Each amount is saved as typed, one cleaning at a time; a field left empty is skipped.</span>
+                  <span className={styles.notCountedNote}>Each amount is saved as typed, one cleaning at a time; a field left empty saves nothing.</span>
                 </div>
               )}
             </>
           )}
           {extraCleanings.length > 0 && (
-            <ul className={styles.waitingEntries} aria-label="Extras waiting for a decision">
+            <ul className={styles.waitingEntries} aria-label="Cleanings with a note that need a decision">
               {extraCleanings.map((c) => (
                 <li key={c.id}>
                   Cleaning · {propertyWords(c)}
-                  {c.amountCents !== null && ` · ${formatCents(c.amountCents)}`} · {dayWords(c.day)} · Extra asked: “{c.extra?.reason}” ·{" "}
+                  {c.amountCents !== null && ` · ${formatCents(c.amountCents)}`} · {dayWords(c.day)} · Needs a decision: “{c.extra?.reason}” ·{" "}
                   <Link href={cleaningHref(c.propertyId, c.day, c.id)} prefetch={false} className={styles.payLink}>
                     Decide on the Cleanings tab
                   </Link>
@@ -506,12 +490,12 @@ export function PayView({ member, cleanings, entries, payments, unreadablePaymen
             </ul>
           )}
           {waitingEntries.length > 0 && (
-            <ul className={styles.waitingEntries} aria-label="Receipts and work waiting for review">
+            <ul className={styles.waitingEntries} aria-label="Receipts and work that need a decision">
               {waitingEntries.map((row) => (
                 <li key={row.id}>
                   {rowItemWords(row)}
                   {row.amountCents !== null && ` · ${formatCents(row.amountCents)}`}
-                  {row.day && ` · sent ${dayWords(row.day)}`} · {flagged.has(row.id) ? "Flagged as a possible second send: waiting for review" : differs.has(row.id) ? "Total differs from the receipt: waiting for review" : "Waiting for review"} ·{" "}
+                  {row.day && ` · sent ${dayWords(row.day)}`} · {flagged.has(row.id) ? "Needs a decision: flagged as a possible second send" : differs.has(row.id) ? "Needs a decision: the total differs from the receipt" : "Needs a decision"} ·{" "}
                   <Link href={`/admin/costs?entry=${encodeURIComponent(row.id)}`} prefetch={false} className={styles.payLink}>
                     Review on the Costs page
                   </Link>

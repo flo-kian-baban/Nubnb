@@ -837,7 +837,7 @@ function Costs() {
                 <p className={styles.modeLine}>
                   Costs ledger · approved entries ·{" "}
                   <button type="button" className={styles.linkButton} onClick={() => setFilter({ status: NEEDS_ATTENTION })}>
-                    Review queue{waiting > 0 ? ` (${waiting} waiting)` : ""}
+                    Review queue{waiting > 0 ? ` (${waiting} ${waiting === 1 ? "needs" : "need"} a decision)` : ""}
                   </button>
                   {propertyName !== null && (
                     <>
@@ -868,7 +868,7 @@ function Costs() {
                 {filters.status === NEEDS_ATTENTION ? (
                   <>
                     <strong>Review queue</strong>
-                    {oneProperty && <> · {propertyName ?? "Unknown property"}</>} · {toReview === 0 ? "nothing to review" : [toDecide > 0 ? `${toDecide} to decide` : null, unseen.length > 0 ? `${unseen.length} approved automatically to look at` : null].filter(Boolean).join(" · ")}
+                    {oneProperty && <> · {propertyName ?? "Unknown property"}</>} · {toReview === 0 ? "nothing to review" : [toDecide > 0 ? `${toDecide} ${toDecide === 1 ? "needs" : "need"} a decision` : null, unseen.length > 0 ? `${unseen.length} approved automatically to look at` : null].filter(Boolean).join(" · ")}
                     {oneProperty && (
                       <>
                         {" · "}
@@ -1132,7 +1132,7 @@ function Costs() {
                     {waiting > 0 && (
                       <p>
                         <button type="button" className={styles.linkButton} onClick={() => setFilter({ status: NEEDS_ATTENTION })}>
-                          {waiting === 1 ? "1 entry is" : `${waiting} entries are`} waiting in the review queue
+                          {waiting === 1 ? "1 entry needs" : `${waiting} entries need`} a decision in the review queue
                         </button>
                       </p>
                     )}
@@ -1261,8 +1261,8 @@ function Costs() {
                         <th className={styles.num}>Entries</th>
                         <th className={styles.num}>Approved</th>
                         <th className={styles.num}>of which tax</th>
-                        <th className={styles.num}>Pending, apart</th>
-                        <th>Not counted</th>
+                        <th className={styles.num}>Needs a decision, apart</th>
+                        <th>Rejected or removed</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1436,7 +1436,7 @@ function TotalsRow({ label, totals, strong = false }: { label: string; totals: T
     <tr className={strong ? styles.totalsAll : undefined}>
       <td>{label}</td>
       <td className={styles.num}>{totals.entries}</td>
-      {/* Approved and pending apart, never added together (dispatch 37A, T5): Approved is the ledger's figure, tax included. */}
+      {/* Approved and "needs a decision" apart, never added together (dispatch 37A, T5): Approved is the ledger's figure, tax included. */}
       <td className={styles.num}>{formatCents(totals.approvedCents)}</td>
       <td className={styles.num}>{formatCents(totals.approvedTaxCents)}</td>
       <td className={styles.num}>{totals.pending > 0 ? formatCents(totals.pendingCents) : <span className={styles.muted}>—</span>}</td>
@@ -1460,7 +1460,7 @@ function TotalCell({ entry }: { entry: CostEntryView }) {
     // A cleaning a cleaner marked on a job with no amount to start from waits for an admin to type it (the cleaning schedule).
     return (
       <span className={`${styles.badge} ${styles.badgeOdd}`} title={now.reason}>
-        {entry.kind === "cleaning" ? "No amount yet" : "Cannot add up"}
+        {entry.kind === "cleaning" ? "Needs an amount" : "Cannot add up"}
       </span>
     );
   }
@@ -1605,7 +1605,7 @@ function ItemsTable({
           {pendingRows.length > 0 && (
             <tr>
               <td />
-              <td className={styles.muted}>Pending, apart, {pendingRows.length === 1 ? "1 line" : `${pendingRows.length} lines`}</td>
+              <td className={styles.muted}>Needs a decision, apart, {pendingRows.length === 1 ? "1 line" : `${pendingRows.length} lines`}</td>
               <td />
               <td className={`${styles.num} ${styles.muted}`}>{formatCents(pendingTotal)}</td>
               <td />

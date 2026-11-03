@@ -125,8 +125,8 @@ export function reopenJobFor(jobId: string, cleanerId: string, seen: number): Pr
   );
 }
 
-/** Add a job by hand (POST /api/admin/cleaning-jobs; Kian's ruling C of 2026-11-01). JOB_SAVE_FAILED: it may or may not have landed. */
-export function addJobByHand(input: { propertyId: string; checkout: string; cleanerId: string | null; tier: PresetKind; amount: string | null }): Promise<ScheduleResult<{ job: StoredJob; propertyName: string | null }>> {
+/** Add a job by hand (POST /api/admin/cleaning-jobs; Kian's ruling C of 2026-11-01; its label since Build 2). JOB_SAVE_FAILED: it may or may not have landed. */
+export function addJobByHand(input: { propertyId: string; checkout: string; cleanerId: string | null; tier: PresetKind; amount: string | null; label: string | null }): Promise<ScheduleResult<{ job: StoredJob; propertyName: string | null }>> {
   return call(
     '/api/admin/cleaning-jobs',
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) },
@@ -144,6 +144,21 @@ export function swapJobCleaner(jobId: string, from: string, to: string, seen: nu
     'Changing the cleaner failed',
     (data) => isRecord(data) && isJobLike(data.job) && (data.job as Record<string, unknown>).id === jobId,
     ['JOB_SAVE_FAILED'],
+  );
+}
+
+/**
+ * Delete a job and its cleaning (DELETE /api/admin/cleaning-jobs/[id]; Build 2, item 2), as the page saw it (`seen`).
+ * Refused, with the reason in one sentence, when the cleaning is dated on or before a payment to its cleaner or printed
+ * on a finished statement. JOB_DELETE_FAILED: it may or may not have landed.
+ */
+export function deleteJob(jobId: string, seen: number): Promise<ScheduleResult<{ deleted: { id: string; cleanings: number; marker: boolean } }>> {
+  return call(
+    `/api/admin/cleaning-jobs/${encodeURIComponent(jobId)}`,
+    { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ seen }) },
+    'Deleting the job failed',
+    (data) => isRecord(data) && isRecord(data.deleted) && (data.deleted as Record<string, unknown>).id === jobId,
+    ['JOB_DELETE_FAILED'],
   );
 }
 

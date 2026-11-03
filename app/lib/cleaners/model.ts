@@ -326,8 +326,9 @@ export const OFFICE_APPROVAL_REASON = 'Added by the office: approved on entry';
 export const ENTRY_STATUSES = ['pending', 'approved', 'rejected', 'removed'] as const;
 export type EntryStatus = (typeof ENTRY_STATUSES)[number];
 
+/** The admin's words (one word per state, Kian's ruling of 2026-11-03: a pending entry "Needs a decision"). */
 export const ENTRY_STATUS_LABELS: Record<EntryStatus, string> = {
-  pending: 'Pending',
+  pending: 'Needs a decision',
   approved: 'Approved',
   rejected: 'Rejected',
   removed: 'Removed',

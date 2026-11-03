@@ -22,6 +22,13 @@
  * its day again. After the checkout day nothing changes: Airbnb drops a stay
  * from the feed within a day of its checkout, which is not a change.
  *
+ * ── Deleted by an admin (Build 2, 2026-11-03) ──
+ * A calendar job an admin deleted leaves a marker (model.ts, DeletedJobMarker)
+ * keyed by the turnover and holding the booking it ended. No job is made for
+ * a stay that still ends that day under the same UID and first night; one
+ * whose booking changed — another UID ending that day, or the same UID with
+ * another first night — is made again, as a new job.
+ *
  * ── Not read this run: kept exactly as they are ──
  * A property whose calendar this run did not read — not fetched, failed,
  * timed out, or not in this copy at all — keeps its jobs exactly as they
@@ -79,8 +86,9 @@ export interface PlannedCreate {
  * CREATE_DAYS_AHEAD days, today included, on a calendar read this run, where
  * no job exists yet. `existing` holds every stored job's ID from today on.
  */
-export function planCreates(input: { snapshot: AvailabilitySnapshot; existing: ReadonlySet<string>; keys: ReadonlyMap<string, string>; nowIso: string }): PlannedCreate[] {
+export function planCreates(input: { snapshot: AvailabilitySnapshot; existing: ReadonlySet<string>; keys: ReadonlyMap<string, string>; nowIso: string; /** The deleted calendar jobs' markers, by job ID (Build 2): a stay they still name makes no job. */ deleted?: ReadonlyMap<string, { uid: string; start: string }> }): PlannedCreate[] {
   const { snapshot, existing, keys, nowIso } = input;
+  const deleted = input.deleted ?? new Map<string, { uid: string; start: string }>();
   const today = snapshot.today;
   const last = addDays(today, CREATE_DAYS_AHEAD);
   const planned: PlannedCreate[] = [];
@@ -93,6 +101,9 @@ export function planCreates(input: { snapshot: AvailabilitySnapshot; existing: R
       if (stay.end < today || stay.end > last) continue;
       const id = jobIdOf(propertyId, stay.end);
       if (existing.has(id) || ids.has(id)) continue;
+      // An admin deleted this turnover's job while it ended this very booking: not made again (Build 2).
+      const marker = deleted.get(id);
+      if (marker && marker.uid === stay.uid && marker.start === stay.start) continue;
       ids.add(id);
       planned.push({
         id,
@@ -106,6 +117,7 @@ export function planCreates(input: { snapshot: AvailabilitySnapshot; existing: R
           origin: 'calendar',
           tier: null,
           amountCents: null,
+          label: null,
           nextCheckIn: nextCheckInOf(reserved, stay.end, stay.uid),
           status: 'open',
           change: null,

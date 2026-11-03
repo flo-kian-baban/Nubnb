@@ -27,20 +27,20 @@ every path leaves the marker where the rule puts it
 ═══ 4. What an export asks before leaving entries out (fix 2) ═══
   the report leaves out: 1 pending review, 1 cleaning with no amount yet
   1 pending, 1 with no amount:
-    "1 entry in this period is still pending review and is not in the report, which holds approved entries only."
-    "1 cleaning with no amount yet in this period is not in the report either."
-    notice: " · 1 pending left out · 1 cleaning with no amount yet left out"
+    "1 entry in this period needs a decision and is not in the report, which holds approved entries only."
+    "1 cleaning in this period needs an amount and is not in the report either."
+    notice: " · 1 needing a decision left out · 1 cleaning needing an amount left out"
   1 pending, 0 with no amount:
-    "1 entry in this period is still pending review and is not in the report, which holds approved entries only."
-    notice: " · 1 pending left out"
+    "1 entry in this period needs a decision and is not in the report, which holds approved entries only."
+    notice: " · 1 needing a decision left out"
   0 pending, 1 with no amount:
-    "1 cleaning with no amount yet in this period is not in the report, which holds approved entries only."
-    notice: " · 1 cleaning with no amount yet left out"
+    "1 cleaning in this period needs an amount and is not in the report, which holds approved entries only."
+    notice: " · 1 cleaning needing an amount left out"
   0 pending, 2 with no amount:
-    "2 cleanings with no amount yet in this period are not in the report, which holds approved entries only."
-    notice: " · 2 cleanings with no amount yet left out"
+    "2 cleanings in this period need an amount and are not in the report, which holds approved entries only."
+    notice: " · 2 cleanings needing an amount left out"
   3 pending, 2 with no amount:
-    "3 entries in this period are still pending review and are not in the report, which holds approved entries only."
-    "2 cleanings with no amount yet in this period are not in the report either."
-    notice: " · 3 pending left out · 2 cleanings with no amount yet left out"
+    "3 entries in this period need a decision and are not in the report, which holds approved entries only."
+    "2 cleanings in this period need an amount and are not in the report either."
+    notice: " · 3 needing a decision left out · 2 cleanings needing an amount left out"
   nothing left out: 0 lines, no question asked

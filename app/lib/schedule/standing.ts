@@ -3,7 +3,8 @@
  * property's most pressing cleaning job, in one badge. Pure and dependency-free, like model.ts.
  *
  * It looks at the jobs with a checkout from 14 days back to 2 days ahead (jobs are made 2 days ahead: nothing later
- * exists). Its words are the Schedule's, and four of its own: Not marked, Amount needed, No turnover, Calendar not read.
+ * exists). Its words are the Schedule's, and the admin's one word per state (Kian's ruling of 2026-11-03): Not marked,
+ * Needs an amount, Needs a decision, No turnover, Calendar not read.
  *
  *   red     a job with nobody on it, from its checkout day on (the Schedule's rule, needsCleanerNow in model.ts:
  *           the two pages never disagree); a checkout passed with someone on it who has not marked it cleaned (from
@@ -35,7 +36,7 @@ export interface HomeJob {
   propertyId: string;
   checkout: string;
   status: 'open' | 'booking-changed';
-  /** The booking changed after a cleaner had marked the job: their cleaning stays, for an admin to decide. */
+  /** The booking changed after a cleaner had marked the job: their cleaning stays, for an admin’s decision. */
   changedAfterMark: boolean;
   /** What changed, in a few words ("Cancelled"); null while open. */
   change: string | null;
@@ -97,8 +98,8 @@ function standingOf(job: HomeJob, today: string): Omit<CleaningStanding, 'title'
   if (marked < on && day < today) return { key: 'not-marked', label: 'Not marked', tone: 'problem', day };
   if (job.cleaners.some((c) => c.removed)) return { key: 'removed', label: 'Removed by the office', tone: 'warning', day };
   if (marked < on) return { key: 'assigned', label: marked === 0 ? 'Assigned' : `${marked} of ${on} done`, tone: 'assigned', day };
-  if (job.cleaners.some((c) => c.extra)) return { key: 'extra', label: 'Extra asked', tone: 'warning', day };
-  if (job.cleaners.some((c) => c.pending)) return { key: 'amount', label: 'Amount needed', tone: 'warning', day };
+  if (job.cleaners.some((c) => c.extra)) return { key: 'extra', label: 'Needs a decision', tone: 'warning', day };
+  if (job.cleaners.some((c) => c.pending)) return { key: 'amount', label: 'Needs an amount', tone: 'warning', day };
   return { key: 'done', label: 'Done', tone: 'done', day };
 }
 
@@ -107,9 +108,9 @@ const DETAIL: Record<CleaningStanding['key'], string> = {
   'not-marked': 'checkout passed and not everyone on it has marked it cleaned',
   needs: 'nobody is on it yet',
   removed: 'the office removed a mark; reopen it for them from the Schedule, or leave it',
-  changed: 'the booking changed after it was marked: its cleaning stays, charged as usual, for an admin to decide',
-  extra: 'cleaned; the cleaner asked for extra, and the money waits for an admin to approve or decline it',
-  amount: 'cleaned; its cleaning waits for an admin to type its amount',
+  changed: 'the booking changed after it was marked: its cleaning stays, charged as usual, for an admin’s decision',
+  extra: 'cleaned, with a note from the cleaner: the money waits for an admin to approve or decline it',
+  amount: 'cleaned; its cleaning needs an admin to type its amount',
   assigned: 'someone is on it',
   done: 'cleaned',
   'no-turnover': '',

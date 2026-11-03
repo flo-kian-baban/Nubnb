@@ -26,7 +26,7 @@
    ok   the job's assignment carries the note and the flag
   the phone: plain extraAsked false, canUndo true; noted extraAsked true ("Cleaned · note sent"), canUndo true
    ok   the card reads "Cleaned" for the plain mark and "Cleaned · note sent" for the noted one
-   ok   no amount, price or rate reaches the cleaner (keys: canUndo, change, checkInTime, checkOutTime, checkout, city, extraAsked, id, markRefusal, markedAt, nextCheckIn, note, propertyId, propertyName, recordedByOffice, status, undoBlocked)
+   ok   no amount, price or rate reaches the cleaner (keys: canUndo, change, checkInTime, checkOutTime, checkout, city, extraAsked, id, label, markRefusal, markedAt, nextCheckIn, note, propertyId, propertyName, recordedByOffice, status, undoBlocked)
    ok   an amount in a mark body is refused (ruling H)
 
 ═══ 3. "Approve at cleaning price": one click counts the noted cleaning at the price it arrived with; the amber clears ═══

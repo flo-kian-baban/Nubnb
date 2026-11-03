@@ -1,7 +1,12 @@
 /**
- * PATCH /api/admin/cleaning-jobs/[id] — set who is on a job (Kian's ruling 2 of 2026-10-14: admins assign one or
- * more active cleaners to a job), change its cleaner in one step (ruling D of 2026-11-01), or set its own amount
+ * PATCH /api/admin/cleaning-jobs/[id] — set who is on a job (Kian's ruling 2 of 2026-10-14; one cleaner per job since
+ * Build 2, Kian's ruling of 2026-11-03), change its cleaner in one step (ruling D of 2026-11-01), or set its own amount
  * (ruling B), each as the admin saw it.
+ *
+ * DELETE /api/admin/cleaning-jobs/[id] — delete the job and its cleaning (Build 2, item 2): `{ seen }`. Refused, in one
+ * sentence, when the cleaning is dated on or before a payment to its cleaner (409 JOB_CLEANING_PAID) or printed on a
+ * finished statement (409 JOB_CLEANING_PRINTED). A deleted calendar job leaves a marker the sync honours. One line in the
+ * activity log, as every admin write. Response: 200 `{ deleted: { id, cleanings, marker } }`.
  *
  * Body: `{ cleanerIds: string[], seen: number }` — everyone who should be on it, and the job's history length when
  *       the page loaded it. Cleaners added must be active cleaners, never handymen, and nobody is added to a job whose
@@ -21,15 +26,19 @@ import { NextRequest } from 'next/server';
 import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiError, apiFailure, apiSuccess, apiValidationError, noStore } from '@/app/lib/api/safe-response';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
-import { JOB_AMOUNT_REFUSALS, ASSIGN_REFUSALS, SWAP_REFUSALS, setAssignees, setJobAmount, swapCleaner } from '@/app/lib/firebase/server-cleaning-jobs';
-import { JobPatchSchema } from '@/app/lib/cleanings/schemas';
+import { DELETE_JOB_REFUSALS, JOB_AMOUNT_REFUSALS, ASSIGN_REFUSALS, SWAP_REFUSALS, deleteJob, setAssignees, setJobAmount, swapCleaner } from '@/app/lib/firebase/server-cleaning-jobs';
+import { DeleteJobSchema, JobPatchSchema } from '@/app/lib/cleanings/schemas';
+import { JOB_ID_PATTERN } from '@/app/lib/schedule/model';
+import { paymentWords } from '@/app/lib/pay/model';
+import { monthLabel } from '@/app/lib/reports/model';
+import { dayText } from '@/app/lib/availability/days';
 
 interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
-/** A job's ID: a property's auto ID and its checkout day. */
-const JOB_ID = /^[A-Za-z0-9]{1,64}_\d{4}-\d{2}-\d{2}$/;
+/** A job's ID: a property's auto ID and its checkout day, with a job added by hand's suffix or not (Build 2). */
+const JOB_ID = JOB_ID_PATTERN;
 
 const NOT_ASSIGNABLE = { missing: 'no longer exists', 'not-a-cleaner': 'is a handyman, not a cleaner', inactive: 'is deactivated' } as const;
 
@@ -79,5 +88,34 @@ export const PATCH = adminRoute(async function PATCH(request: NextRequest, conte
       return noStore(apiFailure({ status: 422, code: 'CLEANER_NOT_ASSIGNABLE', message: `${outcome.name ?? 'That team member'} ${NOT_ASSIGNABLE[outcome.why]}.`, hint: 'Nothing was saved. Only an active cleaner is put on a job.' }));
     default:
       return noStore(apiFailure(ASSIGN_REFUSALS[outcome.kind]));
+  }
+});
+
+export const DELETE = adminRoute(async function DELETE(request: NextRequest, context: RouteContext, { actor }) {
+  const crossSite = refuseCrossSite(request);
+  if (crossSite) return crossSite;
+  const wrongType = requireMediaType(request, 'application/json');
+  if (wrongType) return wrongType;
+  const { id } = await context.params;
+  if (!JOB_ID.test(id)) return noStore(apiError('Invalid job ID', 400));
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return noStore(apiError('Invalid JSON body', 400));
+  }
+  const parsed = DeleteJobSchema.safeParse(body);
+  if (!parsed.success) return noStore(apiValidationError(parsed.error.issues.map((i) => ({ path: i.path.map(String).join('.'), message: i.message }))));
+  const outcome = await deleteJob(actor, id, parsed.data.seen);
+  switch (outcome.kind) {
+    case 'deleted':
+      return noStore(apiSuccess({ deleted: { id: outcome.id, cleanings: outcome.cleanings, marker: outcome.marker } }));
+    case 'cleaning-paid':
+      // The reason in one sentence (Build 2): the cleaning is counted in a recorded payment.
+      return noStore(apiFailure({ status: 409, code: 'JOB_CLEANING_PAID', message: `${outcome.name ?? 'The cleaner'}’s cleaning of ${dayText(outcome.day)} is counted in ${paymentWords(outcome.payment)}, so this job can’t be deleted.`, hint: 'Nothing was deleted.', evidence: { payment: outcome.payment.id } }));
+    case 'cleaning-printed':
+      return noStore(apiFailure({ status: 409, code: 'JOB_CLEANING_PRINTED', message: `${outcome.name ?? 'The cleaner'}’s cleaning is printed on ${outcome.months.map((m) => (m ? `${monthLabel(m)}’s` : 'a')).join(' and ')} statement, so this job can’t be deleted.`, hint: 'Nothing was deleted.' }));
+    default:
+      return noStore(apiFailure(DELETE_JOB_REFUSALS[outcome.kind]));
   }
 });

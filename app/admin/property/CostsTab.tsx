@@ -263,7 +263,7 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
 
       {totals.waiting.count > 0 && (
         <p className={styles.noteWarn} role="status">
-          {totals.waiting.count === 1 ? "1 entry" : `${totals.waiting.count} entries`} sent in {monthLabel(month)} {totals.waiting.count === 1 ? "is" : "are"} pending and in no statement until reviewed.{" "}
+          {totals.waiting.count === 1 ? "1 entry" : `${totals.waiting.count} entries`} sent in {monthLabel(month)} {totals.waiting.count === 1 ? "needs" : "need"} a decision and {totals.waiting.count === 1 ? "is" : "are"} in no statement until then.{" "}
           <Link href={`/admin/costs?property=${encodeURIComponent(propertyId)}`} prefetch={false} className={styles.linkButton}>
             Review
           </Link>
@@ -326,7 +326,7 @@ export function CostsTab({ propertyId, propertyName, month, today, entries, expo
                       </span>
                     ) : (
                       <span className={styles.noteWarn} title={now.reason}>
-                        {entry.kind === "cleaning" ? "No amount yet" : "Cannot add up"}
+                        {entry.kind === "cleaning" ? "Needs an amount" : "Cannot add up"}
                       </span>
                     )}
                     {where !== null && (

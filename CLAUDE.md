@@ -608,7 +608,10 @@ These replace the rulings they change: six-digit admin PINs.
   an Airbnb reservation's checkout date, from the property's calendar
   copies. Only reservations create jobs, never owner blocks. Properties
   without a calendar link get no jobs.**
-- **Admins assign one or more active cleaners to a job.**
+- **Admins assign one active cleaner to a job, or nobody: a job has exactly
+  one cleaner, and Assign and Change cleaner are single-choice.** Kian's
+  ruling of 2026-11-03 (Build 2; CLEANER-COSTS-DESIGN.md §69), replacing "one
+  or more".
 - **In the cleaner app, a cleaner's assigned jobs come first, soonest first,
   above everything else.** Its home screen shows today's and tomorrow's jobs,
   by Kian's ruling of 2026-10-16 (Cleaner app, below).
@@ -618,10 +621,13 @@ These replace the rulings they change: six-digit admin PINs.
   paid for that property, else their default rate). With neither, the job
   is done and the cleaning waits for an admin to type its amount.** The
   amount rule is replaced by Kian's ruling of 2026-10-19 (Cleaning prices,
-  below): the property's preset by the stay, none with two or more cleaners.
-- **With several cleaners on one job, each marks their own; the owner is
-  charged what the cleaners are paid, added up (37B's one
-  "Expense - Cleaning" line already does this).**
+  below): the property's cleaning price by the stay, or the amount set on the
+  job; a job has one cleaner (2026-11-03, §69).
+- **A job has one cleaner (Kian's ruling of 2026-11-03, §69). For a second
+  cleaner, an admin adds another job on the same property and day, each with
+  its own label, cleaner and amount; the owner is charged each cleaning
+  (37B's one "Expense - Cleaning" line adds them up).** This replaces "with
+  several cleaners on one job, each marks their own".
 - **A cleaner can undo their own Mark cleaned until that month's statement
   is finished. After that, admins change or remove it under 37B's rules.**
 - **No proof of cleaning is required.**
@@ -952,6 +958,8 @@ Kian's review of 2026-10-19:
 
 ## Cleaning prices — Kian's ruling of 2026-10-19 (the NuBNB Cleaner Pay Schedule)
 
+- The word on every admin screen is "cleaning price" since Kian's ruling of
+  2026-11-03 (§69); "preset" below is the earlier name of the same record.
 - **"Cleaning prices are presets per property, not per cleaner: a short-term
   price for an ordinary turnover and a long-term price after a stay of 28
   nights or more. They are the base for each house; the admin can change any
@@ -967,9 +975,10 @@ Kian's review of 2026-10-19:
   property, else the cleaner's default rate": a Mark cleaned on a job with
   exactly one cleaner takes the long-term preset when the stay behind the job
   is 28 nights or more, else the short-term preset, and no amount when the
-  property has no matching preset; a job with two or more cleaners gives every
-  cleaner's cleaning no amount, and the admin types the split; a cleaning
-  logged by hand prefills from the same rule. Each cleaning records where its
+  property has no matching preset (a job has one cleaner since Kian's ruling
+  of 2026-11-03, §69: the two-cleaner split is gone, and only reading an
+  older cleaning keeps it); a cleaning logged by hand prefills from the same
+  rule. Each cleaning records where its
   amount came from (short-term preset, long-term preset, typed). The cleaner's
   default rate is no longer used anywhere; the stored field stays, and "Set
   rate" is gone from the Team page. Changing a preset never changes an
@@ -979,12 +988,9 @@ Kian's review of 2026-10-19:
 
 Kian's instruction and ruling of 2026-10-19 (the second round):
 
-- **A second cleaner after a mark:** on the Schedule, adding a cleaner to a
-  job where another cleaner's mark already created a cleaning with an amount
-  asks first in Nubnb's own dialog: "<name>'s cleaning already carries $X
-  (<short-term|long-term> preset). With two cleaners, the amounts need
-  splitting: edit them on the Cleanings tab." Confirming assigns as today;
-  no amount changes by itself.
+- **A second cleaner after a mark:** withdrawn by Kian's ruling of 2026-11-03
+  (§69): a job has one cleaner, so no second cleaner is added to a marked job;
+  a second cleaner is another job on the same property and day.
 - **Properties with no preset:** "For unsure rows, we just keep it open as
   input by admin, and we keep that input item as a recommendation for next
   time (based on if it's short term or long term)." The recommendation for a
@@ -993,9 +999,13 @@ Kian's instruction and ruling of 2026-10-19 (the second round):
   typed, and from a job with exactly one cleaner or logged by hand; never a
   share from a two-cleaner job. Wherever an admin types a missing amount
   (the Cleanings tab's "Waiting for an amount" rows, and later the Team pay
-  view), the field opens prefilled with it, labelled "Last typed for
-  <short-term|long-term>: $X"; Enter or Save confirms it; nothing is charged
-  until an admin confirms. Mark cleaned and hand-logged cleanings on such a
+  view), the field shows it as a grey placeholder labelled "Last typed for
+  <short-term|long-term>: $X", never as its value, and Save with an empty
+  field saves nothing (Kian's ruling of 2026-11-03, item 3, §69: "Never save a
+  suggestion"; replacing "opens prefilled with it … Enter or Save confirms
+  it"); nothing is charged until an admin types an amount. The property's
+  cleaning price, or the amount set on the job, still fills the field: it is
+  the ruled base price (Kian, 2026-11-03). Mark cleaned and hand-logged cleanings on such a
   property still arrive with no amount: the recommendation is never applied
   automatically and never becomes a preset. A preset for that tier, once
   set, replaces the recommendation completely.
@@ -1006,12 +1016,13 @@ Build per the 2026-10-19 audit, on top of the cleaning prices per property.
 
 - **Pay from the pay view (the audit's one change, Kian's instruction):** "The
   person's pay view lists their cleanings with no amount at the top, each with
-  an amount field, plus 'Save all'. Each field opens prefilled the same way as
-  the Cleanings tab: the property's preset for that tier if one exists,
-  otherwise 'Last typed for <short-term|long-term>: $X', otherwise empty. A
-  two-cleaner share is never prefilled. Nothing is charged until Save or Save
-  all. Saving updates Earned and Balance without reloading. Use the same server
-  route and history rules as the Cleanings tab."
+  an amount field, plus 'Save all'. Each field opens the same way as the
+  Cleanings tab. Nothing is charged until Save or Save all. Saving updates
+  Earned and Balance without reloading. Use the same server route and history
+  rules as the Cleanings tab." Amended by Kian's ruling of 2026-11-03 (§69):
+  the field holds the property's cleaning price for that tier, or the job's
+  amount, when there is one; "Last typed for <tier>: $X" is a placeholder,
+  never a value; a two-cleaner share no longer arises (one cleaner per job).
 - **K1.** "Recording a payment while the person has cleanings with no amount,
   or receipts or work waiting for review, asks first in Nubnb's own dialog. The
   dialog names the counts and says the balance doesn't include them. Still
@@ -1069,12 +1080,16 @@ by G.
 
 - **A. "Three tiers per property, chosen by the booking's nights: short 1–6, mid 7–27, long 28+. Each property holds
   a base price per tier in the existing server-only price record. Mid starts equal to that property's short price.
-  Admins change base prices on the property, as now. A base change never alters existing cleanings. Two cleaners on
-  a job still give no amount."**
+  Admins change base prices on the property, as now. A base change never alters existing cleanings."** Its last
+  sentence, "Two cleaners on a job still give no amount", is replaced by Kian's ruling of 2026-11-03 (§69): a job has one
+  cleaner; on every admin screen the base price is the "cleaning price".
 - **B. "Per-job amount: an admin can set an amount on any job, before assignment or at any time before the cleaning's
   money is approved. It beats the base price. The admin also sees and can edit it from the Cleanings tab."**
 - **C. "Add a job: on the Schedule, for any property (with or without a calendar), any date, any active cleaner, and
-  a chosen tier (short by default). It reaches the cleaner's app like any job and is marked the same way."**
+  a chosen tier (short by default). It reaches the cleaner's app like any job and is marked the same way."** Any
+  number of jobs can be added on the same property and day, each with its own label ("Deep clean", "Extra visit";
+  the calendar's read "Turnover"), its own cleaner and its own amount; the one-job-a-day refusal (JOB_EXISTS) is gone,
+  and an admin can delete a job (Kian's rulings of 2026-11-03, items 1 and 2, §69).
 - **D. "Change cleaner: a one-step swap on an assigned job, logged. The old cleaner's app drops it and the new one's
   shows it."**
 - **E. "Record as cleaned: an admin action on any job whose day has come. It counts exactly as if the assigned

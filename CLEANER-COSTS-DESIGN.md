@@ -5596,3 +5596,272 @@ under September by `historyItems` as the cleaning itself while the 45-day ones s
 November 2026 left out; no amount in the list. **Live:** Ana's History on the before build showed Oct 29 only and no
 switcher; on the after build November (nothing), October (Oct 29 · Cleaned · Undo) and September (Sep 19 · Cleaned),
 `h4-before-history-november-390.png`, `h4-history-after-november-390.png`, `h4-history-after-september-390.png`.
+
+## 69. Build 2 of 3: money correctness, one cleaner per job, deleting jobs, one word per state — Kian's rulings of 2026-11-02 (UX audit Q-list) and 2026-11-03
+
+Kian's dispatch of 2026-11-03: "an admin can set up any job (ordinary or not) in a few clicks, every amount is one an
+admin chose or the property's cleaning price, nothing is ever saved that nobody typed, and every state has one name
+everywhere." Six numbered items; scope the Schedule (jobs, assign, delete, amount), Add a job, the calendar sync's
+respect for deleted jobs, the Cleanings tab, the Costs queue's words, the Team page and pay view's words and header, the
+property settings' naming and Finish's wording. No person page or payday (Build 3). Commit after his review.
+
+### 69.1 Kian's rulings, in his words
+
+1. **One cleaner per job.** "A job has exactly one cleaner. Assign and Change cleaner are single-choice. An admin can add
+   any number of jobs on the same property and day (remove JOB_EXISTS). Each job has its own label (calendar jobs
+   'Turnover'; added jobs a free label such as 'Deep clean', 'Extra visit'), its own cleaner, and its own amount (the
+   per-job amount, else the property's cleaning price for its tier). Remove the two-cleaner split UI and logic for new
+   work." Pre-flight: "count production jobs or cleanings with more than one cleaner. If any exist, stop this item and
+   report; otherwise keep only what reading old data needs."
+2. **Delete a job (admin, no reason asked).** "One confirmation ('Delete this job? It can't be undone.'). It deletes the
+   job and its cleaning if that cleaning is not counted in a recorded payment and not printed on a finished statement.
+   Otherwise refuse with the reason in one sentence. A deleted calendar job must not come back on the next calendar
+   read: leave a minimal marker keyed by booking and checkout, which the sync honours. If the booking later changes, the
+   sync may create a new job. One admin_actions line per delete."
+3. **Never save a suggestion.** "The 'Last typed for <tier>' figure is a placeholder (grey) everywhere, never a field
+   value. Save with an empty field saves nothing."
+4. **Base price and per-job amount.** "The property's cleaning price per tier stays the base, editable on the property.
+   The per-job amount is set from the job's row menu ('Amount'), not a button on every row, and can be set at creation
+   in Add a job. The property settings section is renamed 'Cleaning & prices'."
+5. **One word per state, everywhere in the admin:** "'Needs an amount' (a cleaning with no amount); 'Needs a decision'
+   (a pending receipt or work entry, or a cleaning with a note), always showing the note's words where there is one;
+   'extra asked' is retired on the admin side; 'Counted'; 'Settled' (zero balance); 'Paid ahead' (negative balance),
+   with the advance question reading 'Pay $X ahead?'; 'Cleaning price' (replacing preset, base price, the property's
+   price). Inventory every place each word changed. Record the list in the design doc as Kian's ruling, so later builds
+   use only these."
+6. **Small fixes.** "After a payment is deleted, the amount field clears. A decision on a cleaning dated before November
+   2026 says 'counts in pay; statements start November 2026', never a pre-floor statement month. The pay view header
+   loses the 90-day receipt-size line and the database ID; 'Account history' moves to the Team row's menu. Cleanings tab:
+   'Log a cleaning' becomes a button that opens the form. 'Mark these n seen' stays, as a quieter control. The $200 rule
+   is unchanged: matching, unflagged receipts under $200 are automatic; over $200, flagged or mismatched receipts wait."
+
+These replace what they change in earlier sections: the ruling of 2026-10-14 that admins assign "one or more" cleaners
+(§46), the two-cleaner split of 2026-10-19 and 2026-11-01 (§58, §64: "two cleaners on a job still give no amount"), the
+second-cleaner question (§58.5), the prefilled recommendation of 2026-10-19 (§58.5, §59: "the field opens prefilled"),
+"one job a day per property" (§64.1.3), and ruling 3's "overpaid" → "Paid ahead" wording stands (§65.3) with the new
+question. CLAUDE.md's lines on those points are left as they were, for Kian to replace in his words.
+
+### 69.2 The word inventory (Kian's ruling 5), as the admin's sources stand
+
+Counted in code strings (comment lines dropped) over `app/admin`, `app/lib` and `app/api`, before (HEAD `de7f126`) and
+after this build; the cleaner app (Build 1's words) left out. The two "preset" hits that remain are the date-range
+presets of DateRangeField, not the price. The table is `~/Backups/Nubnb/build2-money/_harness/out/inventory.md`
+(`inventory.mjs`); the rows that matter:
+
+| Retired word | Before | After | Where it was |
+|---|---|---|---|
+| No amount yet / no amount yet | 20 | 0 | CleaningsTab, MonthTab, Costs page, CostsTab, Schedule, workbooks, cleanings/model, prices, costs/report, pay/balance, pay/checks, reports/checks |
+| Waiting for an amount | 4 | 0 | CleaningsTab |
+| Amount needed | 1 | 0 | schedule/standing |
+| Extra asked / extra asked | 17 | 0 | PayView, CleaningsTab, Schedule, cleanings/model, home/next-step, pay/balance, pay/checks, reports/checks, schedule/model, schedule/standing |
+| Waiting for review | 6 | 0 | PayView, pay/balance, pay/checks |
+| Waiting for a decision | 2 | 0 | MonthTab, PayView |
+| to decide | 2 | 0 | Costs page, schedule/standing |
+| Not counted yet | 1 | 0 | PayView |
+| Pending (the badge and the totals column) | 2 | 0 | cleaners/model (the admin's label), Costs page |
+| still pending | 3 | 0 | StatementsPanel, costs/report, reports/checks |
+| $0.00 so far (and the "—" for zero) | 1 | 0 | Team page |
+| preset (the price) | 6 | 0 | PayView, CleaningsTab, prices, server-cleaning-prices |
+| base price | 9 | 0 | sections-internal, Report For sheet, Schedule |
+| Record it as an advance / Record as an advance | 2 | 0 | pay/checks |
+
+| The one word | Where it now stands |
+|---|---|
+| **Needs an amount** | the home's Cleaning cell and its tooltip; the Schedule chip (" needs an amount") and the Record notice; the Cleanings tab's chip ("Needs an amount · n"), head count, table caption, amount cell; the Costs queue's total cell, Month tab column, property ledger cell, the "left out" lines of the ledger's exports and notices; the pay view's row note and section; the Team row ("· n need an amount"); K1, K3 and Finish ("n cleanings need an amount; they will go on …"); the Nubnb backup workbook's cleaning row |
+| **Needs a decision** | the admin's entry status label (the queue badge, filters, the pane's history words); the queue's head and group ("n need a decision", "Needs a decision (n)"), totals column "Needs a decision, apart"; the Month tab column; the home tile ("n need a decision"), chip, Cleaning cell and Next step ("Decide the note from <day>"); the Schedule state ("Cleaned · needs a decision") and chip words ("Needs a decision: “<note>”"); the Cleanings tab's chip, caption, mark and the "Note" column; the pay view's rows ("Needs a decision", "Needs a decision: “<note>”", with the flag's reason after it) and section ("Needs an amount or a decision · n"); the Team row ("· n need a decision"); K1, K3, Finish ("n cleanings with a note need a decision"); StatementsPanel and CostsTab ("needs a decision and is in no statement until then") |
+| **Counted** | the pay view's and Cleanings tab's saved lines ("Saved $X · Counted · goes on …") |
+| **Settled** | a zero balance, on the Team row (always, whatever still needs an amount or a decision beside it) and the pay view |
+| **Paid ahead** | a negative balance everywhere (§65.3), and the question before paying more than is owed: "Pay $X ahead?" with "Their balance will then read “Paid ahead $Y”." and the button "Pay ahead" |
+| **Cleaning price** | the amount's source ("short-term cleaning price", "mid-term …", "long-term …"); the Cleanings tab's form words and hints; the pay view's field words ("Short-term cleaning price: $X"); the Schedule's Amount dialog, Add a job ("Cleaning price" placeholder; "takes the property's short-term cleaning price"), the amount chip's tooltip; the property's section "Cleaning & prices" and tile; the Report For sheet's column tooltips |
+
+Still said in other words, on purpose: the cleaner app's "Waiting" (Build 1's word for a pending receipt, theirs not the
+admin's), "Rejected or removed" (the queue's decided group and the totals' last column, which used to read "Not
+counted"), and "Approved · auto" (an entry that already counts).
+
+### 69.3 What was built, by item
+
+1. **One cleaner per job.** `cleanerIds` stays an array in the stored shape (the queries and every older job read as
+   before), and every write keeps it at one or none: `setAssignees` refuses two (409 `JOB_ONE_CLEANER`, "A job has one
+   cleaner."), the route's schema takes at most one, `MAX_ASSIGNEES` is 1. The Schedule's picker is a single choice —
+   Nobody, or one cleaner; ticking another unticks the first — and says so in one line; Change cleaner swaps the one
+   cleaner for another; Record as cleaned names the one cleaner. A job added by hand (`addJob`) gets its own ID, the
+   turnover's plus a six-character suffix (`addedJobIdOf`, `JOB_ID_PATTERN`, `jobIdParts`), so any number can sit on one
+   property and day beside the calendar's job: `JOB_EXISTS` is gone. Each carries a `label` (job schema version 3:
+   "Deep clean"; "Extra visit" when none is typed, `DEFAULT_JOB_LABEL`), its own cleaner and its own amount; a calendar
+   job's label is null and reads "Turnover" (`jobLabel`). The label is shown in the Schedule's Turnover column, in the
+   Add a job dialog, in the dialogs' titles, and on the cleaner's card in place of the checkout words (`CleanerJobView.
+   label`). The two-cleaner split is gone from new work: `markAmount` no longer returns "split", `secondCleanerQuestion`
+   is removed, the hints no longer say "in all"; reading an older cleaning whose `suggested.from` is "split" still works
+   ("needs an amount: several cleaners were on the job"), and a share of an older two-cleaner job opens its field empty.
+   Pre-flight on the opening export: 13 jobs, none with more than one cleaner, no cleanings collection.
+2. **Delete a job.** DELETE `/api/admin/cleaning-jobs/[id]` with `{ seen }` (`deleteJob`): one transaction reads the
+   job and every cleaning its marks made; a cleaning dated on or before a payment to its cleaner (409
+   `JOB_CLEANING_PAID`: "<name>’s cleaning of <day> is counted in the payment of $X on <day> (e-transfer), so this job
+   can’t be deleted.") or printed on a finished statement (409 `JOB_CLEANING_PRINTED`) refuses it, nothing deleted; else
+   the cleanings and the job go. A calendar job leaves a marker, `deleted_cleaning_jobs/{jobId}` (`DeletedJobMarker`:
+   property, checkout, the reservation's UID and first night, when and who), and the sync (`planCreates`, given the
+   markers from today on by `store.ts`: one more read per run) makes no job while that booking still ends that day; a
+   changed booking — another UID, or another first night — may make a new one. A job added by hand leaves no marker. On
+   the Schedule, "Delete…" is in the row's menu, asks once in Nubnb's own dialog ("Delete this job? It can't be undone."
+   with the job named, and who marked it), and shows the server's one sentence when refused. The activity log names the
+   route ("Deleted a cleaning job"). The collection is denied to browsers by firestore.rules' catch-all; no rules line
+   was added, so no rules deploy goes with this commit.
+3. **Never save a suggestion.** `fieldStart` (prices.ts) decides how a missing amount's field opens: the property's
+   cleaning price for the tier, or the amount set on the job, fills it (each an amount an admin set, which the ruling
+   allows); "Last typed for <tier>: $X" is a grey placeholder with its words beside the field, never a value; nothing, or
+   an older two-cleaner share, leaves it empty. Save is disabled while the field is empty, and an Enter or Save on an
+   empty field sends nothing (the Cleanings tab, the pay view, Save all).
+4. **Cleaning price and the per-job amount.** "Amount…" moved from a button on every row into the row's "⋯" menu
+   (`components/RowMenu`, the Team page's menu made shared, with "Who cleans…" and "Delete…" beside it; it reads
+   "Amount… ($X on the job)" once set and is disabled, with why, once the mark's cleaning counts). Add a job keeps its
+   amount field ("Cleaning price" as its placeholder). The property's section is "Cleaning & prices" in the rail and the
+   panel (the section's id stays `cleaners`, so links keep working).
+5. **One word per state.** §69.2. The words live in: `ENTRY_STATUS_LABELS.pending` ("Needs a decision"; the cleaner
+   app's "Waiting" stays), `standing.ts`, `next-step.ts` (the chip, and the step "Decide the note from <day>"),
+   `jobState` ("Cleaned · needs a decision"), `NO_AMOUNT_YET` / `NO_AMOUNT_SPLIT` / `EXTRA_ASKED`, `extraWords` ("Needs a
+   decision: “<note>”", "Approved by <admin>", "Declined by <admin>"), `AMOUNT_SOURCE_WORDS` ("<tier> cleaning price"),
+   `waitingHint`, pay/balance.ts (row notes), pay/checks.ts (K1's counts; K2 "Pay $X ahead?" / "Pay ahead", with the
+   balance it will read), reports/checks.ts (Finish), costs/report.ts (the exports' left-out lines), the Costs page,
+   MonthTab, CleaningsTab, PayView, the Team page (a zero balance reads "Settled" always, with "· n need an amount · n
+   need a decision" beside it), DashboardStats, StatementsPanel, CostsTab, the editor and the Report For sheet.
+6. **Small fixes.** The pay view clears its amount field after a payment is deleted (`setAmountTyped('')`), and its head
+   lost the 90-day receipt line and the database ID; "Account history" is an item in the Team row's menu, opening Nubnb's
+   dialog with the account's events in words (never a code, K5). `countsWords(day, statementMonth)` says "goes on
+   <Month>'s statement", or, for a cleaning dated before the statements floor, "counts in pay; statements start November
+   2026": the Cleanings tab's saved and decided lines, the Schedule's notices. "Log a cleaning" is a button that opens the
+   form, with Close. "Mark these n seen" stays, in the muted ink with no fill (12.5 px, 0.55 alpha). The $200 rule is
+   untouched: the seeded $43.21 receipt was approved automatically, the $212.34 one needs a decision.
+
+### 69.4 The developer's choices (for Kian; none changes a statement or what an owner receives)
+
+- **A cleaning price still fills a missing amount's field** (item 3): the ruling names the "Last typed" figure as the
+  placeholder, and the intent allows "the property's cleaning price" as an amount; so the price, and the amount set on
+  the job, fill the field, while the recommendation never does. The hand-log form likewise starts from the price (Kian's
+  ruling of 2026-10-19). Reversible: `fieldStart` is one function.
+- **The label reaches the cleaner's card** in place of the checkout words, so two jobs on one unit and day read apart
+  ("Deep clean", "Extra visit"); nothing else of the app changed. A label is words, never an amount (ruling H).
+- **Added jobs' IDs** carry a random six-character suffix after the turnover's ID, so the routes' ID pattern widened
+  (`JOB_ID_PATTERN`) and `readJob` refuses a suffix on a calendar job and a label on one. The hand-log suggestion still
+  looks up the calendar's job for the day (`jobIdOf`), not an added one.
+- **The marker's key is the turnover (the job's ID), the booking inside it**: "keyed by booking and checkout" read as the
+  turnover's day plus the reservation's UID and first night, so a moved check-in counts as a changed booking.
+- **A job's removed-by-the-office cleaning is checked and deleted with the job** like a logged one; a cleaning the office
+  already deleted is skipped.
+- **The second cleaner's 422**: the route's schema refuses two cleaners before the server's 409 does, so a hand-made
+  request reads "Validation failed · cleanerIds: A job has one cleaner"; the Schedule never sends two.
+- **"Needs an amount or a decision · n"** names the pay view's section (it was "Not counted yet"); "Rejected or removed"
+  names the queue's decided group and the totals' last column (it was "Not counted").
+- **"Decide the note from <day>"** is the home's Next step for a cleaning with a note; the chip is "Needs a decision".
+- **No firestore.rules change** for `deleted_cleaning_jobs`: the catch-all denies it, and a rules line would have made
+  a rules deploy part of this release. The export script lists the collection.
+- **CLAUDE.md is untouched**: its superseded lines (one or more cleaners, the two-cleaner split, the prefilled
+  recommendation, one job a day per property) are for Kian to replace in his words.
+
+### 69.5 Tests
+
+`node tests/run.mjs`: 34 checks, all identical. New: `build2-jobs` (tests/schedule/build2.mjs) — one cleaner per job
+(a second refused, nothing written; Assign to one or nobody; the routes' schemas; three jobs added on one property and
+day with their own IDs, labels, cleaners and amounts; each cleaner's app seeing only their own job by its label; each
+mark counting its own amount and pay; an older two-cleaner share still reading); delete a job (a stale `seen` refused;
+an unmarked calendar job deleted with its marker; the sync not recreating it while the booking stands, in memory and
+pure; a moved check-in and a new UID making a new job; an added job leaving no marker; a marked job's cleaning going
+with it; the refusals for a paid and for a printed cleaning, nothing deleted; the schema taking `seen` alone); never
+save a suggestion (`fieldStart` for a recommendation, a price, a job's amount, nothing, an older share); the one word
+per state across the Schedule, the home, the chips, the entry label, the cleanings' words, K1, K2, the balance words,
+the source words, `countsWords`. Re-recorded for the new words or rules, each diff read: office-month, admin-accounts
+(the new DELETE route), cleaning-jobs, pay-balance, property-columns, home-next-step, cleaner-build1 (the `label` key),
+costs-look, schedule-round1 (the markers' one read; the chip), cleaning-prices (the split and the second-cleaner question
+gone), team-round1 (K1, K2, K3, the placeholder rule), cleaning-flow (a second cleaner refused, two jobs added on one
+day, the state words). tsc clean outside the stale `.next` validators; eslint clean on every changed file.
+
+### 69.6 Verified on production (2026-11-03; the server's clock 2028-11-18)
+
+Two builds at 0 reads (`empty-firestore.cjs`): HEAD `de7f126` (`work-before`) and HEAD plus the changed files (`work`),
+served on 127.0.0.1:4500 behind the write guard, the calendar copy stubbed, every real calendar cut off, a `__TEST__`
+admin, two `__TEST__` cleaners (Ana, Ben), three Unlisted `__TEST__` properties (P with prices and a cut link, Q with no
+prices and no link, S with prices and a link answered from a file), the calendar's jobs seeded in the stored shape and
+marked through the app's own functions, a payment to Ana, a hand-logged typed cleaning on Q, a noted cleaning dated
+2026-10-20, two receipts. Sessions minted; no code ever typed. Harness, logs, the write ledger and the OCR scan:
+`~/Backups/Nubnb/build2-money/_harness` (`out/before.txt`, `out/after.txt`, `out/after2.txt`); 54 screenshots
+`~/Backups/Nubnb/build2-money/{before,after}-*.png` (every four-digit number masked in the DOM first; OCR'd against the
+25 codes and PINs: 0 hits).
+
+- **Item 1.** POST add "Deep clean" (Ana, $44.00) and one with no label (Ben): 201 each, labels stored "Deep clean" and
+  "Extra visit", IDs the turnover's with a suffix; the Schedule's day block read "Turnover · Ana", "Deep clean · $44.00 on
+  the job · Ana", "Extra visit · Ben" on P. PATCH with two cleaners on the turnover: 422, "A job has one cleaner". The
+  picker on S opened on "Nobody" ticked; ticking Ana ticked Ana alone, ticking Ben moved the tick to Ben; Save put Ben on.
+  Ana's phone showed P's turnover and "Deep clean"; Ben's "Extra visit" (and S's turnover once assigned). Each pressed
+  Done: Ana's cleaning $44.00 (`job`), Ben's $61.00 (`short`, P's short-term cleaning price); the Team row read Ana
+  "$201.21 owed", Ben "$61.00 owed". The first pass had found the route dropping the label (both jobs read "Extra visit"):
+  fixed, the after copy rebuilt at 0 reads, the two jobs deleted through the route and added again.
+- **Item 2.** On the Schedule, S's row menu → Delete… → "Delete this job? It can't be undone. · [S] · Nov 18 · Turnover"
+  → Delete: the row gone, "Deleted [S] · Nov 18 · Turnover.", one `deleted_cleaning_jobs` write in the ledger. Refresh
+  calendars with S's feed still holding the same stay: jobs created 0; S's job not made again. The feed changed to another
+  UID ending today: created 1; S's job made again, nobody on it. The Nov 16 job whose cleaning the Nov 16 payment covers:
+  Delete… → refused, "Ana’s cleaning of Nov 16 is counted in the payment of $61.00 on Nov 16 (e-transfer), so this job
+  can’t be deleted. Nothing was deleted.", the job and its cleaning still there, no marker. The activity log held 13
+  lines by the test admin, 3 of them DELETE /api/admin/cleaning-jobs (the two route deletes and the UI delete; the refused
+  one, 409, is not recorded).
+- **Item 3.** The Cleanings tab opened on "Needs an amount · 1"; Q's Nov 16 row's field: value "", placeholder "53.00",
+  "Last typed for short-term: $53.00" beside it, Save disabled. Enter in the empty field: no `cleanings` update in the
+  ledger, the row still waiting. The pay view's field the same; no "Save all" with one row.
+- **Item 4.** S's row menu → Amount… → "What a mark on this job takes instead of the property’s short-term cleaning
+  price." → 70.00 → Save: the chip "$70.00 on the job"; the turnover's menu read "Who cleans…", "Amount…", "Delete…", its
+  buttons "Change cleaner", "Record as cleaned" and the menu only. The edit page read "Cleaning & prices" twice (rail and
+  panel), "Cleaners" nowhere.
+- **Item 5.** The eleven admin screens at 1440 (home, Schedule, Costs queue, Cleanings, Month, Team, Ana's pay, the
+  property's Cleaning & prices, the Report For sheet, the property's costs and Finish), before and after. Before: Amount
+  needed 1, Extra asked 5, extra asked 3, Pending 2, pending 2, to decide 1, Waiting for an amount 3, no amount yet 2,
+  Waiting for review 2, Not counted yet 1, $0.00 so far 1, base price 1, Last 90 days 1, the database ID line. After, on
+  every screen, before and after the flows: 0 retired words; "Needs an amount", "Needs a decision", "Settled", "cleaning
+  price", "Cleaning & prices", "Log a cleaning", "Mark these", "Turnover", "Deep clean", "Extra visit" where expected.
+  (The check's "ID " pattern first matched the "PAID" column header; the refined check looks for an ID line, 0 after.)
+- **Item 6.** The pay view's head: "Ana · Cleaner · Active · Regular cleaner for: no property · 2 jobs ahead", no 90-day
+  line, no ID, no Account history. The dated table under "All time"; Delete… on the Nov 16 payment → "Delete payment" →
+  the amount field "", "Deleted the payment of $61.00 on Nov 16. It stays in Ana's history, struck through, and no longer
+  counts as paid." The Team row menu read "Change code · Deactivate · Account history · Delete…"; Account history opened
+  "Created by build 2 verification seed on Nov 18, 2028". The Cleanings tab opened with no form and a "Log a cleaning"
+  button; the click opened the form. "Needs a decision · 2" listed the Nov 17 note and the Oct 20 one; "Approve at
+  cleaning price" on Oct 20: "Approved $59.00 · Counted · counts in pay; statements start November 2026". The queue's
+  "Mark these 1 seen": 12.5 px, ink at 0.55, no fill; its badges "Needs a decision" (and the real pending work entry's
+  "Work").
+- **Reads: 8,504 against the 6,000 budget** (the exports excluded, 1,114 each): the before screens 1,978; the after
+  build 6,480 — two full screen passes (about 1,970 and 1,940) for the inventory before and after the flows, the flows
+  1,306, the second pass 1,245; the seed 31; the activity lines 13; the cleanup 2. The overrun is the second full
+  screens pass, which I chose for the "after the flows" inventory; the final pass was cut to the Schedule alone.
+- **Writes:** 54 creates by the seed and the flows, 56 deletes (3 by the flows, 53 by the cleanup), 11 stubbed (the
+  calendar copy), 0 refused. Cleanup by exact path from the ledger; the closing export `2026-11-03T15-37-02Z` against the
+  opening `2026-11-03T15-22-59Z`: 612 documents identical, 0 differences. The repository scanner over the tracked and
+  changed files: clean (6 codes, 4 PINs, the shared PIN). Secrets, jars, env files and browser audit logs deleted; the
+  ledger's and read log's code paths masked.
+
+### 69.7 LATER
+
+- The pay view's dated table opens on the browser's own month (the page's clock is real while the server's is 2028): a
+  harness matter, not the admin's.
+- `handLogStart` and the suggest route look up the calendar's job for a day, never an added job: a cleaning logged by
+  hand on a day with only an added job starts from the short-term price.
+- The second cleaner's refusal reads "Validation failed" through the route (the schema), not the server's one line.
+- The budget: a before-and-after screen inventory on production costs about 2,000 reads a pass; next time, one pass on
+  production and the other from the in-memory server.
+
+### 69.8 Kian's rulings of 2026-11-03 on the held items, in his words
+
+"Build 2 approved."
+
+1. "A cleaning price (or the job's amount) filling a missing amount's field stays as built: it is the ruled base
+   price. Only 'Last typed' is a placeholder."
+2. "The label on the cleaner's card stays."
+3. "CLAUDE.md: replace every superseded line (multiple cleaners on a job, the split, the prefilled recommendation, one
+   job a day) with the current rule and a pointer to §69." Done in CLAUDE.md: the phase-1 assignment line ("one or
+   more" → one cleaner or nobody), the phase-1 "with several cleaners on one job" line, the amount rule of 2026-10-19
+   (the split), the second round's "A second cleaner after a mark" (withdrawn) and "Properties with no preset" (the
+   placeholder), the Team page's "Pay from the pay view" (amended), the cleaning flow's ruling A (its last sentence)
+   and ruling C (any number of jobs on a day; delete a job), and one line saying the word is "cleaning price". The diff
+   is in the Build 2 report.
+4. "No rules change for the marker collection: accepted." `deleted_cleaning_jobs` is denied to browsers by
+   firestore.rules' catch-all; no rules line, no rules deploy.
+
+Committed after these as "Build 2: one cleaner per job, labelled jobs, delete a job, no saved suggestions, one word per
+state" (the 69 paths plus CLAUDE.md by name, no trailer); the commit's tree scanned against a fresh export, pushed, the
+deployment verified from Vercel's record, /admin and /cleaner smoked as no one. Figures in the report's close-out.

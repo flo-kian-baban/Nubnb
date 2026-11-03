@@ -38,9 +38,9 @@
    ok   needs
   TESTPROP0004: removed · "Removed by the office" · warning · 2026-10-12 · Checkout Oct 12: the office removed a mark; reopen it for them from the Schedule, or leave it · Test Ana (removed by the office)
    ok   removed
-  TESTPROP0005: changed · "Booking changed" · warning · 2026-10-11 · Checkout Oct 11: the booking changed after it was marked: its cleaning stays, charged as usual, for an admin to decide · Test Ana ✓
+  TESTPROP0005: changed · "Booking changed" · warning · 2026-10-11 · Checkout Oct 11: the booking changed after it was marked: its cleaning stays, charged as usual, for an admin’s decision · Test Ana ✓
    ok   changed
-  TESTPROP0006: amount · "Amount needed" · warning · 2026-10-12 · Checkout Oct 12: cleaned; its cleaning waits for an admin to type its amount · Test Ana ✓
+  TESTPROP0006: amount · "Needs an amount" · warning · 2026-10-12 · Checkout Oct 12: cleaned; its cleaning needs an admin to type its amount · Test Ana ✓
    ok   amount
   TESTPROP0007: assigned · "Assigned" · assigned · 2026-10-15 · Checkout Oct 15: someone is on it · Test Ana
    ok   assigned

@@ -6,8 +6,8 @@
  *
  * - K1: recording a payment while the person has cleanings with no amount, or receipts or work waiting for review,
  *   asks first; the question names the counts and says the balance does not include them. Still allowed.
- * - K2: a payment larger than the current balance asks first: "This pays $X more than <name> is owed. Record it as an
- *   advance?" Still allowed.
+ * - K2: a payment larger than the current balance asks first; since Build 2 (Kian's ruling of 2026-11-03) the question
+ *   reads "Pay $X ahead?". Still allowed.
  * - K3: deleting a member is refused while they have any cleaning with no amount, or any receipt or work not yet
  *   decided, as well as with a balance that is not zero (Kian's ruling of 2026-10-15). The refusal names what is
  *   outstanding and points to Deactivate.
@@ -28,12 +28,12 @@ export type PayStanding = Pick<MemberPay, 'balanceCents' | 'noAmount' | 'waiting
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-/** "2 cleanings have no amount yet", "1 receipt or work entry is waiting for review": the parts of what is not counted, in order. */
+/** "2 cleanings need an amount", "1 receipt or work entry needs a decision" (Build 2's one word per state): the parts of what is not counted, in order. */
 export function notCountedWords(pay: Pick<PayStanding, 'noAmount' | 'waitingReview' | 'extraAsked'>): string[] {
   const parts: string[] = [];
-  if (pay.noAmount > 0) parts.push(`${plural(pay.noAmount, 'cleaning has', 'cleanings have')} no amount yet`);
-  if ((pay.extraAsked ?? 0) > 0) parts.push(`${plural(pay.extraAsked ?? 0, 'cleaning waits', 'cleanings wait')} for a decision on extra asked`);
-  if (pay.waitingReview > 0) parts.push(`${plural(pay.waitingReview, 'receipt or work entry is', 'receipts or work entries are')} waiting for review`);
+  if (pay.noAmount > 0) parts.push(`${plural(pay.noAmount, 'cleaning needs', 'cleanings need')} an amount`);
+  if ((pay.extraAsked ?? 0) > 0) parts.push(`${plural(pay.extraAsked ?? 0, 'cleaning with a note needs', 'cleanings with a note need')} a decision`);
+  if (pay.waitingReview > 0) parts.push(`${plural(pay.waitingReview, 'receipt or work entry needs', 'receipts or work entries need')} a decision`);
   return parts;
 }
 
@@ -52,11 +52,12 @@ export function recordQuestions(pay: PayStanding, amountCents: number, name: str
     });
   }
   if (amountCents > pay.balanceCents) {
+    // Kian's ruling of 2026-11-03 (Build 2): the question reads "Pay $X ahead?", X the amount above what is owed.
     const over = amountCents - Math.max(pay.balanceCents, 0);
     questions.push({
-      title: `This pays ${formatCents(over)} more than ${name} is owed. Record it as an advance?`,
-      lines: [pay.balanceCents > 0 ? `${name} is owed ${formatCents(pay.balanceCents)}; this payment is ${formatCents(amountCents)}.` : pay.balanceCents === 0 ? `${name} is owed nothing; this payment is ${formatCents(amountCents)}.` : `${name} is already paid ahead by ${formatCents(-pay.balanceCents)}; this payment is ${formatCents(amountCents)}.`],
-      confirm: 'Record as an advance',
+      title: `Pay ${formatCents(over)} ahead?`,
+      lines: [pay.balanceCents > 0 ? `${name} is owed ${formatCents(pay.balanceCents)}; this payment is ${formatCents(amountCents)}.` : pay.balanceCents === 0 ? `${name} is owed nothing; this payment is ${formatCents(amountCents)}.` : `${name} is already paid ahead by ${formatCents(-pay.balanceCents)}; this payment is ${formatCents(amountCents)}.`, `Their balance will then read “Paid ahead ${formatCents(amountCents - pay.balanceCents)}”.`],
+      confirm: 'Pay ahead',
     });
   }
   return questions;

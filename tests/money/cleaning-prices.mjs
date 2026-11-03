@@ -62,20 +62,18 @@ check(pr.presetAmount(null, 5).cents === null && pr.presetAmount({ shortTermCent
 const job = (cleanerIds, start, checkout) => ({ cleanerIds, reservation: { start }, checkout });
 const one27 = pr.markAmount(PRICES_P, job([ANA.id], '2026-10-01', '2026-10-28'));
 const one28 = pr.markAmount(PRICES_P, job([ANA.id], '2026-10-01', '2026-10-29'));
-const two = pr.markAmount(PRICES_P, job([ANA.id, BEN.id], '2026-10-01', '2026-10-29'));
 const none = pr.markAmount(null, job([ANA.id], '2026-10-27', '2026-10-28'));
 console.log(`  mark, one cleaner, 27 nights: ${JSON.stringify(one27)}`);
 console.log(`  mark, one cleaner, 28 nights: ${JSON.stringify(one28)}`);
-console.log(`  mark, two cleaners, 28 nights: ${JSON.stringify(two)}`);
-console.log(`  mark, one cleaner, no preset: ${JSON.stringify(none)}`);
-check(one27.cents === 9_300 && one27.amountFrom === 'mid' && one28.cents === 12_300 && one28.amountFrom === 'long', 'a mark takes the mid-term preset at 27 nights and the long-term one at 28');
-check(two.cents === null && two.from === 'split' && two.amountFrom === null, 'two cleaners on the job: no amount, "split"');
-check(none.cents === null && none.from === 'short' && none.amountFrom === null, 'no preset: no amount');
+console.log(`  mark, one cleaner, no cleaning price: ${JSON.stringify(none)}`);
+check(one27.cents === 9_300 && one27.amountFrom === 'mid' && one28.cents === 12_300 && one28.amountFrom === 'long', 'a mark takes the mid-term cleaning price at 27 nights and the long-term one at 28');
+check(none.cents === null && none.from === 'short' && none.amountFrom === null, 'no cleaning price: no amount');
 console.log(`  by hand, no job that day: ${JSON.stringify(pr.handLogSuggestion(PRICES_P, null))} · with a 30-night job: ${JSON.stringify(pr.handLogSuggestion(PRICES_P, { reservation: { start: '2026-09-01' }, checkout: '2026-10-01' }))}`);
 console.log(`  where the amount came from: left as offered ${pr.amountSourceOf({ from: 'short', cents: 8_300 }, 8_300)} · changed ${pr.amountSourceOf({ from: 'short', cents: 8_300 }, 9_300)} · no preset, typed ${pr.amountSourceOf({ from: 'long', cents: null }, 9_300)}`);
 console.log(`  words: ${['short', 'long', 'typed'].map((k) => pr.AMOUNT_SOURCE_WORDS[k]).join(' · ')}`);
-console.log(`  a version 2 cleaning's words: ${pr.amountSourceWords({ amountCents: 9_300, suggested: { from: 'default', cents: 9_300 } })} · ${pr.amountSourceWords({ amountCents: 9500, suggested: { from: 'last', cents: 9_300 } })} · waiting after a split: ${pr.amountSourceWords({ amountCents: null, suggested: { from: 'split', cents: null } })}`);
-console.log(`  waiting hints: ${pr.waitingHint(PRICES_P, { nights: 30, cleaners: 2 })} | ${pr.waitingHint(PRICES_P, { nights: 2, cleaners: 1 })} | ${pr.waitingHint(null, { nights: 2, cleaners: 1 })} | ${pr.waitingHint(PRICES_P, null)}`);
+console.log(`  a version 2 cleaning's words: ${pr.amountSourceWords({ amountCents: 9_300, suggested: { from: 'default', cents: 9_300 } })} · ${pr.amountSourceWords({ amountCents: 9500, suggested: { from: 'last', cents: 9_300 } })} · an older two-cleaner share: ${pr.amountSourceWords({ amountCents: null, suggested: { from: 'split', cents: null } })}`);
+console.log(`  hints: ${pr.waitingHint(PRICES_P, { nights: 30, cleaners: 1 })} | ${pr.waitingHint(PRICES_P, { nights: 2, cleaners: 1 })} | ${pr.waitingHint(null, { nights: 2, cleaners: 1 })} | ${pr.waitingHint(PRICES_P, null)}`);
+check(pr.AMOUNT_SOURCE_WORDS.short === 'short-term cleaning price' && pr.AMOUNT_SOURCE_WORDS.long === 'long-term cleaning price' && !Object.values(pr.AMOUNT_SOURCE_WORDS).some((w) => /preset|base price/.test(w)) && !pr.waitingHint(PRICES_P, null).includes('reset'), 'the one word: "cleaning price", never "preset" or "base price" (Build 2)');
 
 // ═══ 2. Typed prices and the record ═══
 console.log('\n═══ 2. Typed prices, the record ═══');
@@ -166,20 +164,16 @@ const mark = async (m, id, checkout) => {
 const short = await mark(ANA, seedJob(P, '2026-10-16', '2026-10-18', [ANA]), '2026-10-18');
 const long = await mark(ANA, seedJob(P, '2026-09-21', '2026-10-19', [ANA]), '2026-10-19');
 const edge27 = await mark(ANA, seedJob(P, '2026-09-23', '2026-10-20', [ANA]), '2026-10-20');
-const split = seedJob(P, '2026-10-19', '2026-10-21', [ANA, BEN]);
-const splitAna = await mark(ANA, split, '2026-10-21');
-const splitBen = await mark(BEN, split, '2026-10-21');
+// One cleaner per job since Build 2: two jobs on one day instead of two cleaners on one (each with its own price).
+const dayJobAna = await mark(ANA, seedJob(P, '2026-10-19', '2026-10-21', [ANA]), '2026-10-21');
 const unpriced = await mark(ANA, seedJob(Q, '2026-10-20', '2026-10-22', [ANA]), '2026-10-22');
 const shortOnlyLong = await mark(ANA, seedJob(R, '2026-09-20', '2026-10-23', [ANA]), '2026-10-23');
-for (const [label, r] of [['P, 2 nights, one cleaner', short], ['P, 28 nights, one cleaner', long], ['P, 27 nights, one cleaner', edge27], ['P, 2 nights, two cleaners — Ana', splitAna], ['P, 2 nights, two cleaners — Ben', splitBen], ['Q (no prices), one cleaner', unpriced], ['R (short only), 33 nights', shortOnlyLong]]) {
+for (const [label, r] of [['P, 2 nights, one cleaner', short], ['P, 28 nights, one cleaner', long], ['P, 27 nights, one cleaner', edge27], ['P, 2 nights, Oct 21', dayJobAna], ['Q (no prices), one cleaner', unpriced], ['R (short only), 33 nights', shortOnlyLong]]) {
   console.log(`  mark ${label}: ${r.kind} · amount ${r.amount} · from ${r.from} · amountFrom ${r.amountFrom} · version ${r.version} · reads ${r.reads} (${r.by})`);
 }
-check(short.amount === '$83.00' && short.amountFrom === 'short' && long.amount === '$123.00' && long.amountFrom === 'long' && edge27.amount === '$93.00' && edge27.amountFrom === 'mid', 'live: the short-term preset at 2 nights, the mid-term one at 27, the long-term one at 28');
-check(splitAna.amount === 'none' && splitBen.amount === 'none' && splitAna.from === 'split', 'two cleaners on one job: both cleanings arrive with no amount');
-check(unpriced.amount === 'none' && unpriced.from === 'short' && shortOnlyLong.amount === 'none' && shortOnlyLong.from === 'long', 'no matching preset: no amount (Q has none; R has no long-term one)');
+check(short.amount === '$83.00' && short.amountFrom === 'short' && long.amount === '$123.00' && long.amountFrom === 'long' && edge27.amount === '$93.00' && edge27.amountFrom === 'mid', 'live: the short-term cleaning price at 2 nights, the mid-term one at 27, the long-term one at 28');
+check(unpriced.amount === 'none' && unpriced.from === 'short' && shortOnlyLong.amount === 'none' && shortOnlyLong.from === 'long', 'no matching cleaning price: no amount (Q has none; R has no long-term one)');
 check(!short.by.includes('cleanings'), 'a mark reads no earlier cleaning: the amount comes from the property, not from what the cleaner was last paid');
-const job2 = doc('cleaning_jobs', split);
-console.log(`  the split job's history: ${job2.history.filter((e) => e.action === 'marked').map((e) => `${e.cleanerName} ${e.amountCents === null ? 'no amount' : $(e.amountCents)}`).join(' · ')}`);
 
 // By hand: a day with a long job on P, a day without one, and a changed amount.
 const byHandJobDay = await readsOf(cl.logCleaning)(ADMIN, { propertyId: P, cleanerId: BEN.id, day: '2026-10-19', amountCents: 12_300, note: null });
@@ -193,22 +187,22 @@ for (const [label, r] of [['on the 28-night job\'s day, left at $123', byHandJob
 check(byHandJobDay.result.cleaning.amountFrom === 'long' && byHandPlain.result.cleaning.amountFrom === 'short' && byHandTyped.result.cleaning.amountFrom === 'typed' && byHandUnpriced.result.cleaning.amountFrom === 'typed', 'by hand: the preset by the job\'s stay that day, else short-term; a changed amount is "typed"');
 check(!('cleanings' in byHandPlain.result) && !byText(byHandPlain.by).includes('cleanings'), 'logging by hand reads no earlier cleaning');
 
-// Typing the amount of a waiting cleaning, and changing one.
-const typedSplit = await cl.changeCleaning(ADMIN, splitAna.id, { amountCents: 4_300 }, 1, null);
-const after = doc('cleanings', splitAna.id);
-console.log(`  Ana's share typed: ${typedSplit.kind} · ${$(after.amountCents)} · amountFrom ${after.amountFrom} · history ${after.history.length} (before ${JSON.stringify(after.history[1].before)}, after ${JSON.stringify(after.history[1].after)})`);
+// Typing the amount of a cleaning that needs one, and changing one.
+const typedSplit = await cl.changeCleaning(ADMIN, unpriced.id, { amountCents: 4_300 }, 1, null);
+const after = doc('cleanings', unpriced.id);
+console.log(`  the unpriced cleaning's amount typed: ${typedSplit.kind} · ${$(after.amountCents)} · amountFrom ${after.amountFrom} · history ${after.history.length} (before ${JSON.stringify(after.history[1].before)}, after ${JSON.stringify(after.history[1].after)})`);
 const changedShort = await cl.changeCleaning(ADMIN, short.id, { amountCents: 8500 }, 1, 'extra linen');
 const shortAfter = doc('cleanings', short.id);
 console.log(`  the $83 cleaning changed to $85: ${changedShort.kind} · amountFrom ${shortAfter.amountFrom} · suggested kept ${JSON.stringify(shortAfter.suggested)}`);
 const dayOnly = await cl.changeCleaning(ADMIN, long.id, { note: 'late checkout' }, 1, null);
 console.log(`  the $123 cleaning's note changed, amount not: ${dayOnly.kind} · amountFrom ${doc('cleanings', long.id).amountFrom}`);
-check(after.amountFrom === 'typed' && shortAfter.amountFrom === 'typed' && doc('cleanings', long.id).amountFrom === 'long', 'an amount typed or changed reads "typed"; a change to another field keeps the preset');
+check(after.amountFrom === 'typed' && shortAfter.amountFrom === 'typed' && doc('cleanings', long.id).amountFrom === 'long', 'an amount typed or changed reads "typed"; a change to another field keeps the cleaning price');
 check(cm.readCleaning(short.id, shortAfter) !== null && cm.readCleaning('v2', { ...shortAfter, schemaVersion: 2, amountFrom: undefined, suggested: { from: 'default', cents: 9_300 } }) !== null, 'version 3 reads, and a version 2 cleaning (no amountFrom, 37B\'s suggestion) still reads');
 check(cm.readCleaning('x', { ...shortAfter, amountFrom: 'preset' }) === null && cm.readCleaning('x', { ...after, amountCents: null, amountFrom: 'short' }) === null, 'refused as not in shape: an unknown source; a source with no amount');
 
 // A preset change leaves every existing cleaning unchanged.
 /** Every cleaning made so far: its amount and source, as stored. */
-const madeSoFar = [short.id, long.id, edge27.id, splitAna.id, splitBen.id, unpriced.id, shortOnlyLong.id, byHandJobDay.result.cleaning.id, byHandPlain.result.cleaning.id, byHandTyped.result.cleaning.id, byHandUnpriced.result.cleaning.id];
+const madeSoFar = [short.id, long.id, edge27.id, dayJobAna.id, unpriced.id, shortOnlyLong.id, byHandJobDay.result.cleaning.id, byHandPlain.result.cleaning.id, byHandTyped.result.cleaning.id, byHandUnpriced.result.cleaning.id];
 const allAmounts = () => madeSoFar.map((id) => { const c = doc('cleanings', id); return `${id}:${c.amountCents}:${c.amountFrom}`; }).join(',');
 const before = allAmounts();
 const changeP = await sp.setCleaningPrices(ADMIN, P, { shortTermCents: 9900, longTermCents: 15_300 });
@@ -234,19 +228,9 @@ console.log(`  a property named twice: ${(await sp.importCleaningPrices(ADMIN, [
 const waiting = await cl.waitingJobsOf([...madeSoFar, nextMark.id].map((id) => doc('cleanings', id)));
 console.log(`  waiting jobs for the tab's hints: ${Object.entries(waiting).map(([id, j]) => `${id.slice(-10)} ${j.nights} nights, ${j.cleaners} cleaners`).join(' · ')}`);
 
-// ═══ 6. A second cleaner after a mark, and the admin-typed recommendation (the second round) ═══
-console.log('\n═══ 6. A second cleaner after a mark: the question ═══');
-const assignee = (m, cleaning) => ({ cleanerId: m.id, name: m.name, nameAtAssignment: m.name, cleaning });
-const marked = { cleanerIds: [ANA.id], assignees: [assignee(ANA, { status: 'logged', amountCents: 8_300, amountFrom: 'short' })] };
-const q1 = pr.secondCleanerQuestion(marked, [ANA.id, BEN.id]);
-console.log(`  Ben added after Ana's $83 mark: ${q1 ? `${q1.title} ${q1.lines.join(' ')} [${q1.confirm}]` : 'no question'}`);
-console.log(`  nobody added (Ana alone): ${pr.secondCleanerQuestion(marked, [ANA.id]) === null} · Ana taken off, Ben added (one cleaner): ${pr.secondCleanerQuestion(marked, [BEN.id]) === null}`);
-console.log(`  Ana's cleaning waiting for an amount: ${pr.secondCleanerQuestion({ ...marked, assignees: [assignee(ANA, { status: 'logged', amountCents: null, amountFrom: null })] }, [ANA.id, BEN.id]) === null}`);
-console.log(`  Ana's mark removed by the office: ${pr.secondCleanerQuestion({ ...marked, assignees: [assignee(ANA, null)] }, [ANA.id, BEN.id]) === null}`);
-console.log(`  Ana's amount typed by an admin: ${pr.secondCleanerQuestion({ ...marked, assignees: [assignee(ANA, { status: 'logged', amountCents: 7_300, amountFrom: 'typed' })] }, [ANA.id, BEN.id])?.title}`);
-const three = pr.secondCleanerQuestion({ cleanerIds: [ANA.id, BEN.id], assignees: [assignee(ANA, { status: 'logged', amountCents: 12_300, amountFrom: 'long' }), assignee(BEN, { status: 'logged', amountCents: 4_300, amountFrom: 'typed' })] }, [ANA.id, BEN.id, 'TESTCLEANERpricescar']);
-console.log(`  a third cleaner added where two carry amounts: ${three.title} | ${three.lines.join(' | ')}`);
-check(q1 !== null && q1.title.includes('$83.00') && q1.title.includes('short-term preset') && q1.lines[0].startsWith('With two cleaners') && pr.secondCleanerQuestion(marked, [ANA.id]) === null, 'asked only when a cleaner is added beside a mark that carries an amount, in Kian\'s words');
+// ═══ 6. The admin-typed recommendation (the second round). The second-cleaner question of 2026-10-19 is gone since Build 2: a job has one cleaner. ═══
+console.log('\n═══ 6. One cleaner per job (Build 2): no second-cleaner question remains ═══');
+check(typeof pr.secondCleanerQuestion === 'undefined', 'the second-cleaner question is gone: a job has one cleaner (Kian\'s ruling of 2026-11-03)');
 
 console.log('\n═══ 6b. The admin-typed recommendation, per tier ═══');
 const T = 'TESTPROPpricesaaaa08';
@@ -275,11 +259,13 @@ const waitingLong = facts('w-long', '2026-10-24', null, null, `${T}_2026-10-24`)
 const waitingShare = facts('w-share', '2026-10-26', null, null, `${T}_2026-10-26`, 'split');
 const jobsW = { ...jobsT, [`${T}_2026-10-22`]: { nights: 3, cleaners: 1 }, [`${T}_2026-10-24`]: { nights: 29, cleaners: 1 }, [`${T}_2026-10-26`]: { nights: 2, cleaners: 2 } };
 const open = (prices, c) => pr.missingAmountStart(prices, history, jobsW, c);
-console.log(`  no preset: short field ${JSON.stringify(open(null, waitingShort))} · long field ${JSON.stringify(open(null, waitingLong))} · a share ${JSON.stringify(open(null, waitingShare))}`);
-console.log(`  short preset $83 set: short field ${JSON.stringify(open({ shortTermCents: 8_300, longTermCents: null }, waitingShort))} · long field still ${open({ shortTermCents: 8_300, longTermCents: null }, waitingLong).kind}`);
+console.log(`  no cleaning price: short field ${JSON.stringify(open(null, waitingShort))} · long field ${JSON.stringify(open(null, waitingLong))} · an older two-cleaner share ${JSON.stringify(open(null, waitingShare))}`);
+console.log(`  short price $83 set: short field ${JSON.stringify(open({ shortTermCents: 8_300, longTermCents: null }, waitingShort))} · long field still ${open({ shortTermCents: 8_300, longTermCents: null }, waitingLong).kind}`);
 console.log(`  words: ${pr.recommendationWords('short', 7500)} · ${pr.recommendationWords('long', 11_300)} · by hand, no job: ${open(null, facts('w-hand', '2026-10-28', null, null, null)).kind} (${open(null, facts('w-hand', '2026-10-28', null, null, null)).tier})`);
-check(open(null, waitingShort).kind === 'recommendation' && open(null, waitingShort).cents === 7_300 && open(null, waitingLong).cents === 11_300 && open(null, waitingShare).kind === 'split', 'a missing amount opens with the tier\'s recommendation; a share never');
-check(open({ shortTermCents: 8_300, longTermCents: null }, waitingShort).kind === 'preset' && open({ shortTermCents: 8_300, longTermCents: null }, waitingLong).kind === 'recommendation', 'a preset for the tier replaces the recommendation completely; the other tier keeps its own');
+console.log(`  how each opens (Build 2): recommendation ${JSON.stringify(pr.fieldStart(open(null, waitingShort)))} · price ${JSON.stringify(pr.fieldStart(open({ shortTermCents: 8_300, longTermCents: null }, waitingShort)))} · nothing ${JSON.stringify(pr.fieldStart(open(null, facts('w-hand', '2026-10-28', null, null, null))))}`);
+check(open(null, waitingShort).kind === 'recommendation' && open(null, waitingShort).cents === 7_300 && open(null, waitingLong).cents === 11_300 && open(null, waitingShare).kind === 'none', 'a missing amount starts from the tier\'s recommendation; an older two-cleaner share from nothing');
+check(open({ shortTermCents: 8_300, longTermCents: null }, waitingShort).kind === 'preset' && open({ shortTermCents: 8_300, longTermCents: null }, waitingLong).kind === 'recommendation', 'a cleaning price for the tier replaces the recommendation completely; the other tier keeps its own');
+check(pr.fieldStart(open(null, waitingShort)).value === '' && pr.fieldStart(open(null, waitingShort)).placeholder === '73.00' && pr.fieldStart(open({ shortTermCents: 8_300, longTermCents: null }, waitingShort)).value === '83.00', 'never save a suggestion (Build 2, item 3): the recommendation is a placeholder, never the field\'s value; the cleaning price fills it');
 
 console.log('\n═══ 6c. On the in-memory Firestore: typed amounts never become a preset ═══');
 const T2 = 'TESTPROPpricesaaaa09';

@@ -24,9 +24,18 @@
  * office", and that cleaner can neither mark it again nor undo it. An admin can reopen it for them from the Schedule:
  * the mark comes off, recorded in the job's history, and their next Mark cleaned makes a new cleaning.
  *
- * ── Assignments (ruling 2) ──
- * An admin sets who is on a job: only active cleaners are added, never handymen, and never to a job whose booking
- * changed; anyone not yet marked can be taken off. Each change is a history event naming the admin.
+ * ── Assignments (ruling 2; one cleaner per job since Build 2, Kian's ruling of 2026-11-03) ──
+ * An admin sets who is on a job — one active cleaner, never a handyman, or nobody — never on a job whose booking
+ * changed; a cleaner not yet marked can be taken off. Each change is a history event naming the admin. A second
+ * cleaner is refused (409 JOB_ONE_CLEANER); an older job with two still reads.
+ *
+ * ── Build 2 (2026-11-03) ──
+ * - `addJob` makes any number of jobs on one property and day, each with its own ID (addedJobIdOf), label, cleaner
+ *   and amount; JOB_EXISTS is gone.
+ * - `deleteJob`: an admin deletes a job and its cleaning in one transaction, unless the cleaning is dated on or
+ *   before a payment to its cleaner or printed on a finished statement (refused, with the reason). A deleted calendar
+ *   job leaves a marker the sync honours (deleted_cleaning_jobs), so the next calendar read does not make it again;
+ *   a changed booking may.
  *
  * ── The cleaning flow (Kian's rulings of 2026-11-01) ──
  * - `addJob` (ruling C): a job by hand, for any property, any date, any active cleaner, a chosen tier; the calendar
@@ -45,6 +54,7 @@
  * may not have landed" included, and never throw.
  */
 
+import { randomInt } from 'node:crypto';
 import type { DocumentReference, Transaction } from 'firebase-admin/firestore';
 import { getAdminDb } from './admin';
 import { isDocumentId } from './server-leads';
@@ -62,10 +72,13 @@ import { MONTHLY_REPORTS_COLLECTION, monthOfDay } from '@/app/lib/reports/model'
 import {
   CLEANER_LIST_DAYS,
   CLEANING_JOBS_COLLECTION,
+  DELETED_JOBS_COLLECTION,
+  DEFAULT_JOB_LABEL,
+  DELETED_JOB_SCHEMA_VERSION,
   JOB_SCHEMA_VERSION,
+  addedJobIdOf,
   cleanerListFrom,
   jobEvent,
-  jobIdOf,
   markRefusal,
   newAssignment,
   readJob,
@@ -192,23 +205,26 @@ export type SetAssigneesResult =
   /** They marked it: their mark and cleaning stay; the office changes the cleaning under 37B. */
   | { kind: 'marked'; name: string | null }
   | { kind: 'not-assignable'; name: string | null; why: 'missing' | 'not-a-cleaner' | 'inactive' }
+  /** Two or more cleaners asked for: a job has one (Build 2). */
+  | { kind: 'one-cleaner' }
   | { kind: 'failed' };
 
-export const ASSIGN_REFUSALS: Record<'not-found' | 'changed-since' | 'unreadable' | 'booking-changed' | 'failed', Refusal> = {
+export const ASSIGN_REFUSALS: Record<'not-found' | 'changed-since' | 'unreadable' | 'booking-changed' | 'one-cleaner' | 'failed', Refusal> = {
   'not-found': { status: 404, code: 'JOB_NOT_FOUND', message: 'No such job.', hint: 'Reload the Schedule.' },
+  'one-cleaner': { status: 409, code: 'JOB_ONE_CLEANER', message: 'A job has one cleaner.', hint: 'Nothing was saved. Add another job on the same day for a second cleaner.' },
   'changed-since': { status: 409, code: 'JOB_CHANGED', message: 'This job changed since the page loaded.', hint: 'Nothing was saved. Reload, check what changed, and try again.' },
   unreadable: { status: 500, code: 'JOB_UNREADABLE', message: 'This job is not in the shape a change needs.', hint: 'Nothing was saved.' },
   'booking-changed': { status: 409, code: 'JOB_BOOKING_CHANGED', message: 'This job’s booking changed: nobody new is put on it.', hint: 'Nothing was saved. Assign the job for the booking as it is now.' },
   failed: { status: 502, code: 'JOB_SAVE_FAILED', message: 'Could not save who is on the job.', hint: 'It may or may not have been saved. Reload the Schedule to see.' },
 };
 
-/** At most this many cleaners on one job: a typing slip, not a team, past it. */
-export const MAX_ASSIGNEES = 10;
+/** A job has one cleaner (Kian's ruling of 2026-11-03, Build 2). */
+export const MAX_ASSIGNEES = 1;
 
 /**
- * Set who is on a job, as the admin saw it (`seen`: its history's length). The cleaners added must exist, be
- * cleaners (not handymen) and be active (ruling 2); nobody is added to a job whose booking changed. A cleaner taken
- * off must not have marked it. Nothing differs, nothing is written.
+ * Set who is on a job, as the admin saw it (`seen`: its history's length): one active cleaner, never a handyman
+ * (ruling 2), or nobody; nobody is put on a job whose booking changed; two or more are refused (Build 2). A cleaner
+ * taken off must not have marked it. Nothing differs, nothing is written.
  */
 export async function setAssignees(actor: Actor, jobId: string, wanted: string[], seen: number): Promise<SetAssigneesResult> {
   const db = getAdminDb();
@@ -221,6 +237,7 @@ export async function setAssignees(actor: Actor, jobId: string, wanted: string[]
       if (!job) return { kind: 'unreadable' };
       if (job.history.length !== seen) return { kind: 'changed-since' };
       const want = [...new Set(wanted)];
+      if (want.length > MAX_ASSIGNEES) return { kind: 'one-cleaner' };
       const added = want.filter((cid) => !job.cleanerIds.includes(cid));
       const removed = job.cleanerIds.filter((cid) => !want.includes(cid));
       if (added.length === 0 && removed.length === 0) return { kind: 'saved', job, changed: false };
@@ -374,6 +391,7 @@ export async function cleanerJobs(cleanerId: string, properties: ReadonlyMap<str
         status: job.status,
         change: changeOf(job),
         markedAt: a.markedAt,
+        label: job.label,
         canUndo: standing && !onStatement && !paid,
         undoBlocked: !standing ? null : onStatement ? 'statement' : paid ? 'paid' : null,
         recordedByOffice: recordedByOffice(job, cleanerId),
@@ -445,6 +463,7 @@ export async function oneCleanerJob(job: StoredJob, cleanerId: string, canUndo: 
     nextCheckIn: job.nextCheckIn,
     status: job.status,
     change: changeOf(job),
+    label: job.label,
     markedAt: a?.markedAt ?? null,
     canUndo: canUndo && standing && !paid,
     undoBlocked: canUndo && paid ? 'paid' : null,
@@ -674,39 +693,47 @@ export interface AddJobInput {
   tier: PresetKind;
   /** The job's own amount (ruling B), or none. */
   amountCents: number | null;
+  /** Its label (Build 2): "Deep clean", "Extra visit"; none typed reads DEFAULT_JOB_LABEL. */
+  label?: string | null;
 }
 
 export type AddJobResult =
   | { kind: 'added'; job: StoredJob; propertyName: string | null }
-  /** A job for that property and day exists already (one property has at most one job a day). */
-  | { kind: 'exists'; job: StoredJob | null }
   | { kind: 'no-such-property' }
   | { kind: 'not-assignable'; name: string | null; why: 'missing' | 'not-a-cleaner' | 'inactive' }
   | { kind: 'failed' };
 
-export const ADD_JOB_REFUSALS: Record<'exists' | 'no-such-property' | 'failed', Refusal> = {
-  exists: { status: 409, code: 'JOB_EXISTS', message: 'A job for this property on that day exists already.', hint: 'Nothing was added. Assign or change it on the Schedule.' },
+export const ADD_JOB_REFUSALS: Record<'no-such-property' | 'failed', Refusal> = {
   'no-such-property': { status: 404, code: 'PROPERTY_NOT_FOUND', message: 'That property does not exist.', hint: 'Nothing was added.' },
   failed: { status: 502, code: 'JOB_SAVE_FAILED', message: 'Could not add the job.', hint: 'It may or may not have been added. Reload the Schedule to see.' },
 };
 
+/** Six lowercase letters and digits, drawn at random: the suffix that tells one added job from another on a day. */
+function jobSuffix(): string {
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let out = '';
+  for (let i = 0; i < 6; i += 1) out += alphabet[randomInt(alphabet.length)];
+  return out;
+}
+
 /**
- * Add a job by hand (Kian's ruling C of 2026-11-01): for any property, with or without a calendar, any date, any
- * active cleaner, and a chosen tier (short by default), with the job's own amount when the admin typed one (ruling
- * B). The job's ID is the property and the day, as the calendar's, so it reaches the cleaner's app like any job and
- * is marked the same way; the calendar never changes or settles it (origin "admin"). One transaction: the property
- * and the cleaner read, the job created.
+ * Add a job by hand (Kian's ruling C of 2026-11-01; any number on one property and day since Build 2): for any
+ * property, with or without a calendar, any date, any active cleaner or nobody, a chosen tier (short by default), a
+ * label ("Deep clean"), and the job's own amount when the admin typed one (ruling B). The job's ID is the turnover's
+ * with its own suffix (addedJobIdOf), so it never collides with the calendar's job or another added one; it reaches
+ * the cleaner's app like any job and is marked the same way; the calendar never changes or settles it (origin
+ * "admin"). One transaction: the property and the cleaner read, the job created.
  */
 export async function addJob(actor: Actor, input: AddJobInput, now: Date = new Date()): Promise<AddJobResult> {
   const db = getAdminDb();
   if (!isDocumentId(input.propertyId)) return { kind: 'no-such-property' };
-  const id = jobIdOf(input.propertyId, input.checkout);
+  const id = addedJobIdOf(input.propertyId, input.checkout, jobSuffix());
   const ref = db.collection(CLEANING_JOBS_COLLECTION).doc(id);
+  const label = (input.label ?? '').trim() === '' ? DEFAULT_JOB_LABEL : (input.label as string).trim();
   try {
     return await db.runTransaction(async (tx): Promise<AddJobResult> => {
-      const [existing, property] = await Promise.all([tx.get(ref), tx.getAll(db.collection('properties').doc(input.propertyId), { fieldMask: ['name'] }).then(([doc]) => doc)]);
+      const [property] = await tx.getAll(db.collection('properties').doc(input.propertyId), { fieldMask: ['name'] });
       if (!property.exists) return { kind: 'no-such-property' };
-      if (existing.exists) return { kind: 'exists', job: readJob(existing.id, existing.data() ?? {}) };
       let cleaner: { id: string; name: string | null } | null = null;
       if (input.cleanerId !== null) {
         const [account] = await tx.getAll(db.collection(CLEANERS_COLLECTION).doc(input.cleanerId), { fieldMask: ['name', 'role', 'status'] });
@@ -718,7 +745,7 @@ export async function addJob(actor: Actor, input: AddJobInput, now: Date = new D
       }
       const at = now.toISOString();
       const propertyName = fieldText(property.get('name'));
-      const history = [jobEvent(at, 'added', actor, { reason: `${TIER_WORDS[input.tier]} job`, after: { start: null, end: input.checkout } })];
+      const history = [jobEvent(at, 'added', actor, { reason: `${label} · ${TIER_WORDS[input.tier]} job`, after: { start: null, end: input.checkout } })];
       if (input.amountCents !== null) history.push(jobEvent(at, 'amount-set', actor, { amountCents: input.amountCents }));
       if (cleaner) history.push(jobEvent(at, 'assigned', actor, { cleanerId: cleaner.id, cleanerName: cleaner.name }));
       const job: CleaningJob = {
@@ -731,6 +758,7 @@ export async function addJob(actor: Actor, input: AddJobInput, now: Date = new D
         origin: 'admin',
         tier: input.tier,
         amountCents: input.amountCents,
+        label,
         nextCheckIn: null,
         status: 'open',
         change: null,
@@ -771,9 +799,7 @@ export const JOB_AMOUNT_REFUSALS: Record<'not-found' | 'changed-since' | 'unread
  * Set, change or clear a job's own amount (Kian's ruling B of 2026-11-01): "before assignment or at any time before
  * the cleaning's money is approved. It beats the base price." As the admin saw it (`seen`). A mark's cleaning that
  * still waits — its cleaner asked for extra and no admin has decided, or it has no amount yet — follows the new
- * amount when it is the job's one cleaner (its history says so); one whose money already counts locks the amount
- * here. Two or more cleaners on the job: the amount is kept on the job and gives no cleaning an amount (the admin
- * types the split).
+ * amount (its history says so); one whose money already counts locks the amount here.
  */
 export async function setJobAmount(actor: Actor, jobId: string, amountCents: number | null, seen: number, now: Date = new Date()): Promise<SetJobAmountResult> {
   const db = getAdminDb();
@@ -800,7 +826,7 @@ export async function setJobAmount(actor: Actor, jobId: string, amountCents: num
       const at = now.toISOString();
       tx.update(ref, { amountCents, history: [...job.history, jobEvent(at, 'amount-set', actor, { amountCents })] });
       let cleaningsChanged = 0;
-      // A waiting cleaning of the job's one cleaner follows the job's amount; a share of several never does.
+      // A waiting cleaning of the job's cleaner follows the job's amount (an older job with two cleaners: never a share).
       if (job.cleanerIds.length === 1 && amountCents !== null) {
         for (const { ref: cleaningRef, cleaning } of waiting) {
           if (cleaning.amountCents === amountCents) continue;
@@ -813,6 +839,83 @@ export async function setJobAmount(actor: Actor, jobId: string, amountCents: num
     });
   } catch (err) {
     console.error(`[jobs] setting the amount on ${jobId} failed: grpc code ${grpcCode(err)}`);
+    return { kind: 'failed' };
+  }
+}
+
+// ─── Delete a job (Build 2, item 2) ────────────────────────────
+
+export type DeleteJobResult =
+  | { kind: 'deleted'; id: string; cleanings: number; marker: boolean }
+  | { kind: 'not-found' }
+  | { kind: 'changed-since' }
+  | { kind: 'unreadable' }
+  /** Its cleaning is dated on or before a payment to its cleaner (Kian's ruling of 2026-10-15): the payment counts it. */
+  | { kind: 'cleaning-paid'; name: string | null; payment: PaymentView; day: string }
+  /** Its cleaning is printed on a finished statement. */
+  | { kind: 'cleaning-printed'; name: string | null; months: string[] }
+  | { kind: 'payments-unreadable' }
+  | { kind: 'failed' };
+
+export const DELETE_JOB_REFUSALS: Record<'not-found' | 'changed-since' | 'unreadable' | 'payments-unreadable' | 'failed', Refusal> = {
+  'not-found': ASSIGN_REFUSALS['not-found'],
+  'changed-since': { status: 409, code: 'JOB_CHANGED', message: 'This job changed since the page loaded.', hint: 'Nothing was deleted. Reload, check what changed, and delete again if you still mean to.' },
+  unreadable: { status: 500, code: 'JOB_UNREADABLE', message: 'This job is not in the shape a delete needs.', hint: 'Nothing was deleted.' },
+  'payments-unreadable': { status: 500, code: 'PAYMENTS_UNREADABLE', message: 'A payment to its cleaner cannot be read, so this job cannot be deleted.', hint: 'Nothing was deleted.' },
+  failed: { status: 502, code: 'JOB_DELETE_FAILED', message: 'Could not delete the job.', hint: 'It may or may not have been deleted. Reload the Schedule to see.' },
+};
+
+/**
+ * Delete a job (Kian's ruling of 2026-11-03, Build 2, item 2), as the admin saw it (`seen`): the job and its cleaning
+ * go in one transaction, unless that cleaning is dated on or before a payment to its cleaner (the payment counts it) or
+ * printed on a finished statement — refused, with the reason, nothing deleted. A calendar job leaves a marker keyed by
+ * the turnover and holding its booking (DeletedJobMarker), so the sync does not make it again while that booking still
+ * ends that day; a job added by hand leaves nothing, the calendar never made it. The route's activity line is the one
+ * record of the delete.
+ */
+export async function deleteJob(actor: Actor, jobId: string, seen: number, now: Date = new Date()): Promise<DeleteJobResult> {
+  const db = getAdminDb();
+  const ref = db.collection(CLEANING_JOBS_COLLECTION).doc(jobId);
+  try {
+    return await db.runTransaction(async (tx): Promise<DeleteJobResult> => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) return { kind: 'not-found' };
+      const job = readJob(snap.id, snap.data() ?? {});
+      if (!job) return { kind: 'unreadable' };
+      if (job.history.length !== seen) return { kind: 'changed-since' };
+      // Every cleaning a mark on it made, whether the office removed it or not: read, checked, then deleted with the job.
+      const marks = job.cleanerIds.map((cid) => ({ cleanerId: cid, assignment: job.assignments[cid] })).filter((m) => m.assignment.cleaningId !== null);
+      const docs = marks.length ? await tx.getAll(...marks.map((m) => db.collection(CLEANINGS_COLLECTION).doc(m.assignment.cleaningId as string))) : [];
+      const toDelete: DocumentReference[] = [];
+      for (const doc of docs) {
+        if (!doc.exists) continue;
+        const cleaning = readCleaning(doc.id, doc.data() ?? {});
+        if (!cleaning) return { kind: 'unreadable' };
+        const name = marks.find((m) => m.assignment.cleaningId === doc.id)?.assignment.nameAtAssignment ?? cleaning.cleanerNameAtEntry;
+        const printing = await statementsPrinting(cleaning.propertyId, cleaning.id, tx);
+        if (printing.length > 0) return { kind: 'cleaning-printed', name, months: [...new Set(printing.map((p) => p.month))].sort() };
+        const paid = await paymentOnOrAfter(tx, cleaning.cleanerId, cleaning.day);
+        if (paid.kind === 'unreadable') return { kind: 'payments-unreadable' };
+        if (paid.kind === 'payment') return { kind: 'cleaning-paid', name, payment: paid.payment, day: cleaning.day };
+        toDelete.push(doc.ref);
+      }
+      const marker = job.origin === 'calendar' && job.reservation !== null;
+      if (marker) {
+        tx.set(db.collection(DELETED_JOBS_COLLECTION).doc(job.id), {
+          schemaVersion: DELETED_JOB_SCHEMA_VERSION,
+          propertyId: job.propertyId,
+          checkout: job.checkout,
+          reservation: { uid: (job.reservation as { uid: string; start: string }).uid, start: (job.reservation as { uid: string; start: string }).start },
+          deletedAt: now.toISOString(),
+          deletedBy: actor,
+        });
+      }
+      for (const cleaningRef of toDelete) tx.delete(cleaningRef);
+      tx.delete(ref);
+      return { kind: 'deleted', id: job.id, cleanings: toDelete.length, marker };
+    });
+  } catch (err) {
+    console.error(`[jobs] deleting ${jobId} failed: grpc code ${grpcCode(err)}`);
     return { kind: 'failed' };
   }
 }

@@ -77,7 +77,7 @@ export const SECTIONS: readonly SectionDef[] = [
   { id: "rules", label: "Rules", group: "listing" },
   { id: "reviews", label: "Reviews", group: "listing" },
   { id: "status", label: "Status", group: "internal" },
-  { id: "cleaners", label: "Cleaners", group: "internal" },
+  { id: "cleaners", label: "Cleaning & prices", group: "internal" },
   { id: "statements", label: "Statements", group: "internal" },
   { id: "calendar", label: "Calendar", group: "internal" },
   { id: "airbnbTitle", label: "Airbnb title", group: "internal" },

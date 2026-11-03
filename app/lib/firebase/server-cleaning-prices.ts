@@ -66,7 +66,7 @@ export async function pricesInTx(tx: Transaction, propertyId: string): Promise<C
   if (!snap.exists) return null;
   const record = readCleaningPrices(snap.id, snap.data() ?? {});
   if (!record) {
-    console.error(`[cleaning-prices] ${PROPERTY_CLEANING_PRICES_COLLECTION}/${propertyId} is not in the written shape; no preset applied`);
+    console.error(`[cleaning-prices] ${PROPERTY_CLEANING_PRICES_COLLECTION}/${propertyId} is not in the written shape; no cleaning price applied`);
     return null;
   }
   return pricesOf(record);

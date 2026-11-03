@@ -206,7 +206,7 @@ check(a.step.key === 'not-marked' && a.step.label === 'Check Oct 16 was cleaned'
 check(b.step.key === 'not-marked' && b.step.title.includes('Test Ben') && !b.step.title.includes('Test Ana'), 'one of two not marked: named');
 check(d.step.key === 'none' && e.step.key === 'none' && f.step.key === 'none' && g.step.key === 'none', 'a removed mark, today, a changed booking, older than the column looks: not "Not marked"');
 check(h.step.key === 'assign' && h.under['not-marked'], 'a job with nobody on it comes first; the row is still under Not marked');
-check(home.STEP_ORDER.indexOf('not-marked') === home.STEP_ORDER.indexOf('assign') + 1 && home.CHIPS.map((x) => x.label).join(' | ') === 'Needs attention | Statements blocked | Statements ready | Airbnb lines to review | Needs a cleaner | Not marked | Extra asked | Calendar not read | Direct overdue', 'its place: after Assign; its chip beside Needs a cleaner');
+check(home.STEP_ORDER.indexOf('not-marked') === home.STEP_ORDER.indexOf('assign') + 1 && home.CHIPS.map((x) => x.label).join(' | ') === 'Needs attention | Statements blocked | Statements ready | Airbnb lines to review | Needs a cleaner | Not marked | Needs a decision | Calendar not read | Direct overdue', 'its place: after Assign; its chip beside Needs a cleaner');
 
 // ═══ 7. The Schedule's states ═══
 console.log('\n═══ 7. A job\'s state on the Schedule ═══');

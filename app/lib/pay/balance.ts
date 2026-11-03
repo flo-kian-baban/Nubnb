@@ -18,8 +18,9 @@
  *
  * ── Listed, counted or not ──
  * Every cleaning, receipt, work entry and payment of theirs, by date — a cleaning's day, the day a receipt or work
- * was sent (as the Costs page and the statements date it), the day a payment was made — with its state now in words:
- * no amount yet, waiting for review, rejected, removed, paid with Nubnb's card, given to another cleaner, deleted.
+ * was sent (as the Costs page and the statements date it), the day a payment was made — with its state now in words
+ * (one word per state, Kian's ruling of 2026-11-03): needs an amount, needs a decision, rejected, removed, paid with
+ * Nubnb's card, given to another cleaner, deleted.
  *
  * ── Changes (TEAM-PAY-PLAN.md §3) ──
  * No payment is tied to items, so a change after paying moves the running balance. Each item carries the changes
@@ -203,8 +204,8 @@ function cleaningRow(c: PayCleaning, memberId: string, covering: Covering): PayR
     if (owedBefore === owedAfter && !(event.action === 'changed' && event.before?.cleanerId !== undefined)) return;
     let words = 'Changed';
     if (event.action === 'removed') words = 'Removed';
-    else if (event.action === 'extra-approved') words = typeof event.before?.amountCents === 'number' && typeof event.after?.amountCents === 'number' ? `Extra approved: ${formatCents(event.before.amountCents)} → ${formatCents(event.after.amountCents)}` : 'Extra approved';
-    else if (event.action === 'extra-declined') words = 'Extra declined';
+    else if (event.action === 'extra-approved') words = typeof event.before?.amountCents === 'number' && typeof event.after?.amountCents === 'number' ? `Approved: ${formatCents(event.before.amountCents)} → ${formatCents(event.after.amountCents)}` : 'Approved';
+    else if (event.action === 'extra-declined') words = 'Declined';
     else if (event.before?.cleanerId !== undefined && states[i].cleanerId === memberId) words = `Given to ${event.after?.cleanerName ?? 'another cleaner'}`;
     else if (event.before?.cleanerId !== undefined) words = 'Given to them';
     else if (event.before?.amountCents === null) words = `Amount typed: ${formatCents(owedAfter)}`;
@@ -226,9 +227,9 @@ function cleaningRow(c: PayCleaning, memberId: string, covering: Covering): PayR
     return { ...base, earnedCents: null, state: 'removed', note: `Removed${removed ? ` ${byWords(removed.at, removed.by)}` : ''}${was(removed)}` };
   }
   if (c.status !== 'logged') return { ...base, earnedCents: null, state: 'unknown', note: `Status as stored: ${c.status}` };
-  if (c.amountCents === null) return { ...base, earnedCents: null, state: 'no-amount', note: 'No amount yet' };
-  // The extra they asked for waits for the office (ruling F): listed, not counted, whatever amount it arrived with.
-  if (c.extra?.status === 'asked') return { ...base, earnedCents: null, state: 'extra-asked', note: `Extra asked: ${c.extra.reason}` };
+  if (c.amountCents === null) return { ...base, earnedCents: null, state: 'no-amount', note: 'Needs an amount' };
+  // Their note holds the money until the office decides (ruling F; Build 2's one word): listed, not counted, whatever amount it arrived with.
+  if (c.extra?.status === 'asked') return { ...base, earnedCents: null, state: 'extra-asked', note: `Needs a decision: “${c.extra.reason}”` };
   return { ...base, earnedCents: c.amountCents, state: 'counts', note: null };
 }
 
@@ -284,7 +285,7 @@ function entryRow(e: PayEntry, covering: Covering): PayRow {
   const was = (owedBefore: number | undefined) => (owedBefore && owedBefore > 0 ? ` · was ${formatCents(owedBefore)}` : '');
 
   if (e.linesNow.kind !== 'ok') return { ...base, earnedCents: null, state: 'cannot-add-up', note: `Cannot add up: ${e.linesNow.reason}` };
-  if (e.status === 'pending') return { ...base, earnedCents: null, state: 'waiting', note: 'Waiting for review' };
+  if (e.status === 'pending') return { ...base, earnedCents: null, state: 'waiting', note: 'Needs a decision' };
   if (e.status === 'rejected') return { ...base, earnedCents: null, state: 'rejected', note: `Rejected${status ? ` ${byWords(status.at, status.by)}` : ''}${e.statusReason ? `: ${e.statusReason}` : ''}${was(status?.owedBefore)}` };
   if (e.status === 'removed') return { ...base, earnedCents: null, state: 'removed', note: `Removed${status ? ` ${byWords(status.at, status.by)}` : ''}${was(status?.owedBefore)}` };
   if (e.status !== 'approved') return { ...base, earnedCents: null, state: 'unknown', note: `Status as stored: ${e.status ?? 'none'}` };

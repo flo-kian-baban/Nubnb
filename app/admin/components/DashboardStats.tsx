@@ -236,7 +236,7 @@ export function DashboardStats({ statements: read, statuses, today, figures, tur
           detail={
             costs.kind === "ready"
               ? [
-                  costs.data.pending === 0 ? null : `${costs.data.pending} pending`,
+                  costs.data.pending === 0 ? null : `${costs.data.pending} ${costs.data.pending === 1 ? "needs" : "need"} a decision`,
                   costs.data.unseen === 0 ? null : `${costs.data.unseen} approved automatically, not yet seen`,
                   costs.data.worthALook === 0 ? null : `${plural(costs.data.worthALook, "cleaner", "cleaners")} worth a look`,
                 ]

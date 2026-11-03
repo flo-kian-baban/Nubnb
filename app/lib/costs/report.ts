@@ -717,15 +717,16 @@ export function buildReport(
  * words. `where` is "in this period" or "in October 2026". Empty when nothing is left out.
  */
 export function leftOutLines(pending: number, noAmount: number, where: string): string[] {
+  // Build 2 (Kian's ruling of 2026-11-03): one word per state — an entry "needs a decision", a cleaning "needs an amount".
   const lines: string[] = [];
-  if (pending > 0) lines.push(`${pending === 1 ? '1 entry' : `${pending} entries`} ${where} ${pending === 1 ? 'is' : 'are'} still pending review and ${pending === 1 ? 'is' : 'are'} not in the report, which holds approved entries only.`);
-  if (noAmount > 0) lines.push(`${noAmount === 1 ? '1 cleaning' : `${noAmount} cleanings`} with no amount yet ${where} ${noAmount === 1 ? 'is' : 'are'} not in the report${pending > 0 ? ' either' : ', which holds approved entries only'}.`);
+  if (pending > 0) lines.push(`${pending === 1 ? '1 entry' : `${pending} entries`} ${where} ${pending === 1 ? 'needs' : 'need'} a decision and ${pending === 1 ? 'is' : 'are'} not in the report, which holds approved entries only.`);
+  if (noAmount > 0) lines.push(`${noAmount === 1 ? '1 cleaning' : `${noAmount} cleanings`} ${where} ${noAmount === 1 ? 'needs' : 'need'} an amount and ${noAmount === 1 ? 'is' : 'are'} not in the report${pending > 0 ? ' either' : ', which holds approved entries only'}.`);
   return lines;
 }
 
-/** The same, for the notice after a download: " · 2 pending left out · 1 cleaning with no amount yet left out", or "". */
+/** The same, for the notice after a download: " · 2 needing a decision left out · 1 cleaning needing an amount left out", or "". */
 export function leftOutWords(pending: number, noAmount: number): string {
-  return `${pending > 0 ? ` · ${pending} pending left out` : ''}${noAmount > 0 ? ` · ${noAmount === 1 ? '1 cleaning' : `${noAmount} cleanings`} with no amount yet left out` : ''}`;
+  return `${pending > 0 ? ` · ${pending} needing a decision left out` : ''}${noAmount > 0 ? ` · ${noAmount === 1 ? '1 cleaning' : `${noAmount} cleanings`} needing an amount left out` : ''}`;
 }
 
 /** "nubnb-costs-loft-plateau-2026-09-01-to-2026-09-30.pdf". */

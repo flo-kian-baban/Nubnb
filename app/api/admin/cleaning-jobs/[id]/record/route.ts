@@ -21,12 +21,14 @@ import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-gu
 import { dayText } from '@/app/lib/availability/days';
 import { RECORD_REFUSALS, recordCleaned } from '@/app/lib/firebase/server-cleaning-jobs';
 import { RecordJobSchema } from '@/app/lib/cleanings/schemas';
+import { JOB_ID_PATTERN } from '@/app/lib/schedule/model';
 
 interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
-const JOB_ID = /^[A-Za-z0-9]{1,64}_\d{4}-\d{2}-\d{2}$/;
+/** A job's ID: a property's auto ID and its checkout day, with a job added by hand's suffix or not (Build 2). */
+const JOB_ID = JOB_ID_PATTERN;
 
 export const POST = adminRoute(async function POST(request: NextRequest, context: RouteContext, { actor }) {
   const crossSite = refuseCrossSite(request);

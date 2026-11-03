@@ -1,0 +1,81 @@
+═══ 1. One cleaner per job; any number of jobs on one property and day (item 1) ═══
+  a second cleaner put on the turnover: one-cleaner — "A job has one cleaner." · on it still 1 · MAX_ASSIGNEES 1
+   ok   a job has one cleaner: a second is refused, nothing written
+  Ana off, Ben on in one save: saved, on it Ben · then nobody: saved, on it nobody
+   ok   Assign is a single choice: one cleaner, or nobody
+   ok   the routes take one cleaner or none, never two
+  three jobs added on P today beside its turnover: added "Deep clean" TESTCLEANERbuild2ana $44.00 short | added "Extra visit" TESTCLEANERbuild2ben none short | added "Windows" nobody none long
+  their IDs: turnover+suffix, turnover+suffix, turnover+suffix · all distinct true · each reads back true · history reason "Deep clean · short-term job"
+   ok   any number of jobs on one property and day: no JOB_EXISTS, each its own ID
+   ok   each added job has its label ("Extra visit" when none is typed); the calendar's reads "Turnover"
+   ok   added jobs' IDs pass the routes' pattern and read back strictly
+   ok   refused as not in shape: a suffix on a calendar job, a label too long, a label on a calendar job
+   ok   the route takes a label of at most 40 characters, none meaning the default
+  Ana's app today: Deep clean · Ben's: Extra visit · keys per job: canUndo, change, checkInTime, checkOutTime, checkout, city, extraAsked, id, label, markRefusal, markedAt, nextCheckIn, note, propertyId, propertyName, recordedByOffice, status, undoBlocked
+   ok   each cleaner sees only their own job, by its label
+   ok   the label reaches the app; no amount does (ruling H)
+  Ana marks "Deep clean" ($44.00 on the job): $44.00 (job) · Ben marks "Extra visit" (no amount on the job): $67.00 (short)
+   ok   each mark counts its own amount: the job's, else the property's cleaning price for its tier
+  pay: Ana earned $44.00 · Ben earned $67.00
+   ok   each is owed their own job's amount
+  markAmount no longer knows a split: {"from":"mid","cents":7700,"amountFrom":"mid","nights":10,"tier":"mid"}
+   ok   the two-cleaner split is gone from new work (an older cleaning's "split" still reads)
+   ok   reading an older two-cleaner share still works, in the new words
+
+═══ 2. Delete a job (item 2): the job and its cleaning go; a calendar job leaves a marker the sync honours ═══
+  delete with a stale seen: changed-since · delete: deleted, cleanings 0, marker true · the job now: gone · marker: r-one@airbnb.com 2028-11-18→2028-11-20 by Test admin · reads back true
+   ok   a stale page is refused first; then the delete goes through
+   ok   an unmarked calendar job: deleted; a minimal marker keyed by the turnover holds the booking
+   ok   a marker is read strictly
+  the next calendar read, the same booking still ending today: created 0, changed 0, failed null · the job: not made again
+   ok   the sync does not recreate a deleted job while its booking stands
+  planned, pure: the same booking 0 · its check-in moved 1
+   ok   the marker holds the booking: a moved check-in is a changed booking, so a new job may be made
+  another booking ends today under a new UID: created 1 · the job: made again (r-two@airbnb.com, nobody on it: true)
+   ok   a changed booking makes a new job
+  a job added by hand, deleted: deleted, marker false · markers now none for it
+   ok   a job added by hand leaves no marker: the calendar never made it
+  a marked job (cleaning $67.00, counted nowhere yet), deleted: deleted, cleanings 1 · the cleaning: gone
+   ok   its cleaning goes with it while nothing counts it
+  payment to Ana dated Nov 17: recorded · deleting the Nov 16 job: cleaning-paid (Test Ana, $67.00 on 2028-11-17) · job still there true · cleaning still there true · marker none true
+   ok   refused: its cleaning is counted in a recorded payment; nothing deleted, no marker
+  a finished statement prints Ben's Nov 13 cleaning: deleting its job: cleaning-printed (Test Ben, 2028-11) · job still there true
+   ok   refused: its cleaning is printed on a finished statement; nothing deleted
+   ok   the route takes `seen` and nothing else: no reason is asked
+   ok   the refusals name their codes
+
+═══ 3. Never save a suggestion (item 3): how a missing amount's field opens ═══
+  no price, $73 typed before: recommendation → {"value":"","placeholder":"73.00","words":"Last typed for short-term: $73.00"}
+  a short-term cleaning price $67: preset → {"value":"67.00","placeholder":"67.00","words":"Short-term cleaning price: $67.00"}
+  $55 set on the job: job → {"value":"55.00","placeholder":"55.00","words":"Set on the job: $55.00"}
+  nothing at all: none → {"value":"","placeholder":"","words":"No cleaning price and nothing typed for this property yet: type the amount."}
+  an older two-cleaner share: none → {"value":"","placeholder":"","words":"No cleaning price and nothing typed for this property yet: type the amount."}
+   ok   "Last typed for <tier>: $X" is a placeholder and its words, never the field's value
+   ok   the property's cleaning price fills the field: an amount an admin set
+   ok   the amount set on the job fills the field
+   ok   nothing, or an older two-cleaner share: empty, no placeholder
+   ok   before the starts are read: empty
+
+═══ 4. One word per state (item 5): the admin's words ═══
+  schedule: Cleaned · needs a decision
+  homeNote: Needs a decision
+  homeAmount: Needs an amount
+  chip: Needs a decision
+  entry: Needs a decision
+  noAmount: Needs an amount: an admin types it in the Cleanings tab.
+  extraAsked: Needs a decision: the cleaner’s note holds the amount until an admin decides in the Cleanings tab.
+  extraWords: Needs a decision: “More time”
+  notCounted: 2 cleanings need an amount · 1 cleaning with a note needs a decision · 1 receipt or work entry needs a decision
+  k2: Pay $15.00 ahead?
+  k2confirm: Pay ahead
+  balance: Settled · Paid ahead $5.00
+  source: short-term cleaning price
+  pay: Needs an amount
+  counts: goes on November 2028's statement · counts in pay; statements start November 2026
+   ok   "Needs a decision": a pending entry, or a cleaning with a note, with the note's words
+   ok   "Needs an amount": a cleaning with no amount
+   ok   "Settled", "Paid ahead", and the question "Pay $X ahead?"
+   ok   "cleaning price"; a decision before the statements floor says "counts in pay; statements start November 2026"
+   ok   none of the retired words remains in these
+
+all checks passed

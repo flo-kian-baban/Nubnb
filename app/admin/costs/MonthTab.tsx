@@ -92,7 +92,7 @@ export function MonthTab({ today, attempt }: { today: string; attempt: number })
           </button>
         </div>
       ) : state.data.rows.length === 0 ? (
-        <p className={styles.muted}>No property has costs, late costs, adjustments, waiting entries or cleanings with no amount for {label}.</p>
+        <p className={styles.muted}>No property has costs, late costs, adjustments, entries needing a decision or cleanings needing an amount for {label}.</p>
       ) : (
         <div className={styles.scroll}>
           <table className={styles.table}>
@@ -103,8 +103,8 @@ export function MonthTab({ today, attempt }: { today: string; attempt: number })
                 <th className={styles.num}>From earlier months</th>
                 <th className={styles.num}>Adjustments</th>
                 <th className={styles.num}>Charged in all</th>
-                <th className={styles.num}>Waiting for a decision</th>
-                <th className={styles.num}>No amount yet</th>
+                <th className={styles.num}>Needs a decision</th>
+                <th className={styles.num}>Needs an amount</th>
               </tr>
             </thead>
             <tbody>

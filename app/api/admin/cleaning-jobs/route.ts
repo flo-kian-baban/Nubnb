@@ -17,10 +17,11 @@
  * and Refresh calendars is POST /api/admin/availability/refresh; each makes and watches the jobs after writing the copy.
  *
  * POST /api/admin/cleaning-jobs — add a job by hand (Kian's ruling C of 2026-11-01): for any property, with or without
- * a calendar, any date, any active cleaner or nobody yet, a chosen tier (short by default) and, when typed, the job's
- * own amount (ruling B). Body: `{ propertyId, checkout, cleanerId: string | null, tier: 'short' | 'mid' | 'long',
- * amount?: "75.00" | null }`. Response: 201 `{ job }` (as stored); 404 PROPERTY_NOT_FOUND; 409 JOB_EXISTS (one job a
- * day per property); 422 CLEANER_NOT_ASSIGNABLE; 502 when the outcome is unknown. Recorded in the activity log.
+ * a calendar, any date, any active cleaner or nobody yet, a chosen tier (short by default), its label (Build 2: "Deep
+ * clean"; none typed reads "Extra visit") and, when typed, the job's own amount (ruling B). Any number of jobs may share a
+ * property and a day (Build 2: no JOB_EXISTS). Body: `{ propertyId, checkout, cleanerId: string | null, tier: 'short' |
+ * 'mid' | 'long', amount?: "75.00" | null, label?: string | null }`. Response: 201 `{ job }` (as stored); 404
+ * PROPERTY_NOT_FOUND; 422 CLEANER_NOT_ASSIGNABLE; 502 when the outcome is unknown. Recorded in the activity log.
  */
 
 import { NextRequest } from 'next/server';
@@ -72,8 +73,8 @@ export const POST = adminRoute(async function POST(request: NextRequest, _contex
   }
   const parsed = AddJobSchema.safeParse(body);
   if (!parsed.success) return noStore(apiValidationError(parsed.error.issues.map((i) => ({ path: i.path.map(String).join('.'), message: i.message }))));
-  const { propertyId, checkout, cleanerId, tier, amount } = parsed.data;
-  const outcome = await addJob(actor, { propertyId, checkout, cleanerId, tier, amountCents: amount });
+  const { propertyId, checkout, cleanerId, tier, amount, label } = parsed.data;
+  const outcome = await addJob(actor, { propertyId, checkout, cleanerId, tier, amountCents: amount, label });
   switch (outcome.kind) {
     case 'added':
       return noStore(apiSuccess({ job: outcome.job, propertyName: outcome.propertyName }, 201));

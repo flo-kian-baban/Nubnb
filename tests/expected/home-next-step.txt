@@ -42,7 +42,7 @@
   Airbnb lines to review    3  01 03 04
   Needs a cleaner           2  01 02
   Not marked                0  
-  Extra asked               0  
+  Needs a decision          0  
   Calendar not read         3  01 06 09
   Direct overdue            3  01 04 05
    ok   Needs attention is every row whose Next step is not Up to date
@@ -80,17 +80,18 @@
 
 ═══ 7. Extra asked: a step and a chip, any day, linking to the decision ═══
   an extra asked 16 days ago (outside the jobs window)
-    extra · "Decide extra for Oct 1" · /admin/costs?tab=cleanings&property=TESTPROP0070&from=2026-10-01&to=2026-10-01&cleaning=TESTCLEANING0070b · when 2026-10-01 · owed - (0 blocked, 0 ready) · under attention,extra · Cleaned Oct 1: Test Ana asked for extra; its money waits until it is decided
+    extra · "Decide the note from Oct 1" · /admin/costs?tab=cleanings&property=TESTPROP0070&from=2026-10-01&to=2026-10-01&cleaning=TESTCLEANING0070b · when 2026-10-01 · owed - (0 blocked, 0 ready) · under attention,extra · Cleaned Oct 1: Test Ana left a note; the cleaning needs a decision before its money counts
   two extras: the earliest first
-    extra · "Decide extra for Oct 9" · /admin/costs?tab=cleanings&property=TESTPROP0071&from=2026-10-09&to=2026-10-09&cleaning=TESTCLEANING0071a · when 2026-10-09 · owed - (0 blocked, 0 ready) · under attention,extra · Cleaned Oct 9: the cleaner asked for extra; its money waits until it is decided · 1 other extra too
+    extra · "Decide the note from Oct 9" · /admin/costs?tab=cleanings&property=TESTPROP0071&from=2026-10-09&to=2026-10-09&cleaning=TESTCLEANING0071a · when 2026-10-09 · owed - (0 blocked, 0 ready) · under attention,extra · Cleaned Oct 9: the cleaner left a note; the cleaning needs a decision before its money counts · 1 other note too
   an extra and a statement blocked: the extra first
-    extra · "Decide extra for Oct 12" · /admin/costs?tab=cleanings&property=TESTPROP0072&from=2026-10-12&to=2026-10-12&cleaning=TESTCLEANING0072a · when 2026-10-12 · owed 2026-09 (1 blocked, 0 ready) · under attention,blocked,extra · Cleaned Oct 12: Test Ana asked for extra; its money waits until it is decided
+    extra · "Decide the note from Oct 12" · /admin/costs?tab=cleanings&property=TESTPROP0072&from=2026-10-12&to=2026-10-12&cleaning=TESTCLEANING0072a · when 2026-10-12 · owed 2026-09 (1 blocked, 0 ready) · under attention,blocked,extra · Cleaned Oct 12: Test Ana left a note; the cleaning needs a decision before its money counts
   an extra and a job not marked: not marked first
     not-marked · "Check Oct 15 was cleaned" · /admin/schedule?property=TESTPROP0073&from=2026-10-15 · when 2026-10-15 · owed - (0 blocked, 0 ready) · under attention,not-marked,extra · Checkout Oct 15: not marked cleaned by Test Ben
   no extras (none given): as before
     none · "Up to date" · - · when - · owed - (0 blocked, 0 ready) · under - · Nothing to do
-   ok   an extra from any day: its step links to the cleaning on the Cleanings tab; under Extra asked and Needs attention
+   ok   a note from any day: its step links to the cleaning on the Cleanings tab; under Needs a decision and Needs attention
    ok   the earliest first, the others counted
+   ok   the chip's one word: "Needs a decision"
    ok   before Add Report For name; both chips
    ok   after Not marked; still under Extra asked, where the row shows the extra's step
    ok   a row whose Next step is the extra, or with none, shows its own step under the chip

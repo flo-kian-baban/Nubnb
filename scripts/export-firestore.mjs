@@ -72,6 +72,8 @@ const EXPECTED_COLLECTIONS = [
   'cleaner_signin_locks',
   // 2026-10-15: team pay, the payments recorded to cleaners and handymen.
   'team_payments',
+  // 2026-11-03 (Build 2): the marker a deleted calendar job leaves, so the next calendar read does not make it again.
+  'deleted_cleaning_jobs',
 ];
 
 /** Cap on the per-document subcollection probe, so a huge collection can't blow up the run. */

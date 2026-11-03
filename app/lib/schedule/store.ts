@@ -5,7 +5,9 @@
  * availability/store.ts, nothing here initialises an app: each caller passes
  * its own `Firestore`.
  *
- * Reads: one query, the jobs from today on (a few days' checkouts), one read
+ * Reads: one query, the jobs from today on (a few days' checkouts), one query
+ * for the deleted jobs' markers from today on (Build 2: one read when there
+ * are none), one read
  * per property this run did not read that has an open job from today on — its
  * own document, the only ground for "property deleted" or "calendar removed"
  * (Kian's ruling of 2026-10-17); none when every calendar was read — one
@@ -25,7 +27,7 @@
 import { createHash } from 'node:crypto';
 import type { Firestore } from 'firebase-admin/firestore';
 import type { AvailabilitySnapshot } from '../availability/types';
-import { CLEANING_JOBS_COLLECTION, readJob, type StoredJob } from './model';
+import { CLEANING_JOBS_COLLECTION, DELETED_JOBS_COLLECTION, readDeletedJob, readJob, type StoredJob } from './model';
 import { PROPERTY_REGULAR_CLEANERS_COLLECTION, readRegularCleaner, withRegularCleaner, type RegularCandidate } from './regular';
 import { planCreates, planJob, readThisRun, type KnownProperty } from './sync';
 
@@ -119,7 +121,14 @@ export async function syncJobs(db: Firestore, snapshot: AvailabilitySnapshot, lo
     const keys = new Map(Object.entries(snapshot.properties).map(([id, entry]) => [id, calendarKeyOf(entry.icalUrl)]));
     const nowIso = new Date().toISOString();
 
-    const planned = planCreates({ snapshot, existing: new Set(stored.docs.map((doc) => doc.id)), keys, nowIso });
+    // The calendar jobs an admin deleted (Build 2): a stay one still names makes no job; a changed booking may.
+    const markers = await db.collection(DELETED_JOBS_COLLECTION).where('checkout', '>=', snapshot.today).get();
+    const deleted = new Map<string, { uid: string; start: string }>();
+    for (const doc of markers.docs) {
+      const marker = readDeletedJob(doc.id, doc.data());
+      if (marker) deleted.set(marker.id, marker.reservation);
+    }
+    const planned = planCreates({ snapshot, existing: new Set(stored.docs.map((doc) => doc.id)), keys, nowIso, deleted });
     // Each new job goes to its property's regular cleaner, when they are an active cleaner (Kian's ruling R5).
     const regulars = await regularCleanersOf(db, [...new Set(planned.map(({ job }) => job.propertyId))]);
     for (const { id, job } of planned) {

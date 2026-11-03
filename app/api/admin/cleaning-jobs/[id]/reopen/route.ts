@@ -19,13 +19,14 @@ import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiError, apiFailure, apiSuccess, apiValidationError, noStore } from '@/app/lib/api/safe-response';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { REOPEN_REFUSALS, reopenMark } from '@/app/lib/firebase/server-cleaning-jobs';
+import { JOB_ID_PATTERN } from '@/app/lib/schedule/model';
 
 interface RouteContext {
   params: Promise<{ id: string }>;
 }
 
-/** A job's ID: a property's auto ID and its checkout day. */
-const JOB_ID = /^[A-Za-z0-9]{1,64}_\d{4}-\d{2}-\d{2}$/;
+/** A job's ID: a property's auto ID and its checkout day, with a job added by hand's suffix or not (Build 2). */
+const JOB_ID = JOB_ID_PATTERN;
 
 const ReopenSchema = z.strictObject({
   cleanerId: z.string().regex(/^[A-Za-z0-9]{1,64}$/, 'Not an ID'),

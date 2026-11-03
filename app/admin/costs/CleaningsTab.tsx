@@ -25,21 +25,25 @@
  *
  * Every control is Nubnb's own (Kian's ruling of 2026-10-10): the day picker, the selects, the dialogs.
  *
- * ── Waiting for an amount (the Costs page, round 1) ──
- * A filter over the list, with its count, chosen first while any cleaning waits: every cleaning marked on a job with
- * no amount (in the property and cleaner chosen, whatever the dates), each with its amount typed in place — Enter or
- * Save — the field opening with the property's preset for its job's stay (since 2026-10-19, as the Team page's pay view
- * opens it; before, the preset was the field's hint only), with several cleaners on the job the preset for them all as
- * the hint and nothing filled in (the admin types each share). A property with no preset for the tier (Kian's
- * ruling of 2026-10-19, the second round): the field opens prefilled with the most recent amount an admin typed for a
- * cleaning there in that tier, labelled "Last typed for short-term: $X", and Enter or Save confirms it; nothing is
- * charged until then (`missingAmountStart`, prices.ts). A typed one stays in the list, saying what was saved and
- * which statement it goes on, until the filter changes: nothing is read again.
+ * ── Needs an amount (the Costs page, round 1; Build 2's one word) ──
+ * A filter over the list, with its count, chosen first while any cleaning needs an amount: every cleaning marked on a
+ * job with no amount (in the property and cleaner chosen, whatever the dates), each with its amount typed in place —
+ * Enter or Save — the field opening with the property's cleaning price for its job's tier, or the amount set on the job
+ * (each an amount an admin set; `fieldStart`, prices.ts). A property with no price for the tier shows the most recent
+ * amount an admin typed there in that tier as a grey placeholder, "Last typed for short-term: $X" beside it — never as
+ * the field's value (Kian's ruling of 2026-11-03, Build 2: never save a suggestion); Save with an empty field saves
+ * nothing. A typed one stays in the list, saying what was saved and where it counts, until the filter changes: nothing
+ * is read again.
+ *
+ * ── Build 2 (Kian's rulings of 2026-11-03) ──
+ * One word per state: "Needs an amount", "Needs a decision" (a cleaning with a note, its words shown), "cleaning
+ * price". "Log a cleaning" is a button that opens the form. A decision on a cleaning dated before the statements
+ * floor says "counts in pay; statements start November 2026" (countsWords).
  */
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { Sparkles } from "lucide-react";
+import { Plus, Sparkles } from "lucide-react";
 import { AdminSelect } from "../components/AdminSelect";
 import { DateRangeField } from "../components/DateRangeField";
 import { useAsk } from "../components/AskDialog";
@@ -47,8 +51,8 @@ import type { Notice } from "../components/Notice";
 import { changeCleaning, decideCleaningExtra, deleteCleaning, fetchCleaningSuggestion, logCleaning, removeCleaning } from "@/app/lib/costs-client";
 import { formatCents, type PropertyNameView } from "@/app/lib/cleaners/model";
 import { internalLabel } from "@/app/lib/property-names";
-import { amountField, cleanerNameOf, extraAsked, extraWords, lastCleanerOf, readAmountCents, type CleaningView, type TeamChoice } from "@/app/lib/cleanings/model";
-import { AMOUNT_SOURCE_WORDS, TIER_NIGHTS, TIER_WORDS, missingAmountStart, presetAmount, recommendationWords, waitingHint, type CleaningPrices, type JobFacts, type PresetKind } from "@/app/lib/cleanings/prices";
+import { amountField, cleanerNameOf, countsWords, extraAsked, extraWords, lastCleanerOf, readAmountCents, type CleaningView, type TeamChoice } from "@/app/lib/cleanings/model";
+import { AMOUNT_SOURCE_WORDS, TIER_NIGHTS, TIER_WORDS, fieldStart, missingAmountStart, presetAmount, waitingHint, type CleaningPrices, type JobFacts, type PresetKind } from "@/app/lib/cleanings/prices";
 import { RANGE_PRESETS, presetRange, shortDay } from "@/app/lib/costs/report";
 import { chargesByMonth, type Charge } from "@/app/lib/money/month";
 import { addMonths, monthLabel } from "@/app/lib/reports/model";
@@ -76,8 +80,8 @@ interface Props {
   show: (notice: Notice) => void;
 }
 
-/** "$65.00", or, for a job's cleaning still waiting for one, "no amount yet". */
-const amountWords = (cents: number | null) => (cents === null ? "no amount yet" : formatCents(cents));
+/** "$65.00", or, for a job's cleaning that needs one, "no amount". */
+const amountWords = (cents: number | null) => (cents === null ? "no amount" : formatCents(cents));
 
 /** What removing or deleting a job's cleaning does to the job (Kian's ruling of 2026-10-14, night). */
 const JOB_MARK_KEPT = "Its job keeps the cleaner's mark as removed by the office: they cannot mark it again until it is reopened on the Schedule.";
@@ -85,11 +89,11 @@ const JOB_MARK_KEPT = "Its job keeps the cleaner's mark as removed by the office
 /** What the form's amount started from (Kian's ruling of 2026-10-19), under the field. */
 type FormStart = { kind: "reading" } | { kind: "none" } | { kind: "preset"; from: PresetKind | "job"; cents: number | null; nights: number; tier: PresetKind; job: boolean } | { kind: "unknown"; title: string };
 const startWords = (start: FormStart): string => {
-  if (start.kind === "reading") return "Reading the property’s price…";
+  if (start.kind === "reading") return "Reading the property’s cleaning price…";
   if (start.kind === "none") return "";
   if (start.kind === "unknown") return `${start.title} Type the amount.`;
   if (start.from === "job") return "The amount set on the job that day.";
-  const which = `${TIER_WORDS[start.from]} preset`;
+  const which = `${TIER_WORDS[start.from]} cleaning price`;
   const stay = start.job ? ` (${start.nights === 0 ? `a ${TIER_WORDS[start.tier]} job that day` : `a stay of ${start.nights === 1 ? "1 night" : `${start.nights} nights`} ends that day`})` : "";
   return start.cents === null ? `No ${which} for this property${stay}: type the amount.` : `The ${which}${stay}.`;
 };
@@ -114,7 +118,8 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
   const pickable = useMemo(() => team.filter((member) => member.role === "cleaner" && member.status === "active"), [team]);
   const pricesOf = (id: string): CleaningPrices | null => prices[id] ?? null;
 
-  // ── The form ──
+  // ── The form (behind a button since Build 2, Kian's ruling of 2026-11-03) ──
+  const [logging, setLogging] = useState(false);
   const [day, setDay] = useState(today);
   const [propertyId, setPropertyId] = useState(filters.propertyId);
   const [cleanerId, setCleanerId] = useState("");
@@ -199,7 +204,7 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
     show({
       tone: statementMonth === month ? "success" : "info",
       title: `Logged ${amountWords(cleaning.amountCents)} · ${nameOf(cleaning)} · ${shortDay(cleaning.day)} (${cleanerNameOf(cleaning)}).`,
-      detail: statementMonth === month ? `It goes on ${monthLabel(month)}'s statement.` : `${monthLabel(month)} is finished: it goes on ${monthLabel(statementMonth)}'s statement.`,
+      detail: statementMonth === month || cleaning.day.slice(0, 7) < statementMonth ? `It ${countsWords(cleaning.day, statementMonth)}.` : `${monthLabel(month)} is finished: it goes on ${monthLabel(statementMonth)}'s statement.`,
     });
     // Ready for the next one: the same day and cleaner, another property.
     prefillSeq.current += 1;
@@ -319,14 +324,15 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
     const ids = new Set(waitingAll.map((c) => c.id));
     return [...waitingAll, ...cleanings.filter((c) => typedHere.has(c.id) && !ids.has(c.id))].sort((a, b) => b.day.localeCompare(a.day) || b.createdAt.localeCompare(a.createdAt));
   }, [waitingAll, cleanings, typedHere]);
-  /** What a waiting row's field holds: what was typed, else what it opened with — the property's preset for the tier, else the recommendation (Kian's ruling: confirmed by Enter or Save; the Team page's pay view opens its fields the same way, 2026-10-19). */
+  /** What a row's field holds: what was typed, else what it opened with — the cleaning price or the job's amount; a recommendation is only a placeholder (Build 2: never save a suggestion). */
   const fieldOf = (c: CleaningView) => {
     if (typing[c.id] !== undefined) return typing[c.id];
-    const start = missingAmountStart(pricesOf(c.propertyId), cleanings, jobs, c);
-    return start.kind === "recommendation" || start.kind === "preset" || start.kind === "job" ? amountField(start.cents) : "";
+    return fieldStart(missingAmountStart(pricesOf(c.propertyId), cleanings, jobs, c)).value;
   };
   const saveAmount = async (c: CleaningView) => {
     if (busy) return;
+    // An empty field saves nothing (Build 2, item 3): the placeholder is a suggestion, never an amount.
+    if (fieldOf(c).trim() === "") return;
     const cents = readAmountCents(fieldOf(c));
     if (cents === null) {
       show({ tone: "error", title: "Type the amount: dollars and cents above $0.00, like 75.00." });
@@ -371,7 +377,7 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
     }
     // The page reads the cleaning again with its lookups on the next refresh; the stored fields are these.
     onSaved({ ...result.data.cleaning, cleaner: { ...c.cleaner, name: result.data.cleaning.cleanerId === c.cleanerId ? c.cleaner.name : result.data.cleaning.cleanerNameAtEntry }, property: c.property });
-    show({ tone: "success", title: `Saved the cleaning of ${shortDay(result.data.cleaning.day)}.`, detail: `Its statement: ${monthLabel(result.data.statementMonth)}'s. A change after a statement printed it shows on the next month's.` });
+    show({ tone: "success", title: `Saved the cleaning of ${shortDay(result.data.cleaning.day)}.`, detail: `It ${countsWords(result.data.cleaning.day, result.data.statementMonth)}. A change after a statement printed it shows on the next month's.` });
   };
 
   const remove = async (c: CleaningView) => {
@@ -429,7 +435,24 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
 
   return (
     <section className={p.block} aria-label="Cleanings">
-      {/* ── Log a cleaning ── */}
+      {/* ── Log a cleaning: a button that opens the form (Build 2, Kian's ruling of 2026-11-03) ── */}
+      {!logging ? (
+        <div className={p.formActions}>
+          <button type="button" className={p.btnPrimary} onClick={() => setLogging(true)}>
+            <Plus size={15} aria-hidden />
+            <span>Log a cleaning</span>
+          </button>
+          {Object.keys(prices).length === 0 && (
+            <span className={p.note}>
+              No property has cleaning prices yet: set them on the{" "}
+              <Link href="/admin/report-for" prefetch={false} className={p.linkButton}>
+                Report For sheet
+              </Link>
+              .
+            </span>
+          )}
+        </div>
+      ) : (
       <form className={p.form} onSubmit={submit} aria-label="Log a cleaning">
         <p className={p.formTitle}>Log a cleaning</p>
         <div className={p.fields}>
@@ -449,7 +472,7 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
             <span className={p.fieldLabel}>Amount ($)</span>
             <input className={`${p.textInput} ${p.amountInput}`} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={saving} />
             {/* No example figure in the field (Phase 3, 2026-11-01, as the waiting rows in Phase 1): it is empty until the property's price fills it, and says so. */}
-            <span className={p.note}>{propertyId === "" || start.kind === "none" ? "Pick the property and the cleaner: the amount starts from the property’s price." : startWords(start)}</span>
+            <span className={p.note}>{propertyId === "" || start.kind === "none" ? "Pick the property and the cleaner: the amount starts from the property’s cleaning price." : startWords(start)}</span>
           </label>
           <label className={`${p.field} ${p.fieldGrow}`}>
             <span className={p.fieldLabel}>Note (optional)</span>
@@ -461,28 +484,23 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
             <Sparkles size={15} aria-hidden />
             <span>{saving ? "Logging…" : "Log cleaning"}</span>
           </button>
-          {Object.keys(prices).length === 0 && (
-            <span className={p.note}>
-              No property has cleaning prices yet: set them on the{" "}
-              <Link href="/admin/report-for" prefetch={false} className={p.linkButton}>
-                Report For sheet
-              </Link>
-              .
-            </span>
-          )}
+          <button type="button" className={p.btnGhost} disabled={saving} onClick={() => setLogging(false)}>
+            Close
+          </button>
         </div>
       </form>
+      )}
 
       {/* ── The cleanings in these dates ── */}
       <div className={`${p.blockHead} ${styles.listHead}`}>
         <h3 className={p.blockTitle}>Cleanings</h3>
-        <span className={p.blockTotal}>{logged.length === 0 ? "None" : `${logged.length === 1 ? "1 cleaning" : `${logged.length} cleanings`} · ${formatCents(total)}${waiting > 0 ? ` · ${waiting} waiting for an amount` : ""}${askedCount > 0 ? ` · ${askedCount} extra asked` : ""}`}</span>
+        <span className={p.blockTotal}>{logged.length === 0 ? "None" : `${logged.length === 1 ? "1 cleaning" : `${logged.length} cleanings`} · ${formatCents(total)}${waiting > 0 ? ` · ${waiting} ${waiting === 1 ? "needs" : "need"} an amount` : ""}${askedCount > 0 ? ` · ${askedCount} ${askedCount === 1 ? "needs" : "need"} a decision` : ""}`}</span>
       </div>
-      {/* Waiting for an amount first while any waits (the Costs page, round 1). */}
+      {/* Needs an amount first while any does (the Costs page, round 1; Build 2's words). */}
       <div className={styles.chips} role="tablist" aria-label="Which cleanings">
         {[
-          { key: "waiting", label: `Waiting for an amount · ${waitingAll.length}`, on: onlyWaiting, warn: waitingAll.length > 0, pick: () => showWaiting(true) },
-          { key: "asked", label: `Extra asked · ${askedAll.length}`, on: onlyAsked, warn: askedAll.length > 0, pick: showAsked },
+          { key: "waiting", label: `Needs an amount · ${waitingAll.length}`, on: onlyWaiting, warn: waitingAll.length > 0, pick: () => showWaiting(true) },
+          { key: "asked", label: `Needs a decision · ${askedAll.length}`, on: onlyAsked, warn: askedAll.length > 0, pick: showAsked },
           { key: "all", label: "All cleanings", on: !onlyWaiting && !onlyAsked, warn: false, pick: () => showWaiting(false) },
         ]
           .sort((a, b) => (waitingAll.length > 0 || askedAll.length > 0 ? 0 : a.key === "all" ? -1 : b.key === "all" ? 1 : 0))
@@ -508,9 +526,9 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
 
       {onlyWaiting ? (
         waitingRows.length === 0 ? (
-          <p className={p.note}>No cleaning waits for an amount{filters.propertyId || filters.cleanerId ? " for this choice" : ""}.</p>
+          <p className={p.note}>No cleaning needs an amount{filters.propertyId || filters.cleanerId ? " for this choice" : ""}.</p>
         ) : (
-          <table className={p.listTable} aria-label="Waiting for an amount">
+          <table className={p.listTable} aria-label="Needs an amount">
             <thead>
               <tr>
                 <th>Day</th>
@@ -522,11 +540,12 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
             <tbody>
               {waitingRows.map((c) => {
                 const typed = typedHere.get(c.id);
-                // The property's preset for the job's stay (Kian's ruling of 2026-10-19); with several cleaners on the job, the preset for them all;
-                // with no preset for the tier, the admin-typed recommendation, prefilled (the second round).
+                // The cleaning price for the job's tier, or the job's amount, fills the field; a recommendation (no price for the tier) is a grey
+                // placeholder with "Last typed for <tier>: $X" beside it, never a value (Build 2, item 3).
                 const job = c.jobId !== null ? (jobs[c.jobId] ?? null) : null;
                 const start = missingAmountStart(pricesOf(c.propertyId), cleanings, jobs, c);
-                const hint = start.kind === "recommendation" ? `${recommendationWords(start.tier, start.cents)} (${shortDay(start.day)})` : waitingHint(pricesOf(c.propertyId), job);
+                const opens = fieldStart(start);
+                const hint = start.kind === "recommendation" ? `${opens.words} (${shortDay(start.day)})` : waitingHint(pricesOf(c.propertyId), job);
                 return (
                   <tr key={c.id} id={`cleaning-${c.id}`} className={c.id === focusId ? styles.focused : undefined}>
                     <td className={styles.nowrap}>{shortDay(c.day)}</td>
@@ -542,7 +561,7 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
                     <td className={p.num}>
                       {typed ? (
                         <span className={styles.saved}>
-                          Saved {formatCents(typed.cents)} · goes on {monthLabel(typed.statementMonth)}&apos;s statement
+                          Saved {formatCents(typed.cents)} · Counted · {countsWords(c.day, typed.statementMonth)}
                         </span>
                       ) : (
                         <form
@@ -557,15 +576,15 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
                               className={`${p.textInput} ${p.amountInput} ${styles.amountInline}`}
                               inputMode="decimal"
                               aria-label={`Amount for ${nameOf(c)}, ${shortDay(c.day)}, ${cleanerNameOf(c)}`}
-                              placeholder={(start.kind === "preset" || start.kind === "job") && job && job.cleaners === 1 ? amountField(start.cents) : ""}
+                              placeholder={opens.placeholder}
                               title={hint}
                               value={fieldOf(c)}
                               onChange={(e) => setTyping((was) => ({ ...was, [c.id]: e.target.value }))}
                               disabled={busy !== null}
                             />
-                            {start.kind === "recommendation" && <span className={styles.recommendation}>{recommendationWords(start.tier, start.cents)}</span>}
-                            {/* Opened empty (several cleaners: the split is typed; or no preset and nothing typed before): why, in words, not a tooltip. */}
-                            {(start.kind === "split" || start.kind === "none") && <span className={styles.waitingHint}>{hint}</span>}
+                            {start.kind === "recommendation" && <span className={styles.recommendation}>{opens.words}</span>}
+                            {/* Opened empty (no cleaning price and nothing typed before): why, in words, not a tooltip. */}
+                            {start.kind === "none" && <span className={styles.waitingHint}>{hint}</span>}
                           </span>
                           <button type="submit" className={`${p.btnGhost} ${p.btnSmall}`} disabled={busy !== null || fieldOf(c).trim() === ""}>
                             {busy === c.id ? "Saving…" : "Save"}
@@ -581,15 +600,15 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
         )
       ) : onlyAsked ? (
         askedRows.length === 0 ? (
-          <p className={p.note}>No cleaning waits for a decision on extra asked{filters.propertyId || filters.cleanerId ? " for this choice" : ""}.</p>
+          <p className={p.note}>No cleaning needs a decision{filters.propertyId || filters.cleanerId ? " for this choice" : ""}.</p>
         ) : (
-          <table className={p.listTable} aria-label="Extra asked">
+          <table className={p.listTable} aria-label="Needs a decision">
             <thead>
               <tr>
                 <th>Day</th>
                 <th>Property</th>
                 <th>Cleaner</th>
-                <th>Asked for</th>
+                <th>Note</th>
                 <th className={p.num}>Amount</th>
                 <th />
               </tr>
@@ -622,7 +641,7 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
                     <td>
                       {decided ? (
                         <span className={styles.saved}>
-                          {decided.decision === "approve" ? `Approved ${decided.cents === null ? "" : formatCents(decided.cents)}` : `Declined: ${amountWords(c.amountCents)} counts`} · goes on {monthLabel(decided.statementMonth)}&apos;s statement
+                          {decided.decision === "approve" ? `Approved ${decided.cents === null ? "" : formatCents(decided.cents)}` : `Declined: ${amountWords(c.amountCents)} counts`} · Counted · {countsWords(c.day, decided.statementMonth)}
                         </span>
                       ) : (
                         <form
@@ -651,7 +670,7 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
                           <button type="submit" className={`${p.btnGhost} ${p.btnSmall}`} disabled={busy !== null || (approveAt[c.id] ?? "").trim() === ""}>
                             Approve at this amount
                           </button>
-                          <button type="button" className={`${p.btnGhost} ${p.btnSmall}`} disabled={busy !== null || c.amountCents === null} onClick={() => void decide(c, "decline", null)} title={c.amountCents === null ? "No base amount to fall back on: approve at an amount" : "The base amount counts"}>
+                          <button type="button" className={`${p.btnGhost} ${p.btnSmall}`} disabled={busy !== null || c.amountCents === null} onClick={() => void decide(c, "decline", null)} title={c.amountCents === null ? "No cleaning price to fall back on: approve at an amount" : "The cleaning price counts"}>
                             Decline
                           </button>
                         </form>
@@ -729,8 +748,8 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
                   </td>
                   <td className={p.num}>
                     {c.amountCents === null ? (
-                      <span className={`${p.costMark} ${p.costMarkWarn}`} title={c.suggested.from === "split" ? "Several cleaners were on this job: type each one’s share with Change" : "Marked cleaned on a job with no preset to start from: type it with Change"}>
-                        No amount yet
+                      <span className={`${p.costMark} ${p.costMarkWarn}`} title={c.suggested.from === "split" ? "Several cleaners were on this job (before one cleaner per job): type each one’s share with Change" : "Marked cleaned on a job with no cleaning price to start from: type it with Change"}>
+                        Needs an amount
                       </span>
                     ) : c.status === "removed" ? (
                       <span className={styles.struck}>{formatCents(c.amountCents)}</span>
@@ -738,16 +757,16 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
                       formatCents(c.amountCents)
                     )}
                     {c.status === "removed" && <span className={`${p.costMark} ${p.costMarkWarn}`}>removed</span>}
-                    {extraAsked(c) && <span className={`${p.costMark} ${p.costMarkWarn}`} title={extraWords(c.extra!)}>extra asked</span>}
+                    {extraAsked(c) && <span className={`${p.costMark} ${p.costMarkWarn}`} title={extraWords(c.extra!)}>needs a decision</span>}
                     {c.jobId !== null && <span className={p.note} title={c.actor.role === "admin" && c.history[0]?.reason === "recorded by the office" ? "Recorded as cleaned by the office on its job, dated its checkout day" : "Made by the cleaner's Mark cleaned on a job, dated its checkout day"}> · {c.actor.role === "admin" && c.history[0]?.reason === "recorded by the office" ? "recorded" : "marked"}</span>}
                     {/* Where the amount came from (Kian's ruling of 2026-10-19): a preset, the job's own amount, or typed; cleanings from before the presets say nothing here. */}
                     {c.amountFrom !== null && c.amountCents !== null && <span className={p.note} title={c.amountFrom === "typed" ? "Typed or changed by an admin" : c.amountFrom === "job" ? "The amount an admin set on its job" : `The property’s ${AMOUNT_SOURCE_WORDS[c.amountFrom]} when it was made (${TIER_NIGHTS[c.amountFrom]})`}> · {AMOUNT_SOURCE_WORDS[c.amountFrom]}</span>}
-                    {c.extra && c.extra.status !== "asked" && <span className={p.note} title={`Asked for: ${c.extra.reason}`}> · {extraWords(c.extra).toLowerCase()}</span>}
+                    {c.extra && c.extra.status !== "asked" && <span className={p.note} title={`The note: “${c.extra.reason}”`}> · note {extraWords(c.extra).toLowerCase()}</span>}
                   </td>
                   <td className={styles.noteCell}>
                     {c.note ?? ""}
-                    {/* The note is the reason since Build 1 (2026-11-02): said once. */}
-                    {c.extra && c.extra.reason !== c.note && <span className={p.note}>{c.note ? " · " : ""}extra: {c.extra.reason}</span>}
+                    {/* The note is the reason since Build 1 (2026-11-02): said once; an older ask with other words is shown too. */}
+                    {c.extra && c.extra.reason !== c.note && <span className={p.note}>{c.note ? " · " : ""}“{c.extra.reason}”</span>}
                   </td>
                   {charges !== null && <td className={styles.chargedCell}>{chargedWords(c)}</td>}
                   <td>
@@ -778,7 +797,7 @@ export function CleaningsTab({ cleanings, team, prices, jobs, properties, filter
       {earned.length > 0 && (
         <div className={styles.earned} aria-label="Earned">
           <span className={p.fieldLabel}>Earned in these dates</span>
-          <span>{earned.map((row) => `${row.name} · ${row.count === 1 ? "1 cleaning" : `${row.count} cleanings`} · ${formatCents(row.cents)}${row.waiting > 0 ? ` · ${row.waiting} waiting for an amount` : ""}`).join("   ·   ")}</span>
+          <span>{earned.map((row) => `${row.name} · ${row.count === 1 ? "1 cleaning" : `${row.count} cleanings`} · ${formatCents(row.cents)}${row.waiting > 0 ? ` · ${row.waiting} not counted yet` : ""}`).join("   ·   ")}</span>
         </div>
       )}
       {dialog}

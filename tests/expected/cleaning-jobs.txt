@@ -61,7 +61,7 @@
 ═══ 5. A job's cleaning ═══
   read: Ana's $60.00 jobId TESTPROPscheduleaaa1_2026-10-16 · the waiting one, amount null · a version 1 cleaning reads jobId null
   refused: no amount without a job true · a zero amount true
-  the waiting one as the statements read it: status pending, lines [], linesNow {"kind":"unreadable","reason":"No amount yet: an admin types it in the Cleanings tab."}
+  the waiting one as the statements read it: status pending, lines [], linesNow {"kind":"unreadable","reason":"Needs an amount: an admin types it in the Cleanings tab."}
   its amount typed: status approved, total $50.00, sent $50.00, corrected false
   changed again after: total $52.00, first amount $50.00, corrected true
   Ben's next mark starts from the property's preset, not from what he was last paid (Kian's ruling of 2026-10-19; tests/money/cleaning-prices.mjs)
@@ -70,7 +70,7 @@
   printed: Revenue · 1 · $500.00 · $500.00 | Expense - Cleaning · 2 · (rate empty) · -$115.00
   costs charged: TESTCLEANINGjob00001 $60.00, TESTCLEANINGjob00002 $55.00 · left out, pending: 1
   the PDF holds "Expense - Cleaning": true · names a cleaner: false
-  Finish warns: 1 cleaning has no amount yet; it will go on November 2026's statement once typed.
+  Finish warns: 1 cleaning needs an amount; it will go on November 2026's statement once typed.
 
 ═══ 7. The cleaner door keeps its own key for a connection ═══
   64 hex: true · differs from the admin door's hash of the same address under the same key: true · stable: true

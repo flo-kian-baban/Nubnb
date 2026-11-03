@@ -16,11 +16,12 @@ import { NextRequest } from 'next/server';
 import { adminRoute } from '@/app/lib/api/verify-admin';
 import { apiError, apiFailure, apiSuccess, noStore } from '@/app/lib/api/safe-response';
 import { amountStarts } from '@/app/lib/firebase/server-cleanings';
+import { JOB_ID_PATTERN } from '@/app/lib/schedule/model';
 
 const MAX_PROPERTIES = 40;
 const MAX_JOBS = 200;
 const PROPERTY_ID = /^[A-Za-z0-9_-]{1,64}$/;
-const JOB_ID = /^[A-Za-z0-9]{1,64}_\d{4}-\d{2}-\d{2}$/;
+const JOB_ID = JOB_ID_PATTERN;
 
 const listOf = (value: string | null) => (value === null || value.trim() === '' ? [] : value.split(',').map((id) => id.trim()).filter((id) => id !== ''));
 

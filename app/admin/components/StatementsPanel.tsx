@@ -256,7 +256,7 @@ export function StatementsPanel({ data, statuses, month, today, onMonth, onClose
           <ul>
             {ends.pending.map((end) => (
               <li key={`p-${end.propertyId}`}>
-                {end.count === 1 ? "1 entry" : `${end.count} entries`} sent in {monthLabel(month)} for {end.propertyName} {end.count === 1 ? "is" : "are"} still pending: in no statement until reviewed.{" "}
+                {end.count === 1 ? "1 entry" : `${end.count} entries`} sent in {monthLabel(month)} for {end.propertyName} {end.count === 1 ? "needs" : "need"} a decision: in no statement until then.{" "}
                 <Link href={`/admin/costs?property=${encodeURIComponent(end.propertyId)}`} prefetch={false} className={styles.linkButton}>
                   Review
                 </Link>
