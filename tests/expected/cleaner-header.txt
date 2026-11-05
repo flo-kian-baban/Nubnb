@@ -1,0 +1,25 @@
+═══ firstNameOf: the first word of the name the office gave, as typed; none for an empty name ═══
+    "Ana Test" → Ana
+   ok   "Ana Test": Ana
+    "  Ben   Example  " → Ben
+   ok   "  Ben   Example  ": Ben
+    "Ana\tTest" → Ana
+   ok   "Ana\tTest": Ana
+    "Jean-Luc Test" → Jean-Luc
+   ok   "Jean-Luc Test": Jean-Luc
+    "Zoë Test" → Zoë
+   ok   "Zoë Test": Zoë
+    "Bartholomew" → Bartholomew
+   ok   "Bartholomew": Bartholomew
+    "__TEST__ Ana abcdef" → __TEST__
+   ok   "__TEST__ Ana abcdef": __TEST__
+    "" → (none: the bar says "Account")
+   ok   "": none
+    "   " → (none: the bar says "Account")
+   ok   "   ": none
+    null → (none: the bar says "Account")
+   ok   null: none
+    undefined → (none: the bar says "Account")
+   ok   undefined: none
+
+every check passed

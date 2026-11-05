@@ -17,6 +17,10 @@
  * One month at a time (Kian's ruling 7 of 2026-11-03, Build 3): the screen reads only the month on screen —
  * GET /api/cleaner/entries?month= — so the cost of opening it no longer grows with the months; a month read once is
  * kept while the screen is open, and the switcher reaches every month from this one back to the floor.
+ *
+ * A tab since 2026-11-05 (Kian's instruction): the same top bar as the home — the logo, the first name with Sign out —
+ * and the tabs under it, "Jobs | History" ("Add work | My work"), History marked; no Back on the bar (the Jobs tab, or
+ * the phone's Back, returns to the home). The tab names the screen, so its title is for screen readers only.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -34,7 +38,7 @@ import {
 } from "@/app/lib/cleaners/model";
 import type { CleanerJobView } from "@/app/lib/schedule/model";
 import styles from "./cleaner.module.css";
-import { CleanerBar } from "./CleanerBar";
+import { CleanerBar, type BarPerson, type BarTab } from "./CleanerBar";
 import { CleanedLine } from "./JobsSection";
 
 interface HistoryScreenProps {
@@ -47,7 +51,10 @@ interface HistoryScreenProps {
   busyId: string | null;
   messages: Record<string, string>;
   onUndo: (job: CleanerJobView) => void;
-  onBack: () => void;
+  /** Who is signed in, for the name menu (Sign out). */
+  person: BarPerson;
+  /** The two tabs under the bar, this one marked. */
+  tabs: readonly BarTab[];
   /** The session ended while the list was open: back to the code. */
   onSignedOut: () => void;
 }
@@ -68,7 +75,7 @@ const STATUS_CLASS: Record<EntryStatus, string> = {
 /** "Nov 18": the day on a row; "—" for an entry with no readable date. */
 const rowDay = (day: string | null) => (day === null ? "—" : new Intl.DateTimeFormat("en-CA", { month: "short", day: "numeric" }).format(new Date(`${day}T12:00:00`)));
 
-export function HistoryScreen({ kind, properties, jobs, today, busyId, messages, onUndo, onBack, onSignedOut }: HistoryScreenProps) {
+export function HistoryScreen({ kind, properties, jobs, today, busyId, messages, onUndo, person, tabs, onSignedOut }: HistoryScreenProps) {
   /** Each month read so far, by month (Build 3: one month at a time). */
   const [lists, setLists] = useState<Record<string, ListState>>({});
   const [attempt, setAttempt] = useState(0);
@@ -186,9 +193,9 @@ export function HistoryScreen({ kind, properties, jobs, today, busyId, messages,
 
   return (
     <>
-      <CleanerBar onBack={onBack} />
-      <main className={styles.screen}>
-        <h1 className={styles.title}>{kind === "work" ? "My work" : "History"}</h1>
+      <CleanerBar person={person} tabs={tabs} />
+      <main className={`${styles.screen} ${styles.screenUnderTabs}`}>
+        <h1 className={styles.visuallyHidden}>{kind === "work" ? "My work" : "History"}</h1>
 
         <nav className={styles.monthBar} aria-label="Month">
           <button type="button" className={styles.monthButton} onClick={() => older && setMonth(older)} disabled={!older} aria-label={older ? `Older: ${monthWords(older)}` : "No older month"}>

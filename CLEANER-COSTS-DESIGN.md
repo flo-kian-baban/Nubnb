@@ -6124,3 +6124,86 @@ itself. Reads for the release: 2 of 500, exports excluded.
 **Step 3** — the commit, its tree scan, the push, the deployment's SHA and the smoke as no one — is recorded in the
 build's report (`~/Backups/Nubnb/build3-person/BUILD3-REPORT-2026-11-03.md`, section 12), since it happens after this
 file is committed.
+
+## 71. The cleaner and handyman apps' top bar and tabs — Kian's instruction of 2026-11-05
+
+Kian's dispatch of 2026-11-05, after testing the apps on his iPhone (Safari): "Sign out and 'Signed in as' sit in the
+wrong place, the History and Sign out buttons look heavy, and the layout should be cleaner." Six items, a small UI pass;
+to be committed and pushed without another review once verified ("Cleaner app: name menu with sign out, Jobs/History
+tabs, lighter All properties").
+
+### 71.1 What changed, by item
+
+1. **Top bar.** The NUBNB logo at the left; the person's first name with a small chevron at the right ("Ana ▾":
+   `firstNameOf` in cleaner-home.ts, the first word of the name the office gave, as typed; "Account" with none). A tap
+   opens a small menu under it with one item, Sign out; a tap anywhere else or Escape closes it (Escape gives the focus
+   back to the name). Sign out asks once, in the app's own pop-up: "Sign out?" · "You'll need your code to sign in
+   again." · Sign out / Cancel ("Signing out…" while it goes); then the code screen, "Signed out. Enter your code.", as
+   before. "Signed in as …" and the foot's Sign out are gone, for a cleaner and a handyman. A long first name is cut with
+   an ellipsis; the wordmark never shrinks.
+2. **Tabs.** Under the bar, two tabs across the width, the current one in the ink, bold and underlined in the navy over
+   the bar's hairline, the other in the grey: a cleaner's "Jobs | History", a handyman's "Add work | My work". The
+   History and My work pills are gone. History stays a view over the home — the History tab opens it, the Jobs tab
+   closes it — so the phone's Back from History is still the home. Its title is for screen readers only: the tab names
+   the screen.
+3. **All properties** stays pinned, as the light button (`.light`: white, a 1 px border in the fields' grey, 4.5:1 on
+   white, dark words, the pinned button's 60 px). Done is the only filled button on a cleaner's screen.
+4. **The address** on a job card was never a link in this app. The dotted underline under it on an iPhone is Safari's
+   own: it recognises the address. Safari's detection of addresses, dates, phone numbers and emails is off for the
+   cleaner page (`formatDetection` in page.tsx: `<meta name="format-detection" content="telephone=no, date=no,
+   address=no, email=no">`), and the styles flatten any link Safari still adds (`a[x-apple-data-detectors]`: no
+   underline, the text's colour, nothing to tap, `!important` so it beats a style Safari sets on the link itself). Plain
+   text, no pin: it opens no map.
+5. **No large empty gap.** The foot pushed itself to the bottom of a screen-tall page (`margin-top: auto`); with it gone
+   and the home's and History's screen as tall as what they hold (`.screenUnderTabs`), the list starts under the tabs.
+   The pinned bar's measured height pads the page, as before — and now follows the bar when the phone's bottom inset
+   changes (`usePinnedHeight` watches the bar's border box: Safari changes the inset as its toolbar shows and hides,
+   and a change of padding leaves the content box, the observer's default, as it was; the iPhone check found the end of
+   the list 18 px under the bar).
+6. **Empty home:** one calm line, "No jobs right now." (was "No jobs today or tomorrow.").
+
+Also: the app's pop-up (AskDialog) now makes everything behind it inert — every element at the top of the document but
+the pop-up — since the bar, its tabs and the pinned bar sit outside `<main>`, which was the only part made inert before.
+
+### 71.2 The developer's choices (none changes a statement, money or what an owner receives)
+
+- **"Finish the receipt"** (a receipt begun and not sent) takes the pinned button's light style too, so Done stays the
+  only filled button whatever the bar says.
+- **The handyman's "All properties"** under Recent is the light button too (the same words, the same look); his pinned
+  "Add work" stays filled: he has no Done.
+- **The menu is a disclosure** (a button that shows one more button, `aria-expanded`), not an ARIA menu: one item needs
+  no arrow keys.
+- **No pin on the address:** the app opens no map; a map link would be a new feature (the start call sends no
+  coordinates).
+- **History's title** is hidden on screen, kept for screen readers.
+
+### 71.3 Tests
+
+`cleaner-header` (new, tests/cleaner/header.mjs): `firstNameOf` on 11 made-up names (spaces and tabs, a hyphenated
+name, an accented one, a test name, empty, null, undefined). The 35 other checks are identical to HEAD's.
+
+### 71.4 Verified (2026-11-05; local builds served from memory, the server's clock Wed 22 Nov 2028, 10:00 Toronto)
+
+Before (HEAD `6c92b66`) and after, each built from a copy of the tree with no `.env` file and served from an in-memory
+Firestore (Build 3's state: real people, codes, PINs, prices, entries and cleanings dropped; test cleaners Ana with two
+jobs today and one tomorrow, Yara with none, handyman Hal); no production read. Screenshots at 390 and 360 (2×) in
+`~/Backups/Nubnb/header-pass/` (23 before, 32 after).
+
+- Cleaner home: filled buttons Done, Done, All properties → Done, Done; the pinned button white with a 1 px #767676
+  border and dark words, 60 px; the first heading 16 px under the tabs; page 1,006 → 921 px at 390 (the foot gone).
+  Yara: "No jobs right now.", 12 px under the tabs; the page no longer scrolls (845 → 844 px on an 844 px screen).
+- Tabs 179×48 at 390 and 164×48 at 360; the name button 44 px tall; the menu's item 48 px. No target under 44 px, no
+  text under 16 px but the 14 px wordmark (unchanged), no text below AA, no sideways scroll at 390 or 360.
+- The menu, Escape and a tap elsewhere as described; the question's words exact; the focus on its Sign out; the bar,
+  the screen and the pinned bar inert behind it; Cancel keeps the person in and leaves nothing inert; Sign out reaches
+  "Signed out. Enter your code.". The phone's Back from History lands on Jobs.
+- Done (Confirm done → "Cleaned · Undo"), a receipt begun and not sent ("Not sent yet · <unit>" + "Finish the receipt",
+  kept across a reload), History and My work by month: as before.
+- Safari's address link, simulated on the card (a link marked `x-apple-data-detectors` with its colours set inline, and
+  one with an inline dotted underline): before, the second underlined and both tappable; after, neither underlined nor
+  tappable. The meta is in the after page only.
+- iPhone Safari's visible area, 390×664 at 3×, the safe-area insets emulated by replacing `env(safe-area-inset-*)` in the
+  served stylesheets (Chromium answers 0): with the bottom inset appearing after load (0 → 34 px), before, the end of
+  the list sat 18 px under the pinned bar; after, the page's padding follows (97 → 131 px) and it ends 16 px clear. With
+  insets of 47 / 34 px, the pinned bar sits inside the visible area and its button above the 34 px inset, in both
+  builds. An emulation in Chromium, not Safari itself.

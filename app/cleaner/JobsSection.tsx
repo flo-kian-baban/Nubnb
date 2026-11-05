@@ -8,7 +8,10 @@
  *
  * One compact card per job (item 1): the unit's small thumbnail, its address, "Checkout 11:00 AM", "Next guest today
  * 4:00 PM" or the next guest's day, and two big buttons: "Done" and "Add receipt" (the unit filled in). No city, no
- * greeting, no repeated day line, no badge: a same-day turnover says so in one amber line.
+ * greeting, no repeated day line, no badge: a same-day turnover says so in one amber line. The address is plain text
+ * (2026-11-05): it opens nothing, so it looks like nothing to tap — the phone's own detection of addresses and dates,
+ * which drew a dotted underline under it on an iPhone, is turned off for this page (page.tsx, and the styles' rule for
+ * the links Safari adds). With no job to show, one calm line: "No jobs right now."
  *
  * Done (item 2) opens the app's own pop-up (DoneDialog): the unit and day, an optional note for the office, and
  * "Confirm done" / "Cancel". With no note the cleaning counts at once; with a note it is made but its money waits for
@@ -211,7 +214,7 @@ export function JobsSection({ jobs, today, busyId, messages, onMark, onUndo, onA
         Your jobs
       </h2>
       {groups.length === 0 ? (
-        <p className={styles.jobsEmpty}>No jobs today or tomorrow.</p>
+        <p className={styles.jobsEmpty}>No jobs right now.</p>
       ) : (
         groups.map((group) => (
           <div key={group.key} className={styles.jobGroup}>

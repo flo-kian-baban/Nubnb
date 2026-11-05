@@ -4,27 +4,35 @@
  * The home screen (Kian's rulings of 2026-10-16 and 2026-10-17, rebuilt to his rulings of 2026-11-02, Build 1 of the
  * UX audit): a control centre with nothing to think about.
  *
- * A cleaner: their jobs first (JobsSection), today then tomorrow, each card with Done and Add receipt; then the foot,
- * "Signed in as <name> · Sign out" (item 5). One pinned button, "All properties", opens the full list for a receipt on
- * any unit (item 1); a receipt begun and not sent turns it into "Finish the receipt", with the unit it is for named
- * above it, so nothing typed is lost to a new one. No greeting, no unit list on the home.
+ * At the top (Kian's instruction of 2026-11-05): the NUBNB logo, the person's first name with a small chevron that
+ * opens Sign out, and the two tabs under it — "Jobs | History" for a cleaner, "Add work | My work" for a handyman
+ * (CleanerBar). Nothing at the page's foot: the list starts under the tabs and ends above the pinned bar.
+ *
+ * A cleaner: their jobs (JobsSection), today then tomorrow, each card with Done and Add receipt, or one calm line, "No
+ * jobs right now." One pinned button, "All properties", opens the full list for a receipt on any unit (item 1); it is
+ * the light button (white, a hairline border, dark words), so Done stays the only filled one on the screen. A receipt
+ * begun and not sent turns it into "Finish the receipt", with the unit it is for named above it, so nothing typed is
+ * lost to a new one. No greeting, no unit list on the home.
  *
  * A handyman (item 9): "Add work" pinned, his recent units (up to five; a tap starts work for that unit), "All
- * properties" with search behind one button, and "My work" on the bar. The bar never covers a card: the screen is
- * padded by the bar's measured height (usePinnedHeight).
+ * properties" with search behind one light button. The bar never covers a card: the screen is padded by the bar's
+ * measured height (usePinnedHeight).
  */
 
 import type { ReactNode } from "react";
 import { Camera, List, Plus } from "lucide-react";
 import type { CleanerProperty } from "@/app/lib/cleaners/model";
 import styles from "./cleaner.module.css";
-import { CleanerBar } from "./CleanerBar";
+import { CleanerBar, type BarPerson, type BarTab } from "./CleanerBar";
 import { UnitRow } from "./UnitList";
 import { usePinnedHeight } from "./usePinnedHeight";
 
 interface HomeScreenProps {
-  cleanerName: string | null;
   kind: "receipt" | "work";
+  /** Who is signed in, for the name menu (Sign out). */
+  person: BarPerson;
+  /** The two tabs under the bar: Jobs | History, or Add work | My work. */
+  tabs: readonly BarTab[];
   /** The jobs (a cleaner's); nothing for a handyman. */
   jobs?: ReactNode;
   /** A handyman's recent units, most recent first, already cut to five; a tap starts work for that unit. */
@@ -37,26 +45,16 @@ interface HomeScreenProps {
   onAllProperties?: () => void;
   /** Discard the unsent work (a handyman's form has no Start over). */
   onDiscard?: () => void;
-  onHistory: () => void;
-  onSignOut: () => void;
-  signingOut: boolean;
 }
 
-export function HomeScreen({ cleanerName, kind, jobs, recent, unsent, onAdd, onAllProperties, onDiscard, onHistory, onSignOut, signingOut }: HomeScreenProps) {
+export function HomeScreen({ kind, person, tabs, jobs, recent, unsent, onAdd, onAllProperties, onDiscard }: HomeScreenProps) {
   const [barRef, barHeight] = usePinnedHeight();
-  const name = cleanerName?.trim() || null;
   const label = unsent ? (kind === "receipt" ? "Finish the receipt" : "Finish the work") : kind === "receipt" ? "All properties" : "Add work";
   const icon = unsent ? kind === "receipt" ? <Camera aria-hidden /> : <Plus aria-hidden /> : kind === "receipt" ? <List aria-hidden /> : <Plus aria-hidden />;
   return (
     <>
-      <CleanerBar
-        actions={
-          <button type="button" className={styles.barButton} onClick={onHistory}>
-            {kind === "receipt" ? "History" : "My work"}
-          </button>
-        }
-      />
-      <main className={styles.screen} style={{ paddingBottom: barHeight + 16 }}>
+      <CleanerBar person={person} tabs={tabs} />
+      <main className={`${styles.screen} ${styles.screenUnderTabs}`} style={{ paddingBottom: barHeight + 16 }}>
         {jobs}
         {recent && (
           <section aria-labelledby="recent-heading" className={styles.recent}>
@@ -73,19 +71,13 @@ export function HomeScreen({ cleanerName, kind, jobs, recent, unsent, onAdd, onA
               </ul>
             )}
             {onAllProperties && (
-              <button type="button" className={styles.secondary} onClick={onAllProperties}>
+              <button type="button" className={styles.light} onClick={onAllProperties}>
                 <List aria-hidden />
                 <span>All properties</span>
               </button>
             )}
           </section>
         )}
-        <footer className={styles.foot}>
-          <span className={styles.footWho}>{name ? `Signed in as ${name}` : "Signed in"}</span>
-          <button type="button" className={styles.signOut} onClick={onSignOut} disabled={signingOut}>
-            {signingOut ? "Signing out…" : "Sign out"}
-          </button>
-        </footer>
       </main>
       <div ref={barRef} className={styles.pinnedFixed}>
         <div className={styles.pinnedInner}>
@@ -99,7 +91,8 @@ export function HomeScreen({ cleanerName, kind, jobs, recent, unsent, onAdd, onA
               )}
             </p>
           )}
-          <button type="button" className={styles.primary} onClick={onAdd}>
+          {/* A cleaner's pinned button is the light one, so Done stays the only filled button on the screen; a handyman's Add work stays filled. */}
+          <button type="button" className={kind === "receipt" ? styles.light : styles.primary} onClick={onAdd}>
             {icon}
             <span>{label}</span>
           </button>

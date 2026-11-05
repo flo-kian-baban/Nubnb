@@ -14,10 +14,11 @@
  *   - History (ruling 7; Build 1, item 8): month by month, newest first, the jobs done and the entries sent;
  *   - what a changed booking's card says (Kian's ruling R2 of 2026-10-19): "Cancelled: don't go", "Moved to <day>",
  *     as one grey line (Build 1, item 7);
- *   - the grey words under "Cleaned" (Build 1, item 4): recorded by the office; why Undo is gone. Never an amount.
+ *   - the grey words under "Cleaned" (Build 1, item 4): recorded by the office; why Undo is gone. Never an amount;
+ *   - the first name on the top bar's menu (2026-11-05).
  *
  * Pure and client-safe: no clock read (`today` is the server's Toronto day, from the start call), no storage, no
- * network. tests/cleaner/home.mjs and tests/cleaner/build1.mjs run it with made-up jobs.
+ * network. tests/cleaner/home.mjs, tests/cleaner/build1.mjs and tests/cleaner/header.mjs run it with made-up data.
  */
 
 import { addDays, torontoDay } from '@/app/lib/availability/days';
@@ -257,4 +258,14 @@ export function cleanedWords(job: Pick<CleanerJobView, 'markedAt' | 'markRefusal
   if (!job.canUndo && job.undoBlocked === 'paid') words.push('Can’t undo: already paid');
   if (!job.canUndo && job.undoBlocked === 'statement') words.push('Can’t undo: on a statement');
   return words;
+}
+
+/**
+ * The name on the top bar (Kian's instruction of 2026-11-05: "the person's first name with a small chevron on the
+ * right"): the first word of the name the office gave them, as typed. Null when there is none; the bar then says
+ * "Account".
+ */
+export function firstNameOf(name: string | null | undefined): string | null {
+  const first = (name ?? '').trim().split(/\s+/)[0] ?? '';
+  return first === '' ? null : first;
 }

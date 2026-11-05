@@ -7,10 +7,11 @@
  *   home → (which property) → work → sent
  *
  * The home screen: "Add work" pinned, his recent units (up to five; a tap starts work for that unit), "All properties"
- * with search behind one button, "My work" on the bar, and Sign out at the foot. One list to pick a unit: the property
- * screen, recent first. A unit tapped on the home skips it. The chosen property sits in bold above Send, with Change.
- * Work begun and not sent is opened again instead of a new piece; the home names it and offers Discard, asking once.
- * "My work" lists his entries month by month, each with its description, price and status.
+ * with search behind one button. The top bar carries his first name, which opens Sign out, and two tabs under it, "Add
+ * work | My work" (Kian's instruction of 2026-11-05). One list to pick a unit: the property screen, recent first. A
+ * unit tapped on the home skips it. The chosen property sits in bold above Send, with Change. Work begun and not sent
+ * is opened again instead of a new piece; the home names it and offers Discard, asking once. "My work", the second
+ * tab, lists his entries month by month, each with its description, price and status.
  *
  * The same shape as the cleaner's flow, without the photo, the items and
  * the reading: the draft lives on the phone (work-draft.ts) until the
@@ -30,6 +31,7 @@ import { PropertyScreen } from "./PropertyScreen";
 import { WorkScreen } from "./WorkScreen";
 import { DoneScreen, type SentReceipt } from "./DoneScreen";
 import { HistoryScreen } from "./HistoryScreen";
+import type { BarPerson, BarTab } from "./CleanerBar";
 import styles from "./cleaner.module.css";
 
 interface HandymanAppProps {
@@ -274,13 +276,31 @@ export function HandymanApp({ start, onSignedOut }: HandymanAppProps) {
   };
 
   const propertyName = draft.propertyId === null ? null : (start.properties.find((p) => p.id === draft.propertyId)?.name ?? draft.propertyName);
+  // The top bar's name menu and the two tabs under it (2026-11-05). The home is Add work; My work is a view over it.
+  const person: BarPerson = { name: start.cleaner.name, onSignOut: () => void signOutNow(), signingOut };
+  const tabsOn = (on: "home" | "history"): BarTab[] => [
+    {
+      label: "Add work",
+      current: on === "home",
+      onSelect: () => {
+        if (on === "history") closeView();
+      },
+    },
+    {
+      label: "My work",
+      current: on === "history",
+      onSelect: () => {
+        if (on === "home") openView("history");
+      },
+    },
+  ];
   const recentUnits = recent.map((pid) => start.properties.find((p) => p.id === pid)).filter((p): p is CleanerProperty => !!p).slice(0, RECENT_SHOWN);
 
   let screen;
   if (view === "picker") {
     screen = <PropertyScreen properties={start.properties} recentPropertyIds={recent} selectedId={draft.propertyId} onChoose={chooseProperty} onBack={closeView} />;
   } else if (view === "history") {
-    screen = <HistoryScreen kind="work" properties={start.properties} jobs={NO_JOBS} today={start.today} busyId={null} messages={NO_MESSAGES} onUndo={() => {}} onBack={closeView} onSignedOut={historySignedOut} />;
+    screen = <HistoryScreen kind="work" properties={start.properties} jobs={NO_JOBS} today={start.today} busyId={null} messages={NO_MESSAGES} onUndo={() => {}} person={person} tabs={tabsOn("history")} onSignedOut={historySignedOut} />;
   } else if (sent) {
     screen = (
       <DoneScreen
@@ -298,16 +318,14 @@ export function HandymanApp({ start, onSignedOut }: HandymanAppProps) {
   } else {
     screen = (
       <HomeScreen
-        cleanerName={start.cleaner.name}
         kind="work"
+        person={person}
+        tabs={tabsOn("home")}
         unsent={begun(draft) ? { propertyName } : null}
         recent={{ properties: recentUnits, onUnit: startWorkFor }}
         onAdd={addWork}
         onAllProperties={() => openView("picker")}
         onDiscard={begun(draft) ? () => setAskingDiscard(true) : undefined}
-        onHistory={() => openView("history")}
-        onSignOut={() => void signOutNow()}
-        signingOut={signingOut}
       />
     );
   }

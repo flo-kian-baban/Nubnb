@@ -8,12 +8,13 @@
  *
  * Home: the cleaner's jobs for today and tomorrow, each card with Done and Add receipt (HomeScreen, JobsSection);
  * Done opens the app's own pop-up with a note for the office; one pinned button, "All properties", opens the full
- * list (PropertyScreen) for a receipt on any unit; Sign out at the foot. Adding a receipt starts with the camera
+ * list (PropertyScreen) for a receipt on any unit. The top bar carries the cleaner's first name, which opens Sign out
+ * (Kian's instruction of 2026-11-05), and two tabs under it, "Jobs | History". Adding a receipt starts with the camera
  * (CameraScreen). The photo is read while the cleaner goes on to the one receipt screen: the lines, the tax, the
  * printed total against the lines, and Send pinned (ReceiptScreen). The property starts on the job marked cleaned that
  * day, else the soonest job today, else none (receiptProperty, app/lib/cleaner-home.ts); it is shown in bold above
- * Send, with Change. History (HistoryScreen), on the home screen's bar, lists the cleanings and the receipts month by
- * month. No pay anywhere: none is sent to the app.
+ * Send, with Change. History (HistoryScreen), the second tab, lists the cleanings and the receipts month by month. No
+ * pay anywhere: none is sent to the app.
  *
  * ── Sessions ──
  * A session ends when the cleaner signs out, when their code changes, or when the account is deactivated — never by
@@ -29,7 +30,9 @@
  * after the code if their session ended. A receipt begun and not sent stays
  * on the phone when the cleaner goes home; the home button then finishes it
  * rather than starting another. The camera, the property list and History
- * are views over the screen beneath; they are never kept.
+ * are views over the screen beneath; they are never kept. The History tab
+ * opens History as such a view and the Jobs tab closes it, so the phone's
+ * Back from History is the home, as it was.
  *
  * ── Back ──
  * Each screen opened adds a history entry, so the phone's Back goes to the
@@ -105,7 +108,7 @@ import { CameraScreen } from "./CameraScreen";
 import { ReceiptScreen, type ReadingStatus } from "./ReceiptScreen";
 import { DoneScreen, type SentReceipt } from "./DoneScreen";
 import { HistoryScreen } from "./HistoryScreen";
-import { CleanerBar } from "./CleanerBar";
+import { CleanerBar, type BarPerson, type BarTab } from "./CleanerBar";
 import { HandymanApp } from "./HandymanApp";
 import { JobsSection } from "./JobsSection";
 import styles from "./cleaner.module.css";
@@ -451,7 +454,7 @@ export function CleanerApp() {
     return { kind: "ok" };
   };
 
-  /** Sign out (Build 1, item 5): the cookie comes off this phone; the draft stays on it for the next sign-in. */
+  /** Sign out (Build 1, item 5; from the name menu since 2026-11-05, asking once): the cookie comes off this phone; the draft stays on it for the next sign-in. */
   const signOutNow = async () => {
     if (signingOut) return;
     setSigningOut(true);
@@ -843,6 +846,24 @@ export function CleanerApp() {
   const propertyName = current.propertyId === null ? null : (start.properties.find((p) => p.id === current.propertyId)?.name ?? current.propertyName);
   const property = current.propertyId === null ? null : { name: propertyName };
   const photos = new Map(start.properties.map((p) => [p.id, p.photo]));
+  // The top bar's name menu and the two tabs under it (2026-11-05). The home is Jobs; History is a view over it.
+  const person: BarPerson = { name: start.cleaner.name, onSignOut: () => void signOutNow(), signingOut };
+  const tabsOn = (on: "jobs" | "history"): BarTab[] => [
+    {
+      label: "Jobs",
+      current: on === "jobs",
+      onSelect: () => {
+        if (on === "history") closeView();
+      },
+    },
+    {
+      label: "History",
+      current: on === "history",
+      onSelect: () => {
+        if (on === "jobs") openView("history");
+      },
+    },
+  ];
 
   let screen;
   if (view === "camera") {
@@ -850,7 +871,7 @@ export function CleanerApp() {
   } else if (view === "picker") {
     screen = <PropertyScreen properties={start.properties} recentPropertyIds={start.recentPropertyIds} selectedId={pickerFor === "start" ? null : current.propertyId} onChoose={chooseProperty} onBack={closeView} />;
   } else if (view === "history") {
-    screen = <HistoryScreen kind="receipt" properties={start.properties} jobs={allJobs} today={start.today} busyId={jobBusy} messages={jobMessages} onUndo={(job) => actOnJob(job, "undo")} onBack={closeView} onSignedOut={historySignedOut} />;
+    screen = <HistoryScreen kind="receipt" properties={start.properties} jobs={allJobs} today={start.today} busyId={jobBusy} messages={jobMessages} onUndo={(job) => actOnJob(job, "undo")} person={person} tabs={tabsOn("history")} onSignedOut={historySignedOut} />;
   } else if (sent) {
     screen = (
       <DoneScreen
@@ -893,13 +914,11 @@ export function CleanerApp() {
   } else {
     screen = (
       <HomeScreen
-        cleanerName={start.cleaner.name}
         kind="receipt"
+        person={person}
+        tabs={tabsOn("jobs")}
         unsent={isEmptyDraft(current) ? null : { propertyName }}
         onAdd={openAllProperties}
-        onHistory={() => openView("history")}
-        onSignOut={() => void signOutNow()}
-        signingOut={signingOut}
         jobs={
           <JobsSection
             jobs={allJobs}
