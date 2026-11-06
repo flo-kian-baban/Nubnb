@@ -1116,6 +1116,11 @@ Kian's review of 2026-11-01 (after the report):
   row: "no write; admins set them." "Mid = short everywhere."** The addresses in his words are left out of this file:
   the repository is public.
 
+## Code screen — Kian's ruling of 2026-11-06
+
+- **"When the code screen opens, the numbers must be there to tap, on every phone."** The cleaner and handyman apps'
+  code screen has its own on-screen number pad. **The phone's own keyboard never opens on this screen.**
+
 ## Security rules (not Kian's rulings; the developer's, 2026-10-19)
 
 The repository is public. These hold until Kian changes them.

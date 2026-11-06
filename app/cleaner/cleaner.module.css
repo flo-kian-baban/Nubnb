@@ -309,22 +309,22 @@
 }
 
 /* ── Code ── */
+/* The line, the boxes and the number pad, centred in the visible area under the bar (its top inset and hairline taken
+   off, so nothing scrolls); no room kept for a phone's keyboard, which never opens here (2026-11-06). */
 .codeScreen {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 20px;
-  min-height: calc(100vh - var(--bar-h));
-  min-height: calc(100dvh - var(--bar-h));
-  padding: 24px 16px 22vh;
+  gap: 16px;
+  min-height: calc(100vh - var(--bar-h) - 1px - env(safe-area-inset-top, 0px));
+  min-height: calc(100dvh - var(--bar-h) - 1px - env(safe-area-inset-top, 0px));
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px));
 }
 
 .codeBoxes {
-  position: relative;
   display: flex;
   gap: 14px;
-  cursor: text;
 }
 .codeBoxesWrong {
   animation: shake 0.4s ease-in-out;
@@ -335,12 +335,12 @@
   align-items: center;
   justify-content: center;
   width: 64px;
-  height: 80px;
+  height: 72px;
   border: 3px solid var(--field-border);
   border-radius: 14px;
   background: var(--surface);
   box-shadow: var(--shadow-sm);
-  font-size: 40px;
+  font-size: 36px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
@@ -352,20 +352,11 @@
   opacity: 0.5;
 }
 
-/* One real input over the four boxes: it takes the taps and the typing. */
-.codeInput {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  border: 0;
-  background: transparent;
-  color: transparent;
-  caret-color: transparent;
-  font: inherit;
-  font-size: 16px; /* 16px or more, or an iPhone zooms in on focus */
-  cursor: text;
+/* The hidden input has the focus (a keyboard, a screen reader): the boxes show where it is. */
+.codeBoxesFocused {
+  outline: 3px solid var(--focus);
+  outline-offset: 6px;
+  border-radius: 18px;
 }
 
 .codeMessage {
@@ -374,6 +365,28 @@
   font-size: 18px;
   font-weight: 700;
   text-align: center;
+}
+
+/* The number pad under the boxes (Kian's ruling of 2026-11-06: when the code screen opens, the numbers must be there to
+   tap, on every phone): three across, 1–9, then a blank, 0 and Delete, in the light button's look, 64 px tall, large
+   digits. A key tapped twice quickly is two digits, never a zoom. */
+.codePad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  width: 100%;
+  max-width: 336px;
+}
+.codeKey {
+  min-height: 64px;
+  padding: 0;
+  font-size: 30px;
+  font-variant-numeric: tabular-nums;
+  touch-action: manipulation;
+}
+.codeKey svg {
+  width: 30px;
+  height: 30px;
 }
 
 @keyframes shake {
@@ -1020,11 +1033,39 @@
 @media (max-width: 359px) {
   .codeBox {
     width: 56px;
-    height: 72px;
-    font-size: 34px;
+    height: 64px;
+    font-size: 32px;
   }
   .itemRow {
     grid-template-columns: 1fr;
+  }
+}
+
+/* A short visible area (an iPhone with Safari's bars showing, a small phone): the boxes and the gaps give way, so the
+   whole pad still shows, with the two lines a wrong code can bring; the keys keep their 64 px. */
+@media (max-height: 700px) {
+  .codeScreen {
+    gap: 10px;
+    padding-top: 8px;
+  }
+  .codeBox {
+    height: 60px;
+    font-size: 32px;
+  }
+}
+@media (max-height: 600px) {
+  .codeScreen {
+    gap: 8px;
+    padding-top: 4px;
+  }
+  .codeScreen .codeTitle {
+    margin-bottom: 0;
+  }
+  .codeBox {
+    height: 56px;
+  }
+  .codePad {
+    gap: 8px;
   }
 }
 

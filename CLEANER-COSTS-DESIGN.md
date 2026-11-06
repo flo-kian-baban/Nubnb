@@ -6227,6 +6227,8 @@ review once verified ("Cleaner app: Done pop-up opens without the keyboard; no i
    - **The code screen** (both apps' door) focused the code input as it opened: an Android keyboard came up at once
      (an iPhone waited for a tap). Now its line ("Enter your 4-digit code", or "Signed out. Enter your code.") takes
      the focus, and the keyboard comes up when the boxes are tapped. The first box no longer lights up until then.
+     Replaced the same day by the number pad (72.5): the boxes take no tap, and no phone keyboard opens on this
+     screen.
    - **The handyman's work form** focused "What you did" on arrival. Now its title, "Work", takes the focus.
    - **The receipt's Add item** focused the new item's name. Now the new item scrolls into view, as before, and its
      name waits for a tap.
@@ -6252,7 +6254,7 @@ review once verified ("Cleaner app: Done pop-up opens without the keyboard; no i
 - **A Send stopped by a missing field focuses the words saying what is missing**, not the field; the field is a tap
   away.
 - **The code screen's first box no longer lights up as it opens**: it lit up because the input had the focus. It lights
-  up when tapped, with the keyboard.
+  up when tapped, with the keyboard. (72.5: the box the next digit goes in is lit again, since the pad takes it.)
 - **Kept:** a picked suggestion moves on to the amount; a wrong code keeps the input's focus.
 
 ### 72.3 Tests
@@ -6290,3 +6292,67 @@ brings a phone's keyboard up. Screenshots at 390 and 360 (2×) and in the iPhone
   both homes: no focus, in both builds.
 - The Done pop-up, the code screen and the work form at 390 and 360: no target under 44 px, no text under 16 px but the
   14 px wordmark, none below AA, in both builds; the Done pop-up with no sideways scroll.
+
+### 72.5 The code screen's number pad — Kian's ruling of 2026-11-06, later the same day
+
+Kian's dispatch: "Kian's ruling: when the code screen opens, the numbers must be there to tap, on every phone. iPhone
+Safari never opens its keyboard on page load, so focusing the box is not enough." Five items; to be committed and
+pushed without another review once verified ("Code screen: on-screen number pad"). The ruling is in CLAUDE.md ("Code
+screen — Kian's ruling of 2026-11-06").
+
+What changed:
+
+1. **A number pad under the four boxes:** three across, 1–9, then a blank, 0 and Delete (⌫, named "Delete" for screen
+   readers), in the light button's look (white, a 1 px border in the fields' grey, dark digits), 64 px tall, 30 px
+   digits, 103–107 px wide at 360–390. A key tapped twice quickly is two digits, never a zoom (`touch-action:
+   manipulation`).
+2. **Each tap fills the next box**, and the box the next digit goes in is lit; the fourth digit sends the code, as
+   before; Delete takes the last digit off, and does nothing on empty boxes.
+3. **The phone's own keyboard never opens here.** The one real input is visually hidden, no tap reaches it (the boxes
+   are no longer its label), and it asks for no keyboard (`inputmode="none"`). It stays for screen readers and a
+   keyboard: Tab reaches it, the boxes show the focus with a ring, and what is typed or pasted into it goes the way the
+   pad's digits go.
+4. **A wrong code:** "Code not recognised"; the boxes clear; the pad stays. The lock's words are unchanged;
+   while sign-in is locked, and while a code is checked, the keys are disabled.
+5. **On opening and after Sign out:** the same screen. No other screen changed; every pop-up still opens on its title.
+
+The layout: the code screen no longer keeps the bottom fifth of the screen (22vh) free for a phone keyboard. It fills
+the visible area under the bar, with the bar's top inset and hairline taken off (before, the page scrolled 48 px in the
+iPhone view and 1 px elsewhere) and the bottom inset kept clear. The boxes are 72 px tall (were 80). On a short visible
+area (700 px or less: an iPhone with Safari's bars) the boxes take 60 px and the gaps 10 px, and at 600 px or less
+56 px and 8 px, so the whole pad shows even with the two lines a wrong code can bring; the keys keep their 64 px.
+
+The developer's choices (none changes money, a statement or what an owner receives):
+
+- **The keys are the app's light button**; Delete is an icon key (⌫), as asked, named "Delete".
+- **The box the next digit goes in is lit whenever the pad takes a digit** (before, only while the input had the
+  focus).
+- **The hidden input is no longer under the boxes:** a tap on the boxes does nothing, so neither a phone keyboard nor
+  an iPhone's form bar can come up from them.
+- **The compact sizes for a short visible area** (above).
+- **The keys are disabled while a code is checked and while sign-in is locked.**
+
+Verified (2026-11-06; HEAD `5a20e4e` before, and after; local builds served from memory, the server's clock Wed 22
+Nov 2028, 10:00 Toronto; no production read; screenshots in `~/Backups/Nubnb/code-pad/`, 4 before and 14 after):
+
+- **As it opens**, at 390, at 360, in the iPhone view (390×664, insets of 47 / 34 px emulated) and on a small phone with
+  the browser's bars (375×548): the four boxes above the pad, the whole pad visible, nothing to scroll; the keys 64 px
+  tall, 103–107 px wide, the digits 30 px; the focus on the line. Before: no pad, the input lying over the boxes and
+  asking for the phone's number keyboard (`inputmode="numeric"`), and the page scrolling 48 px in the iPhone view.
+- **The warning and the lock in the iPhone view**, played on the server: after the fourth wrong code, "Code not
+  recognised" and "One more wrong code locks sign-in from here for 15 minutes.", the pad ending at 606, above the
+  bottom inset at 630, nothing to scroll; after the fifth, "Too many wrong codes" and "Try again at 10:17.", all 11
+  keys and the input disabled, a tap changing nothing, the pad ending at 595. On the small phone, with the warning's
+  words put into the page for the measure, the pad ends at 530 of 548, nothing to scroll.
+- **Signing in by pad taps alone**, at 390: a tap on the boxes gives the focus to nothing (it leaves the line); two
+  digits fill two boxes and light the third; Delete takes one off, and once more on empty boxes does nothing; a wrong
+  code reads "Code not recognised", the boxes cleared, every key enabled; Ana's code opens her jobs. Every element
+  that took the focus from the code screen to her home was a pad key (11 focus moves: the digits and Delete). The Done
+  and Sign out pop-ups opened on their titles. Signed out, the screen read "Signed out. Enter your code." with the
+  pad, the focus on the line; Hal's code by pad taps opened his Add work home, the same door for a handyman (8 focus
+  moves, all pad keys).
+- **The hidden input from a keyboard:** one Tab from the line reaches it ("Your code", `inputmode="none"`); the boxes
+  show the focus ring; a typed digit fills a box; Backspace empties it; Yara's code typed into it signs her in.
+- At every size and in every state measured: no target under 44 px but the hidden input itself (1×1, out of reach of a
+  tap), no text under 16 px but the 14 px wordmark, none below AA, no sideways scroll.
+- The suite's 36 checks are identical to HEAD's.
