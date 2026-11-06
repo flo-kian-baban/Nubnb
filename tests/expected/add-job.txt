@@ -1,0 +1,59 @@
+═══ 1. The amount fills from the property's cleaning price; no Tier control; the tier stored as before (item 2) ═══
+  P picked: tier short, field "63.40", beside it "Mid $69.90" "Long $98.70" · words "Short-term cleaning price"
+  a property with short and long prices only: field "51.30", beside it "Long $84.20"
+  no price, an amount typed there before: field "", placeholder "73.10", words "Last typed for short-term: $73.10"
+  no price, nothing typed: field "", placeholder "", beside it 0 prices · words "No cleaning price and nothing typed for this property yet: type the amount."
+   ok   a property picked: the amount holds its short-term cleaning price, "Mid $Y" and "Long $Z" beside it
+   ok   only the prices the property has are offered; after a tap the others stay one tap away
+   ok   no price: the field is empty, "Last typed" a grey placeholder, never a value (Build 2)
+  the short price left as it is: stored tier short, amount on the job none · words "Short-term cleaning price"
+  Mid tapped: stored tier mid, amount on the job none · words "Mid-term cleaning price"
+  the amount changed: stored tier short, amount on the job $55.50 · words "Set on the job"
+  the field emptied: stored tier short, amount on the job none · words "Short-term cleaning price: $63.40"
+   ok   a price left as it is, or tapped, is stored as that tier's price; a changed amount is the job's own (ruling B)
+  added (short price kept): added · stored tier short, amount none · history added "Extra visit · short-term job", assigned
+  added (Mid tapped): added · stored tier mid, amount none · history added "Deep clean · mid-term job", assigned
+  added (amount changed): added · stored tier short, amount $55.50 · history added "Extra visit · short-term job", amount-set, assigned
+  added (no price, left empty): added · stored tier short, amount none · history added "Extra visit · short-term job", assigned
+  Ana marks each: short $63.40 (short) · mid $69.90 (mid) · typed $55.50 (job) · none none (needs an amount) · words "short-term cleaning price", "mid-term cleaning price", "set on the job", "needs an amount"
+   ok   the job reads as the tier it came from, as with the Tier control and no amount: history "· mid-term job", no amount on it
+   ok   its cleaning counts the amount the field showed, from the source it came from (cleaning price, set on the job, or none)
+   ok   a changed amount is set on the job, in its history, as before
+  the form's read: P {"prices":{"shortTermCents":6340,"midTermCents":6990,"longTermCents":9870},"lastTyped":{"short":null,"mid":null,"long":null}} (1 read) · L lastTyped {"short":null,"mid":null,"long":null} · Q {"prices":null,"lastTyped":{"short":7310,"mid":null,"long":null}}
+   ok   the form reads the prices (one read when all three are set) and, where none, what was last typed there
+  the route's schema, the page's body: {"propertyId":"TESTPROPaddjobaaaa01","checkout":"2028-11-20","cleanerId":"TESTCLEANERaddjobana","tier":"mid","amount":6990,"label":"Deep clean","alreadyCleaned":true} · without the tick: alreadyCleaned false
+   ok   the route takes the body the page builds; Already cleaned is off unless sent
+
+═══ 2. "Already cleaned": the job added and recorded cleaned in one step, exactly as Record as cleaned (item 4) ═══
+  one step (2028-11-17, Ana, Mid, "Deep clean"): added · made 1 job, 1 cleaning · recorded [{"amount":"$69.90"}] on the 2028-11 statement
+  Add then Record as cleaned, the same job: added, then recorded · $69.90 on the 2028-11 statement
+  the job, one step against two: identical but for IDs and instants · history added (Deep clean · mid-term job), assigned, marked (recorded by the office)
+  the cleaning, one step against two: identical but for IDs and instants · $69.90 mid, logged "recorded by the office" by Test admin, day 2028-11-17, job linked true
+   ok   a past-day job with Already cleaned makes one job and one cleaning
+   ok   the same job, cleaning, amount, history and statement month as Add then Record as cleaned
+   ok   counted at the chosen amount, the mark the office's, on the job
+  today with the tick: added, recorded $63.40 · a past day without it: added, recorded no, marked false
+   ok   today counts as a day that has come; without the tick the job is open, as before
+  refused: nobody on it needs-cleaner ("Already cleaned needs the cleaner who cleaned it.") · tomorrow too-early (opens 2028-11-21) · a handyman not-assignable (not-a-cleaner) · thirteen months back bad-day ("A cleaning more than 12 months back cannot be logged.") · written 0 jobs, 0 cleanings
+   ok   Already cleaned with no cleaner: refused, in words
+   ok   a day not come, a handyman, a day a cleaning cannot be logged for: refused; nothing written, neither job nor cleaning
+   ok   the tick is offered for today or earlier only
+
+═══ 3. Past days back to November 1, 2026, and no further (item 6) ═══
+  on 6 Nov 2026: Oct 31 before-floor ("Statements start in November 2026") · Nov 1 added · Nov 1, already cleaned added ($63.40 on the 2026-11 statement) · a year back before-floor
+  the words: ["Statements start in November 2026",null,"Pick the day.","Statements start in November 2026"] · first day 2026-11-01 · the calendar reaches 2027-11-07
+   ok   a day before November 1, 2026 is refused: "Statements start in November 2026"
+   ok   November 1, 2026 itself is allowed, recorded cleaned too, on the November statement
+   ok   a day not written as one is refused; the calendar looks a year ahead (ruling C: any date)
+
+═══ 4. The property search (any part of the name, recent first) and the quick labels ═══
+  nothing typed, u3 recent: recent [u3] rest [u1,u2,u4] · "bay": recent [] rest [u3] · "cote": recent [] rest [u2] · "  LOFT ": recent [] rest [u1] · "unit b": recent [] rest [u1] · "zzz": recent [] rest []
+   ok   every unit when nothing is typed, the recent first, the rest by name
+   ok   any part of the address or the public title, accents, case and spaces aside
+  recent: this browser's picks u2, u9, then the jobs added by hand newest first: [u2, u9, u1, u3] · seven picks keep 6
+   ok   recent: this browser's picks, then the properties of jobs added by hand, newest first, at most six
+  the quick labels: Turnover, Deep clean, Extra visit, Move-out, Other · default "Extra visit" · Other typed "Windows" → "Windows" · Other left empty → null · Move-out → "Move-out"
+   ok   Turnover, Deep clean, Extra visit (the default), Move-out, Other with its own words
+   ok   each quick label is stored on the job added and reads back
+
+every check passed

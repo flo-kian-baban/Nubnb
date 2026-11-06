@@ -67,6 +67,7 @@ import { CLEANERS_COLLECTION, fieldText, roleOf, type Actor, type Refusal } from
 import { CLEANINGS_COLLECTION, CLEANING_SCHEMA_VERSION, readCleaning, type Cleaning, type CleaningEvent } from '@/app/lib/cleanings/model';
 import { TIER_WORDS, markAmount, type AmountSource, type PresetKind } from '@/app/lib/cleanings/prices';
 import { pricesInTx } from './server-cleaning-prices';
+import { addedJobAmount, addedJobDayProblem, canRecordOnAdd } from '@/app/lib/schedule/add-job';
 import { readCurrent } from '@/app/lib/availability/store';
 import { torontoDay } from '@/app/lib/availability/days';
 import { MONTHLY_REPORTS_COLLECTION, monthOfDay } from '@/app/lib/reports/model';
@@ -687,25 +688,46 @@ export const RECORD_REFUSALS: Record<'not-found' | 'changed-since' | 'unreadable
 
 export interface AddJobInput {
   propertyId: string;
-  /** The day it is cleaned: any day. */
+  /** The day it is cleaned: from the statements floor (November 1, 2026) on, any day after. */
   checkout: string;
   /** An active cleaner to put on it, or nobody yet. */
   cleanerId: string | null;
+  /** The tier the amount's price came from (the UX pass of 2026-11-06: the price chosen, short-term unless another was). */
   tier: PresetKind;
-  /** The job's own amount (ruling B), or none. */
+  /**
+   * The amount the admin's field held, or none (empty). Exactly the tier's cleaning price is stored as that price (no
+   * amount on the job: `addedJobAmount`); anything else is the job's own amount (ruling B).
+   */
   amountCents: number | null;
   /** Its label (Build 2): "Deep clean", "Extra visit"; none typed reads DEFAULT_JOB_LABEL. */
   label?: string | null;
+  /** "Already cleaned" (2026-11-06): recorded cleaned for its cleaner as it is added, exactly as Record as cleaned would. */
+  alreadyCleaned?: boolean;
+}
+
+/** What "Already cleaned" made: the cleaning, as Record as cleaned answers it. */
+export interface RecordedOnAdd {
+  cleanings: { cleanerId: string; cleaningId: string; amountCents: number | null }[];
+  statementMonth: string;
 }
 
 export type AddJobResult =
-  | { kind: 'added'; job: StoredJob; propertyName: string | null }
+  | { kind: 'added'; job: StoredJob; propertyName: string | null; recorded: RecordedOnAdd | null }
   | { kind: 'no-such-property' }
   | { kind: 'not-assignable'; name: string | null; why: 'missing' | 'not-a-cleaner' | 'inactive' }
+  /** Before the statements floor: "Statements start in November 2026". */
+  | { kind: 'before-floor'; problem: string }
+  /** "Already cleaned" with nobody on the job. */
+  | { kind: 'needs-cleaner' }
+  /** "Already cleaned" on a day that has not come. */
+  | { kind: 'too-early'; opensOn: string }
+  /** "Already cleaned" on a day a cleaning cannot be logged for (cleaningDayProblem: more than twelve months back). */
+  | { kind: 'bad-day'; problem: string }
   | { kind: 'failed' };
 
-export const ADD_JOB_REFUSALS: Record<'no-such-property' | 'failed', Refusal> = {
+export const ADD_JOB_REFUSALS: Record<'no-such-property' | 'needs-cleaner' | 'failed', Refusal> = {
   'no-such-property': { status: 404, code: 'PROPERTY_NOT_FOUND', message: 'That property does not exist.', hint: 'Nothing was added.' },
+  'needs-cleaner': { status: 422, code: 'JOB_NEEDS_CLEANER', message: 'Already cleaned needs the cleaner who cleaned it.', hint: 'Nothing was added. Pick the cleaner, or untick Already cleaned.' },
   failed: { status: 502, code: 'JOB_SAVE_FAILED', message: 'Could not add the job.', hint: 'It may or may not have been added. Reload the Schedule to see.' },
 };
 
@@ -723,17 +745,35 @@ function jobSuffix(): string {
  * label ("Deep clean"), and the job's own amount when the admin typed one (ruling B). The job's ID is the turnover's
  * with its own suffix (addedJobIdOf), so it never collides with the calendar's job or another added one; it reaches
  * the cleaner's app like any job and is marked the same way; the calendar never changes or settles it (origin
- * "admin"). One transaction: the property and the cleaner read, the job created.
+ * "admin"). One transaction: the property, the cleaner and the property's cleaning prices read, the job created.
+ *
+ * The UX pass (Kian's instruction of 2026-11-06):
+ *   - A day before the statements floor (November 1, 2026) is refused: "Statements start in November 2026".
+ *   - The amount the admin left in the field is stored by `addedJobAmount`, with the prices read here: exactly the
+ *     tier's cleaning price is stored as that price (no amount on the job), anything else as the job's own amount.
+ *   - "Already cleaned" (`alreadyCleaned`) records it cleaned for its cleaner in the same transaction, exactly as Record
+ *     as cleaned does: the mark's rules (a cleaner on it, its day come, `cleaningDayProblem`), the same `markOf` (the
+ *     cleaning, its amount, the "marked" event naming the admin), and the statement month it goes on. Either both the
+ *     job and its cleaning are written, or neither. The route adds Record as cleaned's line to the activity log.
  */
 export async function addJob(actor: Actor, input: AddJobInput, now: Date = new Date()): Promise<AddJobResult> {
   const db = getAdminDb();
   if (!isDocumentId(input.propertyId)) return { kind: 'no-such-property' };
+  const dayProblem = addedJobDayProblem(input.checkout);
+  if (dayProblem) return { kind: 'before-floor', problem: dayProblem };
+  const recordNow = input.alreadyCleaned === true;
+  if (recordNow) {
+    if (input.cleanerId === null) return { kind: 'needs-cleaner' };
+    if (!canRecordOnAdd(input.checkout, torontoDay(now))) return { kind: 'too-early', opensOn: input.checkout };
+    const problem = cleaningDayProblem(input.checkout, now);
+    if (problem) return { kind: 'bad-day', problem };
+  }
   const id = addedJobIdOf(input.propertyId, input.checkout, jobSuffix());
   const ref = db.collection(CLEANING_JOBS_COLLECTION).doc(id);
   const label = (input.label ?? '').trim() === '' ? DEFAULT_JOB_LABEL : (input.label as string).trim();
   try {
     return await db.runTransaction(async (tx): Promise<AddJobResult> => {
-      const [property] = await tx.getAll(db.collection('properties').doc(input.propertyId), { fieldMask: ['name'] });
+      const [[property], prices] = await Promise.all([tx.getAll(db.collection('properties').doc(input.propertyId), { fieldMask: ['name'] }), pricesInTx(tx, input.propertyId)]);
       if (!property.exists) return { kind: 'no-such-property' };
       let cleaner: { id: string; name: string | null } | null = null;
       if (input.cleanerId !== null) {
@@ -744,10 +784,13 @@ export async function addJob(actor: Actor, input: AddJobInput, now: Date = new D
         if (account.get('status') !== 'active') return { kind: 'not-assignable', name, why: 'inactive' };
         cleaner = { id: account.id, name };
       }
+      // Record as cleaned's last read, before any write: the statement the cleaning goes on.
+      const statementMonth = recordNow ? await statementMonthOf(input.propertyId, monthOfDay(input.checkout), tx) : null;
       const at = now.toISOString();
       const propertyName = fieldText(property.get('name'));
-      const history = [jobEvent(at, 'added', actor, { reason: `${label} · ${TIER_WORDS[input.tier]} job`, after: { start: null, end: input.checkout } })];
-      if (input.amountCents !== null) history.push(jobEvent(at, 'amount-set', actor, { amountCents: input.amountCents }));
+      const { tier, amountCents } = addedJobAmount(prices, input.tier, input.amountCents);
+      const history = [jobEvent(at, 'added', actor, { reason: `${label} · ${TIER_WORDS[tier]} job`, after: { start: null, end: input.checkout } })];
+      if (amountCents !== null) history.push(jobEvent(at, 'amount-set', actor, { amountCents }));
       if (cleaner) history.push(jobEvent(at, 'assigned', actor, { cleanerId: cleaner.id, cleanerName: cleaner.name }));
       const job: CleaningJob = {
         schemaVersion: JOB_SCHEMA_VERSION,
@@ -757,8 +800,8 @@ export async function addJob(actor: Actor, input: AddJobInput, now: Date = new D
         reservation: null,
         calendarKey: '',
         origin: 'admin',
-        tier: input.tier,
-        amountCents: input.amountCents,
+        tier,
+        amountCents,
         label,
         nextCheckIn: null,
         status: 'open',
@@ -768,8 +811,19 @@ export async function addJob(actor: Actor, input: AddJobInput, now: Date = new D
         createdAt: at,
         history,
       };
-      tx.create(ref, job);
-      return { kind: 'added', job: { id, ...job }, propertyName };
+      if (!recordNow || !cleaner || statementMonth === null) {
+        tx.create(ref, job);
+        return { kind: 'added', job: { id, ...job }, propertyName, recorded: null };
+      }
+      // "Already cleaned": the cleaning Record as cleaned would make, through the same markOf, the admin as its actor.
+      const refusal = recordRefusal(job, cleaner.id, torontoDay(now));
+      if (refusal === 'too-early') return { kind: 'too-early', opensOn: input.checkout };
+      if (refusal !== null) return { kind: 'failed' };
+      const mark = markOf(db, { id, ...job }, cleaner.id, cleaner.name, actor, prices, propertyName, at, {});
+      const marked: CleaningJob = { ...job, assignments: { ...job.assignments, [cleaner.id]: mark.assignment }, history: [...job.history, mark.event] };
+      tx.create(ref, marked);
+      tx.create(mark.ref, mark.stored);
+      return { kind: 'added', job: { id, ...marked }, propertyName, recorded: { cleanings: [{ cleanerId: cleaner.id, cleaningId: mark.ref.id, amountCents: mark.stored.amountCents }], statementMonth } };
     });
   } catch (err) {
     console.error(`[jobs] adding ${id} failed: grpc code ${grpcCode(err)}`);

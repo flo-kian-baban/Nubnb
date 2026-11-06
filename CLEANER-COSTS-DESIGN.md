@@ -6356,3 +6356,104 @@ Nov 2028, 10:00 Toronto; no production read; screenshots in `~/Backups/Nubnb/cod
 - At every size and in every state measured: no target under 44 px but the hidden input itself (1×1, out of reach of a
   tap), no text under 16 px but the 14 px wordmark, none below AA, no sideways scroll.
 - The suite's 36 checks are identical to HEAD's.
+
+## 73. Add a job, the UX pass: property search, price from the property, quick labels, add and record as cleaned — Kian's instruction of 2026-11-06
+
+Kian used "Add a job" to record a Nov 1 cleaning at a property with no calendar and found it slow and unclear. Seven
+items; to be committed and pushed without another review once verified ("Add a job: property search, price from the
+property, quick labels, add and record as cleaned").
+
+### 73.1 What changed
+
+1. **Property: a search field**, no dropdown to open. Typing matches any part of the unit's name — the address the
+   admin lists show, or its public title — accents, case and spaces aside. With nothing typed, a click (or ↓) lists
+   every unit, recent first ("Recent", then "All properties", by name). Each row shows the address, the public title in
+   grey under it. Enter or a click picks; Escape closes the list and leaves the dialog open. The picked unit's public
+   title stands in grey under the field.
+2. **No Tier.** Once a unit is picked, Amount fills with its short-term cleaning price, and its other prices stand
+   beside the field, one tap each: "Mid $Y", "Long $Z", only where the unit has them (after a tap, "Short $X" is the
+   way back). The field stays editable. A unit with no price for the tier: the field is empty, and the amount last
+   typed there is its grey placeholder with "Last typed for short-term: $X" under it (Build 2: never a value). The line
+   under the field says what the amount is: "Short-term cleaning price", "Mid-term cleaning price", "Set on the job".
+   **The tier stored is the one the price came from, as before:** an amount left at the tier's price (or the field left
+   empty) is stored as that price — no amount on the job, so the job's history reads "· mid-term job" and its cleaning
+   "mid-term cleaning price", exactly as the Tier control with no amount did; an amount changed is the job's own amount
+   (ruling B), as before. The server decides this in the add's transaction, with the prices it reads there, so a
+   cleaning counts exactly the amount the field showed (`addedJobAmount`, app/lib/schedule/add-job.ts). The prices and
+   the "Last typed" amounts come from GET /api/admin/cleaning-jobs/amount-start?property= (one read for a unit with all
+   three prices; with a tier unpriced, also that unit's cleanings by a field mask and the jobs of those typed).
+3. **Label: quick choices** "Turnover", "Deep clean", "Extra visit" (the default), "Move-out", "Other"; Other opens a
+   text field (at most 40 characters), and an empty Other is refused ("Type the label for Other.").
+4. **"Already cleaned"**, a tick shown when the day is today or earlier. With it, the button reads "Add and record as
+   cleaned", and one request adds the job and records it cleaned, in one transaction: the mark's own rules (a cleaner
+   on it, its day come, a day a cleaning can be logged for), the same `markOf` as Record as cleaned (the cleaning, its
+   amount, the "marked" event naming the admin, "recorded by the office"), the same statement month. Either both are
+   written or neither. The activity log gets both lines, "Added a cleaning job by hand" and then "Recorded a cleaning
+   job as cleaned" (the admin door writes the second a millisecond after the first: `recordAlso`, verify-admin.ts). With
+   nobody on it, the form refuses in one sentence, "Already cleaned needs the cleaner who cleaned it.", and sends
+   nothing; the route refuses the same (422 JOB_NEEDS_CLEANER), a day not come (409 JOB_NOT_YET), and a day a cleaning
+   cannot be logged for (422 BAD_DAY).
+5. **One column**, every control the same width: Property, Day, Cleaner, Label, Amount, Already cleaned. The
+   explanation is one line: "Goes to the cleaner’s app like any job."
+6. **Past days back to November 1, 2026, no further.** The calendar starts at November 2026, its foot reads
+   "Statements start in November 2026", and the route refuses an earlier day with those words (422 JOB_DAY_REFUSED).
+7. **After adding, the Schedule shows the job wherever its day is:** the days read again, widened to the job's day, or
+   moved to it (from a week before to two days after) when widening would pass the read's 92 days; "Earlier" opens for
+   a past day; a filter that would hide it comes off; its row is marked "just added" and scrolled into view. The notice
+   names the unit by its address, the day and the label, and with Already cleaned the cleaner, the amount and the
+   statement it goes on, in Record as cleaned's words.
+
+### 73.2 The developer's choices (none changes how an amount is counted, a statement, or what an owner receives)
+
+- **"Recent"** is the units this browser picked in the form (kept in the browser, at most six), then the units of the
+  jobs added by hand that the Schedule holds, newest first. Nothing is read for it.
+- **The form's calendar reaches a year ahead.** Before, it stopped at today (the date control's default), though
+  ruling C allows any date; the route takes any later day still.
+- **The units are read the first time the form opens**, and kept until the page is reloaded (about 120 reads: every
+  property and its name; before, every open read them).
+- **The property search takes the keyboard when the form opens** (the admin works at a desk; the cleaner app's rule
+  that nothing focuses itself is for phones).
+- **An amount typed equal to the tier's price is stored as that price**, like one left as it was: it follows the
+  price until the job is marked. To hold an amount whatever the price does, type a different one or use the row's
+  Amount… afterwards.
+- **Ruling C's words:** "a chosen tier (short by default)" is now the tier of the price chosen (short unless Mid or
+  Long is tapped), and "any date" is any date from November 1, 2026 (item 6). CLAUDE.md is unchanged: this record
+  holds the change.
+
+### 73.3 Tests
+
+New check `add-job` (tests/schedule/add-job.mjs, 24 checks on an in-memory Firestore): the amount from the price, its
+alternatives and words; the tier and amount stored and what each mark then counts (item 2); the form's read; the
+route's schema with the page's exact body; Already cleaned making one job and one cleaning, identical field by field
+(IDs and instants aside) to Add then Record as cleaned, on the same statement month, and every refusal writing nothing
+(item 4); the floor (item 6); the search's order and the quick labels. `admin-accounts` re-recorded: one line for the
+new GET route ("read, not recorded") and the handler count, 105 → 106. The other 35 checks are identical to HEAD's.
+
+### 73.4 Verified (2026-11-06; a local build reading production, the server's clock Wed 15 Nov 2028, 10:00 Toronto)
+
+Built from a copy of HEAD plus the changed files, with Firestore answered empty at build time (no read), served on
+127.0.0.1:4500 under the write guard (only `__TEST__` records), the calendar copy and the refresh state held in the
+server's memory (no refresh started, no calendar fetched), as a `__TEST__` admin with a minted session (no PIN typed,
+no real admin). Test records: Unlisted `__TEST__` units P (made-up short, mid and long prices) and Q (no price; one
+cleaning logged by hand at a typed amount on Nov 2, 2028), cleaner `__TEST__` Ana. Two runs: the first found the two
+activity lines of one request at the same millisecond (fixed: `recordAlso`) and the refusal said twice (fixed: once);
+the second, on the build committed, gave every figure here.
+
+- **The form** at 1440×900 and 1280×800 (2×): empty; "Search St" typed (two matches); P picked: 63.40 with "Mid
+  $69.90" and "Long $98.70", "Short-term cleaning price"; Nov 10, Ana, Deep clean, Mid tapped (69.90, "Mid-term
+  cleaning price"), Already cleaned ticked, the button "Add and record as cleaned". Tallest state measured at 1280×800
+  (Other's field open, a refusal shown): 777 px, inside the window.
+- **Already cleaned, end to end:** one request wrote one job and one cleaning ($69.90, mid-term cleaning price, logged
+  "recorded by the office" by the test admin, on November 2028's statement) and the two activity lines in order, 1 ms
+  apart. The same job added without the tick was an open job (Not marked, Change cleaner and Record as cleaned on its
+  row); Record as cleaned from the row then gave a job and a cleaning identical field by field to the one step's, IDs
+  and instants aside. The same again with the short-term price kept and "Turnover": identical.
+- **Refused:** Already cleaned with nobody — in the form, one sentence, no request sent; by the route, 422
+  JOB_NEEDS_CLEANER. Tomorrow with the tick: 409 JOB_NOT_YET. Oct 31, 2026: 422 "Statements start in November 2026".
+  Nothing written by any of them.
+- **No price (Q):** the field empty, placeholder 73.10, "Last typed for short-term: $73.10".
+- **Shown wherever its day is:** a job on Nov 10 (before today) opened "Earlier", marked and in view; Dec 20 widened
+  the days to Nov 8 – Dec 20; Mar 1, 2029 moved them to Feb 22 – Mar 3, 2029.
+- **Reads:** 1,544 for both runs, exports left out (of 2,500). **Cleanup:** 32 paths a run, deleted by exact path from
+  the guard's ledger; the opening and closing exports of each run identical (642 documents). Eighteen screenshots in
+  `~/Backups/Nubnb/add-job/`, OCR-scanned for every code and PIN: no hit.

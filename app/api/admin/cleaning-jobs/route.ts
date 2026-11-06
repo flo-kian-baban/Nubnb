@@ -17,17 +17,30 @@
  * and Refresh calendars is POST /api/admin/availability/refresh; each makes and watches the jobs after writing the copy.
  *
  * POST /api/admin/cleaning-jobs — add a job by hand (Kian's ruling C of 2026-11-01): for any property, with or without
- * a calendar, any date, any active cleaner or nobody yet, a chosen tier (short by default), its label (Build 2: "Deep
- * clean"; none typed reads "Extra visit") and, when typed, the job's own amount (ruling B). Any number of jobs may share a
- * property and a day (Build 2: no JOB_EXISTS). Body: `{ propertyId, checkout, cleanerId: string | null, tier: 'short' |
- * 'mid' | 'long', amount?: "75.00" | null, label?: string | null }`. Response: 201 `{ job }` (as stored); 404
- * PROPERTY_NOT_FOUND; 422 CLEANER_NOT_ASSIGNABLE; 502 when the outcome is unknown. Recorded in the activity log.
+ * a calendar, any active cleaner or nobody yet, its label (Build 2: "Deep clean"; none typed reads "Extra visit"), the
+ * tier its amount's price came from, and the amount. Any number of jobs may share a property and a day (Build 2: no
+ * JOB_EXISTS). Body: `{ propertyId, checkout, cleanerId: string | null, tier: 'short' | 'mid' | 'long', amount?: "75.00"
+ * | null, label?: string | null, alreadyCleaned?: boolean }`.
+ *
+ * The UX pass (Kian's instruction of 2026-11-06):
+ *   - `checkout` from November 1, 2026 (the statements floor) on; earlier is 422 JOB_DAY_REFUSED, "Statements start in
+ *     November 2026".
+ *   - `amount` is what the form's field held: exactly the tier's cleaning price is stored as that price (no amount on
+ *     the job, so it reads as the tier's price), anything else as the job's own amount (ruling B); null for none.
+ *   - `alreadyCleaned`: the job is recorded cleaned for its cleaner as it is added, in the same transaction, exactly as
+ *     POST …/[id]/record does (the same cleaning, amount and history), and the activity log gets that route's line
+ *     ("Recorded a cleaning job as cleaned") after this one's. 422 JOB_NEEDS_CLEANER with nobody on it; 409 JOB_NOT_YET
+ *     on a day that has not come; 422 BAD_DAY when a cleaning cannot be logged for the day. Nothing is added then.
+ *
+ * Response: 201 `{ job, propertyName, recorded: { cleanings: [{ cleanerId, cleaningId, amountCents }], statementMonth }
+ * | null }` (the job as stored); 404 PROPERTY_NOT_FOUND; 422 CLEANER_NOT_ASSIGNABLE; 502 when the outcome is unknown.
+ * Recorded in the activity log.
  */
 
 import { NextRequest } from 'next/server';
-import { adminRoute } from '@/app/lib/api/verify-admin';
+import { adminRoute, recordAlso } from '@/app/lib/api/verify-admin';
 import { apiError, apiFailure, apiSuccess, noStore } from '@/app/lib/api/safe-response';
-import { addDays, isDay, nightsBetween, torontoDay } from '@/app/lib/availability/days';
+import { addDays, dayText, isDay, nightsBetween, torontoDay } from '@/app/lib/availability/days';
 import { CREATE_DAYS_AHEAD } from '@/app/lib/schedule/model';
 import { ADD_JOB_REFUSALS, addJob, readSchedule } from '@/app/lib/firebase/server-cleaning-jobs';
 import { refreshIfStale } from '@/app/lib/availability/daily';
@@ -73,13 +86,21 @@ export const POST = adminRoute(async function POST(request: NextRequest, _contex
   }
   const parsed = AddJobSchema.safeParse(body);
   if (!parsed.success) return noStore(apiValidationError(parsed.error.issues.map((i) => ({ path: i.path.map(String).join('.'), message: i.message }))));
-  const { propertyId, checkout, cleanerId, tier, amount, label } = parsed.data;
-  const outcome = await addJob(actor, { propertyId, checkout, cleanerId, tier, amountCents: amount, label });
+  const { propertyId, checkout, cleanerId, tier, amount, label, alreadyCleaned } = parsed.data;
+  const outcome = await addJob(actor, { propertyId, checkout, cleanerId, tier, amountCents: amount, label, alreadyCleaned });
   switch (outcome.kind) {
     case 'added':
-      return noStore(apiSuccess({ job: outcome.job, propertyName: outcome.propertyName }, 201));
+      // "Already cleaned": Record as cleaned's own line in the activity log, after this request's.
+      if (outcome.recorded) recordAlso(request, 'POST', `/api/admin/cleaning-jobs/${outcome.job.id}/record`, 200);
+      return noStore(apiSuccess({ job: outcome.job, propertyName: outcome.propertyName, recorded: outcome.recorded }, 201));
     case 'not-assignable':
       return noStore(apiFailure({ status: 422, code: 'CLEANER_NOT_ASSIGNABLE', message: `${outcome.name ?? 'That team member'} ${NOT_ASSIGNABLE[outcome.why]}.`, hint: 'Nothing was added. Only an active cleaner is put on a job.' }));
+    case 'before-floor':
+      return noStore(apiFailure({ status: 422, code: 'JOB_DAY_REFUSED', message: outcome.problem, hint: 'Nothing was added.' }));
+    case 'too-early':
+      return noStore(apiFailure({ status: 409, code: 'JOB_NOT_YET', message: `This job’s day has not come: it opens on ${dayText(outcome.opensOn)}.`, hint: 'Nothing was added. Untick Already cleaned, or pick a day that has come.' }));
+    case 'bad-day':
+      return noStore(apiFailure({ status: 422, code: 'BAD_DAY', message: outcome.problem, hint: 'Nothing was added.' }));
     default:
       return noStore(apiFailure(ADD_JOB_REFUSALS[outcome.kind]));
   }

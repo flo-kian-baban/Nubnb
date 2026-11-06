@@ -48,6 +48,20 @@ export interface AdminRouteOptions {
 /** An admin route handler: the request, the route's context, and the session. */
 export type AdminHandler<C> = (request: NextRequest, context: C, session: AdminSession) => Promise<Response>;
 
+/** The lines a handler asked the door to add after the request's own (recordAlso), by request. */
+const alsoRecorded = new WeakMap<Request, { method: string; path: string; status: number }[]>();
+
+/**
+ * One more line in the activity log, for a request that does a second admin action besides its own (Add a job with
+ * "Already cleaned", 2026-11-06: the job is added and recorded cleaned in one request, and the log holds both lines,
+ * as an Add then a Record as cleaned would). `path` is the route that action has on its own, so the line reads as that
+ * action's does. The door writes it after the request's own line, a millisecond later, and only when the request's own
+ * line is written (a status below 400); never with a body or a query.
+ */
+export function recordAlso(request: NextRequest, method: string, path: string, status: number): void {
+  alsoRecorded.set(request, [...(alsoRecorded.get(request) ?? []), { method, path, status }]);
+}
+
 /** Wrap a route handler in the admin door. See the file's header. */
 export function adminRoute<C>(handler: AdminHandler<C>, options: AdminRouteOptions = {}): (request: NextRequest, context: C) => Promise<Response> {
   return async (request: NextRequest, context: C) => {
@@ -60,14 +74,20 @@ export function adminRoute<C>(handler: AdminHandler<C>, options: AdminRouteOptio
 
     const recorded = options.record === true || (request.method !== 'GET' && request.method !== 'HEAD');
     if (recorded && response.status < 400) {
+      const at = Date.now();
       const record = {
-        at: new Date().toISOString(),
+        at: new Date(at).toISOString(),
         admin: { id: admin.id, name: admin.name, level: admin.level },
         method: request.method,
         path: new URL(request.url).pathname,
         status: response.status,
       };
-      after(() => recordAdminAction(record));
+      // Any line the handler asked for (recordAlso) follows, in order, each a millisecond after the one before.
+      const also = (alsoRecorded.get(request) ?? []).map((line, i) => ({ ...record, at: new Date(at + i + 1).toISOString(), method: line.method, path: line.path, status: line.status }));
+      after(async () => {
+        await recordAdminAction(record);
+        for (const line of also) await recordAdminAction(line);
+      });
     }
     return response;
   };

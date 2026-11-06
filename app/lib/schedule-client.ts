@@ -9,7 +9,8 @@
 
 import { describeErrorBody, readErrorBody } from '@/app/lib/api/http-failure';
 import type { AssigneeView, JobView, ScheduleRead, StoredJob, TeamMember } from '@/app/lib/schedule/model';
-import type { PresetKind } from '@/app/lib/cleanings/prices';
+import type { CleaningPrices, PresetKind } from '@/app/lib/cleanings/prices';
+import type { LastTyped } from '@/app/lib/schedule/add-job';
 
 export type ScheduleResult<T> =
   | { ok: true; data: T }
@@ -125,14 +126,48 @@ export function reopenJobFor(jobId: string, cleanerId: string, seen: number): Pr
   );
 }
 
-/** Add a job by hand (POST /api/admin/cleaning-jobs; Kian's ruling C of 2026-11-01; its label since Build 2). JOB_SAVE_FAILED: it may or may not have landed. */
-export function addJobByHand(input: { propertyId: string; checkout: string; cleanerId: string | null; tier: PresetKind; amount: string | null; label: string | null }): Promise<ScheduleResult<{ job: StoredJob; propertyName: string | null }>> {
-  return call(
+/** What "Already cleaned" made as the job was added (the UX pass of 2026-11-06): as Record as cleaned answers it. */
+export interface RecordedOnAdd {
+  cleanings: { cleanerId: string; cleaningId: string; amountCents: number | null }[];
+  statementMonth: string;
+}
+
+/**
+ * Add a job by hand (POST /api/admin/cleaning-jobs; Kian's ruling C of 2026-11-01; its label since Build 2), and with
+ * `alreadyCleaned` record it cleaned in the same step (2026-11-06). `tier` is the tier the amount's price came from,
+ * `amount` what the field held ("75.00", or null when empty). JOB_SAVE_FAILED: it may or may not have landed.
+ */
+export function addJobByHand(input: { propertyId: string; checkout: string; cleanerId: string | null; tier: PresetKind; amount: string | null; label: string | null; alreadyCleaned: boolean }): Promise<ScheduleResult<{ job: StoredJob; propertyName: string | null; recorded: RecordedOnAdd | null }>> {
+  return call<{ job: StoredJob; propertyName: string | null; recorded?: RecordedOnAdd | null }>(
     '/api/admin/cleaning-jobs',
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) },
     'Adding the job failed',
-    (data) => isRecord(data) && isJobLike(data.job),
+    (data) => isRecord(data) && isJobLike(data.job) && (data.recorded === undefined || data.recorded === null || (isRecord(data.recorded) && Array.isArray(data.recorded.cleanings) && typeof data.recorded.statementMonth === 'string')),
     ['JOB_SAVE_FAILED'],
+  ).then((result) => (result.ok ? { ok: true, data: { ...result.data, recorded: result.data.recorded ?? null } } : result));
+}
+
+/** What "Add a job" fills its amount from (GET /api/admin/cleaning-jobs/amount-start): the property's cleaning prices, and the amount last typed per tier with none. */
+export interface AmountStartAnswer {
+  prices: CleaningPrices | null;
+  lastTyped: LastTyped;
+}
+
+const isCentsOrNull = (value: unknown): boolean => value === null || (typeof value === 'number' && Number.isSafeInteger(value) && value > 0);
+
+/** A property's cleaning prices and "Last typed" amounts, for "Add a job" (2026-11-06). */
+export function fetchAmountStart(propertyId: string): Promise<ScheduleResult<AmountStartAnswer>> {
+  return call(
+    `/api/admin/cleaning-jobs/amount-start?property=${encodeURIComponent(propertyId)}`,
+    {},
+    'Reading the cleaning price failed',
+    (data) =>
+      isRecord(data) &&
+      (data.prices === null || (isRecord(data.prices) && isCentsOrNull(data.prices.shortTermCents) && isCentsOrNull(data.prices.midTermCents) && isCentsOrNull(data.prices.longTermCents))) &&
+      isRecord(data.lastTyped) &&
+      isCentsOrNull(data.lastTyped.short) &&
+      isCentsOrNull(data.lastTyped.mid) &&
+      isCentsOrNull(data.lastTyped.long),
   );
 }
 

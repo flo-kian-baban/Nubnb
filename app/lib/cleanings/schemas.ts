@@ -82,7 +82,11 @@ export const JobActionSchema = z.discriminatedUnion('action', [
   z.strictObject({ action: z.literal('undo') }),
 ]);
 
-/** POST /api/admin/cleaning-jobs (ruling C): a job by hand, with its label (Build 2: "Deep clean", "Extra visit"; "Extra visit" when none is typed). */
+/**
+ * POST /api/admin/cleaning-jobs (ruling C): a job by hand, with its label (Build 2: "Deep clean", "Extra visit"; "Extra
+ * visit" when none is typed), the tier its amount's price came from and the amount the field held (the UX pass of
+ * 2026-11-06), and "Already cleaned".
+ */
 export const AddJobSchema = z.strictObject({
   propertyId: IdSchema,
   checkout: DaySchema,
@@ -90,6 +94,7 @@ export const AddJobSchema = z.strictObject({
   tier: TierSchema,
   amount: AmountSchema.nullable().optional().default(null),
   label: text(JOB_LABEL_MAX).optional().default(null),
+  alreadyCleaned: z.boolean().optional().default(false),
 });
 
 /** PATCH /api/admin/cleaning-jobs/[id]: who is on it (one cleaner, or nobody: Build 2), a one-step swap (ruling D), or the job's own amount (ruling B). */

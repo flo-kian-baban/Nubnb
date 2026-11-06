@@ -48,7 +48,7 @@ import {
   type CleaningView,
   type TeamChoice,
 } from '@/app/lib/cleanings/model';
-import { PROPERTY_CLEANING_PRICES_COLLECTION, amountSourceOf, handLogSuggestion, jobNights, jobTier, readCleaningPrices, type CleaningPrices, type JobFacts, type PresetKind } from '@/app/lib/cleanings/prices';
+import { PRESET_KINDS, PROPERTY_CLEANING_PRICES_COLLECTION, amountSourceOf, handLogSuggestion, jobNights, jobTier, presetCents, readCleaningPrices, recommendedAmount, type CleaningFacts, type CleaningPrices, type JobFacts, type PresetKind } from '@/app/lib/cleanings/prices';
 import { pricesInTx } from './server-cleaning-prices';
 import { torontoDayOf } from '@/app/lib/costs/report';
 import { CLEANING_JOBS_COLLECTION, JOB_ID_PATTERN, jobEvent, jobIdOf, readJob, type StoredJob } from '@/app/lib/schedule/model';
@@ -218,6 +218,49 @@ export async function amountStarts(propertyIds: readonly string[], jobIds: reado
     if (facts) out[doc.id] = facts;
   }
   return { prices, jobs: out };
+}
+
+/**
+ * What the Schedule's "Add a job" fills its amount from once a property is picked (the UX pass of 2026-11-06): the
+ * property's cleaning prices, and, for each tier with no price, the amount an admin last typed there (prices.ts
+ * `recommendedAmount`: the "Last typed" placeholder of Build 2, never a value). Reads: the prices record (one); only
+ * when a tier has no price, the property's cleanings by a field mask (one per cleaning, one when none) and the jobs of
+ * those whose amount an admin typed (one each, by a field mask).
+ *
+ * @throws if a read fails.
+ */
+export async function addedJobStart(propertyId: string): Promise<{ prices: CleaningPrices | null; lastTyped: Record<PresetKind, number | null> }> {
+  const lastTyped: Record<PresetKind, number | null> = { short: null, mid: null, long: null };
+  if (!isDocumentId(propertyId)) return { prices: null, lastTyped };
+  const db = getAdminDb();
+  const priceDoc = await db.collection(PROPERTY_CLEANING_PRICES_COLLECTION).doc(propertyId).get();
+  const record = priceDoc.exists ? readCleaningPrices(priceDoc.id, priceDoc.data() ?? {}) : null;
+  const prices: CleaningPrices | null = record ? { shortTermCents: record.shortTermCents, midTermCents: record.midTermCents, longTermCents: record.longTermCents } : null;
+  const missing = PRESET_KINDS.filter((tier) => presetCents(prices, tier) === null);
+  if (missing.length === 0) return { prices, lastTyped };
+  const snap = await db.collection(CLEANINGS_COLLECTION).where('propertyId', '==', propertyId).select('propertyId', 'day', 'createdAt', 'status', 'amountCents', 'amountFrom', 'suggested', 'jobId').get();
+  const facts: CleaningFacts[] = [];
+  for (const doc of snap.docs) {
+    const day: unknown = doc.get('day');
+    const createdAt: unknown = doc.get('createdAt');
+    const status: unknown = doc.get('status');
+    const amount: unknown = doc.get('amountCents');
+    const amountFrom: unknown = doc.get('amountFrom');
+    const suggested: unknown = doc.get('suggested');
+    const jobId: unknown = doc.get('jobId');
+    if (doc.get('propertyId') !== propertyId || typeof day !== 'string' || typeof createdAt !== 'string' || typeof status !== 'string') continue;
+    const from = suggested && typeof suggested === 'object' ? (suggested as { from?: unknown }).from : undefined;
+    facts.push({ id: doc.id, propertyId, day, createdAt, status, amountCents: typeof amount === 'number' ? amount : null, amountFrom: typeof amountFrom === 'string' ? (amountFrom as CleaningFacts['amountFrom']) : null, suggested: { from: typeof from === 'string' ? from : '', cents: null }, jobId: typeof jobId === 'string' ? jobId : null });
+  }
+  const jobIds = [...new Set(facts.filter((c) => c.status === 'logged' && c.amountFrom === 'typed' && c.jobId !== null).map((c) => c.jobId as string))].filter((id) => JOB_ID_PATTERN.test(id));
+  const jobDocs = jobIds.length ? await db.getAll(...jobIds.map((id) => db.collection(CLEANING_JOBS_COLLECTION).doc(id)), { fieldMask: [...JOB_FACTS_FIELDS] }) : [];
+  const jobs: Record<string, JobFacts> = {};
+  for (const doc of jobDocs) {
+    const read = jobFactsOf(doc);
+    if (read) jobs[doc.id] = read;
+  }
+  for (const tier of missing) lastTyped[tier] = recommendedAmount(facts, jobs, propertyId, tier)?.cents ?? null;
+  return { prices, lastTyped };
 }
 
 /** The fields the hints and the recommendation need of a job, read by a field mask. */

@@ -49,6 +49,7 @@ export const CHECKS = [
   { name: 'build2-jobs', script: 'schedule/build2.mjs', args: [] },
   { name: 'pay-payday', script: 'pay/payday.mjs', args: [] },
   { name: 'cleaner-header', script: 'cleaner/header.mjs', args: [] },
+  { name: 'add-job', script: 'schedule/add-job.mjs', args: [] },
 ];
 
 const argv = process.argv.slice(2);

@@ -53,9 +53,9 @@
  *   - One word per state: "needs an amount", "needs a decision", "cleaning price".
  */
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import Link from "next/link";
-import { AlertTriangle, Check, ChevronDown, ChevronRight, ClipboardCheck, Plus, RefreshCw, Repeat, RotateCcw, UserMinus, UserPlus, Users } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, ChevronRight, ClipboardCheck, Plus, RefreshCw, Repeat, RotateCcw, Search, UserMinus, UserPlus, Users } from "lucide-react";
 import { refreshCalendarsNow, useCalendarRunWatched, useCalendarsRead, useCalendarsRefreshed, useCalendarsRefreshing, watchCalendarRun } from "@/app/lib/calendar-refresh-client";
 import { AdminHeader } from "../components/AdminHeader";
 import { PageHead } from "../components/PageHead";
@@ -69,12 +69,14 @@ import { Dialog, Tick } from "../property/editor/controls";
 import ed from "../property/editor/editor.module.css";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
-import { addJobByHand, decideJobExtra, deleteJob, fetchRegularCleaner, fetchSchedule, mergeJob, recordJobCleaned, reopenJobFor, setJobAmountOf, setJobCleaners, setRegularCleanerOf, swapJobCleaner, withCleaning, type RegularCleanerAnswer, type ScheduleAnswer } from "@/app/lib/schedule-client";
+import { addJobByHand, decideJobExtra, deleteJob, fetchAmountStart, fetchRegularCleaner, fetchSchedule, mergeJob, recordJobCleaned, reopenJobFor, setJobAmountOf, setJobCleaners, setRegularCleanerOf, swapJobCleaner, withCleaning, type RecordedOnAdd, type RegularCleanerAnswer, type ScheduleAnswer } from "@/app/lib/schedule-client";
 import { fetchAvailabilityProperties } from "@/app/lib/availability-client";
-import { addDays, dayText, isDay, minutesBetween } from "@/app/lib/availability/days";
-import { DEFAULT_JOB_LABEL, JOB_LABEL_MAX, NOBODY_TAKEN_OFF, changeWords, isSameDay, jobLabel, jobState, takenOff, type AssigneeView, type JobView, type TeamMember } from "@/app/lib/schedule/model";
+import { addDays, dayText, isDay, minutesBetween, nightsBetween } from "@/app/lib/availability/days";
+import { CREATE_DAYS_AHEAD, DEFAULT_JOB_LABEL, JOB_LABEL_MAX, NOBODY_TAKEN_OFF, changeWords, isSameDay, jobLabel, jobState, takenOff, type AssigneeView, type JobView, type StoredJob, type TeamMember } from "@/app/lib/schedule/model";
+import { ADDED_JOB_FROM_DAY, FLOOR_WORDS, JOB_LABEL_CHOICES, NOTHING_TYPED, OTHER_LABEL, RECENT_UNITS, addedJobDayProblem, addedJobLastDay, amountStart, amountWords, canRecordOnAdd, chosenLabel, recentUnitIds, unitOrder, type LastTyped, type UnitChoice } from "@/app/lib/schedule/add-job";
+import { PriceField } from "./PriceField";
 import { regularCleanerQuestion } from "@/app/lib/schedule/regular";
-import { AMOUNT_SOURCE_WORDS, PRESET_KINDS, TIER_NIGHTS, TIER_WORDS, jobNights, jobTier, type PresetKind } from "@/app/lib/cleanings/prices";
+import { AMOUNT_SOURCE_WORDS, TIER_NIGHTS, TIER_WORDS, jobNights, jobTier, type CleaningPrices, type PresetKind } from "@/app/lib/cleanings/prices";
 import { amountField, countsWords, readAmountCents } from "@/app/lib/cleanings/model";
 import { formatCents } from "@/app/lib/cleaners/model";
 
@@ -133,6 +135,12 @@ function Schedule() {
   const [recording, setRecording] = useState<JobView | null>(null);
   const [pricing, setPricing] = useState<JobView | null>(null);
   const [extraAt, setExtraAt] = useState<{ job: JobView; a: AssigneeView } | null>(null);
+  /** Every unit for Add a job's search: read when the form first opens, kept for the next opens (one read per property). */
+  const [units, setUnits] = useState<UnitsState>({ kind: "loading" });
+  const unitsAsked = useRef(false);
+  /** The job just added: its row is marked and brought into view once the days it is in are read (2026-11-06). */
+  const [fresh, setFresh] = useState<string | null>(null);
+  const shownFresh = useRef<string | null>(null);
   const { notice, show, clear } = useNotice();
   const { ask, dialog } = useAsk();
 
@@ -315,14 +323,61 @@ function Schedule() {
   };
   const unknownOrError = (result: { unknown: boolean; title: string; detail?: string }, what: string) => show(result.unknown ? { tone: "warning", title: `${what} may or may not have been saved. Reload to see.`, detail: result.title } : { tone: "error", title: result.title, detail: result.detail });
 
-  /** A job added by hand (ruling C): the page reads its days again, widened to the new job's day when it lies outside them. */
-  const onAdded = async (checkout: string, propertyName: string | null) => {
+  /**
+   * A job added by hand (ruling C), shown wherever its day is (Kian's instruction of 2026-11-06): the page reads its
+   * days again, widened to the new job's day, or moved to it when widening would pass the read's 92 days; "Earlier"
+   * opens for a past day; a filter that would hide it comes off; its row is marked and scrolled into view.
+   */
+  const onAdded = async ({ job, unitName, recorded }: Added) => {
     setAdding(false);
-    const from = range && checkout < range.from ? checkout : range?.from;
-    const to = range && checkout > range.to ? checkout : range?.to;
+    const day = job.checkout;
+    let from = range?.from;
+    let to = range?.to;
+    if (range && (day < range.from || day > range.to)) {
+      const wideFrom = day < range.from ? day : range.from;
+      const wideTo = day > range.to ? day : range.to;
+      if (nightsBetween(wideFrom, wideTo) <= SCHEDULE_READ_DAYS) [from, to] = [wideFrom, wideTo];
+      else [from, to] = [addDays(day, -7), addDays(day, CREATE_DAYS_AHEAD)];
+    }
+    if (propertyId !== "" && propertyId !== job.propertyId) setPropertyId("");
+    if (cleanerId !== "" && !job.cleanerIds.includes(cleanerId)) setCleanerId("");
+    if (needsOnly && job.cleanerIds.length > 0) setNeedsOnly(false);
+    if (today !== null && day < today) setEarlierChosen(true);
     await load(from, to);
-    show({ tone: "success", title: `Added ${propertyName ?? "the job"} · ${dayText(checkout)}.` });
+    setFresh(job.id);
+    const where = `${unitName} · ${dayText(day)} · ${jobLabel(job)}`;
+    if (!recorded) {
+      show({ tone: "success", title: `Added ${where}.` });
+      return;
+    }
+    const who = recorded.cleanings.map((made) => job.assignments[made.cleanerId]?.nameAtAssignment ?? "the cleaner").join(", ");
+    const amounts = recorded.cleanings.map((made) => (made.amountCents === null ? "needs an amount" : formatCents(made.amountCents))).join(", ");
+    show({ tone: "success", title: `Added ${where} and recorded it as cleaned for ${who} (${amounts}).`, detail: `It ${countsWords(day, recorded.statementMonth)} and counts in their pay, as their own mark would.` });
   };
+  // The job just added, brought into view once its row is on the page (once).
+  useEffect(() => {
+    if (fresh === null || shownFresh.current === fresh || loaded.kind !== "ready") return;
+    const row = document.querySelector(`[data-job-id="${CSS.escape(fresh)}"]`);
+    if (!row) return;
+    shownFresh.current = fresh;
+    row.scrollIntoView({ block: "center" });
+  }, [fresh, loaded]);
+  /** Add a job opened: every unit for its search is read the first time, and kept; a failed read is tried again on the next open. */
+  const openAdd = () => {
+    setAdding(true);
+    if (unitsAsked.current) return;
+    unitsAsked.current = true;
+    setUnits({ kind: "loading" });
+    fetchAvailabilityProperties().then((result) => {
+      if (result.ok) setUnits({ kind: "ready", list: result.data.map((p) => ({ id: p.id, name: p.name || p.id, publicName: p.publicName })) });
+      else {
+        unitsAsked.current = false;
+        setUnits({ kind: "error", title: result.title });
+      }
+    });
+  };
+  /** The recent units, when the form opens: this browser's picks, then the properties of the jobs added by hand on the page. */
+  const recentUnits = useMemo(() => (adding ? recentUnitIds(readPicked(), (answer?.jobs ?? []).filter((job) => job.origin === "admin").map((job) => ({ propertyId: job.propertyId, createdAt: job.createdAt }))) : []), [adding, answer]);
 
   /** Change cleaner (ruling D): one swap, saved, the row read as the server answered. */
   const swap = async (job: JobView, from: string, to: string) => {
@@ -422,6 +477,7 @@ function Schedule() {
               <JobRow
                 key={job.id}
                 job={job}
+                fresh={job.id === fresh}
                 today={ready.today}
                 moveTarget={job.change?.kind === "moved" && job.change.movedTo ? (ready.jobs.find((other) => other.id === `${job.propertyId}_${job.change?.movedTo?.end}`) ?? null) : null}
                 saving={saving}
@@ -449,7 +505,7 @@ function Schedule() {
       <main className={shared.main}>
         {/* Refresh calendars is the tag in the navigation, on every admin page (Kian's rulings of 2026-10-17). Add a job is this page's own (ruling C). */}
         <PageHead title="Schedule">
-          <button type="button" className={shared.btnPrimary} onClick={() => setAdding(true)} disabled={loaded.kind !== "ready"}>
+          <button type="button" className={shared.btnPrimary} onClick={openAdd} disabled={loaded.kind !== "ready"}>
             <Plus size={16} aria-hidden />
             <span>Add a job</span>
           </button>
@@ -531,7 +587,7 @@ function Schedule() {
           onRegularSaved={(title) => show({ tone: "success", title })}
         />
       )}
-      {adding && <AddJobDialog active={active} today={today ?? ""} busy={saving === "add"} onClose={() => setAdding(false)} onAdded={onAdded} setBusy={(on) => setSaving(on ? "add" : null)} show={show} />}
+      {adding && <AddJobDialog units={units} recent={recentUnits} active={active} today={today ?? ""} busy={saving === "add"} onClose={() => setAdding(false)} onAdded={(added) => void onAdded(added)} setBusy={(on) => setSaving(on ? "add" : null)} show={show} />}
       {swapping && <SwapDialog job={swapping} active={active} busy={saving === swapping.id} onClose={() => setSwapping(null)} onSwap={(from, to) => void swap(swapping, from, to)} />}
       {recording && <RecordDialog job={recording} busy={saving === recording.id} onClose={() => setRecording(null)} onRecord={(ids) => void record(recording, ids)} />}
       {pricing && <AmountDialog title={`Amount on ${pricing.property.name ?? "the job"} · ${dayText(pricing.checkout)} · ${jobLabel(pricing)}`} words={`What a mark on this job takes instead of the property’s ${TIER_WORDS[jobTier(pricing)]} cleaning price. Leave it empty to clear it.`} initial={pricing.amountCents === null ? "" : amountField(pricing.amountCents)} allowEmpty busy={saving === pricing.id} confirm="Save" onClose={() => setPricing(null)} onSave={(amount) => void price(pricing, amount)} />}
@@ -540,6 +596,9 @@ function Schedule() {
     </div>
   );
 }
+
+/** The most days one read of the Schedule takes (GET /api/admin/cleaning-jobs: at most 92). */
+const SCHEDULE_READ_DAYS = 92;
 
 /** A copy older than this reads in amber (Kian's ruling of 2026-10-14, night). */
 const STALE_AFTER_MINUTES = 24 * 60;
@@ -570,6 +629,8 @@ function CopyLine({ answer, onRefresh, refreshing, reading }: { answer: Schedule
 
 function JobRow(props: {
   job: JobView;
+  /** Just added: marked until the page is reloaded or another job is added. */
+  fresh: boolean;
   today: string;
   moveTarget: JobView | null;
   saving: string | null;
@@ -583,7 +644,7 @@ function JobRow(props: {
   onDelete: () => void;
   onExtra: (a: AssigneeView, decision: "approve" | "decline" | "amount") => void;
 }) {
-  const { job, today, moveTarget, saving, onAssign, onTakeOff, onSameTo, onReopen, onSwap, onRecord, onAmount, onDelete, onExtra } = props;
+  const { job, fresh, today, moveTarget, saving, onAssign, onTakeOff, onSameTo, onReopen, onSwap, onRecord, onAmount, onDelete, onExtra } = props;
   const state = jobState(job, today);
   const name = job.property.name ?? job.propertyNameAtCreation ?? "Unknown property";
   const unread = job.calendar.status === "failed";
@@ -599,7 +660,7 @@ function JobRow(props: {
   /** The job's amount is locked once a mark's cleaning counts its money (ruling B). */
   const amountLocked = job.assignees.some((a) => a.cleaning !== null && a.cleaning.status === "logged" && a.cleaning.amountCents !== null && a.cleaning.extra !== "asked");
   return (
-    <tr>
+    <tr data-job-id={job.id} className={fresh ? styles.rowFresh : undefined}>
       <td>
         <Link href={`/admin/property?id=${encodeURIComponent(job.propertyId)}`} prefetch={false} className={styles.property}>
           {name}
@@ -607,6 +668,7 @@ function JobRow(props: {
         {job.property.state === "missing" && <span className={styles.muted}> · deleted</span>}
         {unread && <span className={styles.warn}> · calendar not read since {job.calendar.failedSince ? clock(job.calendar.failedSince) : "the last run"}</span>}
         {job.origin === "admin" && <span className={styles.muted}> · added by hand</span>}
+        {fresh && <span className={styles.freshNote}> · just added</span>}
       </td>
       <td>
         <span className={styles.turnover}>
@@ -922,96 +984,298 @@ function AssignDialog(props: {
 
 // ─── The cleaning flow's dialogs (Kian's rulings of 2026-11-01) ───
 
-type PropertyChoice = { id: string; name: string };
+type UnitsState = { kind: "loading" } | { kind: "ready"; list: UnitChoice[] } | { kind: "error"; title: string };
+type AmountStart = { kind: "none" } | { kind: "loading"; propertyId: string } | { kind: "ready"; propertyId: string; prices: CleaningPrices | null; lastTyped: LastTyped } | { kind: "error"; propertyId: string; title: string };
+/** A job just added, with the name the form picked it by (the address the admin lists show). */
+type Added = { job: StoredJob; unitName: string; recorded: RecordedOnAdd | null };
 
-/** Add a job (ruling C): the property, the day, the cleaner, the tier, and the job's own amount (ruling B). */
-function AddJobDialog(props: { active: TeamMember[]; today: string; busy: boolean; onClose: () => void; onAdded: (checkout: string, propertyName: string | null) => void; setBusy: (on: boolean) => void; show: (notice: { tone: "error" | "warning"; title: string; detail?: string }) => void }) {
-  const { active, today, busy, onClose, onAdded, setBusy, show } = props;
-  const [properties, setProperties] = useState<{ kind: "loading" } | { kind: "ready"; list: PropertyChoice[] } | { kind: "error"; title: string }>({ kind: "loading" });
-  const [propertyId, setPropertyId] = useState("");
+/** The units this browser picked in "Add a job" before, newest first: a convenience kept in this browser only (it may be empty). */
+const PICKED_KEY = "nubnb.admin.add-job.picked";
+function readPicked(): string[] {
+  try {
+    const raw = window.localStorage.getItem(PICKED_KEY);
+    const list: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list.filter((id): id is string => typeof id === "string").slice(0, RECENT_UNITS) : [];
+  } catch {
+    return [];
+  }
+}
+function rememberPicked(id: string) {
+  try {
+    window.localStorage.setItem(PICKED_KEY, JSON.stringify([id, ...readPicked().filter((other) => other !== id)].slice(0, RECENT_UNITS)));
+  } catch {
+    /* not kept: the next open starts from the Schedule's added jobs */
+  }
+}
+
+/** The property, found by typing (the UX pass of 2026-11-06): any part of its address or public title, recent first. No dropdown to open. */
+function PropertySearch({ units, recent, picked, onPick, disabled, inputRef }: { units: UnitsState; recent: string[]; picked: UnitChoice | null; onPick: (unit: UnitChoice | null) => void; disabled: boolean; inputRef: RefObject<HTMLInputElement | null> }) {
+  const id = useId();
+  const [query, setQuery] = useState(picked?.name ?? "");
+  const [open, setOpen] = useState(false);
+  const [activeRaw, setActive] = useState(0);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const order = useMemo(() => (units.kind === "ready" ? unitOrder(units.list, picked && query === picked.name ? "" : query, recent) : { recent: [], rest: [] }), [units, query, recent, picked]);
+  const flat = useMemo(() => [...order.recent, ...order.rest], [order]);
+  const active = Math.min(activeRaw, Math.max(0, flat.length - 1));
+  const ready = units.kind === "ready";
+
+  // A press outside closes the list.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [open]);
+  // The highlighted row stays in view.
+  useEffect(() => {
+    if (open) document.getElementById(`${id}-unit-${active}`)?.scrollIntoView({ block: "nearest" });
+  }, [open, active, id]);
+
+  const choose = (unit: UnitChoice) => {
+    setQuery(unit.name);
+    setOpen(false);
+    onPick(unit);
+  };
+  const onKey = (event: KeyboardEvent<HTMLInputElement>) => {
+    const count = Math.max(1, flat.length);
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (!open) {
+        setOpen(ready);
+        return;
+      }
+      setActive((index) => (event.key === "ArrowDown" ? (index + 1) % count : (index - 1 + count) % count));
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      if (open && flat[active]) choose(flat[active]);
+    } else if (event.key === "Escape" && open) {
+      // The list closes; the dialog stays (it closes on any Escape that reaches the window).
+      event.preventDefault();
+      event.stopPropagation();
+      setOpen(false);
+    } else if (event.key === "Tab") setOpen(false);
+  };
+  const option = (unit: UnitChoice, index: number) => (
+    <div key={unit.id} id={`${id}-unit-${index}`} role="option" aria-selected={index === active} className={`${styles.unitOption} ${index === active ? styles.unitOptionActive : ""}`} onMouseDown={(e) => e.preventDefault()} onMouseEnter={() => setActive(index)} onClick={() => choose(unit)}>
+      <span className={styles.unitName}>{unit.name}</span>
+      {unit.publicName && unit.publicName !== unit.name && <span className={styles.unitTitle}>{unit.publicName}</span>}
+    </div>
+  );
+  return (
+    <div ref={rootRef} className={styles.unitSearch}>
+      <span className={styles.unitInputWrap}>
+        <Search size={15} className={styles.unitIcon} aria-hidden />
+        <input
+          ref={inputRef}
+          className={styles.unitInput}
+          role="combobox"
+          aria-label="Property"
+          aria-autocomplete="list"
+          aria-expanded={open}
+          aria-controls={`${id}-units`}
+          aria-activedescendant={open && flat[active] ? `${id}-unit-${active}` : undefined}
+          autoComplete="off"
+          spellCheck={false}
+          placeholder={units.kind === "loading" ? "Loading the properties…" : units.kind === "error" ? "The properties could not be read" : "Type an address or a title"}
+          value={query}
+          disabled={disabled || !ready}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setActive(0);
+            setOpen(true);
+            if (picked && e.target.value !== picked.name) onPick(null);
+          }}
+          onClick={() => setOpen(ready)}
+          onKeyDown={onKey}
+        />
+      </span>
+      {picked && picked.publicName && picked.publicName !== picked.name && !open && <span className={styles.unitPickedTitle}>{picked.publicName}</span>}
+      {open && ready && (
+        <div id={`${id}-units`} role="listbox" aria-label="Properties" className={styles.unitList}>
+          {flat.length === 0 ? (
+            <p className={styles.unitEmpty}>No property matches “{query.trim()}”.</p>
+          ) : (
+            <>
+              {order.recent.length > 0 && (
+                <div role="group" aria-label="Recent">
+                  <div className={styles.unitGroup}>Recent</div>
+                  {order.recent.map((unit, index) => option(unit, index))}
+                </div>
+              )}
+              {order.rest.length > 0 && (
+                <div role="group" aria-label="All properties">
+                  <div className={styles.unitGroup}>All properties</div>
+                  {order.rest.map((unit, index) => option(unit, order.recent.length + index))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Add a job (ruling C), the UX pass of 2026-11-06: one column — Property (found by typing), Day (back to the statements
+ * floor), Cleaner, Label (quick choices), Amount (the property's cleaning price, one tap to its others), and "Already
+ * cleaned" on a day that has come, which adds the job and records it cleaned in one step.
+ */
+function AddJobDialog(props: { units: UnitsState; recent: string[]; active: TeamMember[]; today: string; busy: boolean; onClose: () => void; onAdded: (added: Added) => void; setBusy: (on: boolean) => void; show: (notice: { tone: "error" | "warning"; title: string; detail?: string }) => void }) {
+  const { units, recent, active, today, busy, onClose, onAdded, setBusy, show } = props;
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [unit, setUnit] = useState<UnitChoice | null>(null);
   const [day, setDay] = useState(today);
   const [cleanerId, setCleanerId] = useState("");
+  /** Its label (Build 2), from the quick choices; "Other" opens a text field. */
+  const [labelChoice, setLabelChoice] = useState<string>(DEFAULT_JOB_LABEL);
+  const [otherLabel, setOtherLabel] = useState("");
+  /** The tier the amount's price came from: short-term unless another price was tapped. */
   const [tier, setTier] = useState<PresetKind>("short");
   const [amount, setAmount] = useState("");
-  /** Its label (Build 2): "Deep clean", "Extra visit"; what the row and the cleaner's card call it. */
-  const [label, setLabel] = useState(DEFAULT_JOB_LABEL);
+  const [start, setStart] = useState<AmountStart>({ kind: "none" });
+  const [alreadyCleaned, setAlreadyCleaned] = useState(false);
   const [said, setSaid] = useState<string | null>(null);
+
+  // The keyboard starts in the property's search: the first thing to do.
   useEffect(() => {
-    let cancelled = false;
-    // Every property, by the name the admin shows (the Availability page's slice): one read per property, when the dialog opens.
-    fetchAvailabilityProperties().then((result) => {
-      if (cancelled) return;
-      setProperties(result.ok ? { kind: "ready", list: result.data.map((p) => ({ id: p.id, name: p.name || p.id })).sort((a, b) => a.name.localeCompare(b.name, "en-CA")) } : { kind: "error", title: result.title });
+    if (units.kind === "ready") searchRef.current?.focus();
+  }, [units.kind]);
+
+  /** The pick the latest read is for: an answer for an earlier pick is dropped. */
+  const pickedRef = useRef<string | null>(null);
+  /** A property picked (or the pick cleared by typing): its cleaning prices, and what was last typed there where it has none. */
+  const pick = (next: UnitChoice | null) => {
+    setUnit(next);
+    setAmount("");
+    setTier("short");
+    pickedRef.current = next?.id ?? null;
+    if (!next) {
+      setStart({ kind: "none" });
+      return;
+    }
+    setStart({ kind: "loading", propertyId: next.id });
+    fetchAmountStart(next.id).then((result) => {
+      if (pickedRef.current !== next.id) return;
+      if (!result.ok) {
+        setStart({ kind: "error", propertyId: next.id, title: result.title });
+        return;
+      }
+      const opening = amountStart(result.data.prices, result.data.lastTyped);
+      setStart({ kind: "ready", propertyId: next.id, prices: result.data.prices, lastTyped: result.data.lastTyped });
+      setTier(opening.tier);
+      setAmount(opening.field.value);
     });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  };
+
+  const prices = start.kind === "ready" ? start.prices : null;
+  const lastTyped = start.kind === "ready" ? start.lastTyped : NOTHING_TYPED;
+  const cents = amount.trim() === "" ? null : readAmountCents(amount);
+  const words = start.kind === "loading" ? "Reading its cleaning price…" : start.kind === "error" ? "Its cleaning price could not be read: type the amount, or leave it empty." : start.kind === "ready" ? amountWords(prices, lastTyped, tier, cents, amount.trim() === "") : "";
+  const offerCleaned = canRecordOnAdd(day, today);
+  const recordNow = offerCleaned && alreadyCleaned;
+  const cleanerName = active.find((m) => m.id === cleanerId)?.name ?? null;
+
   const save = async () => {
     if (busy) return;
-    const cents = amount.trim() === "" ? null : readAmountCents(amount);
-    const problems = [propertyId === "" ? "Pick the property." : null, !isDay(day) ? "Pick the day." : null, amount.trim() !== "" && cents === null ? "The amount is dollars and cents above $0.00, like 75.00, or empty." : null].filter((x): x is string => x !== null);
-    if (problems.length > 0) {
+    const label = chosenLabel(labelChoice, otherLabel);
+    const problems = [
+      unit === null ? "Pick the property." : null,
+      addedJobDayProblem(day),
+      label === null ? "Type the label for Other." : null,
+      amount.trim() !== "" && cents === null ? "The amount is dollars and cents above $0.00, like 75.00, or empty." : null,
+      recordNow && cleanerId === "" ? "Already cleaned needs the cleaner who cleaned it." : null,
+    ].filter((x): x is string => x !== null);
+    if (problems.length > 0 || unit === null) {
       setSaid(problems.join(" "));
       return;
     }
     setSaid(null);
     setBusy(true);
-    const result = await addJobByHand({ propertyId, checkout: day, cleanerId: cleanerId === "" ? null : cleanerId, tier, amount: cents === null ? null : amountField(cents), label: label.trim() === "" ? null : label.trim() });
+    const result = await addJobByHand({ propertyId: unit.id, checkout: day, cleanerId: cleanerId === "" ? null : cleanerId, tier, amount: cents === null ? null : amountField(cents), label, alreadyCleaned: recordNow });
     setBusy(false);
     if (!result.ok) {
-      if (result.unknown) show({ tone: "warning", title: "The job may or may not have been added. Reload to see.", detail: result.title });
+      if (result.unknown) show({ tone: "warning", title: recordNow ? "The job may or may not have been added and recorded. Reload to see." : "The job may or may not have been added. Reload to see.", detail: result.title });
       else setSaid(`${result.title}${result.detail ? ` ${result.detail}` : ""}`);
       return;
     }
-    onAdded(day, result.data.propertyName);
+    rememberPicked(unit.id);
+    onAdded({ job: result.data.job, unitName: unit.name, recorded: result.data.recorded });
   };
-  const propertyGroups = useMemo(() => [{ options: properties.kind === "ready" ? properties.list.map((p) => ({ value: p.id, label: p.name })) : [] }], [properties]);
+
   return (
     <Dialog
       title="Add a job"
       onClose={onClose}
+      initialFocus="none"
       actions={
         <>
           <button type="button" className={`${ed.btn} ${ed.btnGhost}`} onClick={onClose} disabled={busy}>
             Cancel
           </button>
-          <button type="button" className={`${ed.btn} ${ed.btnPrimary}`} onClick={() => void save()} disabled={busy || properties.kind !== "ready"}>
-            {busy ? "Adding…" : "Add the job"}
+          <button type="button" className={`${ed.btn} ${ed.btnPrimary}`} onClick={() => void save()} disabled={busy || units.kind !== "ready"}>
+            {busy ? "Adding…" : recordNow ? "Add and record as cleaned" : "Add the job"}
           </button>
         </>
       }
     >
-      <div className={styles.dialogBody}>
+      <div className={`${styles.dialogBody} ${styles.addForm}`}>
         <div className={styles.dialogField}>
           <span className={styles.dialogLabel}>Property</span>
-          <AdminSelect label="Property" value={propertyId} onChange={setPropertyId} placeholder={properties.kind === "loading" ? "Loading the properties…" : properties.kind === "error" ? "The properties could not be read" : "Pick the property"} searchable groups={propertyGroups} disabled={busy || properties.kind !== "ready"} />
+          <PropertySearch units={units} recent={recent} picked={unit} onPick={pick} disabled={busy} inputRef={searchRef} />
         </div>
-        <div className={styles.dialogRow}>
-          <div className={styles.dialogField}>
-            <span className={styles.dialogLabel}>Day</span>
-            <DateRangeField label="Day" single from={day} to={day} onChange={(range) => setDay(range.from)} />
-          </div>
-          <div className={styles.dialogField}>
-            <span className={styles.dialogLabel}>Cleaner</span>
-            <AdminSelect label="Cleaner" value={cleanerId} onChange={setCleanerId} groups={[{ options: [{ value: "", label: "Nobody yet" }, ...active.map((m) => ({ value: m.id, label: m.name ?? "Unnamed" }))] }]} disabled={busy} />
-          </div>
+        <div className={styles.dialogField}>
+          <span className={styles.dialogLabel}>Day</span>
+          <DateRangeField label="Day" single from={day} to={day} min={ADDED_JOB_FROM_DAY} max={addedJobLastDay(today)} note={FLOOR_WORDS} className={styles.fieldFull} onChange={(range) => range.from && setDay(range.from)} />
         </div>
-        <div className={styles.dialogRow}>
-          <label className={styles.dialogField}>
-            <span className={styles.dialogLabel}>Label</span>
-            <input className={styles.amountInput} value={label} maxLength={JOB_LABEL_MAX} placeholder={DEFAULT_JOB_LABEL} onChange={(e) => setLabel(e.target.value)} disabled={busy} aria-label="Label" />
-          </label>
-          <div className={styles.dialogField}>
-            <span className={styles.dialogLabel}>Tier</span>
-            <AdminSelect label="Tier" value={tier} onChange={(value) => setTier((PRESET_KINDS as readonly string[]).includes(value) ? (value as PresetKind) : "short")} groups={[{ options: PRESET_KINDS.map((kind) => ({ value: kind, label: `${TIER_WORDS[kind][0].toUpperCase()}${TIER_WORDS[kind].slice(1)} (${TIER_NIGHTS[kind]})` })) }]} disabled={busy} />
-          </div>
-          <label className={styles.dialogField}>
-            <span className={styles.dialogLabel}>Amount on the job ($, optional)</span>
-            <input className={styles.amountInput} inputMode="decimal" value={amount} placeholder="Cleaning price" onChange={(e) => setAmount(e.target.value)} disabled={busy} aria-label="Amount on the job" />
-          </label>
+        <div className={styles.dialogField}>
+          <span className={styles.dialogLabel}>Cleaner</span>
+          <AdminSelect label="Cleaner" className={ed.selectFull} value={cleanerId} onChange={setCleanerId} groups={[{ options: [{ value: "", label: "Nobody yet" }, ...active.map((m) => ({ value: m.id, label: m.name ?? "Unnamed" }))] }]} disabled={busy} />
         </div>
-        <p className={styles.muted}>It reaches the cleaner’s app like any job and is marked the same way. The calendar never changes it. With no amount, a mark takes the property’s {TIER_WORDS[tier]} cleaning price. Any number of jobs can share a property and a day: one cleaner each.</p>
+        <div className={styles.dialogField}>
+          <span className={styles.dialogLabel} id="add-job-label">
+            Label
+          </span>
+          <div className={styles.labelChoices} role="radiogroup" aria-labelledby="add-job-label">
+            {[...JOB_LABEL_CHOICES, OTHER_LABEL].map((choice) => (
+              <button key={choice} type="button" role="radio" aria-checked={labelChoice === choice} className={`${styles.choice} ${labelChoice === choice ? styles.choiceOn : ""}`} onClick={() => setLabelChoice(choice)} disabled={busy}>
+                {choice}
+              </button>
+            ))}
+          </div>
+          {labelChoice === OTHER_LABEL && <input className={styles.textInput} value={otherLabel} maxLength={JOB_LABEL_MAX} placeholder="The label, like Windows" onChange={(e) => setOtherLabel(e.target.value)} disabled={busy} aria-label="Other label" />}
+        </div>
+        <div className={styles.dialogField}>
+          <span className={styles.dialogLabel}>Amount ($)</span>
+          <PriceField
+            id="add-job-amount"
+            label="Amount"
+            state={start.kind}
+            prices={prices}
+            lastTyped={lastTyped}
+            tier={tier}
+            amount={amount}
+            onChange={(next) => {
+              setTier(next.tier);
+              setAmount(next.amount);
+            }}
+            words={words}
+            emptyPlaceholder="Pick the property first"
+            disabled={busy}
+          />
+        </div>
+        {offerCleaned && (
+          <div className={styles.cleanedRow}>
+            <Tick checked={alreadyCleaned} onChange={() => setAlreadyCleaned((on) => !on)} label="Already cleaned" disabled={busy} />
+            <span className={styles.pickName}>Already cleaned</span>
+            {/* With nobody picked, the refusal comes once, on Add (one sentence, said once). */}
+            {alreadyCleaned && cleanerId !== "" && <span className={styles.muted}>Recorded for {cleanerName ?? "them"} as it is added.</span>}
+          </div>
+        )}
+        <p className={styles.muted}>Goes to the cleaner’s app like any job.</p>
         {said && (
           <p className={styles.warn} role="alert">
             {said}
