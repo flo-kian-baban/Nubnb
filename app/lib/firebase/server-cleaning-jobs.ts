@@ -65,8 +65,8 @@ import type { PaymentView } from '@/app/lib/pay/model';
 import { monthBounds, type PersonJob } from '@/app/lib/pay/month';
 import { CLEANERS_COLLECTION, fieldText, roleOf, type Actor, type Refusal } from '@/app/lib/cleaners/model';
 import { CLEANINGS_COLLECTION, CLEANING_SCHEMA_VERSION, readCleaning, type Cleaning, type CleaningEvent } from '@/app/lib/cleanings/model';
-import { TIER_WORDS, markAmount, type AmountSource, type PresetKind } from '@/app/lib/cleanings/prices';
-import { pricesInTx } from './server-cleaning-prices';
+import { NO_PRICES, PROPERTY_CLEANING_PRICES_COLLECTION, TIER_WORDS, jobTier, markAmount, presetCents, readCleaningPrices, type AmountSource, type CleaningPrices, type PresetKind } from '@/app/lib/cleanings/prices';
+import { nextCleaningPricesRecord, pricesInTx, pricesRecordInTx } from './server-cleaning-prices';
 import { addedJobAmount, addedJobDayProblem, canRecordOnAdd } from '@/app/lib/schedule/add-job';
 import { readCurrent } from '@/app/lib/availability/store';
 import { torontoDay } from '@/app/lib/availability/days';
@@ -146,11 +146,18 @@ export async function readSchedule(from: string, to: string): Promise<ScheduleRe
   const propertyIds = distinct(jobs.map((job) => job.propertyId));
   const cleaningIds = distinct(jobs.flatMap((job) => job.cleanerIds.filter((cid) => job.assignments[cid].removedAt === null).map((cid) => job.assignments[cid].cleaningId).filter((id): id is string => id !== null)));
   const failedIds = copy ? Object.entries(copy.properties).filter(([, entry]) => entry.status === 'failed').map(([propertyId]) => propertyId) : [];
-  const [propertyDocs, cleaningDocs, facing] = await Promise.all([
+  const [propertyDocs, cleaningDocs, facing, priceDocs] = await Promise.all([
     propertyIds.length ? db.getAll(...propertyIds.map((id) => db.collection('properties').doc(id)), { fieldMask: ['name', 'details'] }) : Promise.resolve([]),
     cleaningIds.length ? db.getAll(...cleaningIds.map((id) => db.collection(CLEANINGS_COLLECTION).doc(id)), { fieldMask: ['status', 'amountCents', 'amountFrom', 'extra', 'history'] }) : Promise.resolve([]),
     cleanerFacingNamesOf([...propertyIds, ...failedIds]),
+    // Each unit's cleaning prices (server-only, admin-only: the row's price and the dialogs' price, 2026-11-06).
+    propertyIds.length ? db.getAll(...propertyIds.map((id) => db.collection(PROPERTY_CLEANING_PRICES_COLLECTION).doc(id))) : Promise.resolve([]),
   ]);
+  const prices: Record<string, CleaningPrices> = {};
+  for (const doc of priceDocs) {
+    const record = doc.exists ? readCleaningPrices(doc.id, doc.data() ?? {}) : null;
+    if (record) prices[doc.id] = { shortTermCents: record.shortTermCents, midTermCents: record.midTermCents, longTermCents: record.longTermCents };
+  }
   // Each property by the name the admin shows: its cleaner-facing name, usually the address, else its public title
   // (Kian's rulings of 2026-10-15, evening), as the cleaner app's job list already names it.
   const properties = new Map(propertyDocs.filter((doc) => doc.exists).map((doc) => {
@@ -192,13 +199,13 @@ export async function readSchedule(from: string, to: string): Promise<ScheduleRe
         .filter(([, entry]) => entry.status === 'failed')
         .map(([propertyId, entry]) => ({ propertyId, name: internalNameOf(facing, propertyId, entry.name), since: entry.failedSince ?? null }))
     : [];
-  return { jobs: views, team, calendar: { refreshedAt: copy?.refreshedAt ?? null, failed }, unreadable };
+  return { jobs: views, team, calendar: { refreshedAt: copy?.refreshedAt ?? null, failed }, unreadable, prices };
 }
 
 // ─── Assignments (admin) ───────────────────────────────────────
 
 export type SetAssigneesResult =
-  | { kind: 'saved'; job: StoredJob; changed: boolean }
+  | { kind: 'saved'; job: StoredJob; changed: boolean; price: JobPriceOutcome | null }
   | { kind: 'not-found' }
   | { kind: 'changed-since' }
   | { kind: 'unreadable' }
@@ -209,6 +216,11 @@ export type SetAssigneesResult =
   | { kind: 'not-assignable'; name: string | null; why: 'missing' | 'not-a-cleaner' | 'inactive' }
   /** Two or more cleaners asked for: a job has one (Build 2). */
   | { kind: 'one-cleaner' }
+  /** The price sent with it (2026-11-06): the job's money already counts, or the cleaning price asked to be saved cannot be. */
+  | { kind: 'locked' }
+  | { kind: 'price-needed'; tier: PresetKind }
+  | { kind: 'price-exists'; tier: PresetKind }
+  | { kind: 'prices-unreadable'; tier: PresetKind }
   | { kind: 'failed' };
 
 export const ASSIGN_REFUSALS: Record<'not-found' | 'changed-since' | 'unreadable' | 'booking-changed' | 'one-cleaner' | 'failed', Refusal> = {
@@ -226,9 +238,11 @@ export const MAX_ASSIGNEES = 1;
 /**
  * Set who is on a job, as the admin saw it (`seen`: its history's length): one active cleaner, never a handyman
  * (ruling 2), or nobody; nobody is put on a job whose booking changed; two or more are refused (Build 2). A cleaner
- * taken off must not have marked it. Nothing differs, nothing is written.
+ * taken off must not have marked it. With `price` (the price in Assign, Kian's instruction of 2026-11-06), the job's
+ * price is saved in the same transaction (`planJobPrice`), one history line for each. Nothing differs, nothing is
+ * written.
  */
-export async function setAssignees(actor: Actor, jobId: string, wanted: string[], seen: number): Promise<SetAssigneesResult> {
+export async function setAssignees(actor: Actor, jobId: string, wanted: string[], seen: number, price?: JobPriceInput, now: Date = new Date()): Promise<SetAssigneesResult> {
   const db = getAdminDb();
   const ref = db.collection(CLEANING_JOBS_COLLECTION).doc(jobId);
   try {
@@ -242,7 +256,7 @@ export async function setAssignees(actor: Actor, jobId: string, wanted: string[]
       if (want.length > MAX_ASSIGNEES) return { kind: 'one-cleaner' };
       const added = want.filter((cid) => !job.cleanerIds.includes(cid));
       const removed = job.cleanerIds.filter((cid) => !want.includes(cid));
-      if (added.length === 0 && removed.length === 0) return { kind: 'saved', job, changed: false };
+      if (added.length === 0 && removed.length === 0 && !price) return { kind: 'saved', job, changed: false, price: null };
       if (added.length > 0 && job.status !== 'open') return { kind: 'booking-changed' };
       for (const cid of removed) {
         if (job.assignments[cid].cleaningId !== null) return { kind: 'marked', name: job.assignments[cid].nameAtAssignment };
@@ -257,7 +271,9 @@ export async function setAssignees(actor: Actor, jobId: string, wanted: string[]
         names.set(doc.id, name);
       }
 
-      const at = new Date().toISOString();
+      const at = now.toISOString();
+      const pricePlan = price ? await planJobPrice(tx, job, price, actor, at) : null;
+      if (pricePlan && pricePlan.kind !== 'plan') return pricePlan.kind === 'locked' ? { kind: 'locked' } : { kind: pricePlan.kind, tier: jobTier(job) };
       const assignments: Record<string, Assignment> = {};
       const cleanerIds: string[] = [];
       for (const cid of job.cleanerIds) {
@@ -272,8 +288,16 @@ export async function setAssignees(actor: Actor, jobId: string, wanted: string[]
         cleanerIds.push(cid);
         events.push(jobEvent(at, 'assigned', actor, { cleanerId: cid, cleanerName: names.get(cid) ?? null }));
       }
-      tx.update(ref, { cleanerIds, assignments, history: events });
-      return { kind: 'saved', job: { ...job, cleanerIds, assignments, history: events }, changed: true };
+      const amount = pricePlan?.kind === 'plan' ? pricePlan.amount : null;
+      if (amount) events.push(amount.event);
+      const priceWrite = pricePlan?.kind === 'plan' ? pricePlan.priceWrite : null;
+      const changed = added.length > 0 || removed.length > 0 || amount !== null || priceWrite !== null;
+      if (!changed) return { kind: 'saved', job, changed: false, price: pricePlan?.kind === 'plan' ? pricePlan.outcome : null };
+      const next = { cleanerIds, assignments, history: events, ...(amount ? { amountCents: amount.amountCents } : {}) };
+      tx.update(ref, next);
+      for (const c of amount?.cleanings ?? []) tx.update(c.ref, c.data);
+      if (priceWrite) tx.set(priceWrite.ref, priceWrite.record);
+      return { kind: 'saved', job: { ...job, ...next }, changed: true, price: pricePlan?.kind === 'plan' ? pricePlan.outcome : null };
     });
   } catch (err) {
     console.error(`[jobs] assigning on ${jobId} failed: grpc code ${grpcCode(err)}`);
@@ -850,6 +874,44 @@ export const JOB_AMOUNT_REFUSALS: Record<'not-found' | 'changed-since' | 'unread
   failed: { status: 502, code: 'JOB_SAVE_FAILED', message: 'Could not save the job’s amount.', hint: 'It may or may not have been saved. Reload the Schedule to see.' },
 };
 
+/** What changing a job's own amount writes, planned inside the caller's transaction (its reads come first). */
+type AmountPlan =
+  | { kind: 'same' }
+  | { kind: 'locked' }
+  | { kind: 'plan'; amountCents: number | null; event: ReturnType<typeof jobEvent>; cleanings: { ref: DocumentReference; data: Record<string, unknown> }[] };
+
+/**
+ * The job's own amount set, changed or cleared (ruling B), planned: a mark's cleaning that still waits — its cleaner
+ * asked for extra and no admin has decided, or it has no amount yet — follows the new amount (its history says so);
+ * one whose money already counts locks the amount. One plan for the row's Amount… and for the price in Assign and
+ * Change cleaner (2026-11-06), so both do exactly the same.
+ */
+async function planJobAmount(tx: Transaction, job: StoredJob, amountCents: number | null, actor: Actor, at: string): Promise<AmountPlan> {
+  const db = getAdminDb();
+  if (job.amountCents === amountCents) return { kind: 'same' };
+  const marked = job.cleanerIds.map((cid) => job.assignments[cid]).filter((a) => a.cleaningId !== null && a.removedAt === null);
+  const docs = marked.length ? await tx.getAll(...marked.map((a) => db.collection(CLEANINGS_COLLECTION).doc(a.cleaningId as string))) : [];
+  const waiting: { ref: DocumentReference; cleaning: Cleaning & { id: string } }[] = [];
+  for (const doc of docs) {
+    if (!doc.exists) continue;
+    const cleaning = readCleaning(doc.id, doc.data() ?? {});
+    if (!cleaning || cleaning.status !== 'logged') continue;
+    const counts = cleaning.amountCents !== null && cleaning.extra?.status !== 'asked';
+    if (counts) return { kind: 'locked' };
+    waiting.push({ ref: doc.ref, cleaning });
+  }
+  const cleanings: { ref: DocumentReference; data: Record<string, unknown> }[] = [];
+  // A waiting cleaning of the job's cleaner follows the job's amount (an older job with two cleaners: never a share).
+  if (job.cleanerIds.length === 1 && amountCents !== null) {
+    for (const { ref, cleaning } of waiting) {
+      if (cleaning.amountCents === amountCents) continue;
+      const event: CleaningEvent = { at, action: 'changed', actor, reason: 'amount set on the job', before: { amountCents: cleaning.amountCents }, after: { amountCents } };
+      cleanings.push({ ref, data: { amountCents, amountFrom: 'job', history: [...cleaning.history, event] } });
+    }
+  }
+  return { kind: 'plan', amountCents, event: jobEvent(at, 'amount-set', actor, { amountCents }), cleanings };
+}
+
 /**
  * Set, change or clear a job's own amount (Kian's ruling B of 2026-11-01): "before assignment or at any time before
  * the cleaning's money is approved. It beats the base price." As the admin saw it (`seen`). A mark's cleaning that
@@ -866,37 +928,89 @@ export async function setJobAmount(actor: Actor, jobId: string, amountCents: num
       const job = readJob(snap.id, snap.data() ?? {});
       if (!job) return { kind: 'unreadable' };
       if (job.history.length !== seen) return { kind: 'changed-since' };
-      if (job.amountCents === amountCents) return { kind: 'set', job, changed: false, cleaningsChanged: 0 };
-      const marked = job.cleanerIds.map((cid) => job.assignments[cid]).filter((a) => a.cleaningId !== null && a.removedAt === null);
-      const docs = marked.length ? await tx.getAll(...marked.map((a) => db.collection(CLEANINGS_COLLECTION).doc(a.cleaningId as string))) : [];
-      const waiting: { ref: DocumentReference; cleaning: Cleaning & { id: string } }[] = [];
-      for (const doc of docs) {
-        if (!doc.exists) continue;
-        const cleaning = readCleaning(doc.id, doc.data() ?? {});
-        if (!cleaning || cleaning.status !== 'logged') continue;
-        const counts = cleaning.amountCents !== null && cleaning.extra?.status !== 'asked';
-        if (counts) return { kind: 'locked' };
-        waiting.push({ ref: doc.ref, cleaning });
-      }
-      const at = now.toISOString();
-      tx.update(ref, { amountCents, history: [...job.history, jobEvent(at, 'amount-set', actor, { amountCents })] });
-      let cleaningsChanged = 0;
-      // A waiting cleaning of the job's cleaner follows the job's amount (an older job with two cleaners: never a share).
-      if (job.cleanerIds.length === 1 && amountCents !== null) {
-        for (const { ref: cleaningRef, cleaning } of waiting) {
-          if (cleaning.amountCents === amountCents) continue;
-          const event: CleaningEvent = { at, action: 'changed', actor, reason: 'amount set on the job', before: { amountCents: cleaning.amountCents }, after: { amountCents } };
-          tx.update(cleaningRef, { amountCents, amountFrom: 'job', history: [...cleaning.history, event] });
-          cleaningsChanged += 1;
-        }
-      }
-      return { kind: 'set', job: { ...job, amountCents, history: [...job.history, jobEvent(at, 'amount-set', actor, { amountCents })] }, changed: true, cleaningsChanged };
+      const plan = await planJobAmount(tx, job, amountCents, actor, now.toISOString());
+      if (plan.kind === 'same') return { kind: 'set', job, changed: false, cleaningsChanged: 0 };
+      if (plan.kind === 'locked') return { kind: 'locked' };
+      const history = [...job.history, plan.event];
+      tx.update(ref, { amountCents, history });
+      for (const c of plan.cleanings) tx.update(c.ref, c.data);
+      return { kind: 'set', job: { ...job, amountCents, history }, changed: true, cleaningsChanged: plan.cleanings.length };
     });
   } catch (err) {
     console.error(`[jobs] setting the amount on ${jobId} failed: grpc code ${grpcCode(err)}`);
     return { kind: 'failed' };
   }
 }
+
+// ─── The price with Assign and Change cleaner (Kian's instruction of 2026-11-06) ───
+
+/**
+ * The price an admin saw in Assign or Change cleaner, sent with the cleaner: what the field held (null: emptied), and
+ * "Also save as this unit's <tier> cleaning price". Sent only when the admin changed it.
+ */
+export interface JobPriceInput {
+  cents: number | null;
+  saveCleaningPrice: boolean;
+}
+
+/** What the price did, as the routes answer it. */
+export interface JobPriceOutcome {
+  /** The job's own amount after the save: null when the job takes its tier's cleaning price. */
+  amountCents: number | null;
+  amountChanged: boolean;
+  /** The unit's cleaning price for the job's tier, when this save set it. */
+  cleaningPriceSaved: { tier: PresetKind; cents: number } | null;
+  cleaningsChanged: number;
+}
+
+type PricePlan =
+  | { kind: 'plan'; amount: Extract<AmountPlan, { kind: 'plan' }> | null; priceWrite: { ref: DocumentReference; record: ReturnType<typeof nextCleaningPricesRecord> } | null; outcome: JobPriceOutcome }
+  | { kind: 'locked' }
+  | { kind: 'price-needed' }
+  | { kind: 'price-exists'; tier: PresetKind }
+  | { kind: 'prices-unreadable' };
+
+export const JOB_PRICE_REFUSALS: Record<'price-needed' | 'price-exists' | 'prices-unreadable', (tier: PresetKind) => Refusal> = {
+  'price-needed': (tier) => ({ status: 422, code: 'JOB_PRICE_NEEDED', message: `Type the amount to save it as this unit’s ${TIER_WORDS[tier]} cleaning price.`, hint: 'Nothing was saved.' }),
+  'price-exists': (tier) => ({ status: 409, code: 'CLEANING_PRICE_EXISTS', message: `This unit has a ${TIER_WORDS[tier]} cleaning price already.`, hint: 'Nothing was saved. Change it on the property’s edit page.' }),
+  'prices-unreadable': () => ({ status: 500, code: 'CLEANING_PRICES_UNREADABLE', message: 'This unit’s cleaning prices are not in the shape a change needs.', hint: 'Nothing was saved.' }),
+};
+
+/**
+ * The price sent with Assign or Change cleaner, planned inside the caller's transaction, with the prices it reads there
+ * (Kian's instruction of 2026-11-06): exactly the job's tier cleaning price is no amount on the job (it takes that
+ * price), anything else is the job's own amount, set exactly as the row's Amount… sets it (`planJobAmount`: the same
+ * lock, the same waiting cleaning following it); an emptied field clears the job's amount. "Also save as this unit's
+ * <tier> cleaning price" sets that price on the unit's record, with its own history line, only for a tier with none;
+ * the job then takes it. A cleaning price set never changes an existing cleaning.
+ */
+async function planJobPrice(tx: Transaction, job: StoredJob, price: JobPriceInput, actor: Actor, at: string): Promise<PricePlan> {
+  const tier = jobTier(job);
+  const record = await pricesRecordInTx(tx, job.propertyId);
+  let prices = record.prices;
+  let priceWrite: { ref: DocumentReference; record: ReturnType<typeof nextCleaningPricesRecord> } | null = null;
+  if (price.saveCleaningPrice) {
+    if (price.cents === null) return { kind: 'price-needed' };
+    if (record.unreadable) return { kind: 'prices-unreadable' };
+    if (presetCents(prices, tier) !== null) return { kind: 'price-exists', tier };
+    const next = { ...(prices ?? NO_PRICES), [TIER_FIELD[tier]]: price.cents };
+    priceWrite = { ref: record.ref, record: nextCleaningPricesRecord(job.propertyId, record.stored, next, actor, at) };
+    prices = next;
+  }
+  const base = presetCents(prices, tier);
+  const desired = price.cents === null || price.cents === base ? null : price.cents;
+  const amount = await planJobAmount(tx, job, desired, actor, at);
+  if (amount.kind === 'locked') return { kind: 'locked' };
+  return {
+    kind: 'plan',
+    amount: amount.kind === 'plan' ? amount : null,
+    priceWrite,
+    outcome: { amountCents: desired, amountChanged: amount.kind === 'plan', cleaningPriceSaved: priceWrite ? { tier, cents: price.cents as number } : null, cleaningsChanged: amount.kind === 'plan' ? amount.cleanings.length : 0 },
+  };
+}
+
+/** The field of a prices record a tier's price is kept in. */
+const TIER_FIELD: Record<PresetKind, 'shortTermCents' | 'midTermCents' | 'longTermCents'> = { short: 'shortTermCents', mid: 'midTermCents', long: 'longTermCents' };
 
 // ─── Delete a job (Build 2, item 2) ────────────────────────────
 
@@ -978,7 +1092,7 @@ export async function deleteJob(actor: Actor, jobId: string, seen: number, now: 
 // ─── Change cleaner (ruling D) ─────────────────────────────────
 
 export type SwapResult =
-  | { kind: 'swapped'; job: StoredJob; from: string | null; to: string | null }
+  | { kind: 'swapped'; job: StoredJob; from: string | null; to: string | null; price: JobPriceOutcome | null }
   | { kind: 'not-found' }
   | { kind: 'changed-since' }
   | { kind: 'unreadable' }
@@ -988,6 +1102,11 @@ export type SwapResult =
   | { kind: 'marked'; name: string | null }
   | { kind: 'already-on'; name: string | null }
   | { kind: 'not-assignable'; name: string | null; why: 'missing' | 'not-a-cleaner' | 'inactive' }
+  /** The price sent with it (2026-11-06), as for setAssignees. */
+  | { kind: 'locked' }
+  | { kind: 'price-needed'; tier: PresetKind }
+  | { kind: 'price-exists'; tier: PresetKind }
+  | { kind: 'prices-unreadable'; tier: PresetKind }
   | { kind: 'failed' };
 
 export const SWAP_REFUSALS: Record<'not-found' | 'changed-since' | 'unreadable' | 'booking-changed' | 'not-on-job' | 'failed', Refusal> = {
@@ -1005,7 +1124,7 @@ export const SWAP_REFUSALS: Record<'not-found' | 'changed-since' | 'unreadable' 
  * `to`, an active cleaner not already on it, goes on in their place; the history says who was replaced by whom. As
  * the admin saw it (`seen`).
  */
-export async function swapCleaner(actor: Actor, jobId: string, from: string, to: string, seen: number, now: Date = new Date()): Promise<SwapResult> {
+export async function swapCleaner(actor: Actor, jobId: string, from: string, to: string, seen: number, now: Date = new Date(), price?: JobPriceInput): Promise<SwapResult> {
   const db = getAdminDb();
   const ref = db.collection(CLEANING_JOBS_COLLECTION).doc(jobId);
   try {
@@ -1027,6 +1146,9 @@ export async function swapCleaner(actor: Actor, jobId: string, from: string, to:
       if (account.get('status') !== 'active') return { kind: 'not-assignable', name: toName, why: 'inactive' };
 
       const at = now.toISOString();
+      // The price sent with it (2026-11-06): planned with the reads, before any write.
+      const pricePlan = price ? await planJobPrice(tx, job, price, actor, at) : null;
+      if (pricePlan && pricePlan.kind !== 'plan') return pricePlan.kind === 'locked' ? { kind: 'locked' } : { kind: pricePlan.kind, tier: jobTier(job) };
       const assignments: Record<string, Assignment> = {};
       const cleanerIds: string[] = [];
       for (const cid of job.cleanerIds) {
@@ -1038,13 +1160,19 @@ export async function swapCleaner(actor: Actor, jobId: string, from: string, to:
           cleanerIds.push(cid);
         }
       }
+      const amount = pricePlan?.kind === 'plan' ? pricePlan.amount : null;
       const history = [
         ...job.history,
         jobEvent(at, 'unassigned', actor, { cleanerId: from, cleanerName: leaving.nameAtAssignment, reason: `replaced by ${toName ?? 'another cleaner'}` }),
         jobEvent(at, 'assigned', actor, { cleanerId: to, cleanerName: toName, reason: `in place of ${leaving.nameAtAssignment ?? 'another cleaner'}` }),
+        ...(amount ? [amount.event] : []),
       ];
-      tx.update(ref, { cleanerIds, assignments, history });
-      return { kind: 'swapped', job: { ...job, cleanerIds, assignments, history }, from: leaving.nameAtAssignment, to: toName };
+      const next = { cleanerIds, assignments, history, ...(amount ? { amountCents: amount.amountCents } : {}) };
+      tx.update(ref, next);
+      for (const c of amount?.cleanings ?? []) tx.update(c.ref, c.data);
+      const priceWrite = pricePlan?.kind === 'plan' ? pricePlan.priceWrite : null;
+      if (priceWrite) tx.set(priceWrite.ref, priceWrite.record);
+      return { kind: 'swapped', job: { ...job, ...next }, from: leaving.nameAtAssignment, to: toName, price: pricePlan?.kind === 'plan' ? pricePlan.outcome : null };
     });
   } catch (err) {
     console.error(`[jobs] changing the cleaner on ${jobId} failed: grpc code ${grpcCode(err)}`);

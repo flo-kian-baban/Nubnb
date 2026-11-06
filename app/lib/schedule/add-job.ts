@@ -95,6 +95,18 @@ export function priceChoices(prices: CleaningPrices | null, tier: PresetKind): {
 export const TIER_SHORT: Record<PresetKind, string> = { short: 'Short', mid: 'Mid', long: 'Long' };
 
 /**
+ * The one-tap prices beside the price control: in Add a job, every other tier the unit has a price for (a tap picks the
+ * tier); with the job's tier held (Assign, Change cleaner, 2026-11-06), every cleaning price of the unit that differs
+ * from what the field holds, the job's own tier's included, so a tap always fills something new.
+ */
+export function priceChips(prices: CleaningPrices | null, tier: PresetKind, cents: number | null, fixedTier: boolean): { tier: PresetKind; cents: number; words: string }[] {
+  if (!fixedTier) return priceChoices(prices, tier);
+  return PRESET_KINDS.map((kind) => ({ kind, cents: presetCents(prices, kind) }))
+    .filter((c): c is { kind: PresetKind; cents: number } => c.cents !== null && c.cents !== cents)
+    .map(({ kind, cents: price }) => ({ tier: kind, cents: price, words: `${TIER_SHORT[kind]} $${(price / 100).toFixed(2)}` }));
+}
+
+/**
  * What an added job stores of the amount the admin left in the field (Kian's instruction: "Store the tier the chosen
  * price came from, as today"): the tier always; no amount on the job when the field is empty or holds exactly that
  * tier's cleaning price — the job then reads as that tier's price, as it did with the Tier control and no amount — and

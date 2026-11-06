@@ -6457,3 +6457,83 @@ the second, on the build committed, gave every figure here.
 - **Reads:** 1,544 for both runs, exports left out (of 2,500). **Cleanup:** 32 paths a run, deleted by exact path from
   the guard's ledger; the opening and closing exports of each run identical (642 documents). Eighteen screenshots in
   `~/Backups/Nubnb/add-job/`, OCR-scanned for every code and PIN: no hit.
+
+## 74. The price in Assign and Change cleaner; a unit's cleaning price set from the dialog — Kian's instruction of 2026-11-06
+
+Kian: "when assigning a cleaner, the admin must see the unit's price for this job and be able to change it before
+sending, smoothly, with the base prices shown as presets." Four items, on the price control of the Add a job pass (§73);
+words from §69.2 only; no change to how amounts are counted. To be committed and pushed without another review once
+verified ("Schedule: price shown and editable when assigning; set a unit's base price from the dialog").
+
+### 74.1 What changed
+
+1. **"Price for this job"** stands below the cleaner choice in Assign (and Who cleans…) and in Change cleaner. It opens
+   on the job's own amount when it has one, else the unit's cleaning price for the job's tier (short 1–6 nights, mid
+   7–27, long 28+), with the unit's other cleaning prices one tap each beside it, only where it has them. The note
+   under it: "Short-term cleaning price · 3 nights" ("cleaning price" is §69.2's word for what the dispatch calls the
+   price and the base price). The figure can be typed. Saved with the dialog, in one request and one transaction:
+   the cleaner and the price, one history line each. A figure equal to the tier's cleaning price is no amount on the job;
+   any other is the job's own amount, set exactly as the row's Amount… sets it (`planJobAmount`, now shared by both:
+   the same lock, the same waiting cleaning following it); an emptied field clears the job's own amount. The price is
+   sent only when the admin changed it.
+2. **A unit with no price for the tier:** the field is empty, the amount last typed there its grey placeholder ("Last
+   typed for short-term: $X · 3 nights"; nothing is saved untyped). The tick "Also save as this unit's short-term
+   cleaning price" sets the unit's cleaning price for that tier in its record, with its own history line, in the same
+   transaction; the job then takes it (no amount of its own), and so do later jobs. A cleaning price set never changes
+   an existing cleaning. The activity log gets that save's own line ("Set a property's cleaning prices") a millisecond
+   after the assignment's. Offered only where the unit has no price for the tier; the route refuses to overwrite one
+   (409 CLEANING_PRICE_EXISTS) and the tick with no amount (422 JOB_PRICE_NEEDED). With the tick on, the note reads the
+   figure as the cleaning price it is about to become.
+3. **Locked:** once the job's cleaning counts its money, the price shows read-only (the counted amount, a dashed
+   field, no taps) with "Locked: already counted" in amber, and nothing is sent; the route refuses a price on such a job
+   as Amount… does (409 JOB_AMOUNT_LOCKED). A cleaning still waiting (a note to decide, or no amount) is not locked.
+4. **The row's price** stands beside the cleaner chip: "$63.40 · short", "$70.10 · set on the job", "no cleaning
+   price". Once the job is marked, it is the cleaning's own amount and where it came from; nothing when that cleaning
+   needs an amount (the chip says so) or when a booking changed and nobody marked it. The Schedule's read now carries
+   the cleaning prices of the units on the page (admin-only; one read per unit). The turnover column's "$X on the job"
+   chip is gone: the price beside the cleaner says it.
+
+### 74.2 The developer's choices (none changes how an amount is counted, a statement, or what an owner receives)
+
+- **The words:** "Short-term cleaning price · 3 nights" and "Also save as this unit's short-term cleaning price"
+  (the dispatch: "Short-term price · 3 nights", "this unit's <tier> price", "base prices"), for §69.2's one word.
+- **The taps** offer every cleaning price of the unit that differs from the field, the job's own tier's included, so a
+  figure changed by a tap can be tapped back.
+- **The tick never overwrites a unit's price:** it is shown only for a tier with none, and the route refuses otherwise.
+  Changing a set price stays on the property's edit page.
+- **Take a cleaner off** (a booking that changed) has no price: nothing more will be marked there.
+
+### 74.3 Tests
+
+New check `job-price` (tests/schedule/job-price.mjs, 25 checks on an in-memory Firestore): the dialog's opening figure,
+note and taps for each tier; what is sent; Assign and Change cleaner saving the cleaner and the price, one history line
+each, and the mark counting it, the unit's prices unchanged; the cleaning price itself and an emptied field; a unit
+with no price, its placeholder, the tick setting the price with one history line, this job and a later one taking it,
+an existing cleaning unchanged, the refusals; the lock and a waiting cleaning following the price; the row's price.
+The other 37 checks are identical to HEAD's.
+
+### 74.4 Verified (2026-11-06; a local build reading production, the server's clock Wed 15 Nov 2028, 10:00 Toronto)
+
+The same set-up as §73.4: a build copy with Firestore answered empty at build time, the write guard, the calendar copy
+and refresh state in the server's memory, a `__TEST__` admin with a minted session. Test records: Unlisted units P
+(made-up short, mid and long prices) and Q (no price; one cleaning logged by hand at a typed amount), cleaners `__TEST__`
+Ana and Ben, six calendar jobs of three nights each. Marks went through the cleaner app's own route
+(POST /api/cleaner/jobs/[id]) with minted cleaner sessions. Two runs: the first found the note saying "Set on the job"
+with the tick on (fixed); the second, on the build committed, gave every figure here.
+
+- **Assign on a 3-night job at P:** 63.40 with "Mid $69.90" and "Long $98.70", "Short-term cleaning price · 3 nights".
+  Saved as it stood: the job's history `created, assigned`, no amount of its own; Ana's mark counted $63.40, short-term
+  cleaning price.
+- **The price changed to 70.10:** "Set on the job · 3 nights", the three prices one tap away; saved: `created, assigned,
+  amount-set`, $70.10 on the job; Ana's mark counted $70.10, set on the job; P's cleaning prices unchanged.
+- **Q, no price:** empty, placeholder 73.10, "Last typed for short-term: $73.10 · 3 nights", the tick offered; 74.20
+  typed and ticked: "Short-term cleaning price · 3 nights". Saved: Q's record short $74.20, one history line by the test
+  admin; the job `created, assigned`, no amount of its own; the activity log's two lines in order; a later job at Q,
+  Ben's mark counted $74.20, short-term cleaning price.
+- **Locked:** Who cleans… on the job Ana marked at the seed: 63.40 read-only, no taps, "Locked: already counted".
+- **Change cleaner** with 72.30: Ben on in Ana's place, `unassigned, assigned, amount-set`, $72.30 on the job.
+- **The rows** before: "$63.40 · short" ×4, "no cleaning price" ×2; after: "$63.40 · short", "$70.10 · set on the job",
+  "$74.20 · short" ×2, "$63.40 · short", "$72.30 · set on the job".
+- **Reads:** 807 for both runs, exports left out (of 2,500). **Cleanup:** 30 paths a run, deleted by exact path; each
+  run's opening and closing exports identical (642 documents). Twelve screenshots in `~/Backups/Nubnb/job-price/`,
+  OCR-scanned for every code and PIN: no hit.

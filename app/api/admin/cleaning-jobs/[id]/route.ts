@@ -18,15 +18,25 @@
  *       base price; locked once a mark's cleaning counts its money (409 JOB_AMOUNT_LOCKED: the Cleanings tab).
  * Recorded in the activity log.
  *
- * Response: 200 `{ success: true, data: { job, changed } }` (the job as stored); 404, 409 (changed since, booking
- * changed, marked, locked), 422 (not assignable), 502 (outcome unknown).
+ * The price with Assign and Change cleaner (Kian's instruction of 2026-11-06): the first two bodies may carry `price`
+ * ("75.00" or null, what the dialog's field held, sent only when the admin changed it) and `saveCleaningPrice`. They are
+ * saved with the cleaner in one transaction: exactly the job's tier cleaning price is no amount on the job, anything
+ * else is the job's own amount (as `action: 'amount'` sets it: the same lock, 409 JOB_AMOUNT_LOCKED), an emptied field
+ * clears it; `saveCleaningPrice` sets the unit's cleaning price for the job's tier, only where it has none (409
+ * CLEANING_PRICE_EXISTS; 422 JOB_PRICE_NEEDED without an amount), and the activity log then gets that save's own line
+ * ("Set a property's cleaning prices") after this one.
+ *
+ * Response: 200 `{ success: true, data: { job, changed, price } }` (the job as stored; `price`: `{ amountCents,
+ * amountChanged, cleaningPriceSaved, cleaningsChanged }` or null); 404, 409 (changed since, booking changed, marked,
+ * locked), 422 (not assignable), 502 (outcome unknown).
  */
 
 import { NextRequest } from 'next/server';
-import { adminRoute } from '@/app/lib/api/verify-admin';
+import { adminRoute, recordAlso } from '@/app/lib/api/verify-admin';
 import { apiError, apiFailure, apiSuccess, apiValidationError, noStore } from '@/app/lib/api/safe-response';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
-import { DELETE_JOB_REFUSALS, JOB_AMOUNT_REFUSALS, ASSIGN_REFUSALS, SWAP_REFUSALS, deleteJob, setAssignees, setJobAmount, swapCleaner } from '@/app/lib/firebase/server-cleaning-jobs';
+import { DELETE_JOB_REFUSALS, JOB_AMOUNT_REFUSALS, JOB_PRICE_REFUSALS, ASSIGN_REFUSALS, SWAP_REFUSALS, deleteJob, setAssignees, setJobAmount, swapCleaner, type JobPriceInput, type JobPriceOutcome } from '@/app/lib/firebase/server-cleaning-jobs';
+import type { PresetKind } from '@/app/lib/cleanings/prices';
 import { DeleteJobSchema, JobPatchSchema } from '@/app/lib/cleanings/schemas';
 import { JOB_ID_PATTERN } from '@/app/lib/schedule/model';
 import { paymentWords } from '@/app/lib/pay/model';
@@ -58,11 +68,26 @@ export const PATCH = adminRoute(async function PATCH(request: NextRequest, conte
   const parsed = JobPatchSchema.safeParse(body);
   if (!parsed.success) return noStore(apiValidationError(parsed.error.issues.map((i) => ({ path: i.path.map(String).join('.'), message: i.message }))));
 
+  // The price sent with Assign or Change cleaner (2026-11-06): none unless the admin changed it.
+  const priceOf = (data: { price?: number | null; saveCleaningPrice: boolean }): JobPriceInput | undefined => (data.price === undefined && !data.saveCleaningPrice ? undefined : { cents: data.price ?? null, saveCleaningPrice: data.saveCleaningPrice });
+  /** A cleaning price saved with it: that save's own line in the activity log, after this request's. */
+  const recordPriceSaved = (job: { propertyId: string }, price: JobPriceOutcome | null) => {
+    if (price?.cleaningPriceSaved) recordAlso(request, 'PUT', `/api/admin/properties/${job.propertyId}/cleaning-prices`, 200);
+  };
+  const priceRefusal = (kind: 'locked' | 'price-needed' | 'price-exists' | 'prices-unreadable', tier?: PresetKind) => noStore(apiFailure(kind === 'locked' ? JOB_AMOUNT_REFUSALS.locked : JOB_PRICE_REFUSALS[kind](tier ?? 'short')));
+
   if ('action' in parsed.data && parsed.data.action === 'swap') {
-    const swapped = await swapCleaner(actor, id, parsed.data.from, parsed.data.to, parsed.data.seen);
+    const swapped = await swapCleaner(actor, id, parsed.data.from, parsed.data.to, parsed.data.seen, new Date(), priceOf(parsed.data));
     switch (swapped.kind) {
       case 'swapped':
-        return noStore(apiSuccess({ job: swapped.job, changed: true, from: swapped.from, to: swapped.to }));
+        recordPriceSaved(swapped.job, swapped.price);
+        return noStore(apiSuccess({ job: swapped.job, changed: true, from: swapped.from, to: swapped.to, price: swapped.price }));
+      case 'locked':
+        return priceRefusal('locked');
+      case 'price-needed':
+      case 'price-exists':
+      case 'prices-unreadable':
+        return priceRefusal(swapped.kind, swapped.tier);
       case 'marked':
         return noStore(apiFailure({ status: 409, code: 'JOB_ALREADY_MARKED', message: `${swapped.name ?? 'That cleaner'} has marked this job cleaned, so they stay on it.`, hint: 'Nothing was saved. Their cleaning is changed or removed in the Cleanings tab.' }));
       case 'already-on':
@@ -78,10 +103,17 @@ export const PATCH = adminRoute(async function PATCH(request: NextRequest, conte
     return set.kind === 'set' ? noStore(apiSuccess({ job: set.job, changed: set.changed, cleaningsChanged: set.cleaningsChanged })) : noStore(apiFailure(JOB_AMOUNT_REFUSALS[set.kind]));
   }
 
-  const outcome = await setAssignees(actor, id, parsed.data.cleanerIds, parsed.data.seen);
+  const outcome = await setAssignees(actor, id, parsed.data.cleanerIds, parsed.data.seen, priceOf(parsed.data));
   switch (outcome.kind) {
     case 'saved':
-      return noStore(apiSuccess({ job: outcome.job, changed: outcome.changed }));
+      recordPriceSaved(outcome.job, outcome.price);
+      return noStore(apiSuccess({ job: outcome.job, changed: outcome.changed, price: outcome.price }));
+    case 'locked':
+      return priceRefusal('locked');
+    case 'price-needed':
+    case 'price-exists':
+    case 'prices-unreadable':
+      return priceRefusal(outcome.kind, outcome.tier);
     case 'marked':
       return noStore(apiFailure({ status: 409, code: 'JOB_ALREADY_MARKED', message: `${outcome.name ?? 'That cleaner'} has marked this job cleaned, so they stay on it.`, hint: 'Nothing was saved. Their cleaning is changed or removed in the Cleanings tab.' }));
     case 'not-assignable':

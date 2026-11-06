@@ -1,0 +1,56 @@
+═══ 1. "Price for this job": from the job's own amount or the unit's cleaning price; saved with the cleaner (item 1) ═══
+  a 3-night job at P: opens "63.40" · note "Short-term cleaning price · 3 nights" · one tap: "Mid $69.90" "Long $98.70" · after Mid tapped: "Short $63.40" "Long $98.70" → note "Set on the job · 3 nights"
+   ok   it opens on the unit's cleaning price for the job's tier, the tier and nights under it
+   ok   the other prices one tap away, only where the unit has them; after a tap, the tier's own is one tap back
+   ok   mid 7–27 nights, long 28 and more: each opens on its own tier's price
+  what Assign sends with the cleaner: left as it opened → none · the same, retyped → none · changed → send "70.10" · emptied → send null
+   ok   the price goes with the cleaner only when the admin changed it
+  Assign Ana at the cleaning price (nothing sent): saved, price null · history created, assigned, marked · Ana marks: $63.40 (short)
+   ok   assigned with the cleaning price: one line, and the mark counts at the cleaning price
+  Assign Ana with the price changed to $70.10: saved, price {"amountCents":7010,"amountChanged":true,"cleaningPriceSaved":null,"cleaningsChanged":0} · history created, assigned, amount-set, marked · on the job $70.10 · Ana marks: $70.10 (job) · P's cleaning prices unchanged
+   ok   the cleaner and the price saved together: one history line each, the price as the job's own amount
+   ok   the mark counts at that price; the unit's cleaning prices are unchanged
+  a price typed equal to the cleaning price: saved, amount changed false, history created, assigned
+   ok   the cleaning price itself is no amount on the job: no line for it
+   ok   a job with its own amount opens on it: "Set on the job"
+  its field emptied and saved with Ana: amount on the job none · history created, amount-set, assigned, amount-set · note while empty "Short-term cleaning price · 3 nights"
+   ok   emptied: the job's own amount cleared, as Amount… clears it; it takes the cleaning price
+  Change cleaner, Ana → Ben, the price changed to $72.30: swapped · history created, assigned, unassigned, assigned, amount-set, marked · Ben marks: $72.30 (job)
+   ok   Change cleaner saves the swap and the price together, and the new cleaner's mark counts it
+   ok   the route takes the price with Assign and Change cleaner, absent when unchanged
+
+═══ 2. A unit with no price for the tier: the "Last typed" placeholder, and "Also save as this unit's <tier> cleaning price" (item 2) ═══
+  a 3-night job at Q: opens "", placeholder "73.10", note "Last typed for short-term: $73.10 · 3 nights" · nothing typed anywhere: "No short-term cleaning price · 3 nights" · the tick offered: true ("Also save as this unit’s short-term cleaning price")
+   ok   empty, with "Last typed" as its grey placeholder, never a value
+  saved untyped: none · the tick with nothing typed: bad "Type the price to save it as this unit’s short-term cleaning price."
+  74.20 typed: "Set on the job · 3 nights" · with the tick: "Short-term cleaning price · 3 nights"
+   ok   with the tick, the price reads as the unit's cleaning price it is about to become
+   ok   nothing saved untyped; the tick needs a price, and is offered only where the unit has none
+  Assign Ana at Q with $74.20 and the tick: saved · price {"amountCents":null,"amountChanged":false,"cleaningPriceSaved":{"tier":"short","cents":7420},"cleaningsChanged":0} · Q's cleaning prices {"short":7420,"mid":null,"long":null}, history 1 line by Test admin · the job: none on it, history created, assigned
+   ok   the unit's short-term cleaning price is set, with its own history line
+   ok   the job takes the new cleaning price: no amount of its own, one line for the cleaner
+  Ana marks it: $74.20 (short) · a later job at Q, Ben marks: $74.20 (short) · the cleaning marked before, with no amount: none (was none)
+   ok   this job and a later one take the new cleaning price
+   ok   a cleaning price set never changes an existing cleaning (the one marked before still needs an amount)
+  the tick where the unit has the price already: price-exists ("This unit has a short-term cleaning price already.") · the tick with no amount: price-needed · Q's record still $74.20, 1 line
+   ok   a unit's cleaning price is never overwritten from the dialog; the tick needs an amount; nothing written
+
+═══ 3. Once the job's cleaning counts: read-only, "Locked: already counted" (item 3) ═══
+  the job Ana marked at $63.40: counts true · opens "63.40" · note "Locked: already counted" · the tick offered false · sends none
+   ok   read-only with "Locked: already counted"; nothing is sent
+  a price sent anyway: locked ("A cleaning of this job already counts its money.") · history 0 lines longer · Who cleans… saved with no price: saved, changed false
+   ok   the server refuses it as Amount… does; nothing written
+  a mark with a note waiting for a decision: counts false · a price sent with Who cleans…: saved, cleanings that followed 1 · its cleaning now $81.50 (job)
+   ok   a waiting cleaning is not locked, and follows the price, as with Amount…
+
+═══ 4. The job's price beside the cleaner chip (item 4) ═══
+  P, nobody yet, 3 nights: "$63.40 · short"
+  P, its own amount: "$95.10 · set on the job"
+  Q before the tick (no price): "no cleaning price"
+  P, marked and counted: "$63.40 · short"
+  P, marked, set on the job: "$70.10 · set on the job"
+  Q, marked, needs an amount: nothing beside the chip
+   ok   the row reads "$63.40 · short", "$95.10 · set on the job", "no cleaning price", or nothing where the chip says "needs an amount"
+   ok   a booking that changed, not marked: no price beside it
+
+every check passed

@@ -69,12 +69,14 @@ import { Dialog, Tick } from "../property/editor/controls";
 import ed from "../property/editor/editor.module.css";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
-import { addJobByHand, decideJobExtra, deleteJob, fetchAmountStart, fetchRegularCleaner, fetchSchedule, mergeJob, recordJobCleaned, reopenJobFor, setJobAmountOf, setJobCleaners, setRegularCleanerOf, swapJobCleaner, withCleaning, type RecordedOnAdd, type RegularCleanerAnswer, type ScheduleAnswer } from "@/app/lib/schedule-client";
+import { addJobByHand, decideJobExtra, deleteJob, fetchAmountStart, fetchRegularCleaner, fetchSchedule, mergeJob, recordJobCleaned, reopenJobFor, setJobAmountOf, setJobCleaners, setRegularCleanerOf, swapJobCleaner, withCleaning, type PriceOutcome, type PriceSent, type RecordedOnAdd, type RegularCleanerAnswer, type ScheduleAnswer } from "@/app/lib/schedule-client";
 import { fetchAvailabilityProperties } from "@/app/lib/availability-client";
 import { addDays, dayText, isDay, minutesBetween, nightsBetween } from "@/app/lib/availability/days";
 import { CREATE_DAYS_AHEAD, DEFAULT_JOB_LABEL, JOB_LABEL_MAX, NOBODY_TAKEN_OFF, changeWords, isSameDay, jobLabel, jobState, takenOff, type AssigneeView, type JobView, type StoredJob, type TeamMember } from "@/app/lib/schedule/model";
 import { ADDED_JOB_FROM_DAY, FLOOR_WORDS, JOB_LABEL_CHOICES, NOTHING_TYPED, OTHER_LABEL, RECENT_UNITS, addedJobDayProblem, addedJobLastDay, amountStart, amountWords, canRecordOnAdd, chosenLabel, recentUnitIds, unitOrder, type LastTyped, type UnitChoice } from "@/app/lib/schedule/add-job";
 import { PriceField } from "./PriceField";
+import { JobPriceBlock, useJobPrice } from "./JobPrice";
+import { jobPriceTag, jobPriceTagText } from "@/app/lib/schedule/job-price";
 import { regularCleanerQuestion } from "@/app/lib/schedule/regular";
 import { AMOUNT_SOURCE_WORDS, TIER_NIGHTS, TIER_WORDS, jobNights, jobTier, type CleaningPrices, type PresetKind } from "@/app/lib/cleanings/prices";
 import { amountField, countsWords, readAmountCents } from "@/app/lib/cleanings/model";
@@ -239,19 +241,30 @@ function Schedule() {
   const team = useMemo(() => answer?.team ?? [], [answer]);
   const active = useMemo(() => team.filter((member) => member.role === "cleaner" && member.status === "active"), [team]);
 
-  const saveAssign = async () => {
+  /** What a price saved with the cleaner did, in one sentence for the notice (2026-11-06); '' when it changed nothing. */
+  const priceWords = (job: JobView, outcome: PriceOutcome | null | undefined): string => {
+    if (!outcome) return "";
+    if (outcome.cleaningPriceSaved) return ` ${formatCents(outcome.cleaningPriceSaved.cents)} is now this unit’s ${TIER_WORDS[outcome.cleaningPriceSaved.tier]} cleaning price.`;
+    if (!outcome.amountChanged) return "";
+    return outcome.amountCents === null ? ` Its price: the ${TIER_WORDS[jobTier(job)]} cleaning price.` : ` Its price: ${formatCents(outcome.amountCents)}, set on the job.`;
+  };
+
+  /** Assign saved: who is on the job and, when it was changed, its price, in one request (2026-11-06). */
+  const saveAssign = async (price?: PriceSent) => {
     if (!assigning || saving) return;
     const { job, picked } = assigning;
     setSaving(job.id);
-    const result = await setJobCleaners(job.id, picked, job.history.length);
+    const result = await setJobCleaners(job.id, picked, job.history.length, price);
     setSaving(null);
     if (!result.ok) {
-      show(result.unknown ? { tone: "warning", title: "Who is on the job may or may not have been saved. Reload to see.", detail: result.title } : { tone: "error", title: result.title, detail: result.detail });
+      show(result.unknown ? { tone: "warning", title: price ? "Who is on the job and its price may or may not have been saved. Reload to see." : "Who is on the job may or may not have been saved. Reload to see.", detail: result.title } : { tone: "error", title: result.title, detail: result.detail });
       return;
     }
     setAssigning(null);
-    replaceJob(mergeJob(job, result.data.job, team));
-    if (result.data.changed) show({ tone: "success", title: `Saved who is on ${job.property.name ?? "the job"} · ${dayText(job.checkout)}.` });
+    // A unit cleaning price saved, or a waiting cleaning that followed the price: the page reads its days again.
+    if (result.data.price?.cleaningPriceSaved || (result.data.price?.cleaningsChanged ?? 0) > 0) await load(range?.from, range?.to);
+    else replaceJob(mergeJob(job, result.data.job, team));
+    if (result.data.changed) show({ tone: "success", title: `Saved who is on ${job.property.name ?? "the job"} · ${dayText(job.checkout)}.${priceWords(job, result.data.price)}` });
   };
 
   /** A moved booking's cleaner, put on the job at its new checkout while it has nobody: one click, the admin's (ruling 2). */
@@ -379,19 +392,20 @@ function Schedule() {
   /** The recent units, when the form opens: this browser's picks, then the properties of the jobs added by hand on the page. */
   const recentUnits = useMemo(() => (adding ? recentUnitIds(readPicked(), (answer?.jobs ?? []).filter((job) => job.origin === "admin").map((job) => ({ propertyId: job.propertyId, createdAt: job.createdAt }))) : []), [adding, answer]);
 
-  /** Change cleaner (ruling D): one swap, saved, the row read as the server answered. */
-  const swap = async (job: JobView, from: string, to: string) => {
+  /** Change cleaner (ruling D): one swap, with the job's price when it was changed (2026-11-06), saved; the row read as the server answered. */
+  const swap = async (job: JobView, from: string, to: string, price?: PriceSent) => {
     if (saving) return;
     setSaving(job.id);
-    const result = await swapJobCleaner(job.id, from, to, job.history.length);
+    const result = await swapJobCleaner(job.id, from, to, job.history.length, price);
     setSaving(null);
     if (!result.ok) {
-      unknownOrError(result, "Who is on the job");
+      unknownOrError(result, price ? "Who is on the job and its price" : "Who is on the job");
       return;
     }
     setSwapping(null);
-    replaceJob(mergeJob(job, result.data.job, team));
-    show({ tone: "success", title: `${result.data.to ?? "The new cleaner"} is on ${job.property.name ?? "the job"} · ${dayText(job.checkout)} in place of ${result.data.from ?? "the cleaner before"}.` });
+    if (result.data.price?.cleaningPriceSaved || (result.data.price?.cleaningsChanged ?? 0) > 0) await load(range?.from, range?.to);
+    else replaceJob(mergeJob(job, result.data.job, team));
+    show({ tone: "success", title: `${result.data.to ?? "The new cleaner"} is on ${job.property.name ?? "the job"} · ${dayText(job.checkout)} in place of ${result.data.from ?? "the cleaner before"}.${priceWords(job, result.data.price)}` });
   };
 
   /** Record as cleaned (ruling E): the cleanings their own marks would make, by the admin. */
@@ -477,6 +491,7 @@ function Schedule() {
               <JobRow
                 key={job.id}
                 job={job}
+                prices={ready.prices[job.propertyId] ?? null}
                 fresh={job.id === fresh}
                 today={ready.today}
                 moveTarget={job.change?.kind === "moved" && job.change.movedTo ? (ready.jobs.find((other) => other.id === `${job.propertyId}_${job.change?.movedTo?.end}`) ?? null) : null}
@@ -576,6 +591,7 @@ function Schedule() {
       {assigning && (
         <AssignDialog
           picking={assigning}
+          prices={answer?.prices[assigning.job.propertyId] ?? null}
           active={active}
           team={team}
           othersThatDay={(cid) => (answer ? answer.jobs.filter((other) => other.checkout === assigning.job.checkout && other.id !== assigning.job.id && other.cleanerIds.includes(cid)).length : 0)}
@@ -583,12 +599,12 @@ function Schedule() {
           // One cleaner per job (Build 2): Assign picks one, or nobody; Take off (a changed booking) unticks whoever is on it.
           onToggle={(cid) => setAssigning((prev) => (prev ? { ...prev, picked: prev.mode === "take-off" ? (prev.picked.includes(cid) ? prev.picked.filter((x) => x !== cid) : [...prev.picked, cid]) : prev.picked.includes(cid) ? [] : [cid] } : prev))}
           onClose={() => setAssigning(null)}
-          onSave={saveAssign}
+          onSave={(price) => void saveAssign(price)}
           onRegularSaved={(title) => show({ tone: "success", title })}
         />
       )}
       {adding && <AddJobDialog units={units} recent={recentUnits} active={active} today={today ?? ""} busy={saving === "add"} onClose={() => setAdding(false)} onAdded={(added) => void onAdded(added)} setBusy={(on) => setSaving(on ? "add" : null)} show={show} />}
-      {swapping && <SwapDialog job={swapping} active={active} busy={saving === swapping.id} onClose={() => setSwapping(null)} onSwap={(from, to) => void swap(swapping, from, to)} />}
+      {swapping && <SwapDialog job={swapping} prices={answer?.prices[swapping.propertyId] ?? null} active={active} busy={saving === swapping.id} onClose={() => setSwapping(null)} onSwap={(from, to, price) => void swap(swapping, from, to, price)} />}
       {recording && <RecordDialog job={recording} busy={saving === recording.id} onClose={() => setRecording(null)} onRecord={(ids) => void record(recording, ids)} />}
       {pricing && <AmountDialog title={`Amount on ${pricing.property.name ?? "the job"} · ${dayText(pricing.checkout)} · ${jobLabel(pricing)}`} words={`What a mark on this job takes instead of the property’s ${TIER_WORDS[jobTier(pricing)]} cleaning price. Leave it empty to clear it.`} initial={pricing.amountCents === null ? "" : amountField(pricing.amountCents)} allowEmpty busy={saving === pricing.id} confirm="Save" onClose={() => setPricing(null)} onSave={(amount) => void price(pricing, amount)} />}
       {extraAt && <AmountDialog title={`Approve the note from ${extraAt.a.name ?? "the cleaner"} at a new amount`} words={`The note: “${extraAt.a.note ?? ""}”. The amount it arrived with: ${extraAt.a.cleaning?.amountCents === null ? "none yet" : formatCents(extraAt.a.cleaning?.amountCents ?? 0)}.`} initial={extraAt.a.cleaning?.amountCents == null ? "" : amountField(extraAt.a.cleaning.amountCents)} allowEmpty={false} busy={saving === extraAt.job.id} confirm="Approve at this amount" onClose={() => setExtraAt(null)} onSave={(amount) => void decideExtra(extraAt.job, extraAt.a, "approve", amount ?? undefined)} />}
@@ -629,6 +645,8 @@ function CopyLine({ answer, onRefresh, refreshing, reading }: { answer: Schedule
 
 function JobRow(props: {
   job: JobView;
+  /** The unit's cleaning prices (2026-11-06: the job's price beside the cleaner chip). */
+  prices: CleaningPrices | null;
   /** Just added: marked until the page is reloaded or another job is added. */
   fresh: boolean;
   today: string;
@@ -644,7 +662,10 @@ function JobRow(props: {
   onDelete: () => void;
   onExtra: (a: AssigneeView, decision: "approve" | "decline" | "amount") => void;
 }) {
-  const { job, fresh, today, moveTarget, saving, onAssign, onTakeOff, onSameTo, onReopen, onSwap, onRecord, onAmount, onDelete, onExtra } = props;
+  const { job, prices, fresh, today, moveTarget, saving, onAssign, onTakeOff, onSameTo, onReopen, onSwap, onRecord, onAmount, onDelete, onExtra } = props;
+  /** The job's price beside the cleaner chip (2026-11-06): "$80.00 · short", "$95.00 · set on the job". */
+  const tag = jobPriceTag(job, prices);
+  const tagSpan = tag && <span className={`${styles.priceTag} ${tag.cents === null ? styles.priceTagNone : ""}`}>{jobPriceTagText(tag)}</span>;
   const state = jobState(job, today);
   const name = job.property.name ?? job.propertyNameAtCreation ?? "Unknown property";
   const unread = job.calendar.status === "failed";
@@ -686,15 +707,17 @@ function JobRow(props: {
           <span className={styles.tierNote} title={`${TIER_WORDS[tier]}: ${TIER_NIGHTS[tier]}`}>
             {job.origin === "admin" ? `${TIER_WORDS[tier]} job` : `${nights === 1 ? "1 night" : `${nights} nights`} · ${TIER_WORDS[tier]}`}
           </span>
-          {job.amountCents !== null && <span className={styles.amountChip} title="The amount set on this job: a mark takes it instead of the cleaning price">{formatCents(job.amountCents)} on the job</span>}
         </span>
       </td>
       <td>
         {job.assignees.length === 0 ? (
-          <span className={styles.muted}>—</span>
+          <span className={styles.cleanerCell}>
+            <span className={styles.muted}>—</span>
+            {tagSpan}
+          </span>
         ) : (
           <span className={styles.chips}>
-            {job.assignees.map((a) => {
+            {job.assignees.map((a, index) => {
               const removed = isRemoved(a);
               const done = a.cleaningId !== null && !removed;
               const title = removed
@@ -712,6 +735,7 @@ function JobRow(props: {
                     {done && a.cleaning && a.cleaning.status === "logged" && a.cleaning.amountCents === null && <span className={styles.chipNote}> needs an amount</span>}
                     {done && a.cleaning?.extra === "asked" && <span className={styles.chipNote}> needs a decision</span>}
                   </span>
+                  {index === 0 && tagSpan}
                   {canReopen(job, a) && (
                     <button type="button" className={styles.chipAction} onClick={() => onReopen(job, a)} disabled={saving !== null} aria-label={`Reopen for ${a.name ?? "this cleaner"}`}>
                       <RotateCcw size={12} aria-hidden />
@@ -799,16 +823,19 @@ function JobRow(props: {
 
 function AssignDialog(props: {
   picking: Picking;
+  /** The unit's cleaning prices: "Price for this job" (2026-11-06). */
+  prices: CleaningPrices | null;
   active: TeamMember[];
   team: TeamMember[];
   othersThatDay: (cleanerId: string) => number;
   busy: boolean;
   onToggle: (cleanerId: string) => void;
   onClose: () => void;
-  onSave: () => void;
+  /** Save: who is on it and, when changed, its price (2026-11-06; never in take-off). */
+  onSave: (price?: PriceSent) => void;
   onRegularSaved: (title: string) => void;
 }) {
-  const { picking, active, team, othersThatDay, busy, onToggle, onClose, onSave, onRegularSaved } = props;
+  const { picking, prices, active, team, othersThatDay, busy, onToggle, onClose, onSave, onRegularSaved } = props;
   const { job, picked, mode } = picking;
   const name = job.property.name ?? job.propertyNameAtCreation ?? "the property";
   // Active cleaners, and anyone already on the job who no longer is (they can be taken off, not put back).
@@ -821,6 +848,9 @@ function AssignDialog(props: {
   /** Take off's own line: "Nobody was taken off" after a Save with nobody unticked, until a tick changes. */
   const [takeOffSaid, setTakeOffSaid] = useState<string | null>(null);
   const { ask, dialog: question } = useAsk();
+  /** "Price for this job" (Kian's instruction of 2026-11-06), below the cleaner choice; not in take-off. */
+  const price = useJobPrice(job, prices);
+  const [priceSaid, setPriceSaid] = useState<string | null>(null);
   useEffect(() => {
     if (mode !== "assign") return;
     let cancelled = false;
@@ -834,10 +864,16 @@ function AssignDialog(props: {
   const current = regular.kind === "ready" ? regular.data.regular : null;
   /** The one active cleaner ticked, when they are not already the regular cleaner. */
   const candidate = picked.length === 1 && regular.kind === "ready" && current?.cleanerId !== picked[0] ? (active.find((member) => member.id === picked[0]) ?? null) : null;
-  /** Save: one cleaner, or nobody (Build 2: a job has one cleaner, so there is no second to ask about). */
+  /** Save: one cleaner, or nobody (Build 2: a job has one cleaner, so there is no second to ask about), and its price when changed. */
   const save = async () => {
     if (busy) return;
-    onSave();
+    const sent = price.toSend();
+    if (sent.kind === "bad") {
+      setPriceSaid(sent.problem);
+      return;
+    }
+    setPriceSaid(null);
+    onSave(sent.kind === "send" ? { price: sent.price, saveCleaningPrice: sent.saveCleaningPrice } : undefined);
   };
   const makeRegular = async () => {
     if (!candidate || regularBusy) return;
@@ -870,7 +906,7 @@ function AssignDialog(props: {
               Cancel
             </button>
             {/* Nobody unticked: say so and send nothing, rather than close without a word (Kian's instruction of 2026-11-01). */}
-            <button type="button" className={`${ed.btn} ${ed.btnPrimary}`} onClick={() => (takenOff(job, picked).length === 0 ? setTakeOffSaid(NOBODY_TAKEN_OFF) : onSave())} disabled={busy}>
+            <button type="button" className={`${ed.btn} ${ed.btnPrimary}`} onClick={() => (takenOff(job, picked).length === 0 ? setTakeOffSaid(NOBODY_TAKEN_OFF) : onSave(undefined))} disabled={busy}>
               {busy ? "Saving…" : "Save"}
             </button>
           </>
@@ -954,6 +990,7 @@ function AssignDialog(props: {
             ))}
           </ul>
         )}
+        <JobPriceBlock job={job} prices={prices} price={price} busy={busy} said={priceSaid} />
         <div className={styles.regular}>
           <span className={styles.regularLine}>
             {regular.kind === "loading"
@@ -1287,13 +1324,29 @@ function AddJobDialog(props: { units: UnitsState; recent: string[]; active: Team
 }
 
 /** Change cleaner (ruling D; one cleaner per job since Build 2): the cleaner comes off (not yet marked), another goes on, in one step. */
-function SwapDialog({ job, active, busy, onClose, onSwap }: { job: JobView; active: TeamMember[]; busy: boolean; onClose: () => void; onSwap: (from: string, to: string) => void }) {
+function SwapDialog({ job, prices, active, busy, onClose, onSwap }: { job: JobView; prices: CleaningPrices | null; active: TeamMember[]; busy: boolean; onClose: () => void; onSwap: (from: string, to: string, price?: PriceSent) => void }) {
   const name = job.property.name ?? job.propertyNameAtCreation ?? "the property";
   const leaving = job.assignees.filter((a) => a.cleaningId === null);
   const from = leaving[0]?.cleanerId ?? "";
   const [to, setTo] = useState("");
   const [said, setSaid] = useState<string | null>(null);
   const choices = active.filter((m) => !job.cleanerIds.includes(m.id));
+  /** "Price for this job" (Kian's instruction of 2026-11-06), below the cleaner choice. */
+  const price = useJobPrice(job, prices);
+  const [priceSaid, setPriceSaid] = useState<string | null>(null);
+  const change = () => {
+    if (from === "" || to === "") {
+      setSaid("Pick who comes off and who goes on.");
+      return;
+    }
+    const sent = price.toSend();
+    if (sent.kind === "bad") {
+      setPriceSaid(sent.problem);
+      return;
+    }
+    setPriceSaid(null);
+    onSwap(from, to, sent.kind === "send" ? { price: sent.price, saveCleaningPrice: sent.saveCleaningPrice } : undefined);
+  };
   return (
     <Dialog
       title={`Change the cleaner on ${name} · ${dayText(job.checkout)}`}
@@ -1306,7 +1359,7 @@ function SwapDialog({ job, active, busy, onClose, onSwap }: { job: JobView; acti
           <button
             type="button"
             className={`${ed.btn} ${ed.btnPrimary}`}
-            onClick={() => (from === "" || to === "" ? setSaid("Pick who comes off and who goes on.") : onSwap(from, to))}
+            onClick={change}
             disabled={busy || choices.length === 0}
           >
             {busy ? "Saving…" : "Change cleaner"}
@@ -1325,6 +1378,7 @@ function SwapDialog({ job, active, busy, onClose, onSwap }: { job: JobView; acti
             <AdminSelect label="On the job" value={to} onChange={setTo} placeholder={choices.length === 0 ? "No other active cleaner" : "Pick the cleaner"} groups={[{ options: choices.map((m) => ({ value: m.id, label: m.name ?? "Unnamed" })) }]} disabled={busy || choices.length === 0} />
           </div>
         </div>
+        <JobPriceBlock job={job} prices={prices} price={price} busy={busy} said={priceSaid} />
         <p className={styles.muted}>One step, logged. The job leaves the first cleaner’s app and shows in the second’s. A cleaner who marked it stays on it.</p>
         {said && (
           <p className={styles.warn} role="alert">

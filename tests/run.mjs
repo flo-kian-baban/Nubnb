@@ -50,6 +50,7 @@ export const CHECKS = [
   { name: 'pay-payday', script: 'pay/payday.mjs', args: [] },
   { name: 'cleaner-header', script: 'cleaner/header.mjs', args: [] },
   { name: 'add-job', script: 'schedule/add-job.mjs', args: [] },
+  { name: 'job-price', script: 'schedule/job-price.mjs', args: [] },
 ];
 
 const argv = process.argv.slice(2);

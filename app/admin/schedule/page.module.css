@@ -377,18 +377,10 @@
 }
 
 /* ── The cleaning flow (Kian's rulings of 2026-11-01) ── */
-/* The job's tier and nights, and the amount set on it, under the turnover time. */
+/* The job's tier and nights, under the turnover time (its price stands beside the cleaner since 2026-11-06). */
 .tierNote {
   color: rgba(255, 255, 255, 0.45);
   font-size: 12px;
-}
-.amountChip {
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: rgba(127, 176, 224, 0.14);
-  color: #9cc4ec;
-  font-size: 11.5px;
-  font-weight: 700;
 }
 /* A cleaner's note and extra ask, under their chip. */
 .chipWords {
@@ -654,4 +646,44 @@
 .freshNote {
   color: #9cc4ec;
   font-weight: 600;
+}
+
+/* ── The price in Assign and Change cleaner, and on the row (Kian's instruction of 2026-11-06) ── */
+/* Read-only once the job's money counts: the figure stays readable, the field reads as not to be typed in. */
+.priceLocked {
+  background: transparent;
+  border-style: dashed;
+  color: rgba(255, 255, 255, 0.75);
+  cursor: default;
+}
+.fieldWordsLocked {
+  color: #f0a63a;
+}
+.priceBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.saveRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+}
+/* The row's price, beside the cleaner chip: what a mark counts. */
+.priceTag {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.priceTagNone {
+  color: rgba(255, 255, 255, 0.4);
+}
+.cleanerCell {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
 }

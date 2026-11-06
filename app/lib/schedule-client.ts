@@ -68,7 +68,7 @@ export function fetchSchedule(from?: string, to?: string): Promise<ScheduleResul
       isRecord(data.calendar) &&
       typeof data.today === 'string' &&
       (data.refresh === undefined || data.refresh === null || (isRecord(data.refresh) && (data.refresh.state === 'starting' || data.refresh.state === 'running'))),
-  ).then((result) => (result.ok ? { ok: true, data: { ...result.data, refresh: result.data.refresh ?? null } } : result));
+  ).then((result) => (result.ok ? { ok: true, data: { ...result.data, refresh: result.data.refresh ?? null, prices: isRecord(result.data.prices) ? result.data.prices : {} } } : result));
 }
 
 /** A property's regular cleaner as the Schedule and the edit page read it (Kian's ruling R5 of 2026-10-19). */
@@ -101,13 +101,26 @@ export function setRegularCleanerOf(propertyId: string, cleanerId: string | null
   );
 }
 
-/** Set who is on a job, as the page saw it (`seen`: its history's length). JOB_SAVE_FAILED: it may or may not have landed. */
-export function setJobCleaners(jobId: string, cleanerIds: string[], seen: number): Promise<ScheduleResult<{ job: StoredJob; changed: boolean }>> {
+/** What the price sent with Assign or Change cleaner did (2026-11-06): the job's own amount after it, and a unit cleaning price saved. */
+export interface PriceOutcome {
+  amountCents: number | null;
+  amountChanged: boolean;
+  cleaningPriceSaved: { tier: PresetKind; cents: number } | null;
+  cleaningsChanged: number;
+}
+
+/** The price sent with the cleaner, when the admin changed it (2026-11-06): what the field held, and the tick. */
+export type PriceSent = { price: string | null; saveCleaningPrice: boolean };
+
+const isPriceOutcome = (value: unknown): boolean => value === undefined || value === null || (isRecord(value) && typeof value.amountChanged === 'boolean' && typeof value.cleaningsChanged === 'number');
+
+/** Set who is on a job, as the page saw it (`seen`: its history's length), with the job's price when it was changed (2026-11-06). JOB_SAVE_FAILED: it may or may not have landed. */
+export function setJobCleaners(jobId: string, cleanerIds: string[], seen: number, price?: PriceSent): Promise<ScheduleResult<{ job: StoredJob; changed: boolean; price?: PriceOutcome | null }>> {
   return call(
     `/api/admin/cleaning-jobs/${encodeURIComponent(jobId)}`,
-    { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cleanerIds, seen }) },
+    { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cleanerIds, seen, ...(price ?? {}) }) },
     'Saving who is on the job failed',
-    (data) => isRecord(data) && isJobLike(data.job) && (data.job as Record<string, unknown>).id === jobId && typeof data.changed === 'boolean',
+    (data) => isRecord(data) && isJobLike(data.job) && (data.job as Record<string, unknown>).id === jobId && typeof data.changed === 'boolean' && isPriceOutcome(data.price),
     ['JOB_SAVE_FAILED'],
   );
 }
@@ -171,13 +184,13 @@ export function fetchAmountStart(propertyId: string): Promise<ScheduleResult<Amo
   );
 }
 
-/** Change a job's cleaner in one step (ruling D): `from` off, `to` on, as the page saw it (`seen`). JOB_SAVE_FAILED: unknown whether it landed. */
-export function swapJobCleaner(jobId: string, from: string, to: string, seen: number): Promise<ScheduleResult<{ job: StoredJob; changed: boolean; from: string | null; to: string | null }>> {
+/** Change a job's cleaner in one step (ruling D): `from` off, `to` on, as the page saw it (`seen`), with the job's price when it was changed (2026-11-06). JOB_SAVE_FAILED: unknown whether it landed. */
+export function swapJobCleaner(jobId: string, from: string, to: string, seen: number, price?: PriceSent): Promise<ScheduleResult<{ job: StoredJob; changed: boolean; from: string | null; to: string | null; price?: PriceOutcome | null }>> {
   return call(
     `/api/admin/cleaning-jobs/${encodeURIComponent(jobId)}`,
-    { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'swap', from, to, seen }) },
+    { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'swap', from, to, seen, ...(price ?? {}) }) },
     'Changing the cleaner failed',
-    (data) => isRecord(data) && isJobLike(data.job) && (data.job as Record<string, unknown>).id === jobId,
+    (data) => isRecord(data) && isJobLike(data.job) && (data.job as Record<string, unknown>).id === jobId && isPriceOutcome(data.price),
     ['JOB_SAVE_FAILED'],
   );
 }

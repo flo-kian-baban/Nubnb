@@ -70,7 +70,7 @@
  */
 
 import { addDays, dayText } from '../availability/days';
-import type { PresetKind } from '../cleanings/prices';
+import type { CleaningPrices, PresetKind } from '../cleanings/prices';
 
 export const CLEANING_JOBS_COLLECTION = 'cleaning_jobs';
 /** Version 2 (2026-11-01): origin, tier, the per-job amount, each mark's note and extra ask. Version 3 (Build 2, 2026-11-03): the label of a job added by hand. */
@@ -643,6 +643,8 @@ export interface ScheduleRead {
   /** The calendar copy the jobs come from: when it was last refreshed, and the calendars it could not read. */
   calendar: { refreshedAt: string | null; failed: { propertyId: string; name: string; since: string | null }[] };
   unreadable: number;
+  /** The cleaning prices of the units on the page, by property (admin-only; the row's price and the dialogs', 2026-11-06). A unit with none is absent. */
+  prices: Record<string, CleaningPrices>;
 }
 
 /** One job a cleaner is on and has not marked: what the Team page's dialog names before deactivating or deleting them. */

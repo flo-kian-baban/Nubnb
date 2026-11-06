@@ -17,7 +17,7 @@
  * not have landed" included, and never throw.
  */
 
-import type { Transaction } from 'firebase-admin/firestore';
+import type { DocumentReference, Transaction } from 'firebase-admin/firestore';
 import { getAdminDb } from './admin';
 import { isDocumentId } from './server-leads';
 import type { Actor } from '@/app/lib/cleaners/model';
@@ -89,6 +89,18 @@ function nextRecord(propertyId: string, stored: CleaningPricesRecord | null, pri
     setBy: actor,
     history: [...(stored?.history ?? []), { at, actor, before, after: { ...prices } }],
   };
+}
+
+/** The record as written after a change (nextRecord), for a write made inside another transaction (the price in Assign and Change cleaner, 2026-11-06). */
+export const nextCleaningPricesRecord = nextRecord;
+
+/** A property's prices record inside a transaction: its reference, the record as stored (null when none, or not in shape), and its prices. */
+export async function pricesRecordInTx(tx: Transaction, propertyId: string): Promise<{ ref: DocumentReference; stored: CleaningPricesRecord | null; prices: CleaningPrices | null; unreadable: boolean }> {
+  const ref = getAdminDb().collection(PROPERTY_CLEANING_PRICES_COLLECTION).doc(propertyId);
+  const snap = await tx.get(ref);
+  const stored = snap.exists ? readCleaningPrices(snap.id, snap.data() ?? {}) : null;
+  if (snap.exists && !stored) console.error(`[cleaning-prices] ${PROPERTY_CLEANING_PRICES_COLLECTION}/${propertyId} is not in the written shape`);
+  return { ref, stored, prices: stored ? pricesOf(stored) : null, unreadable: snap.exists && !stored };
 }
 
 /**

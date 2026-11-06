@@ -97,10 +97,16 @@ export const AddJobSchema = z.strictObject({
   alreadyCleaned: z.boolean().optional().default(false),
 });
 
-/** PATCH /api/admin/cleaning-jobs/[id]: who is on it (one cleaner, or nobody: Build 2), a one-step swap (ruling D), or the job's own amount (ruling B). */
+/**
+ * The price sent with Assign or Change cleaner (Kian's instruction of 2026-11-06): what the dialog's field held ("75.00",
+ * or null when emptied), sent only when the admin changed it, and "Also save as this unit's <tier> cleaning price".
+ */
+const PriceFields = { price: AmountSchema.nullable().optional(), saveCleaningPrice: z.boolean().optional().default(false) };
+
+/** PATCH /api/admin/cleaning-jobs/[id]: who is on it (one cleaner, or nobody: Build 2), a one-step swap (ruling D), each with the job's price (2026-11-06), or the job's own amount (ruling B). */
 export const JobPatchSchema = z.union([
-  z.strictObject({ cleanerIds: z.array(IdSchema).max(1, 'A job has one cleaner'), seen: SeenSchema }),
-  z.strictObject({ action: z.literal('swap'), from: IdSchema, to: IdSchema, seen: SeenSchema }),
+  z.strictObject({ cleanerIds: z.array(IdSchema).max(1, 'A job has one cleaner'), seen: SeenSchema, ...PriceFields }),
+  z.strictObject({ action: z.literal('swap'), from: IdSchema, to: IdSchema, seen: SeenSchema, ...PriceFields }),
   z.strictObject({ action: z.literal('amount'), amount: AmountSchema.nullable(), seen: SeenSchema }),
 ]);
 
