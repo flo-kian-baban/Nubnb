@@ -60,12 +60,13 @@ function begun(draft: WorkDraft): boolean {
   return draft.description.trim() !== "" || draft.price.trim() !== "";
 }
 
-/** The first field with a problem, into view and focused. */
+/** The first field with a problem, into view, and what is missing said. */
 function showFirstProblem() {
   const card = document.querySelector<HTMLElement>('[data-problem="true"]');
   card?.scrollIntoView({ behavior: "smooth", block: "center" });
-  // A field marked invalid; at the property, its Choose button.
-  (card?.querySelector<HTMLElement>('[aria-invalid="true"]') ?? card?.querySelector<HTMLElement>("button"))?.focus({ preventScroll: true });
+  // Its words ("Say what you did"), so a screen reader reads them, never the field: the field waits for a tap, and the
+  // phone's keyboard with it (Kian's instruction of 2026-11-06). At the property, its Choose button.
+  (card?.querySelector<HTMLElement>("[data-problem-words]") ?? card?.querySelector<HTMLElement>("button"))?.focus({ preventScroll: true });
 }
 
 export function HandymanApp({ start, onSignedOut }: HandymanAppProps) {

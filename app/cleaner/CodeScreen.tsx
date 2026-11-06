@@ -10,7 +10,9 @@
  * behave as in any field; the boxes only show the digits. The fourth digit
  * sends the code. A code that does not open the door clears the boxes and
  * says so in three words; the input keeps its focus, so the keyboard stays up
- * for the next try.
+ * for the next try. On arrival the line takes the focus, not the input: the
+ * keyboard comes up when the boxes are tapped, on every phone (Kian's
+ * instruction of 2026-11-06: no box to type in takes focus by itself).
  *
  * The cleaner door's lock (Kian's ruling of 2026-10-14, evening): the wrong
  * code before a lock says what the next one does, and a locked connection says
@@ -49,11 +51,12 @@ export function CodeScreen({ onCode, signedOut = false }: { onCode: (code: strin
   const [value, setValue] = useState("");
   const [state, setState] = useState<CodeState>({ kind: "idle" });
   const [focused, setFocused] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
 
-  // Android opens the keyboard at once; an iPhone waits for a tap on the boxes.
+  // The line takes the focus on arrival, so a screen reader starts there, after a sign-out too. The input waited for a
+  // tap on an iPhone, but opened an Android keyboard at once; now every phone waits for a tap on the boxes.
   useEffect(() => {
-    inputRef.current?.focus();
+    titleRef.current?.focus();
   }, []);
 
   // A lock that ends opens the boxes again by itself.
@@ -87,7 +90,9 @@ export function CodeScreen({ onCode, signedOut = false }: { onCode: (code: strin
     <>
       <CleanerBar />
       <main className={styles.codeScreen}>
-        <h1 className={styles.codeTitle}>{signedOut ? "Signed out. Enter your code." : "Enter your 4-digit code"}</h1>
+        <h1 ref={titleRef} tabIndex={-1} className={styles.codeTitle}>
+          {signedOut ? "Signed out. Enter your code." : "Enter your 4-digit code"}
+        </h1>
         <label className={`${styles.codeBoxes} ${wrong ? styles.codeBoxesWrong : ""}`}>
           {Array.from({ length: CODE_LENGTH }, (_, i) => (
             <span
@@ -99,7 +104,6 @@ export function CodeScreen({ onCode, signedOut = false }: { onCode: (code: strin
             </span>
           ))}
           <input
-            ref={inputRef}
             className={styles.codeInput}
             type="text"
             inputMode="numeric"

@@ -14,11 +14,13 @@
  * the links Safari adds). With no job to show, one calm line: "No jobs right now."
  *
  * Done (item 2) opens the app's own pop-up (DoneDialog): the unit and day, an optional note for the office, and
- * "Confirm done" / "Cancel". With no note the cleaning counts at once; with a note it is made but its money waits for
- * the office (the note is the reason, through ruling F's extra-asked mechanics). Afterwards the card reads "Cleaned"
- * in green, or "Cleaned · note sent" in amber until the office decides, then "Cleaned" again — never an amount, never
- * the outcome (ruling H). Undo asks once, "Undo Cleaned?" (item 4). Grey words under "Cleaned" when they apply:
- * "Recorded by the office", "Can't undo: already paid", "Can't undo: on a statement".
+ * "Confirm done" / "Cancel". It opens with its title focused, not the note box, so the phone's keyboard comes up only
+ * when the box is tapped (Kian's instruction of 2026-11-06). With no note the cleaning counts at once; with a note it
+ * is made but its money waits for the office (the note is the reason, through ruling F's extra-asked mechanics).
+ * Afterwards the card reads "Cleaned" in green, or "Cleaned · note sent" in amber until the office decides, then
+ * "Cleaned" again — never an amount, never the outcome (ruling H). Undo asks once, "Undo Cleaned?" (item 4). Grey
+ * words under "Cleaned" when they apply: "Recorded by the office", "Can't undo: already paid", "Can't undo: on a
+ * statement".
  *
  * A cancelled or moved booking is one grey line (item 7): "<unit> · Cancelled: don't go", "<unit> · Moved to <day>".
  * A mark the office removed reads "Removed by the office", with no Undo, until the office reopens it.

@@ -5,8 +5,10 @@
  * buttons. Used by Done ("Confirm done" / "Cancel", with the note for the office, item 2), by Undo ("Undo Cleaned?",
  * item 4), by Sign out ("Sign out?", 2026-11-05), and wherever the app asked the browser's own confirm before. Modal:
  * the rest of the page is inert while it is open — the top bar and its tabs, the screen and its pinned bar, everything
- * in the document but the pop-up itself; Escape and the backdrop cancel; the first field or the confirm button takes
- * focus. Rendered at the end of the document (a portal), outside what it makes inert.
+ * in the document but the pop-up itself; Escape and the backdrop cancel. Its title takes focus when it opens, and only
+ * then (Kian's instruction of 2026-11-06): a screen reader lands inside the pop-up, and no box to type in takes focus by
+ * itself, so a phone's keyboard comes up only when the person taps the box — most Dones have no note. Rendered at the
+ * end of the document (a portal), outside what it makes inert.
  */
 
 import { useEffect, useRef, type ReactNode } from "react";
@@ -33,14 +35,17 @@ interface AskDialogProps {
 
 export function AskDialog({ title, words, children, confirmLabel, cancelLabel = "Cancel", busyLabel = "Saving…", busy = false, danger = false, onConfirm, onCancel }: AskDialogProps) {
   const rootRef = useRef<HTMLDivElement>(null);
-  const boxRef = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
 
-  // Focus moves in; Escape closes; the page behind cannot be reached: every other element at the top of the document
-  // is inert while the pop-up is open (the bar and the tabs sit outside <main>, as does the pinned bar).
+  // Focus moves in, to the title, once: a box to type in would bring a phone's keyboard up over half the screen, and a
+  // later render (the screen behind reading its jobs again) must not take the focus out of a box being typed in.
   useEffect(() => {
-    const box = boxRef.current;
-    const first = box?.querySelector<HTMLElement>("textarea, input, button");
-    first?.focus();
+    titleRef.current?.focus();
+  }, []);
+
+  // Escape closes; the page behind cannot be reached: every other element at the top of the document is inert while
+  // the pop-up is open (the bar and the tabs sit outside <main>, as does the pinned bar).
+  useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !busy) onCancel();
     };
@@ -55,8 +60,8 @@ export function AskDialog({ title, words, children, confirmLabel, cancelLabel = 
 
   return createPortal(
     <div ref={rootRef} className={`${styles.app} ${styles.dialogBackdrop}`} onClick={() => !busy && onCancel()}>
-      <div ref={boxRef} className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="ask-title" onClick={(event) => event.stopPropagation()}>
-        <h2 id="ask-title" className={styles.dialogTitle}>
+      <div className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="ask-title" onClick={(event) => event.stopPropagation()}>
+        <h2 id="ask-title" ref={titleRef} tabIndex={-1} className={styles.dialogTitle}>
           {title}
         </h2>
         {words && <div className={styles.dialogWords}>{words}</div>}

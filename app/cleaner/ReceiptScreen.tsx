@@ -116,10 +116,11 @@ function ReadingNote({ reading }: { reading: ReadingStatus }) {
   );
 }
 
+/** What is missing, under its field; a Send that stops here gives these words the focus (tabIndex -1), not the field. */
 function Problem({ id, text }: { id: string; text?: string }) {
   if (!text) return null;
   return (
-    <p id={id} className={styles.fieldProblem}>
+    <p id={id} className={styles.fieldProblem} tabIndex={-1} data-problem-words>
       {text}
     </p>
   );

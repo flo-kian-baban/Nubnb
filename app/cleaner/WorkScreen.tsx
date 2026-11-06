@@ -32,21 +32,23 @@ interface WorkScreenProps {
   onSend: () => void;
 }
 
+/** What is missing, under its field; a Send that stops here gives these words the focus (tabIndex -1), not the field. */
 function Problem({ id, text }: { id: string; text?: string }) {
   if (!text) return null;
   return (
-    <p id={id} className={styles.fieldProblem}>
+    <p id={id} className={styles.fieldProblem} tabIndex={-1} data-problem-words>
       {text}
     </p>
   );
 }
 
 export function WorkScreen({ property, draft, problems, propertyProblem, sending, sendMessage, onBack, onChange, onChangeProperty, onSend }: WorkScreenProps) {
-  const descriptionRef = useRef<HTMLTextAreaElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
 
-  // The description takes the keyboard on arrival.
+  // The title takes focus on arrival, so a screen reader starts there; "What you did" waits for a tap, and the phone's
+  // keyboard with it (Kian's instruction of 2026-11-06: no box to type in takes focus by itself).
   useEffect(() => {
-    descriptionRef.current?.focus();
+    titleRef.current?.focus();
   }, []);
 
   let sendLabel: ReactNode = "Send";
@@ -56,7 +58,9 @@ export function WorkScreen({ property, draft, problems, propertyProblem, sending
     <>
       <CleanerBar onBack={onBack} backDisabled={sending} />
       <main className={styles.screen}>
-        <h1 className={styles.title}>Work</h1>
+        <h1 ref={titleRef} tabIndex={-1} className={styles.title}>
+          Work
+        </h1>
 
         <div className={`${styles.taxCard} ${problems.description ? styles.taxCardProblem : ""}`} inert={sending} data-problem={problems.description ? true : undefined}>
           <label className={styles.fieldLabel} htmlFor="work-description">
@@ -64,7 +68,6 @@ export function WorkScreen({ property, draft, problems, propertyProblem, sending
           </label>
           <textarea
             id="work-description"
-            ref={descriptionRef}
             className={`${styles.field} ${styles.workDescription} ${problems.description ? styles.fieldInvalid : ""}`}
             rows={3}
             maxLength={LIMITS.WORK_DESCRIPTION_MAX}

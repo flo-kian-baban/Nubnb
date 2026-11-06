@@ -6190,7 +6190,7 @@ jobs today and one tomorrow, Yara with none, handyman Hal); no production read. 
 `~/Backups/Nubnb/header-pass/` (23 before, 32 after).
 
 - Cleaner home: filled buttons Done, Done, All properties → Done, Done; the pinned button white with a 1 px #767676
-  border and dark words, 60 px; the first heading 16 px under the tabs; page 1,006 → 921 px at 390 (the foot gone).
+  border and dark words, 60 px; the first heading 16 px under the tabs; page 950 → 921 px at 390 (the foot gone).
   Yara: "No jobs right now.", 12 px under the tabs; the page no longer scrolls (845 → 844 px on an 844 px screen).
 - Tabs 179×48 at 390 and 164×48 at 360; the name button 44 px tall; the menu's item 48 px. No target under 44 px, no
   text under 16 px but the 14 px wordmark (unchanged), no text below AA, no sideways scroll at 390 or 360.
@@ -6207,3 +6207,86 @@ jobs today and one tomorrow, Yara with none, handyman Hal); no production read. 
   the list sat 18 px under the pinned bar; after, the page's padding follows (97 → 131 px) and it ends 16 px clear. With
   insets of 47 / 34 px, the pinned bar sits inside the visible area and its button above the 34 px inset, in both
   builds. An emulation in Chromium, not Safari itself.
+
+## 72. The Done pop-up without the keyboard; no box to type in takes focus by itself — Kian's instruction of 2026-11-06
+
+Kian's dispatch of 2026-11-06, after testing on his iPhone (Safari): tapping Done opened the pop-up with the keyboard
+up, covering half the screen, and most Dones have no note. Three items; to be committed and pushed without another
+review once verified ("Cleaner app: Done pop-up opens without the keyboard; no input focuses on open").
+
+### 72.1 What changed
+
+1. **The Done pop-up** opens with its title, "Done?", focused: no box has the focus, so no keyboard comes up. The title
+   can take the focus (`tabIndex -1`) and draws no ring; a screen reader lands inside the pop-up, on its title. The
+   keyboard comes up when the cleaner taps the note box. The cause: the app's pop-up (AskDialog) gave the focus to its
+   first box or button as it opened — on Done, the note box — during the tap on Done, which on an iPhone brings the
+   keyboard up. The rule lives in that one pop-up, so every pop-up now opens on its title. The title takes the focus
+   once, as the pop-up opens: the old focus ran again whenever the screen behind drew again (each render hands the
+   pop-up a new Cancel), which, aimed at the title, would have taken the focus out of a note being typed.
+2. **Every other place in the cleaner and handyman apps where a box took the focus by itself**, and what changed:
+   - **The code screen** (both apps' door) focused the code input as it opened: an Android keyboard came up at once
+     (an iPhone waited for a tap). Now its line ("Enter your 4-digit code", or "Signed out. Enter your code.") takes
+     the focus, and the keyboard comes up when the boxes are tapped. The first box no longer lights up until then.
+   - **The handyman's work form** focused "What you did" on arrival. Now its title, "Work", takes the focus.
+   - **The receipt's Add item** focused the new item's name. Now the new item scrolls into view, as before, and its
+     name waits for a tap.
+   - **A Send stopped by a missing field** (a receipt, a piece of work) focused that field. Now the words saying what is
+     missing take the focus ("Type the item", "Type the price": `tabIndex -1`, no ring), scrolled into view as before;
+     at the property, its Choose button, as before.
+
+   Checked in the browser and unchanged, since nothing takes the focus as they open: All properties (a cleaner's; a
+   handyman's, and his Add work list), the receipt's Change, the camera, the receipt screen on arrival, both homes.
+   Unchanged because what takes the focus is not a box: the photo viewer's Close button, the name menu's Escape (back
+   to the name), the Sent screen's title. Unchanged because the keyboard is already up: a suggestion picked for an
+   item's name moves on to its amount (the suggestions show only while the name is being typed), and a wrong code
+   leaves the focus in the code input for the next try.
+3. **§71.4's page figure** is corrected: 950 → 921 px at 390. The 1,006 measured the before page after Q was marked.
+
+### 72.2 The developer's choices (none changes a statement, money or what an owner receives)
+
+- **Every pop-up opens on its title**, not only Done's: Undo, Sign out, Start over and "Discard this work?" opened on
+  their confirm button. One rule in the one pop-up; and a pop-up just opened no longer confirms on Enter, with a
+  keyboard attached.
+- **A screen's title takes the focus on arrival** where a box had it (the work form, the code screen), so a screen
+  reader still starts on the new screen.
+- **A Send stopped by a missing field focuses the words saying what is missing**, not the field; the field is a tap
+  away.
+- **The code screen's first box no longer lights up as it opens**: it lit up because the input had the focus. It lights
+  up when tapped, with the keyboard.
+- **Kept:** a picked suggestion moves on to the amount; a wrong code keeps the input's focus.
+
+### 72.3 Tests
+
+No new check: what changed is where the browser puts the focus, checked in the browser (72.4). The suite's 36 checks
+are identical to HEAD's.
+
+### 72.4 Verified (2026-11-06; local builds served from memory, the server's clock Wed 22 Nov 2028, 10:00 Toronto)
+
+Before (HEAD `dd06332`) and after, each built from a copy of the tree with no `.env` file and served from the header
+pass's in-memory state (test cleaner Ana with two jobs today and one tomorrow, test handyman Hal; property Q given a
+copy of P's test cleaning price, in memory, so both of today's jobs have one); no production read. A headless browser
+has no on-screen keyboard, so the check is the focus (`document.activeElement`): a box that takes the focus is what
+brings a phone's keyboard up. Screenshots at 390 and 360 (2×) and in the iPhone view (390×664, 3×) in
+`~/Backups/Nubnb/done-focus/` (23 before, 23 after).
+
+- **The Done pop-up just opened**, at 390, at 360 and in the iPhone view (insets of 47 / 34 px emulated): before, the
+  note box focused, with its ring; after, the title "Done?", no ring, no box focused. In the iPhone view the pop-up
+  sits inside the visible area (top 177, its last button ending at 596, above the bottom inset at 630), in both builds.
+- **The note:** a tap on the box focuses it. A note typed, then the screen behind drawn again twice (offline, then
+  online; the pop-up's effects ran again, 40 inert marks taken off and put back): the focus still in the box, the note
+  intact. Confirm done: the card reads "Cleaned · note sent", and the Cleanings tab's read shows the cleaning logged
+  with the note, the extra asked with the note as its reason, the amount at the property's short-term price, its money
+  waiting for the office. Done with no note: "Cleaned · Undo"; logged, no extra, the amount at the short-term price,
+  not waiting. The same in both builds.
+- **The other pop-ups:** Undo, Sign out, Start over and "Discard this work?": before, their confirm button focused;
+  after, their title.
+- **The code screen**, as it opens and after a sign-out: before, the code input focused (the first box lit); after, its
+  line. A tap on the boxes focuses the input.
+- **The work form** at 390 and 360: before, "What you did" focused; after, "Work". A tap on "What you did" focuses it.
+- **Add item:** before, the new item's name focused; after, nothing new (the new item in view). **Send with the items
+  empty:** before, the first item's name focused; after, its words "Type the item", in view. **The work form's Send
+  with no price:** before, the price focused; after, "Type the price", in view.
+- All properties (Ana's; Hal's, and his Add work list), the receipt's Change, the camera, the receipt on arrival and
+  both homes: no focus, in both builds.
+- The Done pop-up, the code screen and the work form at 390 and 360: no target under 44 px, no text under 16 px but the
+  14 px wordmark, none below AA, in both builds; the Done pop-up with no sideways scroll.

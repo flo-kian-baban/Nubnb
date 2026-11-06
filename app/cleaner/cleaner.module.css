@@ -993,7 +993,13 @@
   font-weight: 800;
   letter-spacing: -0.02em;
 }
-.doneTitle:focus {
+/* What takes the focus when a screen or pop-up opens, or when a Send stops at a missing field (2026-11-06): a title or
+   the words saying what is missing, never a box to type in. Nothing to press, so no ring. */
+.doneTitle:focus,
+.title:focus,
+.dialogTitle:focus,
+.codeTitle:focus,
+.fieldProblem:focus {
   outline: none;
 }
 .doneProperty {
