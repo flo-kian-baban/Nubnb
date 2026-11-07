@@ -1,0 +1,49 @@
+1. One standalone four-digit run, by where it stands (V is a made-up code; EASY an easy one; the year is a year)
+  ok   const code = '<V>';                                → code-like, a line about codes or PINs
+  ok     the PIN <V> was set                              → code-like, a line about codes or PINs
+  ok   cleaner_codes/<V>                                  → code-like, a line about codes or PINs
+  ok   ['<n>', '<EASY>', '<n>']                           → code-like, an easy-code list
+  ok   color: #<V>;                                       in tests/expected/x.txt → code-like, a test
+  ok   color: #<V>;                                       in app/tests/x.css → code-like, a test
+  ok   color: #<V>;                                       in NOTES.md → code-like, a document
+  ok   color: #<V>;                                       in a message → code-like, the commit message
+  ok     amount: <V>,                                     → code-like, unclassified
+  ok   $<V>.00                                            → code-like, unclassified
+  ok   width: <V>px;                                      → code-like, unclassified
+  ok   setTimeout(fn, <V>ms)                              → code-like, unclassified
+  ok   [<n>, <V>, <n>]                                    → code-like, unclassified
+  ok   in 2026 we                                         → code-like, unclassified
+  ok   <V>                                                → code-like, unclassified
+  ok   color: #<V>;                                       → incidental, a hex colour
+  ok   border: 1px solid #<V>ab;                          → incidental, a hex colour
+  ok   background: #a1<V>;                                → incidental, a hex colour
+  ok   #<V>c0de                                           → incidental, a hex colour
+  ok   const id = 'TESTPROP<V>a001';                      → incidental, inside an ID or hash
+  ok   abc<V>def                                          → incidental, inside an ID or hash
+  ok   v<V>                                               → incidental, inside an ID or hash
+  ok   run_<V>                                            → incidental, inside an ID or hash
+  ok   e3b0c442-98fc-<V>-b9a2-27ae41e<n>b                 → incidental, inside an ID or hash
+  ok   sha <V>f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2            → incidental, inside an ID or hash
+  ok   2026-11-06                                         → incidental, a date
+  ok   at 2026-11-06T14:30:00.000Z                        → incidental, a date
+  ok   2026-11                                            → incidental, a date
+  ok   06/11/2026                                         → incidental, a date
+  ok   Nov 6, 2026                                        → incidental, a date
+  ok   6 November 2026                                    → incidental, a date
+  ok   2026 Oct                                           → incidental, a date
+  ok   14:30:00+<n>                                       → incidental, a time zone offset
+  ok   /* the code screen */ color: #<V>;                 → code-like, a line about codes or PINs
+  ok   PIN set 2026-11-06                                 → code-like, a line about codes or PINs
+  wrong verdicts: 0
+
+2. findRuns: every run of the wanted values in a text, with its line and verdict (the value itself is never printed by the scripts)
+  line 2: V → incidental, a hex colour
+  line 3: V → code-like, a line about codes or PINs
+  line 5: V → incidental, inside an ID or hash
+  line 6: the year → incidental, a date
+  4 hits; blocking 1; reported 3
+  the same text under tests/: 3 hits, all code-like: true
+
+3. The easy list
+  easy codes: 24 of 10,000; V easy: false
+  a text buffer: true; a binary one: false

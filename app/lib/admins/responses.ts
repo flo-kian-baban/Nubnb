@@ -18,8 +18,11 @@ export const signedInView = (admin: SignedInAdmin): SignedInAdminView => ({ id: 
  * rulings of 2026-10-13). For fifteen minutes, with when it ends and
  * Retry-After; or, after twenty tries in a Toronto day, until a main admin
  * lifts it (`lockedUntil` null, `capped`). `lockedNow` when this try locked it.
+ * `budget` (Kian's ruling of 2026-11-06): the day's budget of wrong PINs across
+ * all connections was spent, and this connection's one wrong PIN locked it
+ * until tomorrow (`lockedUntil` is Toronto midnight).
  */
-export function lockedResponse(lockedUntil: string | null, lockedNow: boolean): NextResponse {
+export function lockedResponse(lockedUntil: string | null, lockedNow: boolean, budget = false): NextResponse {
   const capped = lockedUntil === null;
   const seconds = capped ? 0 : Math.max(1, Math.ceil((Date.parse(lockedUntil) - Date.now()) / 1_000));
   const minutes = Math.ceil(seconds / 60);
@@ -28,11 +31,15 @@ export function lockedResponse(lockedUntil: string | null, lockedNow: boolean): 
     ? lockedNow
       ? `${DAILY_TRIES} tries today: sign-in from this connection is locked until a main admin lifts it.`
       : 'Too many tries today: sign-in from this connection is locked until a main admin lifts it.'
-    : lockedNow
-      ? `Five tries in a row: sign-in from this connection is locked for ${LOCK_MINUTES} minutes.`
-      : `Too many tries in a row: sign-in from this connection is locked for ${minutes === 1 ? '1 more minute' : `${minutes} more minutes`}.`;
+    : budget
+      ? lockedNow
+        ? 'Wrong PIN. Many wrong PINs today, so one wrong PIN locks sign-in from this connection until tomorrow.'
+        : 'Sign-in from this connection is locked until tomorrow: many wrong PINs today.'
+      : lockedNow
+        ? `Five tries in a row: sign-in from this connection is locked for ${LOCK_MINUTES} minutes.`
+        : `Too many tries in a row: sign-in from this connection is locked for ${minutes === 1 ? '1 more minute' : `${minutes} more minutes`}.`;
   const headers: Record<string, string> = capped ? {} : { 'Retry-After': String(seconds) };
-  return noStore(NextResponse.json({ success: false, error, code: 'ADMIN_SIGN_IN_LOCKED', lockedUntil, capped, lockedNow }, { status: 429, headers }));
+  return noStore(NextResponse.json({ success: false, error, code: 'ADMIN_SIGN_IN_LOCKED', lockedUntil, capped, lockedNow, budget }, { status: 429, headers }));
 }
 
 /** What the main admin's account routes answer when an action may not be done (accountVerdict, model.ts). Nothing was changed. */

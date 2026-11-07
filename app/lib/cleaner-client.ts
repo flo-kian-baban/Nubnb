@@ -64,8 +64,8 @@ export type SignInResult =
   | { kind: 'ok' }
   /** `warning`: the line the server gives on the wrong code before a lock (Kian's ruling of 2026-10-14, evening). */
   | { kind: 'not-recognised'; warning: string | null }
-  /** Sign-in from this connection is locked: until `until`, or, when null, until the office lifts it. */
-  | { kind: 'locked'; until: string | null }
+  /** Sign-in from this connection is locked: until `until`, or, when null, until the office lifts it. `budget`: until tomorrow, by one wrong code after the day's budget was spent (Kian's ruling of 2026-11-06). */
+  | { kind: 'locked'; until: string | null; budget: boolean }
   | { kind: 'offline' }
   | { kind: 'failed' };
 
@@ -310,7 +310,7 @@ export async function signIn(code: string): Promise<SignInResult> {
   }
   if (res.status === 429) {
     const body = await readJson(res);
-    if (body.code === 'CLEANER_SIGN_IN_LOCKED') return { kind: 'locked', until: typeof body.lockedUntil === 'string' ? body.lockedUntil : null };
+    if (body.code === 'CLEANER_SIGN_IN_LOCKED') return { kind: 'locked', until: typeof body.lockedUntil === 'string' ? body.lockedUntil : null, budget: body.budget === true };
   }
   return { kind: 'failed' };
 }

@@ -412,6 +412,8 @@ export interface SignInLockView {
   lockedUntil: string | null;
   /** Twenty tries in a Toronto day: until lifted — by a main admin at the admin door (the Admins page), by any admin at the cleaner door (the Team page; Kian's ruling of 2026-10-14, evening). */
   capped: boolean;
+  /** Locked until tomorrow by one wrong try after the day's budget was spent (Kian's ruling of 2026-11-06; admins/budget.ts). */
+  budget: boolean;
   lastFailedAt: string | null;
 }
 
@@ -435,6 +437,9 @@ const ACTION_WORDS: [method: string, path: RegExp, words: string][] = [
   ['PATCH', new RegExp(`^/api/admin/admins/${ID}$`), 'Set an admin’s level'],
   ['DELETE', new RegExp(`^/api/admin/admins/${ID}$`), 'Removed an admin'],
   ['POST', new RegExp(`^/api/admin/admins/${ID}/pin$`), 'Set an admin’s PIN'],
+  // The daily budget (Kian's ruling of 2026-11-06): before the lock routes, whose ID pattern would match "budget".
+  ['DELETE', /^\/api\/admin\/admins\/locks\/budget$/, 'Lifted the admin door’s daily budget'],
+  ['DELETE', /^\/api\/admin\/cleaners\/locks\/budget$/, 'Lifted the cleaner door’s daily budget'],
   ['DELETE', new RegExp(`^/api/admin/admins/locks/${ID}$`), 'Lifted a sign-in lock'],
   ['POST', new RegExp(`^/api/admin-auth/pin$`), 'Changed their own PIN'],
   ['PUT', new RegExp(`^/api/admin-auth/name$`), 'Changed their own name'],

@@ -18,15 +18,6 @@
   too easy: 24 (10 four of one digit, 7 an ascending run, 7 a descending run) · the same list as the easy codes: true
   cleaner codes refused by their digits alone: 1 of 10,000, the shared PIN only: true · an ascending run null, four of one digit null, a descending run null, four of one digit null
   a drawn or suggested code skips the easy ones and the shared PIN: 9975 drawable, 25 skipped
-  the denylist as an environment value: 3 hashes of 194 characters, each 64 hex; read back: ok; a code's digits in it: true
-  typed, on the list: "public-history" "public-history" "public-history" · typed, not on it: null · the shared PIN still: "admin-pin"
-  with the list, drawable: 9972 (3 fewer); any listed code drawable: false; the same list under another key denies nothing: 0
-  the refusal's line: That code has appeared in Nubnb's public code and is never given out.
-  no list set: none, none; a list set with no key: unkeyed (issuance then fails closed); a value that is not hashes: none
-  an admin PIN on the list: 422 ADMIN_PIN_PUBLIC, 422 ADMIN_PIN_PUBLIC, 422 ADMIN_PIN_PUBLIC; not on it: allowed; refused with the cleaner code's sentence: true
-  the list set and the key missing: 503 ADMIN_PIN_DENYLIST_UNKEYED (fails closed); no list set: allowed
-  the routes that take a PIN ask the list before any read: 3 of 3
-  sign-in never asks the list (a listed PIN still signs its holder in): the sign-in route and signIn() name neither the list nor pinDenied: true; sign-in compares the PIN only: true
   the shared PIN    problem null · PIN shape true · sign-in shape true
   another PIN       problem null · PIN shape true · sign-in shape true
   four of one digit problem "Too easy to guess: four of one digit, or a straight run." · PIN shape true · sign-in shape true
@@ -119,6 +110,7 @@
   DELETE /api/admin/admins/[id]                               recorded as "Removed an admin"
   GET    /api/admin/admins/activity                           read, not recorded
   DELETE /api/admin/admins/locks/[id]                         recorded as "Lifted a sign-in lock"
+  DELETE /api/admin/admins/locks/budget                       recorded as "Lifted the admin door’s daily budget"
   GET    /api/admin/admins/locks                              read, not recorded
   GET    /api/admin/admins                                    read, not recorded
   POST   /api/admin/admins                                    recorded as "Added an admin"
@@ -133,6 +125,7 @@
   PATCH  /api/admin/cleaners/[id]                             recorded as "Changed a team member’s status"
   DELETE /api/admin/cleaners/[id]                             recorded as "Deleted a team member"
   DELETE /api/admin/cleaners/locks/[id]                       recorded as "Lifted a cleaner sign-in lock"
+  DELETE /api/admin/cleaners/locks/budget                     recorded as "Lifted the cleaner door’s daily budget"
   GET    /api/admin/cleaners/locks                            read, not recorded
   GET    /api/admin/cleaners                                  read, not recorded
   POST   /api/admin/cleaners                                  recorded as "Added a team member"
@@ -224,7 +217,7 @@
   POST   /api/properties                                      recorded as "Added a property"
   POST   /api/scrape-airbnb                                   recorded as "Read an Airbnb listing"
   POST   /api/upload-image                                    recorded as "Uploaded an image"
-  106 handlers through adminRoute; problems: 0
+  108 handlers through adminRoute; problems: 0
   routes still on the PIN-signed session: 0
   a route that unlocks an admin's PIN (the first version's per-admin lock): false
 

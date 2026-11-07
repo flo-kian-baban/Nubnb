@@ -16,8 +16,8 @@
  * type in takes focus by itself).
  *
  * The cleaner door's lock (Kian's ruling of 2026-10-14, evening): the wrong code before a lock says what the next one
- * does, and a locked connection says until when — or that the office lifts it — and takes no code until then: the pad
- * waits.
+ * does, and a locked connection says until when — or that the office lifts it, or, after the day's budget of wrong
+ * codes was spent (Kian's ruling of 2026-11-06), until tomorrow — and takes no code until then: the pad waits.
  */
 
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
@@ -41,7 +41,10 @@ function messageOf(state: CodeState): [string, string | null] | null {
     case "not-recognised":
       return ["Code not recognised", state.warning];
     case "locked":
-      return state.until === null ? ["Too many wrong codes today", "Ask the office to unlock sign-in."] : ["Too many wrong codes", `Try again at ${clock(state.until)}.`];
+      if (state.until === null) return ["Too many wrong codes today", "Ask the office to unlock sign-in."];
+      // The day's budget was spent and one wrong code locked this connection until tomorrow (Kian's ruling of 2026-11-06).
+      if (state.budget) return ["Locked until tomorrow", "Many wrong codes today. The office can unlock sign-in sooner."];
+      return ["Too many wrong codes", `Try again at ${clock(state.until)}.`];
     case "offline":
       return ["No connection. Try again.", null];
     case "failed":
@@ -66,11 +69,12 @@ export function CodeScreen({ onCode, signedOut = false }: { onCode: (code: strin
     titleRef.current?.focus();
   }, []);
 
-  // A lock that ends opens the pad again by itself.
+  // A lock that ends opens the pad again by itself. The wait is capped at what setTimeout can hold (about 24.8 days): a
+  // day lock seen from a phone whose clock lags would otherwise overflow into "now".
   useEffect(() => {
     if (state.kind !== "locked" || state.until === null) return;
-    const wait = Date.parse(state.until) - Date.now();
-    const timer = window.setTimeout(() => setState({ kind: "idle" }), Math.max(0, wait) + 1_000);
+    const wait = Math.min(Math.max(0, Date.parse(state.until) - Date.now()) + 1_000, 2_147_483_647);
+    const timer = window.setTimeout(() => setState({ kind: "idle" }), wait);
     return () => window.clearTimeout(timer);
   }, [state]);
 

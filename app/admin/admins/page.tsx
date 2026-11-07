@@ -25,6 +25,9 @@
  *
  * Then the locked connections: when each lock ends and when its last wrong
  * PIN came, with Lift. No address is shown: none is kept, only a keyed hash.
+ * Above them, when the day's budget of wrong PINs across all connections is
+ * spent (Kian's ruling of 2026-11-06: ten in a Toronto day, then one wrong
+ * PIN locks a connection until tomorrow), the budget and its Lift.
  *
  * Under them, the activity: the newest admin actions, who did each and when.
  *
@@ -41,7 +44,8 @@ import { NoticeBanner, useNotice, type Notice } from "../components/Notice";
 import { useAsk } from "../components/AskDialog";
 import { Dialog } from "../property/editor/controls";
 import ed from "../property/editor/editor.module.css";
-import { createAdmin, fetchActivity, fetchAdmins, fetchLocks, liftLock, removeAdmin, setAdminLevel, setAdminPin, type AdminResult } from "@/app/lib/admins-client";
+import { createAdmin, fetchActivity, fetchAdmins, fetchLocks, liftBudget as liftDailyBudget, liftLock, removeAdmin, setAdminLevel, setAdminPin, type AdminResult } from "@/app/lib/admins-client";
+import { DAILY_BUDGET, budgetEffectWords, budgetLockWords, budgetSpentWords, type BudgetView } from "@/app/lib/admins/budget";
 import {
   ADMIN_LEVELS,
   ADMIN_LEVEL_LABELS,
@@ -125,7 +129,7 @@ function AdminsList() {
   const session = useAdminSession();
   const you = session?.admin.id ?? null;
   const [admins, setAdmins] = useState<Load<AdminSummary[]>>({ kind: "loading" });
-  const [locks, setLocks] = useState<Load<SignInLockView[]>>({ kind: "loading" });
+  const [locks, setLocks] = useState<Load<{ locks: SignInLockView[]; budget: BudgetView }>>({ kind: "loading" });
   const [activity, setActivity] = useState<Load<AdminActionView[]>>({ kind: "loading" });
   const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
@@ -201,8 +205,30 @@ function AdminsList() {
     setBusy(null);
     // Gone already (it ended, or was lifted): the list drops it either way.
     if (!result.ok && result.code !== "SIGN_IN_LOCK_NOT_FOUND") return show(failureNotice(result, "Nothing was changed."));
-    setLocks((prev) => (prev.kind === "ready" ? { kind: "ready", data: prev.data.filter((l) => l.id !== lock.id) } : prev));
+    setLocks((prev) => (prev.kind === "ready" ? { kind: "ready", data: { ...prev.data, locks: prev.data.locks.filter((l) => l.id !== lock.id) } } : prev));
     show({ tone: "success", title: result.ok ? "Lifted. Sign-in from that connection works again." : "That lock had already ended." });
+  };
+
+  /** Lift the day's budget (Kian's ruling of 2026-11-06), asked first in Nubnb's own dialog: the connections it locked are unlocked. */
+  const liftBudget = async (budget: BudgetView) => {
+    const locked = locks.kind === "ready" ? locks.data.locks.filter((l) => l.budget).length : 0;
+    const yes = await ask({
+      title: "Lift today’s budget?",
+      lines: [
+        `${budget.wrong} wrong PINs came to the admin door today. One wrong PIN stops locking a connection until tomorrow, until ${budget.threshold} more have come.`,
+        locked === 0 ? "No connection is locked by it now." : locked === 1 ? "The one connection it locked can sign in again." : `The ${locked} connections it locked can sign in again.`,
+      ],
+      confirm: "Lift",
+    });
+    if (!yes) return;
+    clear();
+    setBusy("budget");
+    const result = await liftDailyBudget();
+    setBusy(null);
+    if (!result.ok && result.code !== "SIGN_IN_BUDGET_NOT_SPENT") return show(failureNotice(result, "Nothing was changed."));
+    setLocks((prev) => (prev.kind === "ready" ? { kind: "ready", data: { locks: prev.data.locks.filter((l) => !l.budget), budget: { ...prev.data.budget, spent: false, spentAt: null, lifts: prev.data.budget.lifts + 1 } } } : prev));
+    const unlocked = result.ok ? result.data.unlocked : 0;
+    show({ tone: "success", title: result.ok ? `Lifted. The budget starts again today; ${unlocked === 1 ? "1 connection" : `${unlocked} connections`} unlocked.` : "Today’s budget was not spent any more." });
   };
 
   /** Main admins besides you: while there is one, you may step down or leave. */
@@ -334,14 +360,31 @@ function AdminsList() {
 
         <section aria-label="Locked connections" className={styles.block}>
           <h2 className={styles.blockTitle}>Locked connections</h2>
+          {locks.kind === "ready" && locks.data.budget.spent && (
+            <div className={styles.budgetRow} role="status">
+              <span>
+                <strong>{budgetSpentWords(locks.data.budget)}</strong> {budgetEffectWords("admin")}
+                <span className={styles.muted}>
+                  {locks.data.budget.spentAt ? ` · spent ${when(locks.data.budget.spentAt)}` : ""}
+                  {locks.data.budget.email ? ` · email to the office ${locks.data.budget.email.status === "sent" ? "sent" : "failed"}${locks.data.budget.email.at ? ` ${when(locks.data.budget.email.at)}` : ""}` : " · email to the office pending"}
+                  {locks.data.budget.lifts > 0 ? ` · lifted ${locks.data.budget.lifts === 1 ? "once" : `${locks.data.budget.lifts} times`} today` : ""}
+                </span>
+              </span>
+              <button type="button" className={styles.rowAction} disabled={busy !== null} onClick={() => liftBudget(locks.data.budget)}>
+                {busy === "budget" ? "Lifting…" : "Lift"}
+              </button>
+            </div>
+          )}
           {locks.kind === "loading" ? (
             <p className={styles.muted}>Loading…</p>
           ) : locks.kind === "error" ? (
             <p className={styles.warn} role="alert">
               Could not load the locked connections: {locks.title}
             </p>
-          ) : locks.data.length === 0 ? (
-            <p className={styles.muted}>None. Five wrong PINs in a row from one connection lock sign-in from it for 15 minutes; twenty in a Toronto day, until lifted here.</p>
+          ) : locks.data.locks.length === 0 ? (
+            <p className={styles.muted}>
+              None. Five wrong PINs in a row from one connection lock sign-in from it for 15 minutes; twenty in a Toronto day, until lifted here. After {DAILY_BUDGET.admin} wrong PINs from all connections in a day, one wrong PIN locks a connection until tomorrow.
+            </p>
           ) : (
             <div className={`${shared.tableContainer} ${styles.tableScroll}`}>
               <table className={shared.table}>
@@ -353,10 +396,12 @@ function AdminsList() {
                   </tr>
                 </thead>
                 <tbody>
-                  {locks.data.map((lock) => (
+                  {locks.data.locks.map((lock) => (
                     <tr key={lock.id}>
                       <td className={styles.whenCell}>
-                        <span className={`${styles.badge} ${styles.badgeLocked}`}>{lock.lockedUntil === null ? "Until lifted" : when(lock.lockedUntil)}</span>
+                        <span className={`${styles.badge} ${styles.badgeLocked}`} title={lock.budget ? budgetLockWords("admin") : undefined}>
+                          {lock.lockedUntil === null ? "Until lifted" : lock.budget ? "Tomorrow (daily budget)" : when(lock.lockedUntil)}
+                        </span>
                       </td>
                       <td className={styles.whenCell}>
                         <span className={styles.muted}>{when(lock.lastFailedAt)}</span>
@@ -484,8 +529,7 @@ function AddAdminDialog({ onClose, onAdded, onUnknown }: { onClose: () => void; 
     const result = await createAdmin(name, level, pin);
     setBusy(false);
     if (result.ok) return onAdded(result.data);
-    // The list of codes never given out cannot be checked (503): nothing was changed, so no "may or may not".
-    if (result.unknown && result.code !== "ADMIN_PIN_DENYLIST_UNKEYED") return onUnknown(result.title);
+    if (result.unknown) return onUnknown(result.title);
     setError(result.title);
   };
 
@@ -571,8 +615,7 @@ function SetPinDialog({ admin, onClose, onDone, onUnknown }: { admin: AdminSumma
     const result = await setAdminPin(admin.id, pin);
     setBusy(false);
     if (result.ok) return onDone(result.data.admin, result.data.changed);
-    // The list of codes never given out cannot be checked (503): nothing was changed, so no "may or may not".
-    if (result.unknown && result.code !== "ADMIN_PIN_DENYLIST_UNKEYED") return onUnknown(result.title);
+    if (result.unknown) return onUnknown(result.title);
     setError(result.title);
   };
 

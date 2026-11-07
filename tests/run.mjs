@@ -51,6 +51,10 @@ export const CHECKS = [
   { name: 'cleaner-header', script: 'cleaner/header.mjs', args: [] },
   { name: 'add-job', script: 'schedule/add-job.mjs', args: [] },
   { name: 'job-price', script: 'schedule/job-price.mjs', args: [] },
+  // The security round (Kian's rulings of 2026-11-06): the daily budget, the scan's contexts, duplicate codes and PINs.
+  { name: 'signin-budget', script: 'admins/budget.mjs', args: [] },
+  { name: 'code-context', script: 'security/code-context.mjs', args: [] },
+  { name: 'code-duplicates', script: 'security/duplicates.mjs', args: [] },
 ];
 
 const argv = process.argv.slice(2);

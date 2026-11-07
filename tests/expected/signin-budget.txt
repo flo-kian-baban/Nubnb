@@ -1,0 +1,107 @@
+1. The budget: fifteen at the cleaner door, ten at the admin door; spent, reached, lifted, a new day
+   ok   thresholds: cleaner 15, admin 10
+   ok   the 15th wrong code reaches the budget (reached at 15)
+   ok   the 16th and 17th come to a spent budget (2)
+   ok   stored: wrong 17, base 0, spent at the 15th, day 2028-11-20
+   ok   spent now
+   ok   lifted: not spent, base 17, the day's 17 kept
+   ok   fifteen more after the lift reach it again, at 32 wrong today (the email says "32 so far")
+   ok   the next Toronto day starts from nothing
+   ok   the admin door: spent at ten, not at nine
+   ok   one document per door per day
+
+2. The day lock ends at Toronto midnight: EST, EDT, both clock-change nights, the last millisecond
+   ok   an EST day: 2026-12-15T12:00:00.000Z → 2026-12-16T05:00:00.000Z
+   ok   an EDT day: 2026-07-01T12:00:00.000Z → 2026-07-02T04:00:00.000Z
+   ok   the day before clocks go back (2026-10-31): 2026-10-31T20:00:00.000Z → 2026-11-01T04:00:00.000Z
+   ok   the 25-hour day clocks go back (2026-11-01): 2026-11-01T12:00:00.000Z → 2026-11-02T05:00:00.000Z
+   ok   the day before clocks go forward (2026-03-07): 2026-03-07T20:00:00.000Z → 2026-03-08T05:00:00.000Z
+   ok   the 23-hour day clocks go forward (2026-03-08): 2026-03-08T12:00:00.000Z → 2026-03-09T04:00:00.000Z
+   ok   one millisecond before midnight: 2026-12-16T04:59:59.999Z → 2026-12-16T05:00:00.000Z
+   ok   the test day: 2028-11-20T15:00:00.000Z → 2028-11-21T05:00:00.000Z
+
+3. One wrong try at a spent door locks the connection until tomorrow; the day's twentieth still caps it
+   ok   a first try: budget-locked until 2028-11-21T05:00:00.000Z; stored failedTries 0, dayTries 1
+   ok   a fifth in a row: the day lock, not the fifteen minutes (dayTries 8)
+   ok   the day's twentieth: capped-now (until lifted outranks the day lock)
+   ok   the day lock holds to the last millisecond and not at midnight
+
+4. The one email: the count and the door, never a code or PIN
+   ok   cleaner: "[NuBnb] Many wrong codes at the cleaner door today: 15 so far"
+   ok   cleaner: the only digits are the count (15); no four-digit run besides the day
+   ok   cleaner: points to the page with Lift
+   ok   admin: "[NuBnb] Many wrong PINs at the admin door today: 10 so far"
+   ok   admin: the only digits are the count (10); no four-digit run besides the day
+   ok   admin: points to the page with Lift
+   the cleaner door's text:
+     | Many wrong codes at the cleaner door today: 15 so far (Toronto day 2028-11-20).
+     | 
+     | The day's budget of 15 is spent. From now until midnight Toronto, one wrong code locks a connection until tomorrow. Right codes still sign in.
+     | Lift it on the Team page: https://www.nubnb.ca/admin/cleaners
+     | 
+     | This email names no code. Nubnb sends one each time the day's budget is spent.
+
+5. The pages' words and the view's shape
+   ok   isBudgetView accepts the shape and refuses others
+   ok   "Daily budget spent: 17 wrong codes at the cleaner door today (budget 15)."
+   ok   "Daily budget spent: 11 wrong PINs at the admin door today (budget 10)."
+   "One wrong code now locks a connection until tomorrow; right codes still sign in." · "One wrong PIN now locks a connection until tomorrow; right PINs still sign in."
+   "1 wrong code after today’s budget was spent · until tomorrow" · "1 wrong PIN after today’s budget was spent · until tomorrow"
+
+6. The cleaner door on an in-memory Firestore: 15 wrong codes from 5 connections, then one try, then a lock; a right code still signs in; one email; Lift
+[sign-in] the cleaner door's daily budget of 15 wrong tries is spent (15 today): one wrong try now locks a connection until tomorrow
+   ok   15 wrong codes from 5 connections, 3 each: all not-recognised (no connection reached five in a row)
+   ok   the 15th alone carries budgetReached: [{"n":15,"wrong":15}]
+   ok   signin_budgets/cleaner-2028-11-20: wrong 15, base 0, spentAt the 15th
+[cleaner-session] the day's budget is spent: one wrong code locked a connection until 2028-11-21T05:00:00.000Z
+   ok   the 16th, a new connection: locked now, budget true, until 2028-11-21T05:00:00.000Z
+   ok   its lock document: lockedUntil midnight, budgetLocked 2028-11-20, dayTries 1
+   ok   the 17th from the same connection: locked, not now, budget true (refused before any check)
+   ok   the right code from the locked connection: locked (the connection's lock, as always)
+   ok   the right code from another connection: found (right codes are unaffected)
+   ok   a right code reads no budget document (reads: cleaner_signin_locks, cleaner_signin_locks, cleaner_codes, cleaners)
+[cleaner-session] the day's budget is spent: one wrong code locked a connection until 2028-11-21T05:00:00.000Z
+   ok   then one wrong code from that connection: locked, budget true
+   ok   the budget counts the wrong codes at the spent door too: wrong 17, spentAt unchanged
+[sign-in] the cleaner door's budget email: failed
+   ok   the email's outcome recorded on the budget: failed ("Email is not configured on the server: GMAIL_USER and GMAIL_APP_PASSWORD must both be set.")
+   ok   the Team page's view: spent true, wrong 17, email failed, lifts 0
+   ok   the locks listed: 2, both budget locks until midnight
+[sign-in] the cleaner door's daily budget was lifted; 2 connection(s) unlocked
+   ok   Lift: lifted, 2 connections unlocked
+   ok   the locked connection after Lift: lockedUntil null, budgetLocked gone, dayTries 1 kept
+   ok   the budget after Lift: base 17, spentAt null, one lift by the admin at 17
+   ok   the view after Lift: spent false, lifts 1, wrong 17
+   ok   a second Lift: not-spent
+   ok   a wrong code from the unlocked connection: not-recognised, 4 left (an ordinary try again)
+   ok   no lock listed after Lift
+[sign-in] the cleaner door's daily budget of 15 wrong tries is spent (32 today): one wrong try now locks a connection until tomorrow
+[cleaner-session] the day's budget is spent: one wrong code locked a connection until 2028-11-21T05:00:00.000Z
+   ok   fifteen more after the lift: reached once, "32 so far" (17 before the lift, 1 after it, then the fourteenth of these fifteen; the fifteenth meets a spent door)
+[cleaner-session] the day's budget is spent: one wrong code locked a connection until 2028-11-21T05:00:00.000Z
+   ok   a fourth wrong code from connection 8 at the spent door: locked (budget true), dayTries 4
+[cleaner-session] a connection reached 20 wrong codes in a Toronto day: locked until an admin lifts it
+   ok   the day's twentieth from connection 13: locked until lifted (budget false)
+   ok   no code stands in the budget document
+
+7. The admin door: the same at ten; a right PIN still signs in; Change PIN's wrong current PIN stays off the budget
+[sign-in] the admin door's daily budget of 10 wrong tries is spent (10 today): one wrong try now locks a connection until tomorrow
+   ok   10 wrong PINs from 5 connections, 2 each: all wrong
+   ok   the 10th alone carries budgetReached: [{"n":10,"wrong":10}]
+[admins] the day's budget is spent: one wrong PIN locked a connection until 2028-11-21T05:00:00.000Z
+   ok   the 11th, a new connection: locked now, budget true, until 2028-11-21T05:00:00.000Z
+   ok   its lock document carries budgetLocked 2028-11-20
+   ok   the 12th from it: locked, budget true
+   ok   the right PIN from another connection: signed-in (right PINs are unaffected)
+[admins] the day's budget is spent: one wrong PIN locked a connection until 2028-11-21T05:00:00.000Z
+   ok   the shared PIN with no admin on it, at the spent door: a wrong PIN like any other → locked, budget true
+   ok   signin_budgets/admin-2028-11-20: wrong 12
+   ok   Change PIN with a wrong current PIN: wrong; the connection counts it (failedTries 1), the budget does not (wrong 12)
+   ok   the Admins page's view: spent true, threshold 10, wrong 12
+   ok   the admin door's locks listed: 2, both budget locks
+[sign-in] the admin door's daily budget was lifted; 2 connection(s) unlocked
+   ok   Lift at the admin door: lifted, 2 unlocked
+   ok   a wrong PIN from the unlocked connection: wrong, 4 left
+   ok   no PIN stands in a budget document
+
+all checks pass

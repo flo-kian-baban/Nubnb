@@ -61,6 +61,8 @@
 import type { DocumentReference, Transaction } from 'firebase-admin/firestore';
 import { getAdminDb } from './admin';
 import { adminPinHolds, countTry, lockStateOf, readConnectionLock } from './server-admins';
+import { countWrongOnBudget, isBudgetLock, readBudget, type BudgetReached, type BudgetRead } from './server-signin-budget';
+import { afterWrongHardened } from '@/app/lib/admins/budget';
 import { readUnmarkedJobs, takeOffJobs } from './server-cleaning-jobs';
 import { memberPaySources } from './server-pay';
 import { readRegularReplacements, type RegularReplaced } from './server-regular-cleaners';
@@ -69,10 +71,8 @@ import { deleteRefusal, type DeleteRefusal } from '@/app/lib/pay/checks';
 import type { RegularReplacements } from '@/app/lib/schedule/regular';
 import type { UnmarkedJob } from '@/app/lib/schedule/model';
 import { isDocumentId } from './server-leads';
-import { DAILY_TRIES, MAX_WRONG_TRIES, afterTry, lockHolding, type LockState, type SignInLockView } from '@/app/lib/admins/model';
-import { generateCandidate, isDrawable, reservedReason, type CodeDenylist, type ReservedReason } from '@/app/lib/cleaners/codes';
-// The codes never given out (security rule, 2026-10-19), read from the environment on each issuance; the same list refuses an admin PIN (pin-denylist.ts).
-import { codeDenylist } from '@/app/lib/cleaners/denylist';
+import { DAILY_TRIES, MAX_WRONG_TRIES, afterTry, lockHolding, torontoDayOf, type LockState, type SignInLockView } from '@/app/lib/admins/model';
+import { generateCandidate, isDrawable, reservedReason, type ReservedReason } from '@/app/lib/cleaners/codes';
 import {
   CLEANERS_COLLECTION,
   CLEANER_CODES_COLLECTION,
@@ -253,14 +253,12 @@ export type IssueCleanerResult =
   | { kind: 'unavailable' }
   /** The typed code is not four digits. Nothing was read or written. */
   | { kind: 'not-a-code' }
-  /** The typed code is the admin PIN (ADMIN_PIN), or one that appeared in Nubnb's public code. Nothing was written (a public one is counted on the connection). */
+  /** The typed code is the admin PIN (ADMIN_PIN). Nothing was written. */
   | { kind: 'reserved'; reason: ReservedReason }
   /** The typed code is an active account's now (`holder` is their name). Nothing was written. */
   | { kind: 'taken'; holder: string | null }
   /** Every candidate was reserved, easy or already issued. Nothing was written. */
   | { kind: 'exhausted' }
-  /** The denylist of codes that appeared in public code is set but cannot be checked (no cleaner key). Nothing was read or written. */
-  | { kind: 'denylist-unkeyed' }
   /** The write failed in a way that does not say whether it landed. Never retried. */
   | { kind: 'unconfirmed' };
 
@@ -336,15 +334,12 @@ export async function issueCleaner(
     console.error('[cleaners] create failed before any write: the database is not configured');
     return { kind: 'unavailable' };
   }
-  const denied = codeDenylist();
-  if (denied.kind === 'unkeyed') return { kind: 'denylist-unkeyed' };
-
-  if (typed !== null && typer !== null) return issueTyped(db, name, role, typed, actor, adminPin, typer, denied.denylist);
+  if (typed !== null && typer !== null) return issueTyped(db, name, role, typed, actor, adminPin, typer);
 
   for (let n = 1; n <= MAX_CANDIDATES; n++) {
     const code = generateCandidate();
-    if (!isDrawable(code, adminPin, denied.denylist)) {
-      console.warn(`[cleaners] reserved, public or easy candidate skipped (candidate ${n}/${MAX_CANDIDATES})`);
+    if (!isDrawable(code, adminPin)) {
+      console.warn(`[cleaners] reserved or easy candidate skipped (candidate ${n}/${MAX_CANDIDATES})`);
       continue;
     }
 
@@ -398,7 +393,6 @@ async function issueTyped(
   actor: Actor,
   adminPin: string,
   typer: CodeTyper,
-  denylist: CodeDenylist | null,
 ): Promise<IssueCleanerResult> {
   const cleanerRef = db.collection(CLEANERS_COLLECTION).doc();
   try {
@@ -406,7 +400,7 @@ async function issueTyped(
       const nowMs = Date.now();
       const lock = typer.counted ? await readConnectionLock(tx, typer.connection, nowMs) : null;
       if (lock?.holding) return { kind: 'locked', lockedUntil: lock.holding.until, now: false };
-      const reason = reservedReason(code, adminPin, denylist);
+      const reason = reservedReason(code, adminPin);
       const available = reason ? null : await codeAvailability(tx, db, code, cleanerRef.id);
       // ── Writes ── An ordinary admin's try counts, whatever the answer.
       const counted = lock ? countTry(tx, lock.ref, lock.lock, nowMs) : null;
@@ -586,14 +580,12 @@ export type SetCleanerCodeResult =
   | { kind: 'not-a-code' }
   /** No admin PIN to keep codes clear of. Nothing was read or written. */
   | { kind: 'admin-pin-missing' }
-  /** The typed code is the admin PIN (ADMIN_PIN), or one that appeared in Nubnb's public code. Nothing was written (a public one is counted on the connection). */
+  /** The typed code is the admin PIN (ADMIN_PIN). Nothing was written. */
   | { kind: 'reserved'; reason: ReservedReason }
   /** The typed code is an active account's now (`holder` is their name). Nothing was written. */
   | { kind: 'taken'; holder: string | null }
   /** Every candidate drawn was reserved, easy or taken. Nothing was written. */
   | { kind: 'exhausted' }
-  /** The denylist of codes that appeared in public code is set but cannot be checked (no cleaner key). Nothing was read or written. */
-  | { kind: 'denylist-unkeyed' }
   /** The stored session epoch or history is not in a shape that can be advanced. Nothing was written. */
   | { kind: 'unreadable' }
   /** The transaction failed: it may or may not have landed. */
@@ -632,19 +624,17 @@ export async function setCleanerCode(
 ): Promise<SetCleanerCodeResult> {
   if (!isDocumentId(id)) return { kind: 'not-found' };
   if (!adminPin) return { kind: 'admin-pin-missing' };
-  const denied = codeDenylist();
-  if (denied.kind === 'unkeyed') return { kind: 'denylist-unkeyed' };
 
   if (request.kind === 'typed') {
     if (!CODE_PATTERN.test(request.code)) return { kind: 'not-a-code' };
     if (typer === null) return { kind: 'not-configured' };
-    return writeCode(actor, id, request.code, { kind: 'typed', adminPin, typer, denylist: denied.denylist });
+    return writeCode(actor, id, request.code, { kind: 'typed', adminPin, typer });
   }
 
   for (let n = 1; n <= MAX_CANDIDATES; n++) {
     const code = generateCandidate();
-    if (!isDrawable(code, adminPin, denied.denylist)) {
-      console.warn(`[cleaners] reserved, public or easy candidate skipped (candidate ${n}/${MAX_CANDIDATES})`);
+    if (!isDrawable(code, adminPin)) {
+      console.warn(`[cleaners] reserved or easy candidate skipped (candidate ${n}/${MAX_CANDIDATES})`);
       continue;
     }
     const result = await writeCode(actor, id, code, { kind: 'drawn' });
@@ -666,7 +656,7 @@ async function writeCode(
   actor: Actor,
   id: string,
   code: string,
-  how: { kind: 'typed'; adminPin: string; typer: CodeTyper; denylist: CodeDenylist | null } | { kind: 'drawn' },
+  how: { kind: 'typed'; adminPin: string; typer: CodeTyper } | { kind: 'drawn' },
 ): Promise<SetCleanerCodeResult> {
   const source = how.kind;
   try {
@@ -697,7 +687,7 @@ async function writeCode(
       const history: unknown = stored.history;
       if (!isSessionEpoch(epoch) || !Array.isArray(history)) return { kind: 'unreadable' };
 
-      const reason = how.kind === 'typed' ? reservedReason(code, how.adminPin, how.denylist) : null;
+      const reason = how.kind === 'typed' ? reservedReason(code, how.adminPin) : null;
       const available = reason ? null : await codeAvailability(tx, db, code, id);
 
       // The document of the code being replaced: the current code's, or on a
@@ -851,25 +841,47 @@ const LOCK_ID = /^[0-9a-f]{64}$/;
 
 export type CleanerSignInResult =
   | { kind: 'found'; cleaner: SignedInCleaner }
-  /** No active cleaner holds this code; `triesLeft` before this connection's lock (`untilLifted`: the day's twentieth). */
-  | { kind: 'not-recognised'; triesLeft: number; untilLifted: boolean }
-  /** Sign-in from this connection is locked until `lockedUntil` (null: until an admin lifts it); `now` when this code locked it. */
-  | { kind: 'locked'; lockedUntil: string | null; now: boolean }
+  /** No active cleaner holds this code; `triesLeft` before this connection's lock (`untilLifted`: the day's twentieth). `budgetReached`: this code spent the day's budget, so the one email goes. */
+  | { kind: 'not-recognised'; triesLeft: number; untilLifted: boolean; budgetReached?: BudgetReached }
+  /**
+   * Sign-in from this connection is locked until `lockedUntil` (null: until an admin lifts it); `now` when this code
+   * locked it; `budget` when the day's budget was spent and this connection's one wrong code locked it until tomorrow
+   * (Kian's ruling of 2026-11-06).
+   */
+  | { kind: 'locked'; lockedUntil: string | null; now: boolean; budget: boolean; budgetReached?: BudgetReached }
   | { kind: 'unavailable' };
 
-/** A wrong code counted against the connection, inside the transaction: the admin door's rule (admins/model.ts, afterTry). */
-function countWrongCode(tx: Transaction, lockRef: DocumentReference, lock: LockState, nowMs: number): CleanerSignInResult {
+/**
+ * A wrong code counted against the connection and the day's budget, inside the transaction: the admin door's rule
+ * (admins/model.ts, afterTry), and, once the day's budget is spent (Kian's ruling of 2026-11-06), the connection
+ * locked until tomorrow by this one wrong code (admins/budget.ts, afterWrongHardened).
+ */
+function countWrongCode(tx: Transaction, lockRef: DocumentReference, lock: LockState, nowMs: number, budget: BudgetRead): CleanerSignInResult {
+  const lastFailedAt = new Date(nowMs).toISOString();
+  const budgetReached = countWrongOnBudget(tx, budget, 'cleaner', nowMs);
+  if (budget.spent) {
+    const hardened = afterWrongHardened(lock, nowMs);
+    if (hardened.kind === 'capped-now') {
+      tx.set(lockRef, { ...hardened.next, lastFailedAt });
+      console.log(`[cleaner-session] a connection reached ${DAILY_TRIES} wrong codes in a Toronto day: locked until an admin lifts it`);
+      return { kind: 'locked', lockedUntil: null, now: true, budget: false };
+    }
+    tx.set(lockRef, { ...hardened.next, lastFailedAt, budgetLocked: torontoDayOf(nowMs) });
+    console.log(`[cleaner-session] the day's budget is spent: one wrong code locked a connection until ${hardened.lockedUntil}`);
+    return { kind: 'locked', lockedUntil: hardened.lockedUntil, now: true, budget: true };
+  }
   const outcome = afterTry(lock, false, nowMs);
-  tx.set(lockRef, { ...outcome.next, lastFailedAt: new Date(nowMs).toISOString() });
+  tx.set(lockRef, { ...outcome.next, lastFailedAt });
+  const reached = budgetReached ? { budgetReached } : {};
   if (outcome.kind === 'capped-now') {
     console.log(`[cleaner-session] a connection reached ${DAILY_TRIES} wrong codes in a Toronto day: locked until an admin lifts it`);
-    return { kind: 'locked', lockedUntil: null, now: true };
+    return { kind: 'locked', lockedUntil: null, now: true, budget: false, ...reached };
   }
   if (outcome.kind === 'locked-now') {
     console.log(`[cleaner-session] sign-in locked after ${MAX_WRONG_TRIES} wrong codes in a row from one connection, until ${outcome.lockedUntil}`);
-    return { kind: 'locked', lockedUntil: outcome.lockedUntil, now: true };
+    return { kind: 'locked', lockedUntil: outcome.lockedUntil, now: true, budget: false, ...reached };
   }
-  return outcome.kind === 'wrong' ? { kind: 'not-recognised', triesLeft: outcome.triesLeft, untilLifted: outcome.untilLifted } : { kind: 'not-recognised', triesLeft: 0, untilLifted: false };
+  return outcome.kind === 'wrong' ? { kind: 'not-recognised', triesLeft: outcome.triesLeft, untilLifted: outcome.untilLifted, ...reached } : { kind: 'not-recognised', triesLeft: 0, untilLifted: false, ...reached };
 }
 
 /**
@@ -881,9 +893,15 @@ function countWrongCode(tx: Transaction, lockRef: DocumentReference, lock: LockS
  * the fifth in a row locks it for fifteen minutes, the twentieth in a Toronto day until an admin lifts it from the
  * Team page. A right code clears the tries in a row, not the day's.
  *
- * Reads: one when locked; otherwise the lock twice (before and inside the transaction), the code, and on a hit the
- * cleaner. The caller has already refused, with no read, a code that is not four digits: it is no guess and is not
- * counted. Never throws: a failed read is `unavailable`, and access is never granted on an error.
+ * The day's budget (Kian's ruling of 2026-11-06; server-signin-budget.ts): every wrong code also counts on
+ * `signin_budgets/cleaner-<day>`, read inside the transaction only when the code is wrong; once the day's fifteen are
+ * spent, one wrong code locks its connection until tomorrow, and the code that spent them is answered with
+ * `budgetReached` for the route to send the one email after its response. Right codes are unaffected.
+ *
+ * Reads: one when locked; otherwise the lock twice (before and inside the transaction), the code, on a hit the
+ * cleaner, and on a wrong code the day's budget. The caller has already refused, with no read, a code that is not four
+ * digits: it is no guess and is not counted. Never throws: a failed read is `unavailable`, and access is never granted
+ * on an error.
  */
 export async function signInCleaner(code: string, connection: string, nowMs: number = Date.now()): Promise<CleanerSignInResult> {
   if (!CODE_PATTERN.test(code) || !LOCK_ID.test(connection)) return { kind: 'unavailable' };
@@ -892,13 +910,13 @@ export async function signInCleaner(code: string, connection: string, nowMs: num
     const lockRef = db.collection(CLEANER_SIGNIN_LOCKS_COLLECTION).doc(connection);
     const before = await lockRef.get();
     const holding = before.exists ? lockHolding(lockStateOf(before.data()), nowMs) : null;
-    if (holding) return { kind: 'locked', lockedUntil: holding.until, now: false };
+    if (holding) return { kind: 'locked', lockedUntil: holding.until, now: false, budget: holding.until !== null && isBudgetLock(before.data()) };
 
     return await db.runTransaction(async (tx): Promise<CleanerSignInResult> => {
       const lockSnap = await tx.get(lockRef);
       const lock = lockStateOf(lockSnap.data());
       const locked = lockHolding(lock, nowMs);
-      if (locked) return { kind: 'locked', lockedUntil: locked.until, now: false };
+      if (locked) return { kind: 'locked', lockedUntil: locked.until, now: false, budget: locked.until !== null && isBudgetLock(lockSnap.data()) };
 
       let found: SignedInCleaner | null = null;
       const [codeDoc] = await tx.getAll(db.collection(CLEANER_CODES_COLLECTION).doc(code), { fieldMask: ['cleanerId', 'retiredAt'] });
@@ -911,7 +929,8 @@ export async function signInCleaner(code: string, connection: string, nowMs: num
           found = { id: cleanerId, name: typeof name === 'string' ? name : null, sessionEpoch: epoch, role: roleOf(cleaner.data() ?? {}) };
         }
       }
-      if (!found) return countWrongCode(tx, lockRef, lock, nowMs);
+      // A wrong code: the day's budget is read here, still before any write, so a right code costs no extra read.
+      if (!found) return countWrongCode(tx, lockRef, lock, nowMs, await readBudget(tx, db, 'cleaner', nowMs));
       // A right code: the tries in a row cleared, the Toronto day's kept (they count toward its twenty).
       if (lockSnap.exists) {
         const right = afterTry(lock, true, nowMs);
@@ -932,8 +951,8 @@ export async function listCleanerSignInLocks(nowMs: number = Date.now()): Promis
   const [timed, capped] = await Promise.all([locks.where('lockedUntil', '>', new Date(nowMs).toISOString()).get(), locks.where('capped', '==', true).get()]);
   const text = (value: unknown) => (typeof value === 'string' ? value : null);
   const views = new Map<string, SignInLockView>();
-  for (const doc of capped.docs) views.set(doc.id, { id: doc.id, lockedUntil: null, capped: true, lastFailedAt: text(doc.get('lastFailedAt')) });
-  for (const doc of timed.docs) if (!views.has(doc.id)) views.set(doc.id, { id: doc.id, lockedUntil: String(doc.get('lockedUntil')), capped: false, lastFailedAt: text(doc.get('lastFailedAt')) });
+  for (const doc of capped.docs) views.set(doc.id, { id: doc.id, lockedUntil: null, capped: true, budget: false, lastFailedAt: text(doc.get('lastFailedAt')) });
+  for (const doc of timed.docs) if (!views.has(doc.id)) views.set(doc.id, { id: doc.id, lockedUntil: String(doc.get('lockedUntil')), capped: false, budget: isBudgetLock(doc.data()), lastFailedAt: text(doc.get('lastFailedAt')) });
   return [...views.values()].sort((a, b) => Number(b.capped) - Number(a.capped) || (b.lockedUntil ?? '').localeCompare(a.lockedUntil ?? ''));
 }
 

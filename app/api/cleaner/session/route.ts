@@ -27,15 +27,20 @@
  *      holds all get the same 401, which says no more than that, and each
  *      counts against the connection: the fifth in a row locks it for 15
  *      minutes, the twentieth in a Toronto day until an admin lifts it; the
- *      try before a lock says so. A failed read is 503: access is never
- *      granted on an error;
+ *      try before a lock says so. Each counts on the day's budget too
+ *      (Kian's ruling of 2026-11-06): once fifteen wrong codes have come
+ *      from all connections together in a Toronto day, one wrong code locks
+ *      its connection until tomorrow (429, `budget`), right codes unaffected;
+ *      the code that spends the budget sends the one email to the office
+ *      after this answer (server-signin-budget.ts). A failed read is 503:
+ *      access is never granted on an error;
  *   7. a session token is issued in an HTTP-only cookie scoped to
  *      /api/cleaner, kept until the cleaner signs out or their code
  *      changes (no automatic expiry, Kian's ruling of 2026-11-02).
  *
  * Reads: none for a malformed code; one for a locked connection; otherwise
- * the lock twice, the code, and the cleaner when the code names one
- * (server-cleaners.ts, signInCleaner). The GET reads nothing when the token
+ * the lock twice, the code, the cleaner when the code names one, and the
+ * day's budget when it names none (server-cleaners.ts, signInCleaner). The GET reads nothing when the token
  * is invalid, and one document otherwise. The DELETE reads nothing and needs
  * no session: it only clears the cookie, so it answers the same whether or
  * not one was sent.
@@ -43,7 +48,7 @@
  * Every response, refusals included, is no-store.
  */
 
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { z } from 'zod';
 import { apiSuccess, apiError, apiFailure, noStore } from '@/app/lib/api/safe-response';
 import { LOCK_MINUTES } from '@/app/lib/admins/model';
@@ -60,6 +65,10 @@ import {
   verifyCleanerSession,
 } from '@/app/lib/cleaners/session';
 import { signInCleaner } from '@/app/lib/firebase/server-cleaners';
+import { notifyBudgetSpent } from '@/app/lib/firebase/server-signin-budget';
+
+/** The one email at the budget's threshold goes after the answer: room for the mail transport's own timeouts (app/lib/mail/office.ts). */
+export const maxDuration = 30;
 
 /** Strict: a body that carries anything besides `code` is refused, not trimmed. */
 const SignInSchema = z.strictObject({
@@ -73,14 +82,23 @@ function lastTryWarning(untilLifted: boolean): string {
 
 /**
  * 429 CLEANER_SIGN_IN_LOCKED: sign-in from this connection is locked. For fifteen minutes, with when it ends and
- * Retry-After; or, after twenty wrong codes in a Toronto day, until an admin lifts it (`lockedUntil` null, `capped`).
- * `lockedNow` when this code locked it.
+ * Retry-After; or, after twenty wrong codes in a Toronto day, until an admin lifts it (`lockedUntil` null, `capped`);
+ * or, the day's budget spent (Kian's ruling of 2026-11-06), until tomorrow by this connection's one wrong code
+ * (`budget`, `lockedUntil` Toronto midnight). `lockedNow` when this code locked it.
  */
-function lockedResponse(lockedUntil: string | null, lockedNow: boolean): NextResponse {
+function lockedResponse(lockedUntil: string | null, lockedNow: boolean, budget: boolean): NextResponse {
   const capped = lockedUntil === null;
-  const error = capped ? 'Sign-in from here is locked until the office lifts it.' : lockedNow ? `Five wrong codes in a row: sign-in from here is locked for ${LOCK_MINUTES} minutes.` : 'Sign-in from here is locked.';
+  const error = capped
+    ? 'Sign-in from here is locked until the office lifts it.'
+    : budget
+      ? lockedNow
+        ? 'Wrong code. Many wrong codes today, so one wrong code locks sign-in from here until tomorrow.'
+        : 'Sign-in from here is locked until tomorrow: many wrong codes today.'
+      : lockedNow
+        ? `Five wrong codes in a row: sign-in from here is locked for ${LOCK_MINUTES} minutes.`
+        : 'Sign-in from here is locked.';
   const headers: Record<string, string> = capped ? {} : { 'Retry-After': String(Math.max(1, Math.ceil((Date.parse(lockedUntil) - Date.now()) / 1_000))) };
-  return noStore(NextResponse.json({ success: false, error, code: 'CLEANER_SIGN_IN_LOCKED', lockedUntil, capped, lockedNow }, { status: 429, headers }));
+  return noStore(NextResponse.json({ success: false, error, code: 'CLEANER_SIGN_IN_LOCKED', lockedUntil, capped, lockedNow, budget }, { status: 429, headers }));
 }
 
 export async function POST(request: Request) {
@@ -112,7 +130,12 @@ export async function POST(request: Request) {
   // ── Lookup, with the connection's lock — one answer for every code that does not open the door ──
   const found = await signInCleaner(code, cleanerConnectionOf(request, secrets.sessionKey));
   if (found.kind === 'unavailable') return noStore(apiFailure(CLEANER_AUTH_UNAVAILABLE));
-  if (found.kind === 'locked') return lockedResponse(found.lockedUntil, found.now);
+  // The wrong code that spent the day's budget (Kian's ruling of 2026-11-06): the one email to the office, after the answer.
+  if ((found.kind === 'not-recognised' || found.kind === 'locked') && found.budgetReached) {
+    const reached = found.budgetReached;
+    after(() => notifyBudgetSpent(reached));
+  }
+  if (found.kind === 'locked') return lockedResponse(found.lockedUntil, found.now, found.budget);
   if (found.kind === 'not-recognised') return noStore(apiFailure({ ...CLEANER_CODE_NOT_RECOGNISED, ...(found.triesLeft === 1 ? { hint: lastTryWarning(found.untilLifted) } : {}) }));
 
   // ── Session ──

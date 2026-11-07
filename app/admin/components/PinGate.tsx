@@ -259,8 +259,8 @@ function ChooseFour({ admin, current, onSet, onSignOut }: { admin: SignedInAdmin
 function SignIn({ onSignedIn }: { onSignedIn: (admin: SignedInAdminView, typed: string) => void }) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState<{ title: string; hint?: string } | null>(null);
-  /** When sign-in from this connection is locked: until when (`until` null: until a main admin lifts it). */
-  const [locked, setLocked] = useState<{ until: string | null } | null>(null);
+  /** When sign-in from this connection is locked: until when (`until` null: until a main admin lifts it; `budget`: until tomorrow, the day's budget spent). */
+  const [locked, setLocked] = useState<{ until: string | null; budget: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const firstBox = useRef<HTMLInputElement | null>(null);
 
@@ -272,11 +272,12 @@ function SignIn({ onSignedIn }: { onSignedIn: (admin: SignedInAdminView, typed: 
   // A fifteen-minute lock ends by itself: at its time the boxes come back. The day's cap waits for a main admin.
   useEffect(() => {
     if (!locked || locked.until === null) return;
+    // Capped at what setTimeout can hold (about 24.8 days): a day lock (the budget's) seen from a clock that lags would otherwise overflow into "now".
     const timer = setTimeout(() => {
       setLocked(null);
       setError(null);
       setTimeout(() => firstBox.current?.focus(), 50);
-    }, Math.max(0, Date.parse(locked.until) - Date.now()) + 500);
+    }, Math.min(Math.max(0, Date.parse(locked.until) - Date.now()) + 500, 2_147_483_647));
     return () => clearTimeout(timer);
   }, [locked]);
 
@@ -295,8 +296,9 @@ function SignIn({ onSignedIn }: { onSignedIn: (admin: SignedInAdminView, typed: 
       }
       setPin("");
       if (isLockedAnswer(result)) {
-        setLocked({ until: result.lockedUntil });
-        setError({ title: result.lockedNow ? (result.lockedUntil === null ? "Twenty tries today." : "Five tries in a row.") : "Sign-in from here is locked." });
+        const budget = result.budget === true;
+        setLocked({ until: result.lockedUntil, budget });
+        setError({ title: result.lockedNow ? (result.lockedUntil === null ? "Twenty tries today." : budget ? "Wrong PIN, and many wrong PINs today." : "Five tries in a row.") : "Sign-in from here is locked." });
         return;
       }
       // 401 is the only answer that means the PIN was wrong; anything else is said as it is.
@@ -346,7 +348,7 @@ function SignIn({ onSignedIn }: { onSignedIn: (admin: SignedInAdminView, typed: 
 
         {locked ? (
           <span className={styles.lockedText} role="alert">
-            {error?.title ? `${error.title} ` : ""}Locked until {lockTimeWords(locked.until)}.
+            {error?.title ? `${error.title} ` : ""}Locked until {locked.budget ? "tomorrow" : lockTimeWords(locked.until)}.
           </span>
         ) : error ? (
           <span className={styles.errorText} role="alert">

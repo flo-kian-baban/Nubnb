@@ -1,0 +1,25 @@
+1. Unique: every code and PIN its own
+  clean true · counts {"cleanersWithCode":2,"adminsWithPin":1}
+
+2. A code held by two accounts (one of them inactive): found by role and name
+  clean false · counts {"cleanersWithCode":2,"adminsWithPin":1}
+  a cleaner code held by two accounts: cleaner Test Ana (active) and cleaner Test Eve (inactive)
+
+3. A PIN held by two admins
+  clean false · counts {"cleanersWithCode":2,"adminsWithPin":2}
+  an admin PIN held by two admins: admin Test Main (main) and admin Test Twin (admin)
+
+4. A code that is an admin PIN
+  clean false · counts {"cleanersWithCode":2,"adminsWithPin":2}
+  a cleaner code that is also an admin PIN: handyman Test Ben (active) and admin Test Clash (admin)
+
+5. The shared PIN held as a code, and as a PIN
+  clean false · counts {"cleanersWithCode":3,"adminsWithPin":2}
+  a cleaner code that is also an admin PIN: cleaner Test Fay (active) and admin Test Gus (admin)
+  the shared PIN held as a code or PIN: cleaner Test Fay (active)
+  the shared PIN held as a code or PIN: admin Test Gus (admin)
+
+6. No shared PIN given: only the four kinds among accounts
+  clean true · counts {"cleanersWithCode":2,"adminsWithPin":1}
+
+7. No value in any finding: true

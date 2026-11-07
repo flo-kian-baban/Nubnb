@@ -72,6 +72,8 @@
 import type { DocumentReference, Firestore, Transaction } from 'firebase-admin/firestore';
 import { getAdminDb } from './admin';
 import { isDocumentId } from './server-leads';
+import { countWrongOnBudget, isBudgetLock, readBudget, type BudgetReached, type BudgetRead } from './server-signin-budget';
+import { afterWrongHardened } from '@/app/lib/admins/budget';
 import {
   ADMINS_COLLECTION,
   ADMIN_ACTIONS_COLLECTION,
@@ -92,6 +94,7 @@ import {
   isPinState,
   lockHolding,
   nameKeyOf,
+  torontoDayOf,
   type AdminActionView,
   type AdminHistoryEvent,
   type AdminLevel,
@@ -299,10 +302,41 @@ export function countTry(tx: Transaction, lockRef: DocumentReference, lock: Lock
   return outcome.kind === 'wrong' ? { kind: 'counted', triesLeft: outcome.triesLeft, untilLifted: outcome.untilLifted } : { kind: 'counted', triesLeft: 0, untilLifted: false };
 }
 
-/** A wrong PIN, counted; the answer to give. */
-function countWrong(tx: Transaction, lockRef: DocumentReference, lock: LockState, nowMs: number): { kind: 'wrong'; triesLeft: number; untilLifted: boolean } | { kind: 'locked'; lockedUntil: string | null; now: boolean } {
+/** A wrong current PIN on Change PIN, counted against the connection alone (the day's budget is the door's). The answer to give. */
+function countWrongOnConnection(tx: Transaction, lockRef: DocumentReference, lock: LockState, nowMs: number): { kind: 'wrong'; triesLeft: number; untilLifted: boolean } | { kind: 'locked'; lockedUntil: string | null; now: boolean } {
   const counted = countTry(tx, lockRef, lock, nowMs);
   return counted.kind === 'locked' ? counted : { kind: 'wrong', triesLeft: counted.triesLeft, untilLifted: counted.untilLifted };
+}
+
+/**
+ * A wrong PIN at the door, counted against the connection and the day's budget (Kian's ruling of 2026-11-06; the budget
+ * read inside the transaction before this, server-signin-budget.ts): once the day's ten are spent, this one wrong PIN
+ * locks the connection until tomorrow (admins/budget.ts, afterWrongHardened); the PIN that spends them is answered with
+ * `budgetReached`, for the route to send the one email after its response. The answer to give.
+ */
+function countWrong(
+  tx: Transaction,
+  lockRef: DocumentReference,
+  lock: LockState,
+  nowMs: number,
+  budget: BudgetRead,
+): { kind: 'wrong'; triesLeft: number; untilLifted: boolean; budgetReached?: BudgetReached } | { kind: 'locked'; lockedUntil: string | null; now: boolean; budget: boolean; budgetReached?: BudgetReached } {
+  const budgetReached = countWrongOnBudget(tx, budget, 'admin', nowMs);
+  if (budget.spent) {
+    const hardened = afterWrongHardened(lock, nowMs);
+    const lastFailedAt = new Date(nowMs).toISOString();
+    if (hardened.kind === 'capped-now') {
+      tx.set(lockRef, { ...hardened.next, lastFailedAt });
+      console.log(`[admins] a connection reached ${DAILY_TRIES} tries in a Toronto day: locked until a main admin lifts it`);
+      return { kind: 'locked', lockedUntil: null, now: true, budget: false };
+    }
+    tx.set(lockRef, { ...hardened.next, lastFailedAt, budgetLocked: torontoDayOf(nowMs) });
+    console.log(`[admins] the day's budget is spent: one wrong PIN locked a connection until ${hardened.lockedUntil}`);
+    return { kind: 'locked', lockedUntil: hardened.lockedUntil, now: true, budget: true };
+  }
+  const counted = countTry(tx, lockRef, lock, nowMs);
+  const reached = budgetReached ? { budgetReached } : {};
+  return counted.kind === 'locked' ? { ...counted, budget: false, ...reached } : { kind: 'wrong', triesLeft: counted.triesLeft, untilLifted: counted.untilLifted, ...reached };
 }
 
 /** A right PIN: the tries in a row cleared, the Toronto day's kept (they count toward its twenty). */
@@ -334,8 +368,8 @@ export async function listSignInLocks(nowMs: number = Date.now()): Promise<SignI
   const locks = getAdminDb().collection(ADMIN_SIGNIN_LOCKS_COLLECTION);
   const [timed, capped] = await Promise.all([locks.where('lockedUntil', '>', new Date(nowMs).toISOString()).get(), locks.where('capped', '==', true).get()]);
   const views = new Map<string, SignInLockView>();
-  for (const doc of capped.docs) views.set(doc.id, { id: doc.id, lockedUntil: null, capped: true, lastFailedAt: text(doc.get('lastFailedAt')) });
-  for (const doc of timed.docs) if (!views.has(doc.id)) views.set(doc.id, { id: doc.id, lockedUntil: String(doc.get('lockedUntil')), capped: false, lastFailedAt: text(doc.get('lastFailedAt')) });
+  for (const doc of capped.docs) views.set(doc.id, { id: doc.id, lockedUntil: null, capped: true, budget: false, lastFailedAt: text(doc.get('lastFailedAt')) });
+  for (const doc of timed.docs) if (!views.has(doc.id)) views.set(doc.id, { id: doc.id, lockedUntil: String(doc.get('lockedUntil')), capped: false, budget: isBudgetLock(doc.data()), lastFailedAt: text(doc.get('lastFailedAt')) });
   return [...views.values()].sort((a, b) => Number(b.capped) - Number(a.capped) || (b.lockedUntil ?? '').localeCompare(a.lockedUntil ?? ''));
 }
 
@@ -356,10 +390,14 @@ export async function liftSignInLock(lockId: string): Promise<{ kind: 'lifted' }
 
 export type SignInResult =
   | { kind: 'signed-in'; admin: SignedInAdmin }
-  /** No admin holds that PIN; `triesLeft` before this connection's lock (`untilLifted`: the day's, not the fifteen minutes). */
-  | { kind: 'wrong'; triesLeft: number; untilLifted: boolean }
-  /** Sign-in from this connection is locked until `lockedUntil` (null: until a main admin lifts it); `now` when this PIN locked it. */
-  | { kind: 'locked'; lockedUntil: string | null; now: boolean }
+  /** No admin holds that PIN; `triesLeft` before this connection's lock (`untilLifted`: the day's, not the fifteen minutes). `budgetReached`: this PIN spent the day's budget, so the one email goes. */
+  | { kind: 'wrong'; triesLeft: number; untilLifted: boolean; budgetReached?: BudgetReached }
+  /**
+   * Sign-in from this connection is locked until `lockedUntil` (null: until a main admin lifts it); `now` when this PIN
+   * locked it; `budget` when the day's budget was spent and this connection's one wrong PIN locked it until tomorrow
+   * (Kian's ruling of 2026-11-06).
+   */
+  | { kind: 'locked'; lockedUntil: string | null; now: boolean; budget: boolean; budgetReached?: BudgetReached }
   /** The shared PIN, with more than one main admin on it: it cannot say which. */
   | { kind: 'shared-ambiguous' }
   | { kind: 'unavailable' };
@@ -384,7 +422,7 @@ export async function signIn(pin: string, connection: string, nowMs: number = Da
     const lockRef = db.collection(ADMIN_SIGNIN_LOCKS_COLLECTION).doc(connection);
     const before = await lockRef.get();
     const holding = before.exists ? lockHolding(lockStateOf(before.data()), nowMs) : null;
-    if (holding) return { kind: 'locked', lockedUntil: holding.until, now: false };
+    if (holding) return { kind: 'locked', lockedUntil: holding.until, now: false, budget: holding.until !== null && isBudgetLock(before.data()) };
 
     const shared = sharedPinMatches(pin) === true;
     const sharedShape = pin.length === sharedPinLength();
@@ -393,7 +431,7 @@ export async function signIn(pin: string, connection: string, nowMs: number = Da
       const lockSnap = await tx.get(lockRef);
       const lock = lockStateOf(lockSnap.data());
       const locked = lockHolding(lock, nowMs);
-      if (locked) return { kind: 'locked' as const, lockedUntil: locked.until, now: false };
+      if (locked) return { kind: 'locked' as const, lockedUntil: locked.until, now: false, budget: locked.until !== null && isBudgetLock(lockSnap.data()) };
 
       let via: 'pin' | 'shared' | 'first' | null = null;
       let adminRef: DocumentReference | null = null;
@@ -432,8 +470,8 @@ export async function signIn(pin: string, connection: string, nowMs: number = Da
         }
       }
 
-      // ── Writes ──
-      if (!via) return countWrong(tx, lockRef, lock, nowMs);
+      // ── Writes ── A wrong PIN reads the day's budget first (still before any write; a right PIN never reads it).
+      if (!via) return countWrong(tx, lockRef, lock, nowMs, await readBudget(tx, db, 'admin', nowMs));
       clearRow(tx, lockRef, lockSnap.exists, lock, nowMs);
       if ((via === 'pin' || via === 'shared') && adminRef) {
         tx.update(adminRef, { lastSignedInAt: nowIso });
@@ -551,7 +589,7 @@ export async function changeOwnPin(admin: SignedInAdmin, currentPin: string, new
       const oldId = indexIdOf(current.get('pin'));
       const oldRef = oldId ? db.collection(ADMIN_PINS_COLLECTION).doc(oldId) : null;
       const oldIndex = oldRef ? await tx.get(oldRef) : null;
-      if (!right) return countWrong(tx, lockRef, lock, nowMs);
+      if (!right) return countWrongOnConnection(tx, lockRef, lock, nowMs);
       const counted = countTry(tx, lockRef, lock, nowMs);
       const by: PinHolder | null = held.kind === 'held' ? 'admin' : takenByCode.exists ? 'code' : null;
       if (by) return counted.kind === 'locked' ? counted : { kind: 'taken' as const, by, triesLeft: counted.triesLeft, untilLifted: counted.untilLifted };

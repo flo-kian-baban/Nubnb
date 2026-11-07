@@ -54,6 +54,7 @@
  * Every response is no-store.
  */
 
+import { after } from 'next/server';
 import { z } from 'zod';
 import { apiError, apiFailure, apiSuccess, noStore } from '@/app/lib/api/safe-response';
 import { connectionOf } from '@/app/lib/admins/connection';
@@ -63,6 +64,7 @@ import { ADMIN_AUTH_NOT_CONFIGURED, getAdminPinKey, getAdminSessionKey } from '@
 import { ADMIN_AUTH_UNAVAILABLE, clearAdminSessionCookie, createAdminToken, setAdminSessionCookie, verifyAdminSession } from '@/app/lib/admins/session';
 import { refuseCrossSite, requireMediaType } from '@/app/lib/cleaners/request-guard';
 import { signIn } from '@/app/lib/firebase/server-admins';
+import { notifyBudgetSpent } from '@/app/lib/firebase/server-signin-budget';
 import { refreshIfFirstToday } from '@/app/lib/availability/daily';
 
 /** The day's first admin page may run the calendar refresh after its answer: it has this long. */
@@ -100,8 +102,13 @@ export async function POST(request: Request) {
   const { pin } = parsed.data;
   if (!SIGN_IN_PIN_PATTERN.test(pin)) return noStore(apiFailure(SIGN_IN_REFUSED));
 
-  // ── The check, with the connection's lock ──
+  // ── The check, with the connection's lock and the day's budget ──
   const outcome = await signIn(pin, connectionOf(request, pinKey));
+  // The wrong PIN that spent the day's budget (Kian's ruling of 2026-11-06): the one email to the office, after the answer.
+  if ((outcome.kind === 'wrong' || outcome.kind === 'locked') && outcome.budgetReached) {
+    const reached = outcome.budgetReached;
+    after(() => notifyBudgetSpent(reached));
+  }
   switch (outcome.kind) {
     case 'wrong':
       return noStore(
@@ -111,7 +118,7 @@ export async function POST(request: Request) {
         }),
       );
     case 'locked':
-      return lockedResponse(outcome.lockedUntil, outcome.now);
+      return lockedResponse(outcome.lockedUntil, outcome.now, outcome.budget);
     case 'shared-ambiguous':
       return noStore(apiFailure({ status: 409, code: 'SHARED_PIN_AMBIGUOUS', message: 'More than one main admin is on the shared PIN.', hint: 'Run the recovery script for one main admin at a time. Nothing was changed.' }));
     case 'unavailable':

@@ -107,6 +107,7 @@ import {
   fetchCleaners,
   fetchTeamSchedule,
   fetchUnmarkedJobs,
+  liftCleanerBudget,
   liftCleanerLock,
   suggestCode,
   type CleanerResult,
@@ -117,6 +118,7 @@ import {
   type TeamSchedule,
 } from "@/app/lib/cleaners-client";
 import type { SignInLockView } from "@/app/lib/admins/model";
+import { budgetEffectWords, budgetLockWords, budgetSpentWords, type BudgetView } from "@/app/lib/admins/budget";
 import type { UnmarkedJob } from "@/app/lib/schedule/model";
 import { dayText } from "@/app/lib/availability/days";
 import {
@@ -236,8 +238,8 @@ function Cleaners() {
   const { notice, show: showNotice, clear: clearNotice } = useNotice();
   /** Every question asked in Nubnb's own dialog (Kian's ruling of 2026-10-12: no native browser dialogs in the admin). */
   const { ask, dialog } = useAsk();
-  /** The cleaner door's locks holding now (Kian's ruling of 2026-10-14, evening): an admin lifts them here. */
-  const [locks, setLocks] = useState<{ kind: "loading" } | { kind: "ready"; locks: SignInLockView[] } | { kind: "error"; title: string }>({ kind: "loading" });
+  /** The cleaner door's locks holding now (Kian's ruling of 2026-10-14, evening), and the day's budget (2026-11-06): an admin lifts them here. */
+  const [locks, setLocks] = useState<{ kind: "loading" } | { kind: "ready"; locks: SignInLockView[]; budget: BudgetView } | { kind: "error"; title: string }>({ kind: "loading" });
   const [lifting, setLifting] = useState<string | null>(null);
   const [payments, setPayments] = useState<PaymentsState>({ kind: "loading" });
   /** The team's schedule: regular properties and jobs ahead, per person (round 1). */
@@ -308,7 +310,7 @@ function Cleaners() {
   useEffect(() => {
     let cancelled = false;
     fetchCleanerLocks().then((result) => {
-      if (!cancelled) setLocks(result.ok ? { kind: "ready", locks: result.data.locks } : { kind: "error", title: result.title });
+      if (!cancelled) setLocks(result.ok ? { kind: "ready", locks: result.data.locks, budget: result.data.budget } : { kind: "error", title: result.title });
     });
     return () => {
       cancelled = true;
@@ -398,8 +400,33 @@ function Cleaners() {
       showNotice(result.unknown ? { tone: "warning", title: "The lock may or may not have been lifted. Reload to see.", detail: result.title } : { tone: "error", title: result.title, detail: result.detail });
       return;
     }
-    setLocks((prev) => (prev.kind === "ready" ? { kind: "ready", locks: prev.locks.filter((l) => l.id !== lock.id) } : prev));
+    setLocks((prev) => (prev.kind === "ready" ? { ...prev, locks: prev.locks.filter((l) => l.id !== lock.id) } : prev));
     showNotice({ tone: "success", title: result.ok ? "Lifted. Sign-in from that connection works again." : "That lock had already ended." });
+  };
+
+  /** Lift the day's budget (Kian's ruling of 2026-11-06): asked first in Nubnb's own dialog; the connections it locked are unlocked. */
+  const liftBudget = async (budget: BudgetView) => {
+    if (lifting) return;
+    const locked = locks.kind === "ready" ? locks.locks.filter((l) => l.budget).length : 0;
+    const yes = await ask({
+      title: "Lift today’s budget?",
+      lines: [
+        `${budget.wrong} wrong codes came to the cleaner door today. One wrong code stops locking a connection until tomorrow, until ${budget.threshold} more have come.`,
+        locked === 0 ? "No connection is locked by it now." : locked === 1 ? "The one connection it locked can sign in again." : `The ${locked} connections it locked can sign in again.`,
+      ],
+      confirm: "Lift",
+    });
+    if (!yes) return;
+    setLifting("budget");
+    const result = await liftCleanerBudget();
+    setLifting(null);
+    if (!result.ok && result.status !== 404) {
+      showNotice(result.unknown ? { tone: "warning", title: "The budget may or may not have been lifted. Reload to see.", detail: result.title } : { tone: "error", title: result.title, detail: result.detail });
+      return;
+    }
+    setLocks((prev) => (prev.kind === "ready" ? { kind: "ready", locks: prev.locks.filter((l) => !l.budget), budget: { ...prev.budget, spent: false, spentAt: null, lifts: prev.budget.lifts + 1 } } : prev));
+    const unlocked = result.ok ? result.data.lifted.unlocked : 0;
+    showNotice({ tone: "success", title: result.ok ? `Lifted. The budget starts again today; ${unlocked === 1 ? "1 connection" : `${unlocked} connections`} unlocked.` : "Today’s budget was not spent any more." });
   };
 
   // Opening the editor puts the cursor in the code field.
@@ -871,6 +898,25 @@ function Cleaners() {
 
             {/* ── The cleaner door's locks (Kian's ruling of 2026-10-14, evening): shown only while one holds ── */}
             {locks.kind === "error" && <NoticeBanner className={shared.pageNotice} notice={{ tone: "warning", title: "The cleaner sign-in locks could not be read.", detail: locks.title }} />}
+            {/* ── The day's budget (Kian's ruling of 2026-11-06): shown when spent, with Lift ── */}
+            {locks.kind === "ready" && locks.budget.spent && (
+              <section className={styles.locks} aria-label="Daily budget of wrong codes">
+                <h2 className={styles.locksTitle}>Cleaner door · daily budget</h2>
+                <div className={styles.budgetRow} role="status">
+                  <span>
+                    <strong>{budgetSpentWords(locks.budget)}</strong> {budgetEffectWords("cleaner")}
+                    <span className={styles.lockMeta}>
+                      {locks.budget.spentAt ? ` · spent ${clockWords(locks.budget.spentAt)}` : ""}
+                      {locks.budget.email ? ` · email to the office ${locks.budget.email.status === "sent" ? "sent" : "failed"}${locks.budget.email.at ? ` ${clockWords(locks.budget.email.at)}` : ""}` : " · email to the office pending"}
+                      {locks.budget.lifts > 0 ? ` · lifted ${locks.budget.lifts === 1 ? "once" : `${locks.budget.lifts} times`} today` : ""}
+                    </span>
+                  </span>
+                  <button type="button" className={shared.btnGhost} onClick={() => liftBudget(locks.budget)} disabled={lifting !== null}>
+                    {lifting === "budget" ? "Lifting…" : "Lift"}
+                  </button>
+                </div>
+              </section>
+            )}
             {locks.kind === "ready" && locks.locks.length > 0 && (
               <section className={styles.locks} aria-label="Cleaner sign-in locks">
                 <h2 className={styles.locksTitle}>Cleaner sign-in locks · {locks.locks.length}</h2>
@@ -878,7 +924,7 @@ function Cleaners() {
                   {locks.locks.map((lock) => (
                     <li key={lock.id} className={styles.lockRow}>
                       <span>
-                        {lock.capped ? "20 wrong codes today · until lifted" : `5 wrong codes in a row · until ${lock.lockedUntil ? clockWords(lock.lockedUntil) : "?"}`}
+                        {lock.capped ? "20 wrong codes today · until lifted" : lock.budget ? budgetLockWords("cleaner") : `5 wrong codes in a row · until ${lock.lockedUntil ? clockWords(lock.lockedUntil) : "?"}`}
                         <span className={styles.lockMeta}> · one connection{lock.lastFailedAt ? `, last wrong code ${clockWords(lock.lastFailedAt)}` : ""}</span>
                       </span>
                       <button type="button" className={shared.btnGhost} onClick={() => lift(lock)} disabled={lifting !== null}>
@@ -1125,7 +1171,7 @@ function sentence(text: string): string {
  * A typed code refused for a reason its one line says (Kian's ruling of 2026-10-17: every refusal says why in one
  * plain line): an admin's PIN, an active account's code, no code free to draw, or a locked connection.
  */
-const ONE_LINE_REFUSALS: ReadonlySet<string> = new Set(['CLEANER_CODE_IS_ADMIN_PIN', 'CLEANER_CODE_PUBLIC', 'CLEANER_CODE_TAKEN', 'CLEANER_CODE_UNAVAILABLE', 'ADMIN_SIGN_IN_LOCKED']);
+const ONE_LINE_REFUSALS: ReadonlySet<string> = new Set(['CLEANER_CODE_IS_ADMIN_PIN', 'CLEANER_CODE_TAKEN', 'CLEANER_CODE_UNAVAILABLE', 'ADMIN_SIGN_IN_LOCKED']);
 
 /** A code refusal's detail: none for one whose line says why, else describeFailure's. */
 function codeRefusalDetail(failure: CleanerFailure, nothingDone: string): string | undefined {

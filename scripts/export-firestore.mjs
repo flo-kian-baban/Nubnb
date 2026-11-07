@@ -70,6 +70,8 @@ const EXPECTED_COLLECTIONS = [
   // 2026-10-14: the cleaning schedule's jobs, and the cleaner door's sign-in locks by keyed hash of the connection.
   'cleaning_jobs',
   'cleaner_signin_locks',
+  // 2026-11-06: the two doors' daily wrong-try budgets, one document per door per Toronto day (no code or PIN in them).
+  'signin_budgets',
   // 2026-10-15: team pay, the payments recorded to cleaners and handymen.
   'team_payments',
   // 2026-11-03 (Build 2): the marker a deleted calendar job leaves, so the next calendar read does not make it again.

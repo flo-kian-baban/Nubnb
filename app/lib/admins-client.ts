@@ -18,6 +18,7 @@
 import { describeErrorBody, readErrorBody } from '@/app/lib/api/http-failure';
 import { isPinState } from '@/app/lib/admins/model';
 import type { AdminActionView, AdminLevel, AdminSummary, SignInLockView, SignedInAdminView } from '@/app/lib/admins/model';
+import { isBudgetView } from '@/app/lib/admins/budget';
 
 export type AdminResult<T> =
   | { ok: true; data: T }
@@ -32,6 +33,8 @@ export type AdminResult<T> =
       lockedUntil?: string | null;
       capped?: boolean;
       lockedNow?: boolean;
+      /** The day's budget was spent and this connection's one wrong PIN locked it until tomorrow (Kian's ruling of 2026-11-06). */
+      budget?: boolean;
       /** The route's hint alone, unjoined: the sign-in shows it under its one line. */
       hint?: string;
       unknown: boolean;
@@ -67,6 +70,7 @@ async function call<T>(url: string, init: RequestInit, action: string, pick: (da
       lockedUntil: typeof body.lockedUntil === 'string' ? body.lockedUntil : body.lockedUntil === null ? null : undefined,
       capped: body.capped === true,
       lockedNow: body.lockedNow === true,
+      budget: body.budget === true,
       unknown: (res.status >= 500 && !(body.success === false && typeof body.error === 'string')) || code?.endsWith('_UNCONFIRMED') === true,
     };
   }
@@ -124,8 +128,12 @@ export const fetchAdmins = () =>
 export const fetchActivity = (limit = 100) =>
   call(`/api/admin/admins/activity?limit=${limit}`, { method: 'GET' }, 'Loading the activity', (data) => (isRecord(data) && Array.isArray(data.actions) ? (data.actions as AdminActionView[]) : null));
 
+/** The admin door's locks holding now, and the day's budget (Kian's ruling of 2026-11-06). */
 export const fetchLocks = () =>
-  call('/api/admin/admins/locks', { method: 'GET' }, 'Loading the locked connections', (data) => (isRecord(data) && Array.isArray(data.locks) ? (data.locks as SignInLockView[]) : null));
+  call('/api/admin/admins/locks', { method: 'GET' }, 'Loading the locked connections', (data) => (isRecord(data) && Array.isArray(data.locks) && isBudgetView(data.budget) ? { locks: data.locks as SignInLockView[], budget: data.budget } : null));
+
+/** Lift the admin door's daily budget (main admin): the connections it locked are unlocked. */
+export const liftBudget = () => call('/api/admin/admins/locks/budget', { method: 'DELETE' }, 'Lifting the daily budget', (data) => (isRecord(data) && isRecord(data.lifted) && typeof data.lifted.unlocked === 'number' ? { unlocked: data.lifted.unlocked } : null));
 
 export const liftLock = (id: string) => call(`/api/admin/admins/locks/${encodeURIComponent(id)}`, { method: 'DELETE' }, 'Lifting the lock', (data) => (isRecord(data) && isRecord(data.lifted) ? true : null));
 

@@ -22,6 +22,7 @@ import { describeErrorBody, readErrorBody } from '@/app/lib/api/http-failure';
 import type { PersonJob } from '@/app/lib/pay/month';
 import { isTooEasyCode, type CleanerRole, type CleanerStatus, type CleanerSummary } from '@/app/lib/cleaners/model';
 import type { SignInLockView } from '@/app/lib/admins/model';
+import { isBudgetView, type BudgetView } from '@/app/lib/admins/budget';
 import type { UnmarkedJob } from '@/app/lib/schedule/model';
 
 export type CleanerResult<T> =
@@ -363,7 +364,7 @@ export function fetchTeamSchedule(): Promise<CleanerResult<TeamSchedule>> {
 }
 
 const isLock = (value: unknown): value is SignInLockView =>
-  isRecord(value) && typeof value.id === 'string' && isTextOrNull(value.lockedUntil) && typeof value.capped === 'boolean' && isTextOrNull(value.lastFailedAt);
+  isRecord(value) && typeof value.id === 'string' && isTextOrNull(value.lockedUntil) && typeof value.capped === 'boolean' && typeof value.budget === 'boolean' && isTextOrNull(value.lastFailedAt);
 
 /** The cleaner door's locks holding now (Kian's ruling of 2026-10-14, evening): the Team page lists them, with Lift. */
 /** A person's jobs in one month (Build 3): what their page's calendar and summary need beside what the Team page holds. */
@@ -376,8 +377,14 @@ export function fetchMemberMonth(id: string, month: string): Promise<CleanerResu
   );
 }
 
-export function fetchCleanerLocks(): Promise<CleanerResult<{ locks: SignInLockView[] }>> {
-  return call('/api/admin/cleaners/locks', {}, 'Loading the locked connections failed', (data) => isRecord(data) && Array.isArray(data.locks) && data.locks.every(isLock));
+/** The cleaner door's locks holding now, and the day's budget (Kian's ruling of 2026-11-06). */
+export function fetchCleanerLocks(): Promise<CleanerResult<{ locks: SignInLockView[]; budget: BudgetView }>> {
+  return call('/api/admin/cleaners/locks', {}, 'Loading the locked connections failed', (data) => isRecord(data) && Array.isArray(data.locks) && data.locks.every(isLock) && isBudgetView(data.budget));
+}
+
+/** Lift the cleaner door's daily budget (Kian's ruling of 2026-11-06): the connections it locked are unlocked. SIGN_IN_BUDGET_UNCONFIRMED: the answer does not say whether it was. */
+export function liftCleanerBudget(): Promise<CleanerResult<{ lifted: { door: string; dayKey: string; unlocked: number } }>> {
+  return call('/api/admin/cleaners/locks/budget', { method: 'DELETE' }, 'Lifting the daily budget failed', (data) => isRecord(data) && isRecord(data.lifted) && typeof data.lifted.unlocked === 'number', ['SIGN_IN_BUDGET_UNCONFIRMED']);
 }
 
 /** Lift a cleaner-door lock before its time. CLEANER_LOCK_UNCONFIRMED means the answer does not say whether it was. */

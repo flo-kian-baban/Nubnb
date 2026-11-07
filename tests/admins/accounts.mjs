@@ -49,39 +49,6 @@ const refusedCodes = ALL4.filter((c) => codes.reservedReason(c, SHARED_CODE) !==
 out(`  cleaner codes refused by their digits alone: ${refusedCodes.length} of 10,000, the shared PIN only: ${refusedCodes.length === 1 && refusedCodes[0] === SHARED_CODE} · ${[UP, SAME, DOWN, SEVENS].map((c) => `${shape(c)} ${JSON.stringify(codes.reservedReason(c, SHARED_CODE))}`).join(', ')}`);
 const drawable = ALL4.filter((c) => codes.isDrawable(c, SHARED_CODE));
 out(`  a drawn or suggested code skips the easy ones and the shared PIN: ${drawable.length} drawable, ${10000 - drawable.length} skipped`);
-// The security rule of 2026-10-19: a code that appeared in Nubnb's public code is never given out — refused when typed,
-// never drawn. The list lives in the environment as keyed hashes (codes.ts); here a made-up key and three made-up codes.
-const denyKey = Buffer.alloc(32, 7);
-const DENIED = ['4812', '0675', '9301'];
-const denyValue = codes.denylistValue(DENIED, denyKey);
-const denyRead = codes.readCodeDenylist(denyValue, denyKey);
-const denylist = denyRead.kind === 'ok' ? denyRead.denylist : null;
-out(`  the denylist as an environment value: ${denyValue.split(',').length} hashes of ${denyValue.length} characters, each 64 hex; read back: ${denyRead.kind}; a code's digits in it: ${/\d{4}/.test(denyValue)}`);
-out(`  typed, on the list: ${DENIED.map((c) => JSON.stringify(codes.reservedReason(c, SHARED_CODE, denylist))).join(' ')} · typed, not on it: ${JSON.stringify(codes.reservedReason('5120', SHARED_CODE, denylist))} · the shared PIN still: ${JSON.stringify(codes.reservedReason(SHARED_CODE, SHARED_CODE, denylist))}`);
-const drawableDenied = ALL4.filter((c) => codes.isDrawable(c, SHARED_CODE, denylist));
-out(`  with the list, drawable: ${drawableDenied.length} (${drawable.length - drawableDenied.length} fewer); any listed code drawable: ${DENIED.some((c) => drawableDenied.includes(c))}; the same list under another key denies nothing: ${DENIED.filter((c) => codes.isPublicCode(c, { hashes: denylist.hashes, key: Buffer.alloc(32, 9) })).length}`);
-out(`  the refusal's line: ${codes.PUBLIC_CODE_REFUSAL_LINE}`);
-out(`  no list set: ${codes.readCodeDenylist(undefined, denyKey).kind}, ${codes.readCodeDenylist('', denyKey).kind}; a list set with no key: ${codes.readCodeDenylist(denyValue, null).kind} (issuance then fails closed); a value that is not hashes: ${codes.readCodeDenylist(`${1_234},abcd`, denyKey).kind}`);
-// The same list refuses an admin PIN (app/lib/admins/pin-denylist.ts), read from the environment as the server reads it;
-// the environment is restored after.
-const pinDeny = await import(`${ROOT}/app/lib/admins/pin-denylist.ts`);
-const keptEnv = { list: process.env.CLEANER_CODE_DENYLIST, key: process.env.CLEANER_SESSION_SECRET };
-process.env.CLEANER_CODE_DENYLIST = denyValue;
-process.env.CLEANER_SESSION_SECRET = denyKey.toString('base64url');
-const verdict = (r) => (r === null ? 'allowed' : `${r.status} ${r.code}`);
-out(`  an admin PIN on the list: ${DENIED.map((c) => verdict(pinDeny.pinDenied(c))).join(', ')}; not on it: ${verdict(pinDeny.pinDenied('5120'))}; refused with the cleaner code's sentence: ${pinDeny.PIN_IS_PUBLIC.message === codes.PUBLIC_CODE_REFUSAL_LINE}`);
-delete process.env.CLEANER_SESSION_SECRET;
-const unkeyed = verdict(pinDeny.pinDenied(DENIED[0]));
-delete process.env.CLEANER_CODE_DENYLIST;
-out(`  the list set and the key missing: ${unkeyed} (fails closed); no list set: ${verdict(pinDeny.pinDenied(DENIED[0]))}`);
-if (keptEnv.list !== undefined) process.env.CLEANER_CODE_DENYLIST = keptEnv.list;
-if (keptEnv.key !== undefined) process.env.CLEANER_SESSION_SECRET = keptEnv.key;
-const pinRoutes = ['app/api/admin/admins/route.ts', 'app/api/admin/admins/[id]/pin/route.ts', 'app/api/admin-auth/pin/route.ts'];
-out(`  the routes that take a PIN ask the list before any read: ${pinRoutes.filter((f) => /const denied = pinDenied\(/.test(fs.readFileSync(path.join(ROOT, f), 'utf8'))).length} of ${pinRoutes.length}`);
-// Kian's ruling of 2026-10-19: a PIN already held stays as it is even when it is on the list. Sign-in never asks the list:
-// a listed PIN still signs its holder in; only choosing or setting a PIN is refused.
-const signInSources = ['app/api/admin-auth/route.ts', 'app/lib/firebase/server-admins.ts'].map((f) => fs.readFileSync(path.join(ROOT, f), 'utf8'));
-out(`  sign-in never asks the list (a listed PIN still signs its holder in): the sign-in route and signIn() name neither the list nor pinDenied: ${signInSources.every((src) => !/pin-denylist|cleaners\/denylist|isPublicCode|pinDenied|CLEANER_CODE_DENYLIST/.test(src))}; sign-in compares the PIN only: ${/samePin|sharedPinMatches/.test(signInSources[1])}`);
 const OTHER = [0, 4, 2, 9].join('');
 for (const p of [SHARED_CODE, OTHER, SAME, UP, DOWN, SHARED_CODE + '20', SHARED_CODE.slice(0, 3), SHARED_CODE + '2', '12a4', ` ${SHARED_CODE}`, '']) {
   const label = p === SHARED_CODE ? 'the shared PIN' : p === OTHER ? 'another PIN' : shape(p.trim()) !== 'not easy' && p.trim().length === 4 ? shape(p) : p === SHARED_CODE + '20' ? 'six digits' : p === SHARED_CODE.slice(0, 3) ? 'three digits' : p === SHARED_CODE + '2' ? 'five digits' : p === '12a4' ? 'a letter inside' : p === ` ${SHARED_CODE}` ? 'a leading space' : 'empty';

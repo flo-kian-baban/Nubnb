@@ -4396,6 +4396,11 @@ Not a ruling of Kian's: the developer's rule, recorded in CLAUDE.md under *Secur
 in a pre-existing CLAUDE.md line (the accepted-risk wording of 2026-10-17 on easy codes) turned out to equal a cleaner's
 current code. The repository is public, so the digits were public too.
 
+**Superseded in part on 2026-11-07.** Kian's ruling: "No denylist (Kian, 2026-11-07); the daily wrong-code budget and
+email are the protection." Items 3, 4 and 5 of §60.1 and every choice in §60.2 describe the denylist, which was removed
+whole (§75.8): nothing below is to be generated or set any more. Item 1 stands, and item 2's scan stands as §75.4
+reshaped it (blocking by context).
+
 ### 60.1 What was built
 
 1. **The line itself** names no digits now: "may be easy codes (all one digit, or a straight run of digits)". The
@@ -6537,3 +6542,342 @@ with the tick on (fixed); the second, on the build committed, gave every figure 
 - **Reads:** 807 for both runs, exports left out (of 2,500). **Cleanup:** 30 paths a run, deleted by exact path; each
   run's opening and closing exports identical (642 documents). Twelve screenshots in `~/Backups/Nubnb/job-price/`,
   OCR-scanned for every code and PIN: no hit.
+
+## 75. The security round: unique codes and PINs, the daily wrong-try budget, the scan's contexts — Kian's rulings of 2026-11-06
+
+After the read-only assessment of 2026-11-06 (how many of the 10,000 four-digit codes stand in the public history, how
+the denylist is built, what the lockout is), Kian ruled on three items. His words are in CLAUDE.md (*Codes and PINs —
+Kian's rulings of 2026-11-06*); this section records what was built, the developer's choices, the tests and the
+verification.
+
+### 75.1 The rulings, in short
+
+1. Easy codes and PINs stay allowed. Codes and PINs must be unique — no cleaner code equals another cleaner's code or any
+   admin PIN, and no admin PIN equals another's — refused when a code is generated or typed and when a PIN is set; report
+   whether any duplicate exists today, by role and name only.
+2. A daily wrong-try budget across all connections, per Toronto day: at the cleaner door, after 15 wrong codes in total,
+   every connection gets one wrong try before being locked for the rest of the day, right codes unaffected; the admin
+   door the same at 10; one email to the office at each threshold through the contact form's transport, never a code or
+   PIN in it; the per-connection rules as they are; the Team page shows a spent budget with Lift.
+3. The scan blocks a current code or PIN only in code-like contexts (lines mentioning codes or PINs, easy-code lists,
+   tests/, .md files, the commit message, anything unclassified) and only reports incidental ones (hex colours, dates and
+   times, inside IDs and hashes), with "change the code" as the advice, never a file rewrite; the denylist covers
+   code-like file content only and no diff metadata; the line regenerated, with the steps to set it. (The denylist
+   part was withdrawn by Kian's ruling of 2026-11-07: §75.8.)
+
+### 75.2 Item 1: unique codes and PINs
+
+Nothing new had to be built for the refusals: they stood already, and the round verified each through its route.
+
+- **A typed code** (Add team member, Change code): `codeAvailability` (server-cleaners.ts) refuses a code an active
+  account holds now (409 CLEANER_CODE_TAKEN, naming the holder) and a code any admin holds as their PIN (422
+  CLEANER_CODE_IS_ADMIN_PIN, through `adminPinHolds`, which counts an `admin_pins` entry only while its admin still holds
+  the digits). A deactivated or deleted account's code is free and taken over, its old holder released (Kian's ruling
+  of 2026-10-02), so no two accounts ever point at one code.
+- **A drawn code** (Generate at the server): the transaction reads the digits' `admin_pins` entry and `create()`s the
+  code's document, which fails when it exists — current or retired, stricter than the ruling needs — and the next
+  candidate is drawn, up to five.
+- **A PIN set** (Add an admin, Set PIN, Change PIN): `pinHeld` refuses another admin's PIN now (409 ADMIN_PIN_TAKEN) and
+  the `cleaner_codes` read refuses any code ever issued, current or retired (409 ADMIN_PIN_IS_A_CODE; Kian's ruling of
+  2026-10-13, late night, kept). The shared PIN is refused by its digits at both doors.
+- **The report:** `node scripts/code-duplicates.mjs [backups/<folder>]` (the pure finder in `scripts/lib/duplicates.mjs`)
+  lists any code held by two accounts, any PIN held by two admins, any code that is also a PIN, and the shared PIN held
+  anywhere, by role and name only, never a value. On the export of 2026-11-06 20:02:57Z: 6 cleaner codes held, 4 admin
+  PINs held, the shared PIN checked, **no duplicate**; the `cleaner_codes` index and the `admin_pins` index each agree
+  with the accounts (no stale entry, no code without its live index entry).
+
+### 75.3 Item 2: the daily budget
+
+**The rules** (`app/lib/admins/budget.ts`, pure): one document per door per Toronto day,
+`signin_budgets/{door}-{yyyy-mm-dd}` — `wrong` (every wrong try checked at that door that day, all connections), `base`
+(the count at the last Lift), `spentAt`, `lastWrongAt`, `email` (the one sent when it was last spent: at, status,
+detail, the count), `lifts` (each Lift: at, actor, the count then). The budget is spent when `wrong − base` reaches the
+door's threshold (`DAILY_BUDGET`: cleaner 15, admin 10). `afterWrongOnBudget` counts a wrong try and says whether the
+budget was already spent when it came (`spentBefore`: the connection is then locked until tomorrow) and whether this try
+spent it (`reachedNow`: the one email goes). `liftedBudget` starts the budget over from the day's count without losing
+the total, so the next time it is spent the email says "30 so far". A try refused by a holding lock is not checked and
+not counted. `torontoDayEndMs` is the first instant of the next Toronto day (04:00 or 05:00 UTC of the next date,
+whichever ends this Toronto day; the clock changes happen at 2 a.m., never at midnight). `afterWrongHardened` is what a
+wrong try does to a connection at a spent door: locked until that instant, the tries in a row starting again, the day's
+count kept — unless the try is the Toronto day's twentieth, which caps the connection until lifted as before (that
+outranks the day lock). `budgetEmail` is the subject and text: the count, the door, the day, the page with Lift; it
+names no code or PIN (the test proves the only digits are the count and the day).
+
+**The server** (`app/lib/firebase/server-signin-budget.ts`): `readBudget` inside a door's transaction, after its other
+reads and before any write; `countWrongOnBudget` writes the day's document (merge) and returns the threshold crossing;
+`readBudgetView` for the pages (one read); `liftBudget`, a transaction that starts the budget over and records the lift,
+then one query for the connections it locked today (`budgetLocked == day`) and a batched update that clears their
+`lockedUntil` and the mark, their counts kept; `notifyBudgetSpent`, the one email through `mailOffice` with its outcome
+recorded on the budget document (`email`).
+
+**The doors.** `signInCleaner` (server-cleaners.ts) reads the budget only when the code is wrong, so a right code costs
+no extra read; `countWrongCode` counts the try on the budget and, at a spent door, locks the connection until Toronto
+midnight — the ordinary `lockedUntil` with `budgetLocked: <day>` beside it on the lock document — answering
+`locked` with `budget: true`; otherwise the per-connection rules run as before, and the code that spent the budget
+carries `budgetReached` for the route. `signIn` (server-admins.ts) does the same at ten through `countWrong`; Change
+PIN's wrong current PIN stays on the connection alone (`countWrongOnConnection`): the budget is the door's. Both routes
+(POST /api/cleaner/session, POST /api/admin-auth) send the one email after the answer with next/server's `after()`
+(the cleaner route gained `maxDuration = 30` for the transport's timeouts) and answer the budget lock as 429 with
+`budget: true`: "Wrong code. Many wrong codes today, so one wrong code locks sign-in from here until tomorrow." on the
+try that locked, "Sign-in from here is locked until tomorrow: many wrong codes today." after; the admin door's
+`lockedResponse` gained the same third form.
+
+**The pages.** The code screen reads "Locked until tomorrow — Many wrong codes today. The office can unlock sign-in
+sooner." and takes no code until midnight (the lock's end re-opens the pad by itself, as before); the gate reads "Wrong
+PIN, and many wrong PINs today. Locked until tomorrow." The lock lists (`GET /api/admin/cleaners/locks`,
+`GET /api/admin/admins/locks`) now answer `{ locks, budget }`, each lock with `budget: true` when the day's budget made
+it. The Team page shows, when the cleaner door's budget is spent, one row above its locks — "Daily budget spent: 17
+wrong codes at the cleaner door today (budget 15). One wrong code now locks a connection until tomorrow; right codes
+still sign in. · spent 10:24 · email to the office sent 10:24" — with Lift, which asks first in Nubnb's own dialog ("Lift
+today's budget? … The 3 connections it locked can sign in again.") and then calls `DELETE /api/admin/cleaners/locks/budget`
+(any admin); its lock rows read "1 wrong code after today's budget was spent · until tomorrow". The Admins page does the
+same for the admin door inside *Locked connections* (`DELETE /api/admin/admins/locks/budget`, main admin), its rows'
+"Locked until" reading "Tomorrow (daily budget)", and its empty line now names the budget. Both lifts are in the
+activity log's words.
+
+**The email** goes through `app/lib/mail/office.ts`, the contact form's transport moved out of its route and shared:
+`officeTransporter` (Gmail, the App Password, the same timeouts), `officeAddress` (CONTACT_NOTIFY_EMAIL, else
+GMAIL_USER) and `mailOffice({ subject, text, replyTo? })`, which never throws and returns the outcome the contact form
+already recorded (`sent` with the server's acceptance line, or `failed` with why). The contact route builds the same
+subject and text as before and calls it. Nothing about the contact form's behaviour changed.
+
+### 75.4 Item 3: the scan's contexts (and the denylist, since removed)
+
+`scripts/lib/code-context.mjs` is the scan's classifier. `classifyRun(line, start, end, { path, message })`
+gives a standalone four-digit run its verdict: code-like — the commit message; a path under tests/; a .md file; a line
+with a word about codes or PINs (`CODE_WORDS`: code, PIN, passcode, cleaner_codes, admin_pins, ADMIN_PIN,
+four digits, straight run, too easy, easy); an easy-code list (the value is easy and another easy code stands on the
+line); anything it cannot classify — or incidental: a hex colour (#abc, #abcd, #aabbcc, #aabbccdd around the run); the
+inside of an ID or hash (the word around the run has an underscore, other digits, letters on both sides, or letters on
+one side that are not a number's unit — `4812px` and `4812ms` are numbers and block; a hyphenated token with letters, a
+UUID's part); a date (yyyy-mm, yyyy-mm-dd, yyyy/m/d, dd-mm-yyyy, dd.mm.yyyy, "Nov 6, yyyy", "6 November yyyy", "yyyy
+Oct"); a time zone offset after a clock time. The word rule outranks the structural ones: a colour on a line about the
+code screen blocks. A bare year in prose ("in 2026 we") is unclassified and blocks; a money amount, a count, a list of
+numbers block too.
+
+`scripts/scan-tree-for-codes.mjs` keeps its inputs (the newest export, or the one given; the shared PIN from .env.local)
+and gains `--commit <sha>` — that commit's files, read with `git cat-file --batch`, and its message — and
+`--message-file <path>` for a message to be. It prints, per kind of value, the blocking hits as `file:line (context)`
+and the reported ones apart ("reported, information only"), then the verdict; with any reported hit it adds the advice:
+"The fix, if one is wanted, is to change the code, never the file." Exit 1 only on a blocking hit. The working tree and
+HEAD scanned clean against the export of 2026-11-06 20:02:57Z (6 codes, 4 PINs, the shared PIN; 528 text files).
+
+**The denylist, as it stood for one day (removed 2026-11-07; §75.8).** `scripts/code-denylist.mjs` read the history as
+content: every blob reachable from any commit, text only, classified with the path it stood at, plus every commit
+message as code-like text; never a patch. The list was `issued ∩ code-like`. Against the round's closing export
+(2026-11-07 05:55:09Z) and the history at HEAD 4f1d52f it counted 110 commits and 2,234 text file versions; **313**
+distinct four-digit values of 10,000 stood in a code-like context (the rule before counted 2,514 windows); of the 25
+codes and PINs ever issued, **8** would have gone on the list (15 under the rule before). Those figures stay here as the
+assessment's record. The script, the two modules that read the list (`app/lib/cleaners/denylist.ts`,
+`app/lib/admins/pin-denylist.ts`), every check that asked it, the line that was generated and the steps to set it are
+gone; nothing is to be set in Vercel or `.env.local`.
+
+### 75.5 The developer's choices
+
+1. **The budget as one document per door per day**, not a counter on each lock: the count is across connections, and
+   the document's ID carries the day, so a new day starts from nothing with no scheduled reset. One hot document per
+   door; a wrong try contends on it, a right try never touches it.
+2. **The budget read only on a wrong try**, inside the transaction and before any write, so a right code or PIN costs
+   exactly the reads it did before.
+3. **The budget lock is the ordinary timed lock** with `budgetLocked: <day>` beside it, so `lockHolding`, the lock
+   lists, the lifts and the recordings of the per-connection rules are unchanged (`LockState` did not grow: admin-accounts
+   is identical but for the two new routes). Lift finds exactly the connections the budget locked by that mark.
+4. **One wrong try at a spent door answers 429 "locked now"**, as the fifth in a row does, with the wrong code named in
+   the same line: the connection has had its one try and is locked; the next request is refused before any check.
+5. **Lift starts the budget over from the day's count** (`base`), rather than resetting it to zero, so the next email
+   still says how many wrong tries the day has had in all; a lift also unlocks the connections the budget locked, their
+   counts kept, so the per-connection rules go on as before; a lifted budget spent again sends another email.
+6. **The twentieth of the day outranks the day lock**: the connection is capped until lifted, as before.
+7. **The Lift asks first** in Nubnb's own dialog, naming the count and the locked connections: it changes the door's
+   posture for the day. Lifting one lock does not ask, as before.
+8. **The email after the answer** (next/server `after()`), never before it, so a wrong try's response waits for no mail
+   server; its outcome is recorded on the budget document and the pages show it ("email to the office sent 10:24").
+9. **The transport moved, not copied**: one module for the contact form and the budget, so "the existing contact-form
+   transport" is literally the same code.
+10. **Change PIN's wrong current PIN stays off the budget**: a signed-in admin mistyping their own PIN is not a guess
+    at the door.
+11. **The denylist includes commit messages** as code-like text: the scan blocks a code in a message, so a message
+    that got one through before should put it on the list too. Nothing in a message is incidental. (Moot since
+    2026-11-07: no denylist, §75.8; the scan still treats a message as code-like.)
+12. **The guard change of the round** (`~/Backups/Nubnb/security-1106/_harness/guard.cjs`): a `cleaner_codes` document
+    naming a fresh 20-character ID that is no real cleaner's is allowed, because the issuances write the code's
+    document before the cleaner's in one transaction (a refused cleaner then lands neither). The first generated-code
+    attempt was refused by the guard's older rule and answered 502 with nothing written; the second passed.
+
+### 75.6 Tests
+
+Three new checks, and one recording changed: `signin-budget` (tests/admins/budget.mjs: the arithmetic, Toronto
+midnight on EST, EDT, both clock-change nights and the last millisecond, the hardened connection, the email's digits,
+the pages' words, then both doors on an in-memory Firestore — fifteen or ten wrong from five connections, the one
+threshold crossing, the next connection's one try and lock, a right code or PIN unaffected and reading no budget
+document, the email's outcome recorded, Lift and its unlocking, an ordinary try after it, the budget spent again at "32
+so far", a fifth in a row at a spent door, the day's twentieth, Change PIN off the budget, no code or PIN in a budget
+document); `code-context` (tests/security/code-context.mjs: 35 verdicts, findRuns, the easy list, text and binary
+buffers; its codeLikeValues section went with the denylist on 2026-11-07); `code-duplicates`
+(tests/security/duplicates.mjs: the six situations). `admin-accounts` differs only by the two new lift routes in its
+route walk (two lines, 108 handlers), and since 2026-11-07 by the denylist lines it no longer prints (§75.8). The other
+37 recordings are identical.
+
+### 75.7 Verified (2026-11-07; a local build reading production, the server's clock in November 2028)
+
+The set-up of the last rounds (`~/Backups/Nubnb/security-1106/_harness`): a build copy of HEAD 4f1d52f plus this round's
+files, built with Firestore answered empty (22 s, 8 answered calls, no network); the write guard (allowing only the test
+accounts, their index entries, the test connections' lock documents, 2028 budget documents; everything else refused;
+Storage refused entirely); the calendar refresh's state stubbed in memory as finished on the server's day; every
+calendar fetch cut off; the server's clock moved to 2028 after its auth token was taken on the real clock; and, new this
+round, the mail transport's TLS socket sent to a local sink (a TLS server speaking SMTP on 127.0.0.1:4650, under a
+self-signed certificate) and every other connection to a mail port refused, with throwaway credentials in the build's
+environment so the transport runs. Test accounts: `__TEST__ Main` (main admin, session minted), `__TEST__ Ada`
+(admin), `__TEST__ Ana` and `__TEST__ Ben` (cleaners), each with a code or PIN drawn clear of every code and PIN ever
+issued and of the easy list, plus sixty wrong values drawn the same way; connections as TEST-NET addresses in
+`x-real-ip`, the browser as the one connection "unknown". Opening export 2026-11-07T05-38-21Z; the test records written
+through the guard after it; closing export 2026-11-07T05-55-09Z after the cleanup: **642 documents identical, 0
+differences, over 17 collections**. Reads: 1,482 (the server 1,433, the seed 1, the cleanup 48; the two exports left
+out) of 2,000. Seven screenshots, OCR-scanned against 89 code and PIN values: no hit.
+
+- **Item 1, through the routes as the test main admin:** a new cleaner with Ben's code → 409 CLEANER_CODE_TAKEN
+  "__TEST__ Ben already has that code."; with Ada's PIN, and a handyman with Main's PIN → 422
+  CLEANER_CODE_IS_ADMIN_PIN; Ben's code changed to Ana's → 409 (naming Ana), to Ada's PIN → 422; a new admin with Ana's
+  code → 409 ADMIN_PIN_IS_A_CODE, with Ada's PIN → 409 ADMIN_PIN_TAKEN; Ada's PIN set to Ben's code → 409
+  ADMIN_PIN_IS_A_CODE, to Main's → 409 ADMIN_PIN_TAKEN; the ledger shows no cleaner, code, admin or PIN document written
+  by the nine refusals. **Generated:** the server's draw forced (a preload answering `crypto.randomInt(0, 10000)` from a
+  file) to Ben's code, then Ada's PIN, then chance: 201, a cleaner "__TEST__ Gen" with a code that is neither; the
+  server log "code collision (candidate 1/5)" and "admin PIN candidate skipped (candidate 2/5)". No duplicate exists in
+  production (`code-duplicates.mjs` on the opening and the closing export: 6 codes held, 4 PINs held, the shared PIN
+  checked, none equal).
+- **Item 2, the cleaner door** (server day 2028-11-22, fresh connections): 15 wrong codes from 5 connections, 3 each →
+  all 401 CLEANER_CODE_NOT_RECOGNISED; the sink took one message, "[NuBnb] Many wrong codes at the cleaner door today: 15
+  so far" to office@nubnb.invalid, and the server log reads "budget … spent (15 today)" then "budget email: sent"; the
+  16th, from a 6th connection → 429 "Wrong code. Many wrong codes today, so one wrong code locks sign-in from here until
+  tomorrow." (lockedNow true, budget true, lockedUntil 2028-11-23T05:00:00.000Z, Retry-After to midnight); the 17th from
+  it → 429 "Sign-in from here is locked until tomorrow: many wrong codes today." (lockedNow false); Ana's right code from
+  that connection → 429 (the lock, as always); Ana's right code from a 7th connection → 200 with a session cookie; then
+  one wrong code from the 7th → 429 budget; still one email. `GET /api/admin/cleaners/locks`: spent true, wrong 17,
+  threshold 15, email sent, lifts 0, two budget locks until midnight. **The code screen** (the page's clock set to the
+  server's day): one wrong code → "Locked until tomorrow — Many wrong codes today. The office can unlock sign-in
+  sooner.", the hidden input disabled. **The Team page:** "Daily budget spent: 18 wrong codes at the cleaner door today
+  (budget 15). One wrong code now locks a connection until tomorrow; right codes still sign in. · spent Nov 22, 10:00 ·
+  email to the office sent Nov 22, 10:00", three lock rows "1 wrong code after today's budget was spent · until
+  tomorrow"; Lift → the dialog "Lift today's budget? 18 wrong codes came to the cleaner door today. … The 3 connections
+  it locked can sign in again." → the notice "Lifted. The budget starts again today; 3 connections unlocked.", the
+  section gone, no lock listed; `GET` after: spent false, lifts 1, wrong 18, locks 0; a wrong code from the unlocked
+  6th connection → 401; **the per-connection rules as they are:** five in a row from an 8th connection → 401 ×4 (the
+  fourth's hint "One more wrong code locks sign-in from here for 15 minutes.") then 429 "Five wrong codes in a row …
+  for 15 minutes" (budget false, Retry-After 900); the browser's connection takes a code again after Lift. The run's
+  one FAIL line was the check's own count (it expected 19 where 18 is right, as its earlier line shows); the script was
+  corrected after.
+- **Item 2, the admin door** (server day 2028-11-21): 10 wrong PINs from 5 connections, 2 each → all 401
+  ADMIN_SIGN_IN_REFUSED (the 10th's hint names the 15-minute lock); the sink took "[NuBnb] Many wrong PINs at the admin
+  door today: 10 so far"; the 11th, from a 6th connection → 429 "Wrong PIN. Many wrong PINs today, so one wrong PIN locks
+  sign-in from this connection until tomorrow." (budget true, lockedUntil 2028-11-22T05:00:00.000Z); the 12th → 429
+  "Sign-in from this connection is locked until tomorrow: many wrong PINs today."; Ada's right PIN from a 7th → 200,
+  level admin, a session cookie, and no calendar refresh ran (the stubbed state is today's); one wrong PIN from the 7th →
+  429 budget; `GET /api/admin/admins/locks`: spent true, wrong 12, threshold 10, email sent, two budget locks. **The
+  gate:** one wrong PIN → "Wrong PIN, and many wrong PINs today. Locked until tomorrow." **The Admins page:** "Daily
+  budget spent: 13 wrong PINs at the admin door today (budget 10). …", three "Tomorrow (daily budget)" rows; Lift → the
+  dialog (13 wrong PINs, 3 connections) → "Lifted. The budget starts again today; 3 connections unlocked.", the block
+  reading "None. … After 10 wrong PINs from all connections in a day, one wrong PIN locks a connection until tomorrow.";
+  after: spent false, lifts 1, locks 0; a wrong PIN from the unlocked 6th → 401; the gate takes a PIN again. One email
+  per door in all.
+- **Item 3, the scan,** in a scratch repository with a made-up export (a code and a PIN drawn there, never printed):
+  the code on a test line and in a hex colour, the PIN in a colour and inside an ID → exit 1, "1 BLOCKING hit(s):
+  tests/demo.mjs:1 (a test) · 1 reported, information only: app/demo.css:1 (a hex colour)" for the code, "2 reported"
+  for the PIN, and the advice line; the test line rewritten → exit 0, "clean, the commit may go ahead", the reports
+  still printed; the code in a commit message → `--commit HEAD` exit 1, "1 BLOCKING hit(s): the commit message, line 1
+  (the commit message)"; the message reworded → exit 0. The working tree and HEAD scanned clean against the opening
+  export (6 codes, 4 PINs, the shared PIN).
+- **Two faults of the round, found by the run and fixed before the figures above:** (1) the harness's first mail
+  redirect keyed on the connection's `host`, but nodemailer resolves the host to an address first and passes the name as
+  `servername`, so the first run's two emails reached smtp.gmail.com with the build's throwaway credentials and failed
+  there with 535 BadCredentials (no real credential was involved, nothing was sent); the redirect now matches
+  `servername`, and every other connection to a mail port is refused. (2) The code screen's and the gate's "lock ends"
+  timer computed a two-year wait from the page's 2026 clock against the server's 2028 lock, which overflowed
+  `setTimeout` and fired at once, so both screens showed the idle state a moment after the 429; in production both
+  clocks agree and a day lock is a day, so this could only happen on a phone whose clock lags the server's by weeks. Both
+  timers are now capped at what `setTimeout` can hold (about 24.8 days), and the checks set the page's clock to the
+  server's day before typing. A third, of the harness only: a connection's tries-in-a-row count is not day-bounded, so a
+  re-run on another day with the same test addresses met the 15-minute lock first; the re-run used fresh addresses.
+
+### 75.8 No denylist — Kian's ruling of 2026-11-07, and the release
+
+Kian's review of the round: "Security round approved, with Kian's ruling: no denylist." Recorded in CLAUDE.md in his
+words: **"No denylist (Kian, 2026-11-07); the daily wrong-code budget and email are the protection."** and "Uniqueness,
+the budget and the context-aware commit-tree scan stay." His four items, and what was done:
+
+1. **The threshold email goes through next/server's `after()`, not a dangling promise, at both doors.** Confirmed by
+   file and line: the cleaner door imports `after` at `app/api/cleaner/session/route.ts:51` and, once the answer to the
+   wrong code that spent the budget is built, calls `after(() => notifyBudgetSpent(reached))` at line 136, with
+   `maxDuration = 30` (line 71) for the transport's own timeouts; the admin door imports it at
+   `app/api/admin-auth/route.ts:57` and calls it at line 110, under its `maxDuration = 300` (line 71). `notifyBudgetSpent`
+   (`app/lib/firebase/server-signin-budget.ts:150`) sends through `mailOffice` (`app/lib/mail/office.ts:42`, the contact
+   form's transport) and records the outcome on the budget document. Next's `after()` runs its callback once the
+   response has been sent and, on Vercel, keeps the function alive until the callback settles (it is the platform's
+   waitUntil), within the route's `maxDuration`; a promise merely left behind the `return` could be cut off when the
+   function ends. The two email checks were re-run with the stubbed transport (below); each message is printed whole in
+   the round's report.
+2. **The denylist is gone whole.** Deleted: `app/lib/cleaners/denylist.ts`, `app/lib/admins/pin-denylist.ts`,
+   `scripts/code-denylist.mjs`, and `~/Backups/Nubnb/security-1106/CLEANER_CODE_DENYLIST.env`. Removed from what stays:
+   in `app/lib/cleaners/codes.ts` the variable name, the hashing, the reading of the list, `isPublicCode`, the refusal
+   sentence and the `public-history` reason (`reservedReason` and `isDrawable` take the code and the shared PIN only);
+   in `server-cleaners.ts` the read of the list before issuance and before a code change, the `denylist-unkeyed`
+   outcome and the parameters that carried the list; in the two cleaner-code routes 422 CLEANER_CODE_PUBLIC and 503
+   CLEANER_CODE_DENYLIST_UNKEYED; in the three PIN routes (`/api/admin/admins`, `/api/admin/admins/[id]/pin`,
+   `/api/admin-auth/pin`) the `pinDenied` check before any read, with 422 ADMIN_PIN_PUBLIC and 503
+   ADMIN_PIN_DENYLIST_UNKEYED; on the Admins page and in the Change PIN dialog the handling of those two codes; on the
+   Team page CLEANER_CODE_PUBLIC among the one-line refusals; in `scripts/admin-pin-rules.mjs` the list's reading,
+   hash, sentences and `setOwnPin`'s `denylist` parameter, and in `scripts/admin-recover.mjs` the read of the variable
+   from `.env.local`; in `scripts/lib/code-context.mjs` `codeLikeValues` (the list's reading of a file) and the word
+   "denylist" in `CODE_WORDS`. Tests: admin-accounts §2 lost its nine denylist lines, admin-recover-pin its §6,
+   code-context its §3 (the easy list is now §3); no recording was removed, since the denylist never had one of its
+   own. CLAUDE.md: the Security rules' denylist bullet replaced by "No denylist"; the 2026-11-06 item 3 marked as
+   replaced; a new section with his sentence. This document: §60 marked superseded in part, §75.1, §75.4, §75.5 (choice
+   11) and §75.6 amended. `.env.local` never held `CLEANER_CODE_DENYLIST`; whether Vercel does cannot be read from this
+   machine — if it is set there, nothing reads it any more and it can be deleted. Kept: the uniqueness refusals, the
+   budget and its email, `scripts/scan-tree-for-codes.mjs` with its classifier, `scripts/code-duplicates.mjs`.
+3. **Verified** (2026-11-07, 16:10–16:16 Z), the set-up of §75.7 on a build copy of HEAD 4f1d52f plus this round's 51
+   changed and new files with the three deleted files removed from the copy (`next build` 20.3 s with Firestore answered
+   empty), the server's days 2028-11-24 and 2028-11-25. Opening export 2026-11-07T16-10-38Z, closing
+   2026-11-07T16-16-28Z: **642 documents identical, 0 differences, over 17 collections**. Reads: **601 of 800** (the
+   server 536, the cleanup 65, the seed none; the two exports left out). Cleanup by exact path: 65 paths
+   (signin_budgets 4, cleaner_signin_locks 13, admin_signin_locks 13, cleaner_codes 6, cleaners 5, admin_actions 13,
+   admin_pins 5, admin_names 3, admins 3), read back: 0 left; 0 refused writes; no Storage write.
+   - **Issuance after the removal, through the routes as the test main admin:** the nine duplicate refusals of §75.7
+     again (409 CLEANER_CODE_TAKEN naming the holder, 422 CLEANER_CODE_IS_ADMIN_PIN, 409 ADMIN_PIN_IS_A_CODE, 409
+     ADMIN_PIN_TAKEN), 0 documents written by them; the draw forced to Ben's code, then Ada's PIN → 201 "__TEST__ Gen"
+     with "code collision (candidate 1/5)" and "admin PIN candidate skipped (candidate 2/5)". **Given out:** a handyman
+     created with a typed free code (201, the row holds it; the same code typed for another account → 409 naming
+     "__TEST__ Typed"); Ben's code changed to a typed free code (200, changed true), the code he already has typed (200,
+     changed false, nothing written), then generated (200, four digits, not easy, new), his replaced code at the door
+     401; Ada's PIN set to a free value and back to hers (200, changed true, both; a PIN no admin holds may be set
+     again), a new admin "__TEST__ Pia" with a typed PIN (201), the same PIN for another new admin 409 ADMIN_PIN_TAKEN;
+     Main's own PIN changed with the current one (200, a new session cookie, every other session ended). The Admins list
+     after: Ada on her PIN, Pia on the typed one, Main on the chosen one with one pin_changed entry.
+   - **The cleaner door's email** (day 2028-11-25, fresh connections): 15 wrong codes from 5 connections → all 401, the
+     15th answered at once; three seconds later the sink held one message, "[NuBnb] Many wrong codes at the cleaner
+     door today: 15 so far" to office@nubnb.invalid, and the server log read "budget … spent (15 today)" then "budget
+     email: sent"; the transport's socket for smtp.gmail.com went to the sink (0 refused). The 16th, from a 6th
+     connection → 429 "Wrong code. Many wrong codes today, so one wrong code locks sign-in from here until tomorrow."
+     (lockedNow, budget, until 2028-11-26T05:00Z); the 17th → 429 locked; Ana's right code from a 7th → 200 with a
+     session cookie; GET locks: spent, wrong 16, threshold 15, email sent, 1 lock; `DELETE
+     /api/admin/cleaners/locks/budget` → 200, unlocked 1; after: spent false, lifts 1, locks 0; a wrong code from the
+     unlocked connection → 401.
+   - **The admin door's email:** the same at 10 — "[NuBnb] Many wrong PINs at the admin door today: 10 so far"; the 11th
+     from a 6th connection 429 budget, the 12th locked, Ada's right PIN from a 7th 200 (no calendar refresh ran), GET:
+     wrong 11, 1 lock; Lift 200 unlocked 1; after, an ordinary 401. One email per door; the sink held four messages
+     over the whole run, two from each day.
+   - **The first pass** (server day 2028-11-24) printed six FAIL lines, every one the checks' own: three read the admin
+     row's PIN as `pin.value` where `AdminSummary` carries `pinValue` (the answers were 200/201 with changed true, as
+     the Admins list then confirmed); two at the cleaner door expected fifteen plain 401s and one unlocked connection
+     on a day where the issuance check's single wrong code (Ben's replaced code, tried at the door) had already counted
+     1 on the budget — so the check's 15th wrong code was the day's 16th and the first hardened try (429), the email
+     rightly said "15 so far" at the check's 14th, and Lift unlocked 2; one at the admin door expected wrong 12 where 11
+     is right (the first run's extra wrong-after-right step is not in this check). The server behaved as designed in
+     every case; the checks were corrected and the two door checks re-run on a fresh server day with fresh connections,
+     every line ok. No product change came out of the re-verification.
+   - **Tests:** `node tests/run.mjs` all identical, 40 checks, after the three recordings above were rewritten; tsc 0
+     errors outside `.next/`; eslint clean on the changed files. The working tree scanned clean against the closing
+     export before the commit.
+4. **Released** as one commit, "Security: unique codes and PINs, daily wrong-code budget with email, scan by context;
+   denylist removed", staged by name, no trailer; the commit's tree and message scanned with `--commit`; pushed; the
+   deployment's SHA read from Vercel's record and `/admin` and `/cleaner` smoked as no one. The SHA, the scan's output
+   and the deployment are in the round's report and the memory note, since they exist only once this text is committed.

@@ -82,18 +82,23 @@ no checkout. Do not build toward one unless asked.
 
 ## Accepted risks
 
-- **No rate limiting in production**, except admin sign-in (dispatch 38) and
-  the cleaner door (2026-10-14 evening).
+- **No rate limiting in production**, except admin sign-in (dispatch 38),
+  the cleaner door (2026-10-14 evening) and the two doors' daily budgets
+  (2026-11-06).
 - **No error monitoring.**
 - **No analytics.**
 - **Cleaner codes are 4 digits.** 10,000 combinations; the lock (2026-10-14
   evening) slows guessing from one connection without stopping it, so the
   cleaner door can be brute-forced. A guessed code can submit cost entries
   under another cleaner's name, where receipts and admin approval remain
-  required, and it can mark that cleaner's jobs cleaned.
+  required, and it can mark that cleaner's jobs cleaned. Since 2026-11-06 the
+  daily budget hardens every connection after 15 wrong codes a day and
+  emails the office; it slows a guesser with many addresses, it does not stop
+  one.
 - **Cleaner and handyman codes may be easy codes (all one digit, or a straight run of digits) when typed; a
-  guesser tries those first.** The cleaner door's lock slows guessing, and a
-  guessed code can mark that cleaner's jobs cleaned.
+  guesser tries those first.** Measured 2026-11-06: easy codes stay allowed;
+  guessable in under 40 tries; the daily budget of 15 and the email are the
+  mitigation. A guessed code can mark that cleaner's jobs cleaned.
 - **Cleaner codes are stored readably**, by Kian's ruling (2026-09-28): any
   admin can see and change any cleaner's code. A code is its `cleaner_codes`
   document ID and sits on the cleaner's document, so a copy of the database
@@ -1121,26 +1126,58 @@ Kian's review of 2026-11-01 (after the report):
 - **"When the code screen opens, the numbers must be there to tap, on every phone."** The cleaner and handyman apps'
   code screen has its own on-screen number pad. **The phone's own keyboard never opens on this screen.**
 
-## Security rules (not Kian's rulings; the developer's, 2026-10-19)
+## Codes and PINs — Kian's rulings of 2026-11-06 (the security round)
+
+1. **Easy codes and PINs stay allowed (the accepted risk stands). Codes and
+   PINs must be unique: no cleaner code equals another cleaner's code or any
+   admin PIN, and no admin PIN equals another's. Refuse a duplicate when a
+   code is generated or typed and when a PIN is set.**
+2. **Daily wrong-code budget across all connections, per Toronto day:**
+   - **Cleaner door: after 15 wrong codes in total, every connection gets one
+     wrong try before being locked for the rest of the day. Right codes are
+     unaffected.**
+   - **Admin PIN: the same, at 10.**
+   - **At each threshold, one email to the office through the existing
+     contact-form transport ("Many wrong codes at the cleaner door today: n so
+     far"), never a code or PIN in it.**
+   - **Per-connection rules stay as they are.**
+   - **The Team page shows when a daily budget is spent, with "Lift" for an
+     admin.**
+3. **Scan and denylist, with no effect on the product:**
+   - **The commit-tree scan blocks a current code or PIN only in code-like
+     contexts (lines mentioning codes or PINs, easy-code lists, tests/, .md
+     files, the commit message, anything unclassified) and only reports
+     incidental ones (hex colours, dates and times, inside IDs and hashes),
+     with "change the code" as the advice, never a file rewrite.**
+   - **code-denylist.mjs covers code-like file content only and no diff
+     metadata.** Replaced by Kian's ruling of 2026-11-07 (below): no
+     denylist.
+
+## No denylist — Kian's ruling of 2026-11-07
+
+- **"No denylist (Kian, 2026-11-07); the daily wrong-code budget and email
+  are the protection."** The list of codes never given out is removed
+  entirely: no `CLEANER_CODE_DENYLIST`, no check at code generation, typing
+  or PIN setting, no generator script. **"Uniqueness, the budget and the
+  context-aware commit-tree scan stay."**
+
+## Security rules (not Kian's rulings; the developer's, 2026-10-19; contexts by Kian's ruling of 2026-11-06)
 
 The repository is public. These hold until Kian changes them.
 
 - **No code or PIN value in the tree.** Before every commit, `node
   scripts/scan-tree-for-codes.mjs` runs over every tracked file against the
-  current cleaner codes and the admin PINs of a fresh export; a commit is
-  refused on any hit. A hit is rewritten (a literal as `1_440`, an example as
-  a description), never masked in place. Examples in documents name no digits.
-- **A code that appeared in Nubnb's public code is never given out.** Every
-  code or PIN ever issued whose four digits appear anywhere in the git history
-  is on a denylist: the random draw skips it and a typed code is refused with
-  "That code has appeared in Nubnb's public code and is never given out."
-  The list lives in the server's environment only — `CLEANER_CODE_DENYLIST`,
-  HMAC-SHA256 hashes under `CLEANER_SESSION_SECRET`, made by
-  `node scripts/code-denylist.mjs` from the history and an export — never in
-  the repository or the database. It is rebuilt after any commit that could
-  add a code to the history, and after the key is rotated. **The denylist is
-  keyed with `CLEANER_SESSION_SECRET`: rotating that secret means regenerating
-  `CLEANER_CODE_DENYLIST` before codes can be issued again** (with the list
-  set and the key missing, issuing a code fails closed). The same list refuses
-  an admin PIN: choosing or setting a PIN on it is refused with the same
-  sentence.
+  current cleaner codes and the admin PINs of a fresh export, and before a
+  push over each commit's tree and message (`--commit <sha>`). A hit in a
+  code-like context (a line mentioning codes or PINs, an easy-code list,
+  tests/, a .md file, the commit message, anything unclassified) refuses the
+  commit; it is rewritten (a literal as `1_440`, an example as a
+  description), never masked in place. A hit in an incidental context (a hex
+  colour, a date or time, inside an ID or hash) is reported as information:
+  the fix, if one is wanted, is to change the code, never the file. Examples
+  in documents name no digits.
+- **No denylist** (Kian's ruling of 2026-11-07, above). The rule of
+  2026-10-19 that a code which appeared in Nubnb's public code is never
+  given out, and its list in the server's environment, are gone; nothing is
+  generated or set after a commit or a key rotation. A current code found in
+  the history is handled by the scan above: change the code.
