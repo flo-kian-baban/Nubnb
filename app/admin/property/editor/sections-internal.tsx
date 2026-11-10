@@ -2,8 +2,8 @@
 
 /**
  * The Nubnb-only sections (dispatch 30): what the public never sees, kept
- * apart from the listing — whether the property is on the site and in
- * reporting (Status), the name cleaners see, the regular cleaner and the
+ * apart from the listing — whether the property is on the site and tracked
+ * by Nubnb (Status; Kian's ruling of 2026-11-10), the name cleaners see, the regular cleaner and the
  * cleaning prices (Cleaning & prices, Kian's ruling of 2026-11-03), the
  * statements record (Statements) and the calendar link
  * (Calendar). The first three live in their own server-only collections and
@@ -46,15 +46,17 @@ export function StatusSection({ ctx }: { ctx: SectionContext }) {
           description="Not on the public site: the homepage, the map, its own page, the property API. Still in the admin, the cleaner app, availability and reporting."
         />
       </Tile>
-      <Tile title="In reporting" span={6}>
+      {/* "Not tracked by Nubnb" (Kian's ruling of 2026-11-10): one switch per unit, saved with the form's Save; the
+          server removes the unit's open, unmarked jobs when it goes off, and resumes from the day it goes on. */}
+      <Tile title="Tracked by Nubnb" span={6}>
         <Switch
           bare
-          label="Exclude from reporting"
+          label="Tracked by Nubnb"
           field="management.excluded"
-          checked={draft.management.excluded}
+          checked={!draft.management.excluded}
           disabled={managementLocked}
-          onChange={(checked) => setDraft((prev) => ({ ...prev, management: { ...prev.management, excluded: checked } }))}
-          description={managementState === "unavailable" ? `The statements record could not be read. ${UNREADABLE}` : "Owes no statements: left out of the Statement column, the tile and the home panel. Costs and income stay."}
+          onChange={(checked) => setDraft((prev) => ({ ...prev, management: { ...prev.management, excluded: !checked } }))}
+          description={managementState === "unavailable" ? `The statements record could not be read. ${UNREADABLE}` : "Off: not tracked by Nubnb — no cleaning jobs, no income gaps, no statements; its open, unmarked jobs are removed when saved. On again: jobs resume for future checkouts only. Costs and the property page stay."}
         />
       </Tile>
     </Panel>

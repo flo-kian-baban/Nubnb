@@ -23,6 +23,7 @@ import { CLEANING_JOBS_COLLECTION, readJob, type StoredJob } from '@/app/lib/sch
 import { COLUMN_DAYS_AHEAD, COLUMN_DAYS_BACK, homeJobOf, type HomeJob } from '@/app/lib/schedule/standing';
 import { readCurrent } from '@/app/lib/availability/store';
 import type { AvailabilitySnapshot, FeedStatus } from '@/app/lib/availability/types';
+import { readUntracked } from '@/app/lib/schedule/tracking';
 
 /** One property in the last calendar copy: whether its calendar was read, and its next checkout from today on. */
 export interface CalendarFacts {
@@ -58,6 +59,11 @@ export interface PropertyStatusRead {
   cleaning: { from: string; to: string; jobs: HomeJob[]; extras: ExtraAsked[] };
   /** The last calendar copy, as the list needs it. */
   calendar: { refreshedAt: string | null; properties: Record<string, CalendarFacts> };
+  /**
+   * The units not tracked by Nubnb (Kian's ruling of 2026-11-10): their row reads "Not tracked by Nubnb" in place of its
+   * cells, and none of their jobs or extras is sent, so no chip, Next step or tile counts them.
+   */
+  untracked: string[];
   /** Documents not in a written shape: left out, never guessed at. */
   unreadable: number;
 }
@@ -70,7 +76,7 @@ export async function readPropertyStatus(now: Date = new Date()): Promise<Proper
   const month = openingMonth(lastClosedMonth(today), monthOfDay(today));
   const from = addDays(today, -COLUMN_DAYS_BACK);
   const to = addDays(today, COLUMN_DAYS_AHEAD);
-  const [uploadsSnap, linesSnap, linksSnap, jobsSnap, arrangementsSnap, paymentsSnap, snapshot, extrasSnap] = await Promise.all([
+  const [uploadsSnap, linesSnap, linksSnap, jobsSnap, arrangementsSnap, paymentsSnap, snapshot, extrasSnap, untracked] = await Promise.all([
     db.collection(EARNINGS_UPLOADS_COLLECTION).where('month', '==', month).get(),
     db.collection(EARNINGS_LINES_COLLECTION).where('month', '==', month).get(),
     db.collection(EARNINGS_TITLE_LINKS_COLLECTION).get(),
@@ -80,6 +86,8 @@ export async function readPropertyStatus(now: Date = new Date()): Promise<Proper
     readCurrent(db),
     // Only the extras still asked: one read each (one when there are none), the four fields the home needs.
     db.collection(CLEANINGS_COLLECTION).where('extra.status', '==', 'asked').select('propertyId', 'day', 'status', 'cleanerNameAtEntry').get(),
+    // The units not tracked by Nubnb (Kian's ruling of 2026-11-10; one query).
+    readUntracked(db),
   ]);
   let unreadable = 0;
   const strictly = <T>(docs: { id: string; data: () => Record<string, unknown> }[], read: (id: string, fields: Record<string, unknown>) => T | null, what: string): T[] => {
@@ -97,7 +105,8 @@ export async function readPropertyStatus(now: Date = new Date()): Promise<Proper
   const uploads = strictly<EarningsUploadView>(uploadsSnap.docs, readEarningsUpload, EARNINGS_UPLOADS_COLLECTION);
   const lines = strictly<EarningsLineView>(linesSnap.docs, readEarningsLine, EARNINGS_LINES_COLLECTION);
   const links = strictly<TitleLinkView>(linksSnap.docs, readTitleLink, EARNINGS_TITLE_LINKS_COLLECTION);
-  const jobs = strictly<StoredJob>(jobsSnap.docs, readJob, CLEANING_JOBS_COLLECTION);
+  // A unit that is not tracked sends no job and no extra: its row shows no cells, and nothing of it is counted.
+  const jobs = strictly<StoredJob>(jobsSnap.docs, readJob, CLEANING_JOBS_COLLECTION).filter((job) => !untracked.has(job.propertyId));
   const arrangements = strictly<ArrangementView>(arrangementsSnap.docs, readArrangement, DIRECT_ARRANGEMENTS_COLLECTION);
   const payments = strictly<DirectPaymentView>(paymentsSnap.docs, readDirectPayment, DIRECT_PAYMENTS_COLLECTION);
   // Each property's direct payments in one word (part B): the worst of its arrangements, by the one function.
@@ -128,6 +137,7 @@ export async function readPropertyStatus(now: Date = new Date()): Promise<Proper
     const day: unknown = doc.get('day');
     const name: unknown = doc.get('cleanerNameAtEntry');
     if (doc.get('status') !== 'logged') continue;
+    if (typeof propertyId === 'string' && untracked.has(propertyId)) continue;
     if (typeof propertyId !== 'string' || typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(day)) {
       unreadable += 1;
       console.error(`[property-status] ${CLEANINGS_COLLECTION}/${doc.id} is not in the written shape; left out`);
@@ -137,5 +147,5 @@ export async function readPropertyStatus(now: Date = new Date()): Promise<Proper
   }
   extras.sort((a, b) => a.day.localeCompare(b.day) || a.cleaningId.localeCompare(b.cleaningId));
 
-  return { today, income: { ...incomeReadOf({ month, uploads, lines, links }), direct }, cleaning: { from, to, jobs: jobs.map((job) => homeJobOf(job, cleanings)), extras }, calendar: calendarFactsOf(snapshot, today), unreadable };
+  return { today, income: { ...incomeReadOf({ month, uploads, lines, links }), direct }, cleaning: { from, to, jobs: jobs.map((job) => homeJobOf(job, cleanings)), extras }, calendar: calendarFactsOf(snapshot, today), untracked: [...untracked].sort(), unreadable };
 }

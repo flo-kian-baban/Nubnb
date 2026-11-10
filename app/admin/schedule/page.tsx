@@ -78,6 +78,7 @@ import { PriceField } from "./PriceField";
 import { JobPriceBlock, useJobPrice } from "./JobPrice";
 import { jobPriceTag, jobPriceTagText } from "@/app/lib/schedule/job-price";
 import { regularCleanerQuestion } from "@/app/lib/schedule/regular";
+import { ADD_JOB_NOT_TRACKED, NOT_TRACKED } from "@/app/lib/schedule/tracking";
 import { AMOUNT_SOURCE_WORDS, TIER_NIGHTS, TIER_WORDS, jobNights, jobTier, type CleaningPrices, type PresetKind } from "@/app/lib/cleanings/prices";
 import { amountField, countsWords, readAmountCents } from "@/app/lib/cleanings/model";
 import { formatCents } from "@/app/lib/cleaners/model";
@@ -391,6 +392,8 @@ function Schedule() {
   };
   /** The recent units, when the form opens: this browser's picks, then the properties of the jobs added by hand on the page. */
   const recentUnits = useMemo(() => (adding ? recentUnitIds(readPicked(), (answer?.jobs ?? []).filter((job) => job.origin === "admin").map((job) => ({ propertyId: job.propertyId, createdAt: job.createdAt }))) : []), [adding, answer]);
+  /** The units not tracked by Nubnb (Kian's ruling of 2026-11-10): tagged in Add a job's search, refused when picked. */
+  const untracked = useMemo(() => new Set(answer?.untracked ?? []), [answer]);
 
   /** Change cleaner (ruling D): one swap, with the job's price when it was changed (2026-11-06), saved; the row read as the server answered. */
   const swap = async (job: JobView, from: string, to: string, price?: PriceSent) => {
@@ -603,7 +606,7 @@ function Schedule() {
           onRegularSaved={(title) => show({ tone: "success", title })}
         />
       )}
-      {adding && <AddJobDialog units={units} recent={recentUnits} active={active} today={today ?? ""} busy={saving === "add"} onClose={() => setAdding(false)} onAdded={(added) => void onAdded(added)} setBusy={(on) => setSaving(on ? "add" : null)} show={show} />}
+      {adding && <AddJobDialog units={units} recent={recentUnits} untracked={untracked} active={active} today={today ?? ""} busy={saving === "add"} onClose={() => setAdding(false)} onAdded={(added) => void onAdded(added)} setBusy={(on) => setSaving(on ? "add" : null)} show={show} />}
       {swapping && <SwapDialog job={swapping} prices={answer?.prices[swapping.propertyId] ?? null} active={active} busy={saving === swapping.id} onClose={() => setSwapping(null)} onSwap={(from, to, price) => void swap(swapping, from, to, price)} />}
       {recording && <RecordDialog job={recording} busy={saving === recording.id} onClose={() => setRecording(null)} onRecord={(ids) => void record(recording, ids)} />}
       {pricing && <AmountDialog title={`Amount on ${pricing.property.name ?? "the job"} · ${dayText(pricing.checkout)} · ${jobLabel(pricing)}`} words={`What a mark on this job takes instead of the property’s ${TIER_WORDS[jobTier(pricing)]} cleaning price. Leave it empty to clear it.`} initial={pricing.amountCents === null ? "" : amountField(pricing.amountCents)} allowEmpty busy={saving === pricing.id} confirm="Save" onClose={() => setPricing(null)} onSave={(amount) => void price(pricing, amount)} />}
@@ -1046,7 +1049,7 @@ function rememberPicked(id: string) {
 }
 
 /** The property, found by typing (the UX pass of 2026-11-06): any part of its address or public title, recent first. No dropdown to open. */
-function PropertySearch({ units, recent, picked, onPick, disabled, inputRef }: { units: UnitsState; recent: string[]; picked: UnitChoice | null; onPick: (unit: UnitChoice | null) => void; disabled: boolean; inputRef: RefObject<HTMLInputElement | null> }) {
+function PropertySearch({ units, recent, untracked, picked, onPick, disabled, inputRef }: { units: UnitsState; recent: string[]; untracked: ReadonlySet<string>; picked: UnitChoice | null; onPick: (unit: UnitChoice | null) => void; disabled: boolean; inputRef: RefObject<HTMLInputElement | null> }) {
   const id = useId();
   const [query, setQuery] = useState(picked?.name ?? "");
   const [open, setOpen] = useState(false);
@@ -1099,6 +1102,7 @@ function PropertySearch({ units, recent, picked, onPick, disabled, inputRef }: {
     <div key={unit.id} id={`${id}-unit-${index}`} role="option" aria-selected={index === active} className={`${styles.unitOption} ${index === active ? styles.unitOptionActive : ""}`} onMouseDown={(e) => e.preventDefault()} onMouseEnter={() => setActive(index)} onClick={() => choose(unit)}>
       <span className={styles.unitName}>{unit.name}</span>
       {unit.publicName && unit.publicName !== unit.name && <span className={styles.unitTitle}>{unit.publicName}</span>}
+      {untracked.has(unit.id) && <span className={styles.unitNote}>{NOT_TRACKED}</span>}
     </div>
   );
   return (
@@ -1161,8 +1165,8 @@ function PropertySearch({ units, recent, picked, onPick, disabled, inputRef }: {
  * floor), Cleaner, Label (quick choices), Amount (the property's cleaning price, one tap to its others), and "Already
  * cleaned" on a day that has come, which adds the job and records it cleaned in one step.
  */
-function AddJobDialog(props: { units: UnitsState; recent: string[]; active: TeamMember[]; today: string; busy: boolean; onClose: () => void; onAdded: (added: Added) => void; setBusy: (on: boolean) => void; show: (notice: { tone: "error" | "warning"; title: string; detail?: string }) => void }) {
-  const { units, recent, active, today, busy, onClose, onAdded, setBusy, show } = props;
+function AddJobDialog(props: { units: UnitsState; recent: string[]; untracked: ReadonlySet<string>; active: TeamMember[]; today: string; busy: boolean; onClose: () => void; onAdded: (added: Added) => void; setBusy: (on: boolean) => void; show: (notice: { tone: "error" | "warning"; title: string; detail?: string }) => void }) {
+  const { units, recent, untracked, active, today, busy, onClose, onAdded, setBusy, show } = props;
   const searchRef = useRef<HTMLInputElement>(null);
   const [unit, setUnit] = useState<UnitChoice | null>(null);
   const [day, setDay] = useState(today);
@@ -1186,6 +1190,17 @@ function AddJobDialog(props: { units: UnitsState; recent: string[]; active: Team
   const pickedRef = useRef<string | null>(null);
   /** A property picked (or the pick cleared by typing): its cleaning prices, and what was last typed there where it has none. */
   const pick = (next: UnitChoice | null) => {
+    // A unit not tracked by Nubnb is refused at the pick (Kian's ruling of 2026-11-10), in the server's own words.
+    if (next && untracked.has(next.id)) {
+      setUnit(null);
+      setAmount("");
+      setTier("short");
+      pickedRef.current = null;
+      setStart({ kind: "none" });
+      setSaid(ADD_JOB_NOT_TRACKED);
+      return;
+    }
+    setSaid(null);
     setUnit(next);
     setAmount("");
     setTier("short");
@@ -1262,7 +1277,7 @@ function AddJobDialog(props: { units: UnitsState; recent: string[]; active: Team
       <div className={`${styles.dialogBody} ${styles.addForm}`}>
         <div className={styles.dialogField}>
           <span className={styles.dialogLabel}>Property</span>
-          <PropertySearch units={units} recent={recent} picked={unit} onPick={pick} disabled={busy} inputRef={searchRef} />
+          <PropertySearch units={units} recent={recent} untracked={untracked} picked={unit} onPick={pick} disabled={busy} inputRef={searchRef} />
         </div>
         <div className={styles.dialogField}>
           <span className={styles.dialogLabel}>Day</span>

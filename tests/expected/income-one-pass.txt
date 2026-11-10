@@ -30,7 +30,7 @@
     2 Test St    titles ["__TEST__ Bravo Suite"] · routine 1/2 · revenue as it would stand $400.00 · holds — · Due · blocked
     3 Test St    titles ["__TEST__ Charlie House"] · routine 0/2 · revenue as it would stand -$200.00 · holds below-zero · Due · blocked
     4 Test St    titles ["__TEST__ Delta Studio"] · routine 1/2 · revenue as it would stand $290.00 · holds — · Due
-    5 Test St    titles ["__TEST__ Echo Flat"] · routine 0/1 · revenue as it would stand $333.00 · holds no-statement · Excluded from reporting
+    5 Test St    titles ["__TEST__ Echo Flat"] · routine 0/1 · revenue as it would stand $333.00 · holds no-statement · Not tracked by Nubnb
     6 Test St    titles ["__TEST__ Foxtrot Room"] · routine 1/2 · revenue as it would stand $1,110.00 · holds — · Past due
     7 Test St    titles ["__TEST__ Golf Cabin"] · routine 0/1 · revenue as it would stand $300.00 · holds — · Due
     8 Test St    titles ["__TEST__ Hotel Finished"] · routine 1/1 · revenue as it would stand — (finished) · holds — · Finished

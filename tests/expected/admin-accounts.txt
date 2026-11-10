@@ -199,6 +199,7 @@
   PUT    /api/admin/properties/[id]/report-for                recorded as "Set a property’s Report For"
   GET    /api/admin/properties/[id]                           read, not recorded
   GET    /api/admin/properties/[id]/statements                read, not recorded
+  PUT    /api/admin/properties/[id]/tracking                  recorded as "Turned a unit’s tracking on or off"
   PUT    /api/admin/properties/[id]/visibility                recorded as "Listed or unlisted a property"
   GET    /api/admin/properties                                read, not recorded
   GET    /api/admin/property-status                           read, not recorded
@@ -217,7 +218,7 @@
   POST   /api/properties                                      recorded as "Added a property"
   POST   /api/scrape-airbnb                                   recorded as "Read an Airbnb listing"
   POST   /api/upload-image                                    recorded as "Uploaded an image"
-  108 handlers through adminRoute; problems: 0
+  109 handlers through adminRoute; problems: 0
   routes still on the PIN-signed session: 0
   a route that unlocks an admin's PIN (the first version's per-admin lock): false
 

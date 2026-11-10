@@ -84,6 +84,8 @@ export interface MonthInputs {
   today?: string;
   /** The properties an admin marked "not paid through Nubnb's files" (Kian's ruling K2 of 2026-10-17). */
   notThroughFiles?: readonly string[];
+  /** The units not tracked by Nubnb (Kian's ruling of 2026-11-10): no gap is raised for them, check-ins, untitled or a title missing from the file. */
+  untracked?: readonly string[];
   /** The month's titles ("platform|title") already in an earlier month's file: not new. Absent: every title is new. */
   seenBefore?: readonly string[];
   /**
@@ -282,6 +284,7 @@ export function monthView(input: MonthInputs): MonthView {
   const statements = new Map(input.statements.map((s) => [s.propertyId, s]));
   const standings = input.standings ?? {};
   const marked = new Set(input.notThroughFiles ?? []);
+  const untracked = new Set(input.untracked ?? []);
 
   // ── Titles: every title in the month's lines, with its rows, total and link ──
   const titleMap = new Map<string, TitleRow>();
@@ -404,7 +407,7 @@ export function monthView(input: MonthInputs): MonthView {
   // A property with a title of its own, active or previous, on any platform, is titled (K2).
   const titled = new Set(input.links.filter((link) => link.propertyId !== null).map((link) => link.propertyId as string));
   const untitled = (input.calendar.stays ?? [])
-    .filter((row) => row.count > 0 && names.has(row.propertyId) && !titled.has(row.propertyId) && !marked.has(row.propertyId))
+    .filter((row) => row.count > 0 && names.has(row.propertyId) && !titled.has(row.propertyId) && !marked.has(row.propertyId) && !untracked.has(row.propertyId))
     .map((row) => ({ propertyId: row.propertyId, name: names.get(row.propertyId)!, stays: row.count }))
     .sort((a, b) => a.name.localeCompare(b.name));
   const untitledIds = new Set(untitled.map((row) => row.propertyId));
@@ -417,7 +420,7 @@ export function monthView(input: MonthInputs): MonthView {
       ? []
       : input.calendar.checkIns
           .map((c) => ({ ...c, days: c.days.filter((day) => day !== lastDay && (input.today === undefined || day <= input.today)) }))
-          .filter((c) => c.days.length > 0 && names.has(c.propertyId) && !withLines.has(c.propertyId) && !untitledIds.has(c.propertyId) && !marked.has(c.propertyId))
+          .filter((c) => c.days.length > 0 && names.has(c.propertyId) && !withLines.has(c.propertyId) && !untitledIds.has(c.propertyId) && !marked.has(c.propertyId) && !untracked.has(c.propertyId))
           .map((c) => ({ propertyId: c.propertyId, name: names.get(c.propertyId)!, days: c.days }))
           .sort((a, b) => a.name.localeCompare(b.name));
   const uploadedPlatforms = new Set(input.uploads.map((u) => u.platform));
@@ -426,7 +429,7 @@ export function monthView(input: MonthInputs): MonthView {
   // after it became the active title (Kian's ruling of 2026-10-13): a month before, or the month it was set, was paid
   // under the title it had then.
   const missing = input.links
-    .filter((link): link is TitleLinkView & { propertyId: string } => isActiveTitle(link) && uploadedPlatforms.has(link.platform) && !inFiles.has(`${link.platform}|${link.title}`))
+    .filter((link): link is TitleLinkView & { propertyId: string } => isActiveTitle(link) && uploadedPlatforms.has(link.platform) && !inFiles.has(`${link.platform}|${link.title}`) && !untracked.has(link.propertyId as string))
     .filter((link) => {
       const activeFrom = activeMonthOf(link);
       return input.month === undefined || activeFrom === null || input.month > activeFrom;

@@ -70,7 +70,8 @@ import { nextCleaningPricesRecord, pricesInTx, pricesRecordInTx } from './server
 import { addedJobAmount, addedJobDayProblem, canRecordOnAdd } from '@/app/lib/schedule/add-job';
 import { readCurrent } from '@/app/lib/availability/store';
 import { torontoDay } from '@/app/lib/availability/days';
-import { MONTHLY_REPORTS_COLLECTION, monthOfDay } from '@/app/lib/reports/model';
+import { MONTHLY_REPORTS_COLLECTION, PROPERTY_MANAGEMENT_COLLECTION, monthOfDay, readPropertyManagement } from '@/app/lib/reports/model';
+import { ADD_JOB_NOT_TRACKED, cleanerJobsShown, isTracked, jobsShown, readUntracked } from '@/app/lib/schedule/tracking';
 import {
   CLEANER_LIST_DAYS,
   CLEANING_JOBS_COLLECTION,
@@ -132,12 +133,16 @@ function readJobs(docs: { id: string; data: () => Record<string, unknown> }[]): 
  */
 export async function readSchedule(from: string, to: string): Promise<ScheduleRead> {
   const db = getAdminDb();
-  const [jobsSnap, teamSnap, copy] = await Promise.all([
+  const [jobsSnap, teamSnap, copy, untracked] = await Promise.all([
     db.collection(CLEANING_JOBS_COLLECTION).where('checkout', '>=', from).where('checkout', '<=', to).get(),
     db.collection(CLEANERS_COLLECTION).select('name', 'role', 'status').get(),
     readCurrent(db),
+    // The units not tracked by Nubnb (Kian's ruling of 2026-11-10; one query): only their marked jobs are listed.
+    readUntracked(db),
   ]);
-  const { jobs, unreadable } = readJobs(jobsSnap.docs);
+  const read = readJobs(jobsSnap.docs);
+  const unreadable = read.unreadable;
+  const jobs = jobsShown(read.jobs, untracked);
   const team: TeamMember[] = teamSnap.docs
     .map((doc) => ({ id: doc.id, name: fieldText(doc.get('name')), role: roleOf({ role: doc.get('role') }), status: fieldText(doc.get('status')) }))
     .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', 'en-CA') || a.id.localeCompare(b.id));
@@ -199,7 +204,7 @@ export async function readSchedule(from: string, to: string): Promise<ScheduleRe
         .filter(([, entry]) => entry.status === 'failed')
         .map(([propertyId, entry]) => ({ propertyId, name: internalNameOf(facing, propertyId, entry.name), since: entry.failedSince ?? null }))
     : [];
-  return { jobs: views, team, calendar: { refreshedAt: copy?.refreshedAt ?? null, failed }, unreadable, prices };
+  return { jobs: views, team, calendar: { refreshedAt: copy?.refreshedAt ?? null, failed }, unreadable, prices, untracked: [...untracked].sort() };
 }
 
 // ─── Assignments (admin) ───────────────────────────────────────
@@ -385,11 +390,12 @@ async function stillAskedOf(cleaningIds: string[]): Promise<Set<string>> {
  *
  * @throws if a read fails.
  */
-export async function cleanerJobs(cleanerId: string, properties: ReadonlyMap<string, JobProperty> | ((propertyIds: string[]) => Promise<ReadonlyMap<string, JobProperty>>), today: string = torontoDay(), paidThrough: string | null = null): Promise<CleanerJobView[]> {
+export async function cleanerJobs(cleanerId: string, properties: ReadonlyMap<string, JobProperty> | ((propertyIds: string[]) => Promise<ReadonlyMap<string, JobProperty>>), today: string = torontoDay(), paidThrough: string | null = null, untracked: ReadonlySet<string> = new Set()): Promise<CleanerJobView[]> {
   const db = getAdminDb();
   const from = cleanerListFrom(today);
   const snap = await db.collection(CLEANING_JOBS_COLLECTION).where('cleanerIds', 'array-contains', cleanerId).where('checkout', '>=', from).get();
-  const mine = readJobs(snap.docs).jobs.filter((job) => job.cleanerIds.includes(cleanerId) && job.checkout >= from);
+  // A job on a unit not tracked by Nubnb is theirs to see only when they marked it (Kian's ruling of 2026-11-10).
+  const mine = cleanerJobsShown(readJobs(snap.docs).jobs.filter((job) => job.cleanerIds.includes(cleanerId) && job.checkout >= from), cleanerId, untracked);
   const marked = mine.filter((job) => job.assignments[cleanerId].cleaningId !== null && job.assignments[cleanerId].removedAt === null);
   const byProperty = new Map<string, string[]>();
   for (const job of marked) byProperty.set(job.propertyId, [...(byProperty.get(job.propertyId) ?? []), job.assignments[cleanerId].cleaningId as string]);
@@ -438,7 +444,7 @@ export async function cleanerJobs(cleanerId: string, properties: ReadonlyMap<str
  */
 export async function cleanerJobsRead(cleanerId: string, today: string = torontoDay()): Promise<CleanerJobView[]> {
   const db = getAdminDb();
-  const paidThrough = await latestPaymentDay(cleanerId);
+  const [paidThrough, untracked] = await Promise.all([latestPaymentDay(cleanerId), readUntracked(db)]);
   return cleanerJobs(
     cleanerId,
     async (ids) => {
@@ -448,6 +454,7 @@ export async function cleanerJobsRead(cleanerId: string, today: string = toronto
     },
     today,
     paidThrough,
+    untracked,
   );
 }
 
@@ -738,6 +745,8 @@ export interface RecordedOnAdd {
 export type AddJobResult =
   | { kind: 'added'; job: StoredJob; propertyName: string | null; recorded: RecordedOnAdd | null }
   | { kind: 'no-such-property' }
+  /** The unit is not tracked by Nubnb (Kian's ruling of 2026-11-10): "This unit isn’t tracked. Turn tracking on first." */
+  | { kind: 'not-tracked' }
   | { kind: 'not-assignable'; name: string | null; why: 'missing' | 'not-a-cleaner' | 'inactive' }
   /** Before the statements floor: "Statements start in November 2026". */
   | { kind: 'before-floor'; problem: string }
@@ -749,8 +758,9 @@ export type AddJobResult =
   | { kind: 'bad-day'; problem: string }
   | { kind: 'failed' };
 
-export const ADD_JOB_REFUSALS: Record<'no-such-property' | 'needs-cleaner' | 'failed', Refusal> = {
+export const ADD_JOB_REFUSALS: Record<'no-such-property' | 'not-tracked' | 'needs-cleaner' | 'failed', Refusal> = {
   'no-such-property': { status: 404, code: 'PROPERTY_NOT_FOUND', message: 'That property does not exist.', hint: 'Nothing was added.' },
+  'not-tracked': { status: 409, code: 'PROPERTY_NOT_TRACKED', message: ADD_JOB_NOT_TRACKED, hint: 'Nothing was added.' },
   'needs-cleaner': { status: 422, code: 'JOB_NEEDS_CLEANER', message: 'Already cleaned needs the cleaner who cleaned it.', hint: 'Nothing was added. Pick the cleaner, or untick Already cleaned.' },
   failed: { status: 502, code: 'JOB_SAVE_FAILED', message: 'Could not add the job.', hint: 'It may or may not have been added. Reload the Schedule to see.' },
 };
@@ -797,8 +807,10 @@ export async function addJob(actor: Actor, input: AddJobInput, now: Date = new D
   const label = (input.label ?? '').trim() === '' ? DEFAULT_JOB_LABEL : (input.label as string).trim();
   try {
     return await db.runTransaction(async (tx): Promise<AddJobResult> => {
-      const [[property], prices] = await Promise.all([tx.getAll(db.collection('properties').doc(input.propertyId), { fieldMask: ['name'] }), pricesInTx(tx, input.propertyId)]);
+      const [[property], prices, management] = await Promise.all([tx.getAll(db.collection('properties').doc(input.propertyId), { fieldMask: ['name'] }), pricesInTx(tx, input.propertyId), tx.get(db.collection(PROPERTY_MANAGEMENT_COLLECTION).doc(input.propertyId))]);
       if (!property.exists) return { kind: 'no-such-property' };
+      // A unit not tracked by Nubnb gets no job (Kian's ruling of 2026-11-10): "Turn tracking on first."
+      if (!isTracked(management.exists ? readPropertyManagement(management.id, management.data() ?? {}) : null)) return { kind: 'not-tracked' };
       let cleaner: { id: string; name: string | null } | null = null;
       if (input.cleanerId !== null) {
         const [account] = await tx.getAll(db.collection(CLEANERS_COLLECTION).doc(input.cleanerId), { fieldMask: ['name', 'role', 'status'] });

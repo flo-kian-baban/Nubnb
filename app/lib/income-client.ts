@@ -48,6 +48,8 @@ export interface IncomeMonth {
   calendar: { days: string[]; checkIns: { propertyId: string; days: string[] }[]; stays: { propertyId: string; count: number }[] };
   /** The properties marked "not paid through Nubnb's files" (Kian's ruling K2 of 2026-10-17). */
   notThroughFiles: string[];
+  /** The units not tracked by Nubnb (Kian's ruling of 2026-11-10): no gap is raised for them. Absent from an older server. */
+  untracked?: string[];
   /** The month's titles, "platform|title", already in an earlier month's file: not new. */
   seenBefore: string[];
   /** Each property's statement standing for the month as it would stand with its lines accepted (the one function), and whether it has a Report For name. */

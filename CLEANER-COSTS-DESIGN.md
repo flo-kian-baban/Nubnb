@@ -1810,7 +1810,7 @@ Kian's rulings are in `CLAUDE.md` under *Backup — Kian's rulings of 2026-10-03
 
 Residual, not changed: property images are Firebase Storage download-token URLs, served without consulting rules. Nothing public links to an unlisted property's images any more, but a URL handed out before keeps working.
 
-### 31.2 Excluded from reporting
+### 31.2 Excluded from reporting (widened by §76: the same mark is "Not tracked by Nubnb" since Kian's ruling of 2026-11-10)
 
 - **Stored** on the server-only `property_management/{propertyId}` record as `excludedFromReporting: true`, written only when true and absent otherwise (`PROPERTY_MANAGEMENT_SCHEMA_VERSION` 3), so no record that never set it changes shape. The form sends the flag on every save, so unticking clears a stored `true`; a record back at every default is cleared, as before.
 - **The rule, in one place** (`reports/model.ts`, `reports/statement.ts`): `inStatementScope` is false for an excluded property; `monthStanding` gives a new standing, `excluded` — "Excluded from reporting", tone none — unless the month is finished; `reportingStatus` answers it at once with nothing due, past due or finished, so `reportingCounts` (the tile) counts it nowhere; `trackerRows` (the home panel) and `looseEnds` skip the property; the property page passes the flag to `propertyMonthState`. The backup button of the next dispatch reads the same `reportingStatus`.
@@ -6881,3 +6881,239 @@ the budget and the context-aware commit-tree scan stay." His four items, and wha
    denylist removed", staged by name, no trailer; the commit's tree and message scanned with `--commit`; pushed; the
    deployment's SHA read from Vercel's record and `/admin` and `/cleaner` smoked as no one. The SHA, the scan's output
    and the deployment are in the round's report and the memory note, since they exist only once this text is committed.
+
+## 76. "Not tracked by Nubnb": one switch per unit — Kian's ruling of 2026-11-10
+
+Kian excluded most of the 21 Iceboat Terr units from reporting and found they still raised cleaning warnings. His
+ruling, in CLAUDE.md ("Not tracked by Nubnb — Kian's ruling of 2026-11-10"): **"an excluded unit is not part of
+cleaning at all, and the home row and property page must say clearly that it is not tracked."** The existing mark is
+the switch; what it stops widens from statements to cleaning and income; its words become "Not tracked by Nubnb".
+
+### 76.1 Step 1: the marks that existed (read-only, before anything was built)
+
+Read from the code and the export of 2026-11-10T20-07-49Z (667 documents, 17 collections):
+
+- **`excludedFromReporting: true` on `property_management/{propertyId}`** (dispatch 24, §31.2; server-only, schema
+  version 3, written only when true). Set on the edit page's Status panel as "Exclude from reporting", saved with the
+  form's Save through `PUT /api/admin/properties/[id]/management` (the record whole). **What it stopped:** statements —
+  the standing `excluded` ("Excluded from reporting", tone none), nothing due, past due or counted, so the Statements
+  tile, the home panel, the loose ends, the backup button's check and the empty-months Finish all left the unit out; on
+  the Income page, the unit's review group was held with the reason "It is excluded from reporting: no statement is
+  asked for." (I5) and its standing read the same. **What it did not stop:** the calendar sync (jobs were made for it),
+  the home's Cleaning cell, chips, Next step and Turnovers tile, the Schedule, the cleaner and handyman apps (its unit
+  in All properties and Recent, its jobs), Add a job, the Income page's gaps (check-ins with no income, the untitled
+  list, a title missing from the file) and Finish on the property page (a statement could still be finished).
+- **`property_visibility/{propertyId}` (Unlisted)**: the public site only; the unit stays fully usable inside. A
+  different purpose, not an exclusion from tracking: untouched, and it folds into nothing.
+- **`property_income_sources/{propertyId}` "not paid through Nubnb's files"** (Kian's ruling K2 of 2026-10-17): the
+  Income page's gaps only, for a tracked unit paid some other way. A different purpose: untouched.
+- **No calendar link**: grey "No calendar" (Kian's ruling G of 2026-11-01). A fact about the unit, not a mark.
+- **Units carrying the mark that day:** four of the six units at 21 Iceboat Terr (4106, 3707, 2812 and 2507), each set
+  between 19:56 and 19:58 Z on 2026-11-10, minutes before the dispatch; 2815 and 2601 at the same address tracked. No
+  unit was Unlisted; none was marked not-through-files. **26 of the 36 jobs in production sat on the four excluded
+  units**, every one open, with nobody on it and unmarked (checkouts 1–12 November), which is exactly the warning Kian
+  saw; no cleaning and no deleted-job marker existed for them.
+- **Conclusion:** one real mark, two unrelated ones. Nothing to fold, so no ruling was needed and the build went ahead
+  on the existing mark, as instructed.
+
+### 76.2 What was built, by item
+
+1. **The mark and its words** (`app/lib/schedule/tracking.ts`, pure). The stored field is unchanged — no rename, no
+   backfill; `isTracked(record)` is `!isExcludedFromReporting(record)`, and `readUntracked(db)` is the one query (the
+   management records carrying the mark, IDs only; a handful of documents). `STANDING_LABELS.excluded` reads "Not
+   tracked by Nubnb" everywhere a standing is shown (the home's Statement cell, the property page's badges, the Income
+   page, the month ZIP's workbook); the Income page's I5 reason reads "It is not tracked by Nubnb: no statement is
+   asked for."
+2. **The sync** (`sync.ts` `planCreates({ untracked })`, `store.ts` `syncJobs`): one query per run for the marks; no
+   job is made for a unit that is not tracked, and the jobs it has are left exactly as they are (not judged, not
+   changed: the switch-off removed the open ones already, and a marked one is a counted cleaning's record).
+3. **The switch** (`app/lib/firebase/server-tracking.ts`): `setTracking(actor, propertyId, tracked)` flips the mark on
+   the management record and, in the same transaction, does the ruling's work on the jobs. **Off:** the unit's jobs are
+   read (one query by property); every open, unmarked one is deleted; each calendar job among them leaves the
+   deleted-job marker of Build 2 (`deleted_cleaning_jobs/{jobId}`, the sync's own shape) with a new optional field,
+   `reason: "tracking-off"`; a job added by hand leaves none. A job with a mark stays with its cleaning; a
+   booking-changed job stays (history, shown nowhere). **On:** the unit's markers are read; those with
+   `reason: "tracking-off"` and a checkout today or later are deleted, so the next calendar read makes those jobs again
+   — future checkouts only; a marker for a day gone by stays (the sync never makes a job for a past day, and nothing is
+   backfilled); a marker an admin's own delete wrote has no reason and is never touched. Two doors reach it: the new
+   `PUT /api/admin/properties/[id]/tracking` `{ tracked }` (the property page's switch; activity words "Turned a unit's
+   tracking on or off"), and the form's Save through `PUT …/management`, where `setManagement` now compares the stored
+   mark with the saved one and runs the same work when it flips (clearing the record of a unit that was not tracked
+   turns its tracking on). The answer carries `tracking: { tracked, jobsRemoved, markersWritten, markersCleared,
+   unreadable }`, null when nothing flipped.
+4. **Listed nowhere as a warning.** The Schedule's read (`readSchedule`) lists a job of a unit that is not tracked only
+   when it carries a mark, and names the units (`untracked`); the home's read (`readPropertyStatus`) sends no job and no
+   extra of such a unit, and names them, so no chip, Next step or tile counts them; the cleaner app's start
+   (`readCleanerStart`) leaves the unit out of All properties and Recent, and a cleaner's jobs on it are listed only
+   when they marked them (`cleanerJobs`, `cleanerJobsRead`, through `cleanerJobsShown`); the handyman app's unit list
+   is the same read.
+5. **Add a job refuses it** (`addJob`: the management record read in the transaction, one read) — 409
+   `PROPERTY_NOT_TRACKED`, "This unit isn’t tracked. Turn tracking on first." The Schedule's search tags such a unit
+   "Not tracked by Nubnb" and refuses the pick with the same words, so the message comes before the form is filled.
+6. **Finish refuses it** (`finishStatement`, after the bundle is read, before any other check) — 409
+   `PROPERTY_NOT_TRACKED`, "This unit isn’t tracked by Nubnb: it owes no statement." The Finish tab shows the line in
+   place of the Finish button, and lists no checks; the empty-months Finish already left excluded units out.
+7. **No income gap** (`readIncomeMonth` sends `untracked`; `monthView` takes it): no check-in gap, no untitled gap and no
+   missing-title gap for such a unit; lines under a title linked to it still propose, held with the I5 reason.
+8. **The home row** (`app/admin/page.tsx`): one grey "Not tracked by Nubnb" badge in a cell spanning Statement, Income,
+   Cleaning and Next step; no Next step is worked out for the row, so it is under no chip and in no count; under Needs
+   attention it sorts after Up to date; the units count reads "58 units · 4 not tracked". The Delete dialog's words:
+   "mark it Unlisted and turn its tracking off instead".
+9. **The property page**: a banner under the head, "Not tracked by Nubnb: no cleaning, income or statements", with a
+   "Tracked by Nubnb" switch beside it (off). The switch asks first in Nubnb's own dialog ("Track <unit> again?", what
+   resumes), then calls the tracking route and shows the outcome. The month badges read "Not tracked by Nubnb".
+10. **The edit page**: the Status panel's second tile is "Tracked by Nubnb", a switch (on = tracked; it writes the same
+    `management.excluded` draft field, inverted), with one line: off means no cleaning jobs, income gaps or statements
+    and the removal of open, unmarked jobs on Save; on again resumes for future checkouts only. Saved with the form's
+    Save, as before.
+11. **The deleted-job marker** (`DeletedJobMarker.reason?`, `readDeletedJob`): an optional field, read when a string;
+    markers written before have none and read as before.
+
+### 76.3 The developer's choices (for Kian; one changes what an admin can issue, item 4)
+
+1. **The stored field stays `excludedFromReporting`.** Renaming would mean a backfill or two readers; the words are the
+   product's, the field is the record's.
+2. **A marked job of a unit that is not tracked stays visible on the Schedule and in its cleaner's own list**, as a
+   counted cleaning's record, never as a warning; the home shows nothing of the unit. A cleaning whose extra ask is
+   undecided is money waiting, and is never hidden from the Schedule or the Costs page's Cleanings tab.
+3. **Turning tracking on clears only the markers the switch-off wrote** (`reason: "tracking-off"`), and only for a
+   checkout today or later. An admin's own delete (no reason) stands whatever the switch does.
+4. **Finish is refused for a unit that is not tracked**, on the server and on the page. Kian's words were "nothing in
+   Finish"; a statement for such a unit would contradict the banner. A statement finished before tracking was turned
+   off stays as it is; the draft stays editable (nothing is sent to an owner). Listed here because it changes what an
+   admin can issue.
+5. **The units count stays whole**, with "· n not tracked" beside it: the count of units on the platform is a fact; the
+   row leaves every other count.
+6. **Costs are unchanged**: the Costs tile, the review queue, the Cleanings tab and the property's ledger. A receipt or a
+   cleaning is a money record, not a cleaning warning about the unit. The Availability page carries no new mark
+   (LATER, if wanted).
+7. **A cleaner's Undo on their marked job of such a unit stays allowed** (their own record, under the existing rules);
+   the job is then open and unmarked, shown nowhere until tracking resumes, when it reads as it is.
+8. **The edit page's switch saves with the form** (Kian's review of 2026-10-19 allows it); the property page's switch
+   asks first, since it acts at once.
+9. **Booking-changed unmarked jobs are kept** when tracking goes off (history), and shown nowhere.
+10. **The apostrophe** in "This unit isn’t tracked." is the typographic one the admin uses everywhere; Kian typed a
+    straight one.
+11. **The Schedule's `untracked`, the home's and the Income page's** are each sent by their own read (one small query
+    each) rather than a shared call: each page already had its read, and a failure of one leaves the others whole.
+
+### 76.4 Words
+
+| Where | Words |
+| --- | --- |
+| Any standing (home Statement cell, property page badges, Income page, the ZIP's workbook) | Not tracked by Nubnb |
+| The home row's cell | Not tracked by Nubnb (title: "Not tracked by Nubnb: no cleaning, income or statements. Turn tracking on from its page, or its edit page.") |
+| The home's units count | 58 units · 4 not tracked |
+| The property page's banner | Not tracked by Nubnb: no cleaning, income or statements · switch "Tracked by Nubnb" |
+| The property page's question | Track <unit> again? · Turn tracking on |
+| The Finish tab | Not tracked by Nubnb: no statement is owed for <month>. Turn tracking on (the switch at the top of the page) to finish one. |
+| The edit page's tile | Tracked by Nubnb · Off: not tracked by Nubnb — no cleaning jobs, no income gaps, no statements; its open, unmarked jobs are removed when saved. On again: jobs resume for future checkouts only. Costs and the property page stay. |
+| Add a job (409 PROPERTY_NOT_TRACKED) | This unit isn’t tracked. Turn tracking on first. |
+| Finish (409 PROPERTY_NOT_TRACKED) | This unit isn’t tracked by Nubnb: it owes no statement. |
+| The Income page's hold (I5) | It is not tracked by Nubnb: no statement is asked for. |
+| The activity log | Turned a unit’s tracking on or off |
+
+### 76.5 Tests
+
+- **New: `tests/schedule/tracking.mjs`** (recording `tracking.txt`), the server functions on the in-memory Firestore:
+  the words; the sync makes no job for a unit not tracked (the pure plan and the real `syncJobs`); turning tracking off
+  removes the open, unmarked jobs with the marker and leaves the counted cleaning byte for byte; the Schedule, the
+  home's read, the cleaner's start and re-read; the next read makes nothing; Add a job and Finish refused; turning
+  tracking on clears today's and later markers, the next read makes the future jobs and not the past one; the form's
+  Save does the same through `setManagement`, and clearing the record turns tracking on; an admin's own delete marker
+  survives the switch; the Income page's gaps.
+- **Re-recorded, named:** `income-one-pass` and `fresh-start` (the I5 words), `schedule-round1` and `team-round1` (one
+  read more per sync run: the marks' query). Every other recording identical.
+
+### 76.6 Verified (2026-11-10; a local build reading production behind the write guard, the server's clock Monday 20 November 2028, 10:00 Toronto)
+
+**The set-up.** A build copy outside the repository: HEAD cc90e15 (git archive) plus this round's 35 changed and new
+files (`~/Backups/Nubnb/tracking-1110/_harness`, `make-work.mjs`); `next build` in 26.1 s with Firestore answered
+empty and no service account; then the production `.env.local` (600) beside a throwaway `.env.production.local` (a
+4-digit ADMIN_PIN that is not production's, random session secrets and PIN key). Served on 127.0.0.1:4500 under the
+server preload: the settable clock (started on the real clock, each auth client's first token kept, then moved to
+2028-11-20T15:00Z), the write guard (only this round's own `__TEST__` records; the calendar copy and the refresh's lease
+stubbed in memory, never sent), the read counter, every real calendar fetch cut off and the two test calendars answered
+from `out/feeds.json`. The run predates the one-line label fix of `standingInWords` (the month menu's "not tracked by
+nubnb" seen in the property page shot), which the suite covers (`tracking` §1).
+
+**Test records**, seeded through the guard after the opening export: "__TEST__ Admin" (an ordinary admin; its session
+minted, its PIN never typed), "__TEST__ Ana" (a cleaner, a code drawn clear of 24 taken values, never printed), and
+two Unlisted units with cleaner-facing names and test calendar links — **T**, tracked, with made-up cleaning prices and
+one seeded past turnover (checkout 17 Nov, Ana on it, never marked), and **U**, carrying the mark from the start
+(`excludedFromReporting: true` on its management record). Feeds: T stays ending 20, 21 and 22 Nov; U stays ending 20
+and 21 Nov.
+
+**Exports.** Opening `2026-11-10T20-51-11Z` (667 documents), closing `2026-11-10T21-03-18Z` (675): **667 documents
+identical, 8 differences over 17 collections** — every one Kian's own, at 20:54 Z, while the run was on: a real admin's
+two saves of the edit page (each a `PUT /api/properties/[id]`, a `POST /api/mirror-property-images` and a
+`PUT …/management`, six `admin_actions`) that excluded 2815 and 2601 at 21 Iceboat Terr, whose two management records
+are the other two differences; all six units at that address now carry the mark. No `__TEST__` text anywhere in the
+closing export. **Reads: 2,278 of the 2,500 budget** (the server 2,272, the probe 6; the exports left out, the opening
+one 1,169). **Cleanup by exact path**: 35 Firestore paths this run wrote (cleanings 1, cleaning_jobs 5,
+deleted_cleaning_jobs 3, property_cleaning_prices 2, property_management 2, property_visibility 2,
+property_cleaner_names 2, properties 2, cleaner_codes 1, cleaners 1, admin_actions 12, admin_names 1, admins 1), read
+back 0 still there; 0 refused writes in the server log; no Storage write.
+
+**The checks** (`checks/c1…c8b`, each printing what the server answered):
+
+- **c1 — the refresh and T's jobs.** `POST /api/admin/availability/refresh` → `{"created":3,"changed":0}`: T's jobs for
+  20, 21 and 22 Nov made, **none for U** (its two stays ignored); the Schedule's answer named `untracked: U`. Then, as
+  the test admin: today's job → Ana (200), recorded cleaned by the office (200, cleaning `ZktwrngEjhSv22C6a7Vl`,
+  statement month 2028-11), tomorrow's job → Ana (200), a job added by hand for tomorrow with nobody on it (201).
+  T then held: 17 Nov open · Ana; 20 Nov open · Ana ✓; 21 Nov open · Ana; 21 Nov open (added "Deep clean") · nobody;
+  22 Nov open · nobody.
+- **c2 (before) — the home at 1440.** Units header "60 units · 5 not tracked" (the four Iceboat units and U). T's row:
+  Statement "Open, not yet due", Income "No Airbnb title", Cleaning **"Not marked Nov 17"** (red), Next step **"Assign a
+  cleaner for Nov 21"**; U's row: **one cell spanning the four, "Not tracked by Nubnb"**. Chips over the whole list:
+  Needs attention 2, Needs a cleaner 1, Not marked 1, Direct overdue 1 (a real unit), every other 0 — the 26 production
+  jobs on the excluded Iceboat units counted nowhere. Turnovers tile "3 · 1 needs a cleaner". Shot
+  `c2-home-before-1440.png` (searched to the two test rows: "2 of 60 units · 5 not tracked").
+- **c4 (before) — Ana's app at 390.** Signed in at the door with her code on the number pad. Three cards, all T's: 17
+  Nov ("Done" offered), 20 Nov ("Cleaned · Undo · Recorded by the office"), 21 Nov ("Done opens tomorrow"); U nowhere
+  in the screen. Shot `c4-ana-before-390.png`.
+- **c5 — the switch off.** `PUT /api/admin/properties/T/tracking {tracked:false}` → 200, `changed true`,
+  `{"jobsRemoved":4,"markersWritten":3,"markersCleared":0,"unreadable":0}`, the record's flag true. The Schedule's
+  answer for T afterwards: **20 Nov open · Ana ✓ only**; `untracked: T,U`. The property page at 1440: the banner **"Not
+  tracked by Nubnb: no cleaning, income or statements"** with the "Tracked by Nubnb" switch beside it (off), the head's
+  badge "Not tracked by Nubnb", the statement preview still printing **"Expense - Cleaning −$62.00"** (the counted
+  cleaning); the Finish tab: **"Not tracked by Nubnb: no statement is owed for November 2028. Turn tracking on (the
+  switch at the top of the page) to finish one."** and **no Finish button**. Shots `c5-property-banner-1440.png`,
+  `c5-property-finish-1440.png`.
+- **The probe** (a read-only script, 6 reads, after c5): T's jobs stored: `T_2028-11-20 open · Ana (marked)` only; T's
+  markers: `T_2028-11-17`, `T_2028-11-21`, `T_2028-11-22`, each `reason=tracking-off by admin`, each holding its stay;
+  T's cleaning `ZktwrngEjhSv22C6a7Vl day 2028-11-20 status logged amount $62.00 from short · 1 history event`, as
+  recorded; the record `{"excludedFromReporting":true,"statementsFrom":"2026-11"}`. Ana's November through
+  `GET /api/admin/cleaners/[id]/month?month=2028-11` still lists the 20 Nov job at T.
+- **c2 (after) — the home again.** Both test rows **"Not tracked by Nubnb"**; chips Needs a cleaner 0, Not marked 0,
+  Needs attention 1 (the real Direct overdue), every other 0; Turnovers tile **"0 · None today or tomorrow"** (T's
+  marked turnover of today no longer counted); header "60 units · 8 not tracked" (Kian's two more exclusions had landed
+  by then). Shot `c2-home-after-1440.png`.
+- **c4 (after) and c4b — Ana's app.** One card: T's 20 Nov, "Cleaned · Undo · Recorded by the office" (her mark); the
+  17 and 21 Nov cards gone. "All properties" opened and searched for the test prefix: **nothing offered**; with no
+  search, 52 units offered of the platform's 60 (8 not tracked). 0 reads for the list. Shots `c4-ana-after-390.png`,
+  `c4b-ana-units-390.png`.
+- **c7 — refusals and the next read.** Add a job on T → **409 PROPERTY_NOT_TRACKED "This unit isn’t tracked. Turn
+  tracking on first." Nothing was added.** The refresh → `{"created":0,"changed":0,"watched":1}`: nothing made for T or
+  U, T's marked job left alone. Finish on T (`POST /api/admin/monthly-reports`, a minimal claim) → **409
+  PROPERTY_NOT_TRACKED "This unit isn’t tracked by Nubnb: it owes no statement." Nothing was written. Turn tracking on
+  first.**
+- **c7b — the home's own feed** (`GET /api/admin/property-status`): 0 jobs and 0 extras of T or U; `untracked` 8 units
+  with T and U among them; 0 open jobs with a checkout today or tomorrow in the feed at all.
+- **c8 — the switch on, three ways.** (1) `PUT …/tracking {tracked:true}` → 200, `{"markersCleared":2}` (21 and 22
+  Nov; the 17 Nov marker kept), the flag gone from the record; the refresh → `{"created":2}`: T then 20 Nov · Ana ✓,
+  **21 Nov · nobody, 22 Nov · nobody — the past job and the added job did not come back**; `untracked: U`. (2) The form's
+  path: `PUT …/management` with the record whole as the edit page's Save sends it and `excludedFromReporting: true` →
+  200, `tracking {"tracked":false,"jobsRemoved":2,"markersWritten":2}`; T back to the marked job only; `untracked: T,U`.
+  The edit page at 1440: the Status panel's "Tracked by Nubnb" switch off, with its one line (shot `c8-edit-tile-1440.png`).
+  (3) The property page's own switch in the browser: clicking it opened Nubnb's question **"Track [T] again? Cleaning
+  resumes from today: the next calendar read makes jobs for future checkouts only. Nothing is backfilled. Income gaps
+  and statements are asked for again, and the unit is back in the cleaners’ app." · Cancel · Turn tracking on** (shot
+  `c8b-property-question-1440.png`); "Turn tracking on" → the banner gone, the notice **"[T] is tracked by Nubnb again.
+  The next calendar read makes jobs for future checkouts only."**, the head's badge "Open, not yet due" (shot
+  `c8b-property-tracked-1440.png`); before any read T still held the marked job only; the refresh → `{"created":2}`, T's
+  21 and 22 Nov jobs back, `untracked: U`.
+
+**Tests after the round:** `node tests/run.mjs` — 41 checks, all identical (`tracking` new; `income-one-pass`,
+`fresh-start`, `schedule-round1`, `team-round1`, `admin-accounts` re-recorded by name — the last for the route
+listing's new line); `tsc --noEmit` 0 errors; eslint clean on every changed file.

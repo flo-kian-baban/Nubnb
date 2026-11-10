@@ -187,6 +187,19 @@ export function setReportFor(propertyId: string, reportFor: { name: string; addr
   return call(`/api/admin/properties/${encodeURIComponent(propertyId)}/report-for`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(reportFor) }, 'Saving who the report is for failed', (data) => isRecord(data) && isRecord(data.record), ['REPORT_FOR_WRITE_FAILED']);
 }
 
+/** What the tracking switch did (Kian's ruling of 2026-11-10): the record as stored, and what happened to the unit's jobs; `change` is null when nothing differed. */
+export interface TrackingAnswer {
+  record: PropertyManagementView | null;
+  tracked: boolean;
+  changed: boolean;
+  change: { tracked: boolean; jobsRemoved: number; markersWritten: number; markersCleared: number; unreadable: number } | null;
+}
+
+/** Turn a unit's tracking on or off (Kian's ruling of 2026-11-10): the property page's switch. */
+export function setTracking(propertyId: string, tracked: boolean): Promise<ReportResult<TrackingAnswer>> {
+  return call(`/api/admin/properties/${encodeURIComponent(propertyId)}/tracking`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tracked }) }, 'Saving whether the unit is tracked failed', (data) => isRecord(data) && (data.record === null || isRecord(data.record)) && typeof data.tracked === 'boolean' && typeof data.changed === 'boolean', ['TRACKING_WRITE_FAILED']);
+}
+
 /** What deleting a finished statement answers: the draft reopened with everything it held, and the property's record when its Report For was set back. */
 export interface StatementDeleted {
   deleted: { reportId: string; downloads: number; pdf: 'deleted' | 'missing' | 'left' };

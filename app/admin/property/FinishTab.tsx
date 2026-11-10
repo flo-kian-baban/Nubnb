@@ -76,6 +76,8 @@ interface Props {
   payableCents: number | null;
   /** Whether the statement can be built (no unreadable entry). */
   buildable: boolean;
+  /** Whether the unit is tracked by Nubnb (Kian's ruling of 2026-11-10): one that is not owes no statement, and Finish is not offered. */
+  tracked: boolean;
   finishing: boolean;
   onFinish: () => void;
   onCorrect: () => void;
@@ -96,7 +98,7 @@ interface Props {
   today: string;
 }
 
-export function FinishTab({ month, monthOpen, typed, readOnly, onChange, finishedReport, versions, supersedes, save, reportForState, payableCents, buildable, finishing, onFinish, onCorrect, deleting, onDelete, linking, onDownload, verified, downloadsOf, releases, onMonth, checks, onTab, today }: Props) {
+export function FinishTab({ month, monthOpen, typed, readOnly, onChange, finishedReport, versions, supersedes, save, reportForState, payableCents, buildable, tracked, finishing, onFinish, onCorrect, deleting, onDelete, linking, onDownload, verified, downloadsOf, releases, onMonth, checks, onTab, today }: Props) {
   const legacyView = readOnly && finishedReport?.legacy === true;
   const stateLine =
     readOnly && finishedReport ? (
@@ -167,7 +169,7 @@ export function FinishTab({ month, monthOpen, typed, readOnly, onChange, finishe
       </section>
 
       {/* ── Before finishing: what Finish checks, one line each, with the tab that puts it right ── */}
-      {!readOnly && checks && checks.refusals.length + checks.warnings.length > 0 && (
+      {!readOnly && tracked && checks && checks.refusals.length + checks.warnings.length > 0 && (
         <section className={styles.block} aria-label="Before finishing">
           <div className={styles.blockHead}>
             <h3 className={styles.blockTitle}>Before finishing</h3>
@@ -218,6 +220,11 @@ export function FinishTab({ month, monthOpen, typed, readOnly, onChange, finishe
                 </span>
               )}
             </>
+          ) : !tracked ? (
+            /* Not tracked by Nubnb (Kian's ruling of 2026-11-10): no statement is owed, so none is finished. */
+            <p className={styles.note} data-untracked>
+              Not tracked by Nubnb: no statement is owed for {monthLabel(month)}. Turn tracking on (the switch at the top of the page) to finish one.
+            </p>
           ) : (
             <>
               <button type="button" className={styles.btnPrimary} onClick={onFinish} disabled={finishing || !buildable}>

@@ -108,6 +108,7 @@ import { placedRowsAll, placedRowsFor } from './server-unread';
 import { airbnbLineIdsOf, costCharges, monthMoney, type Figures } from '@/app/lib/money/month';
 import { EARNINGS_LINES_COLLECTION, EARNINGS_UNREAD_COLLECTION, platformLinesOf, readEarningsLine, readEarningsUnread, type EarningsLineView } from '@/app/lib/income/model';
 import { statementPdf } from '@/app/lib/reports/statement-pdf';
+import { FINISH_NOT_TRACKED, isTracked } from '@/app/lib/schedule/tracking';
 
 const CONTROL_CHARACTER = /\p{Cc}/u;
 const SIGNED_AMOUNT = /^-?(0|[1-9][0-9]{0,5})\.[0-9]{2}$/;
@@ -562,6 +563,8 @@ export async function writeEmptyDraft(propertyId: string, month: string, referen
 export type FinishResult =
   | { kind: 'finished'; report: MonthlyReportView }
   | { kind: 'no-such-property' }
+  /** The unit is not tracked by Nubnb (Kian's ruling of 2026-11-10): it owes no statement. Nothing written. */
+  | { kind: 'not-tracked' }
   /** The draft has no reference or no date yet, a fee rate with no base, or the property no Report For name. Nothing written. */
   | { kind: 'incomplete'; missing: string[] }
   /** No draft at that revision, or the draft is already finished. */
@@ -576,6 +579,7 @@ export type FinishResult =
 
 export const FINISH_REFUSALS: Record<Exclude<FinishResult['kind'], 'finished'>, Refusal> = {
   'no-such-property': { status: 404, code: 'PROPERTY_NOT_FOUND', message: 'Property not found' },
+  'not-tracked': { status: 409, code: 'PROPERTY_NOT_TRACKED', message: FINISH_NOT_TRACKED, hint: 'Nothing was written. Turn tracking on first.' },
   incomplete: { status: 422, code: 'STATEMENT_INCOMPLETE', message: 'The statement needs a Report For name, a reference, a date and, when the fee has a rate, the base it applies to before it is finished.', hint: 'Nothing was written. Fill them in and finish again.' },
   'draft-changed': { status: 409, code: 'DRAFT_CHANGED', message: 'The draft changed since it was loaded, or is already finished.', hint: 'Nothing was written. Reload the page.' },
   'changed-since': { status: 409, code: 'STATEMENT_CHANGED', message: 'An entry in this statement changed since the page loaded.', hint: 'Nothing was written. Reload, check what changed, and finish again.' },
@@ -642,6 +646,8 @@ export async function finishStatement(actor: Actor, input: FinishInput): Promise
   };
   const bundle = await readStatementBundle(propertyId, month);
   if (bundle === null) return { kind: 'no-such-property' };
+  // A unit not tracked by Nubnb owes no statement (Kian's ruling of 2026-11-10): nothing of it is finished.
+  if (!isTracked(bundle.management)) return { kind: 'not-tracked' };
   const { draft } = bundle;
   if (draft === null || draft.revision !== input.draftRevision || draft.finishedAs !== null) return { kind: 'draft-changed' };
   // A rate with no base cannot be finished: the base has no default and is never worked out by code (Kian's ruling, dispatch 26).

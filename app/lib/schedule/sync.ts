@@ -29,6 +29,13 @@
  * whose booking changed — another UID ending that day, or the same UID with
  * another first night — is made again, as a new job.
  *
+ * ── Not tracked by Nubnb (Kian's ruling of 2026-11-10) ──
+ * A unit whose management record carries the mark gets no job, and the jobs
+ * it has are left exactly as they are (app/lib/schedule/tracking.ts): the
+ * switch that turned it off removed its open, unmarked jobs already, and a
+ * job with a mark is a counted cleaning's record. store.ts reads the marks
+ * (one query) and passes them in.
+ *
  * ── Not read this run: kept exactly as they are ──
  * A property whose calendar this run did not read — not fetched, failed,
  * timed out, or not in this copy at all — keeps its jobs exactly as they
@@ -86,15 +93,18 @@ export interface PlannedCreate {
  * CREATE_DAYS_AHEAD days, today included, on a calendar read this run, where
  * no job exists yet. `existing` holds every stored job's ID from today on.
  */
-export function planCreates(input: { snapshot: AvailabilitySnapshot; existing: ReadonlySet<string>; keys: ReadonlyMap<string, string>; nowIso: string; /** The deleted calendar jobs' markers, by job ID (Build 2): a stay they still name makes no job. */ deleted?: ReadonlyMap<string, { uid: string; start: string }> }): PlannedCreate[] {
+export function planCreates(input: { snapshot: AvailabilitySnapshot; existing: ReadonlySet<string>; keys: ReadonlyMap<string, string>; nowIso: string; /** The deleted calendar jobs' markers, by job ID (Build 2): a stay they still name makes no job. */ deleted?: ReadonlyMap<string, { uid: string; start: string }>; /** The units not tracked by Nubnb (Kian's ruling of 2026-11-10): no job is made for them. */ untracked?: ReadonlySet<string> }): PlannedCreate[] {
   const { snapshot, existing, keys, nowIso } = input;
   const deleted = input.deleted ?? new Map<string, { uid: string; start: string }>();
+  const untracked = input.untracked ?? new Set<string>();
   const today = snapshot.today;
   const last = addDays(today, CREATE_DAYS_AHEAD);
   const planned: PlannedCreate[] = [];
   const ids = new Set<string>();
   for (const propertyId of Object.keys(snapshot.properties).sort()) {
     if (!readThisRun(snapshot, propertyId)) continue;
+    // A unit that is not tracked by Nubnb gets no job (Kian's ruling of 2026-11-10), whatever its calendar says.
+    if (untracked.has(propertyId)) continue;
     const feed = snapshot.properties[propertyId];
     const reserved = reservationsOf(feed.events);
     for (const stay of reserved) {

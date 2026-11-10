@@ -9,7 +9,7 @@
    ok   a job that already has someone on it is not changed
 
 ═══ 2. The job sync gives each new job to its regular cleaner ═══
-  outcome: {"created":6,"changed":0,"watched":0,"unreadable":0,"failed":null} · reads 12 (cleaners 4, cleaning_jobs 1, deleted_cleaning_jobs 1, property_regular_cleaners 6)
+  outcome: {"created":6,"changed":0,"watched":0,"unreadable":0,"failed":null} · reads 13 (cleaners 4, cleaning_jobs 1, deleted_cleaning_jobs 1, property_management 1, property_regular_cleaners 6)
   TESTPROPround1aaaa1 (Ana, active): on it TESTCLEANERround1ana · last event assigned by regular cleaner
   TESTPROPround1aaaa2 (Ben, deactivated): on it nobody · last event created by calendar
   TESTPROPround1aaaa3 (an account deleted): on it nobody · last event created by calendar
@@ -19,7 +19,7 @@
    ok   P1: Ana is on it, made then assigned
    ok   the others: nobody on them ("Needs a cleaner")
    ok   a job made before the regular cleaner was set is not changed (no backfill)
-  the same run again: {"created":0,"changed":0,"watched":6,"unreadable":0,"failed":null} · reads 7 (cleaning_jobs 6, deleted_cleaning_jobs 1): nothing to make, so no regular cleaner is read
+  the same run again: {"created":0,"changed":0,"watched":6,"unreadable":0,"failed":null} · reads 8 (cleaning_jobs 6, deleted_cleaning_jobs 1, property_management 1): nothing to make, so no regular cleaner is read
    ok   no job to make: the records are not read
 
 ═══ 3. Setting a regular cleaner ═══
@@ -116,7 +116,7 @@
   reads: 7 (cleaning_jobs 6, monthly_reports 1)
    ok   Undo: not on a printed cleaning, a removed one, or one on or before the last payment (Oct 14); on the 16th, yes; the 18th unmarked
    ok   no cleaning is read: a mark not removed by the office is a logged cleaning, from the job
-  read again on its own (after a refresh): 6 jobs · reads 12 (cleaning_jobs 6, monthly_reports 1, properties 2, property_cleaner_names 2, team_payments 1)
+  read again on its own (after a refresh): 6 jobs · reads 13 (cleaning_jobs 6, monthly_reports 1, properties 2, property_cleaner_names 2, property_management 1, team_payments 1)
    ok   read again on its own: only the two properties its jobs name, never every property, and no cleaning
    ok   its home: the job still to mark (the 18th), and tomorrow's (Ana is the regular cleaner on P1, section 2)
 

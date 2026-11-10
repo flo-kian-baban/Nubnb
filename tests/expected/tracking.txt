@@ -1,0 +1,85 @@
+═══ 1. The words, the same everywhere ═══
+  standing label: "Not tracked by Nubnb" · banner: "Not tracked by Nubnb: no cleaning, income or statements" · Add a job: "This unit isn’t tracked. Turn tracking on first." · Finish: "This unit isn’t tracked by Nubnb: it owes no statement."
+   ok   the mark reads "Not tracked by Nubnb" wherever a standing is shown
+  in a menu line (the property page's month list): "not tracked by Nubnb" · "open, not yet due" · "no statement expected"
+   ok   inside a line only the first letter is lowered: "Nubnb" keeps its capital
+   ok   tracked: no record, or one without the mark; the stored field is unchanged (no backfill)
+   ok   untrackedIds reads the records
+
+═══ 2. The calendar sync makes no job for a unit that is not tracked (ruling 2) ═══
+  planned with U not tracked: T_2028-11-20, T_2028-11-21, T_2028-11-22 · without the set: 5 jobs
+   ok   U gets no job for its stays; T gets its three (today and two ahead)
+  run 1 on the memory store: created 3, changed 0, failed null · U's jobs: 0
+   ok   the real sync reads the marks (one query) and makes T's jobs only
+  today's job: Ana on it (saved), recorded cleaned by the office (recorded, $67.00) · a job added by hand for 2028-11-21: added
+    T_2028-11-17 open · Test Ana
+    T_2028-11-20 open · Test Ana ✓
+    T_2028-11-21 open · nobody
+    T_2028-11-22 open · nobody
+    T_2028-11-21_<suffix> open (added) · nobody
+    T_2028-11-23 booking-changed · nobody
+   ok   T holds a past unmarked job, a counted cleaning, two open jobs ahead, an added job and a booking-changed job
+
+═══ 3. Turning tracking off removes the open, unmarked jobs with the marker; counted cleanings stay (ruling 2) ═══
+  plan: remove T_2028-11-17, T_2028-11-21, T_2028-11-22, T_2028-11-21_<suffix> · markers T_2028-11-17 (tracking-off), T_2028-11-21 (tracking-off), T_2028-11-22 (tracking-off) · kept T_2028-11-20, T_2028-11-23
+   ok   open and unmarked goes: the past job, the two ahead, the added one
+   ok   each calendar job leaves the sync's own marker, reason tracking-off, read back strictly; the added job leaves none
+   ok   the marked job and the booking-changed job stay
+  setTracking off: set, changed true · jobs removed 4, markers written 3, cleared 0 · record flag true
+   ok   the switch writes the mark and does the plan in one transaction
+   ok   the four jobs are gone
+   ok   their markers are there; none for the added job
+   ok   the counted cleaning and its job are untouched, byte for byte; the booking-changed job stays
+   ok   the same value again changes nothing
+   ok   a property that does not exist is refused
+
+═══ 4. No cleaning warning or count anywhere; not in the apps (ruling 2) ═══
+  the Schedule lists for T: 2028-11-20 Test Ana ✓ · untracked: T, U
+   ok   the Schedule shows only the marked job of a unit that is not tracked (a counted cleaning's record), and names the units
+  the home's read: jobs 0, extras 0, untracked T, U · Turnovers tile: {"count":0,"needCleaner":0,"from":"2028-11-20","to":"2028-11-21"}
+   ok   no job of a unit that is not tracked reaches the home: no chip, Next step or tile counts it
+  Ana's app: units none · recent 0 · jobs 2028-11-20 ✓
+   ok   neither unit is in her unit list; of T's jobs she sees only the one she marked
+   ok   the app's re-read after a refresh says the same
+  run 2 (T not tracked, U not tracked): created 0, changed 0
+   ok   the next calendar read makes no job for either unit and changes none of theirs
+  Add a job on T: not-tracked — 409 PROPERTY_NOT_TRACKED "This unit isn’t tracked. Turn tracking on first."
+   ok   Add a job refuses it in Kian's words
+  Finish on T: not-tracked — 409 PROPERTY_NOT_TRACKED "This unit isn’t tracked by Nubnb: it owes no statement."
+   ok   Finish refuses it: it owes no statement
+
+═══ 5. Turning tracking on resumes from that day: future jobs return, past ones do not (ruling 4) ═══
+  setTracking on: set, changed true · markers cleared 2 · record flag absent · markers left: T_2028-11-17
+   ok   the markers for today and later are cleared; the mark is gone from the record
+   ok   the past job's marker stays: nothing is backfilled
+  run 3: created 2, changed 0
+    T_2028-11-17 — not there
+    T_2028-11-20 open · Test Ana ✓
+    T_2028-11-21 open · nobody
+    T_2028-11-22 open · nobody
+    T_2028-11-21_<suffix> — not there
+    T_2028-11-23 booking-changed · nobody
+   ok   the next read makes the two future jobs again; the past one and the added one do not come back
+   ok   the counted cleaning is still as it was
+
+═══ 6. The edit page's switch (the form's Save) does the same, through the management record ═══
+  save with the switch off: set · tracking {"tracked":false,"jobsRemoved":2,"markersWritten":2,"markersCleared":0,"unreadable":0}
+   ok   the save removes the two open jobs and leaves their markers
+   ok   a save that does not flip the mark does nothing to the jobs
+  the record cleared: cleared · tracking {"tracked":true,"jobsRemoved":0,"markersWritten":0,"markersCleared":2,"unreadable":0} · record gone
+   ok   clearing the record of a unit that was not tracked turns its tracking on
+  U saved as tracked: set, tracking {"tracked":true,"jobsRemoved":0,"markersWritten":0,"markersCleared":0,"unreadable":0} · run 4 created 4 (2 of them U's)
+   ok   once tracked, U gets its jobs from the next read, and T its two again
+
+═══ 7. A marker an admin's own delete wrote is never cleared by the switch ═══
+  deleted 2028-11-22's job by hand: deleted, marker true (reason none) · off: removed 1, markers 1 · on: cleared 1 · the admin's marker stays
+   ok   the switch clears only the markers it wrote (reason tracking-off): the admin's delete stands
+   ok   planTrackingOn: today and later, tracking-off only
+
+═══ 8. No income gap for a unit that is not tracked (ruling 2) ═══
+  gaps with U and W not tracked: check-ins 1 Test St · untitled 3 Test St · missing titles 1 Test St
+  without the set: check-ins 1 Test St, 2 Test St · untitled 3 Test St, 4 Test St · missing titles 1 Test St, 2 Test St
+   ok   a unit not tracked raises no check-in gap, no untitled gap and no missing title; the tracked ones still do
+   ok   without the set, every gap is raised as before
+
+all ok

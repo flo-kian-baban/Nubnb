@@ -32,6 +32,12 @@
  * (latestPaymentDay): no Undo is offered on a cleaning dated on or before it.
  * One read per payment of theirs. A handyman's are not read.
  *
+ * ── Not tracked by Nubnb (Kian's ruling of 2026-11-10) ──
+ * A unit whose management record carries the mark is in neither app: not in
+ * the unit list, not among the recent units, and a cleaner's jobs on it are
+ * listed only when they marked them (a counted cleaning's record). One query
+ * for the marks (app/lib/schedule/tracking.ts, readUntracked).
+ *
  * ── Jobs (the cleaning schedule, Kian's rulings of 2026-10-14) ──
  * A cleaner's jobs come first in their app: those they are on, within the 45
  * days their list reaches, read with the properties already read here
@@ -45,6 +51,7 @@
 
 import { getAdminDb } from './admin';
 import { cleanerJobs, jobPropertiesOf } from './server-cleaning-jobs';
+import { readUntracked } from '@/app/lib/schedule/tracking';
 import { listCleanerFacingNames } from './server-property-names';
 import { torontoDay } from '@/app/lib/availability/days';
 import { isDocumentId } from './server-leads';
@@ -151,7 +158,7 @@ export async function readCleanerStart(cleanerId: string, role: string): Promise
   const entries = db.collection(COST_ENTRIES_COLLECTION);
   const today = torontoDay();
 
-  const [properties, cleanerFacing, own, newest, paidThrough] = await Promise.all([
+  const [properties, cleanerFacing, own, newest, paidThrough, untracked] = await Promise.all([
     db.collection('properties').select('name', 'addressDetails', 'details', 'coverImage', 'coverImageStored').get(),
     listCleanerFacingNames(),
     entries.where('cleanerId', '==', cleanerId).select('propertyId', 'createdAt').get(),
@@ -159,15 +166,18 @@ export async function readCleanerStart(cleanerId: string, role: string): Promise
     entries.orderBy('createdAt', 'desc').limit(ITEM_SOURCE_ENTRIES).select('lines', 'kind').get(),
     // The latest day a payment to them was made: no Undo is offered on a cleaning dated on or before it (2026-10-15).
     role === 'cleaner' ? latestPaymentDay(cleanerId) : null,
+    // The units not tracked by Nubnb (Kian's ruling of 2026-11-10; one query): not in the apps, their jobs only when this cleaner marked them.
+    readUntracked(db),
   ]);
 
-  const jobs = role === 'cleaner' ? await cleanerJobs(cleanerId, jobPropertiesOf(properties.docs, cleanerFacing), today, paidThrough) : [];
+  const jobs = role === 'cleaner' ? await cleanerJobs(cleanerId, jobPropertiesOf(properties.docs, cleanerFacing), today, paidThrough, untracked) : [];
 
   return {
     properties: properties.docs
+      .filter((doc) => !untracked.has(doc.id))
       .map((doc) => toProperty(doc.id, doc.data(), cleanerFacing))
       .sort((a, b) => fold(a.name ?? '').localeCompare(fold(b.name ?? ''), 'en-CA') || a.id.localeCompare(b.id)),
-    recentPropertyIds: recentFirst(own.docs.map((doc) => doc.data())),
+    recentPropertyIds: recentFirst(own.docs.map((doc) => doc.data())).filter((id) => !untracked.has(id)),
     itemNames: itemNames(newest.docs.map((doc) => doc.data())),
     jobs,
     today,

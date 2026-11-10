@@ -574,6 +574,13 @@
   font-size: 13px;
   color: rgba(255, 255, 255, 0.45);
 }
+/* A unit not tracked by Nubnb in the search (Kian's ruling of 2026-11-10): tagged, and refused when picked. */
+.unitNote {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: rgba(255, 255, 255, 0.45);
+}
 /* The quick labels, and the one-tap prices beside the amount. */
 .labelChoices {
   display: flex;

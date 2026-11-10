@@ -5,7 +5,9 @@
  * Request (PUT):  `{ reportFor?: { name, address } | null, owners?: [{ name, email? }], statementsFrom?, statementsUntil?, defaultFeeRate?: "20" | null, referenceStem?: "321-John" | null, defaultFee?, excludedFromReporting? } | null`
  *                 The property form sends the record whole; the Report For sheet sends `reportFor`, `referenceStem` and
  *                 `defaultFeeRate` alone (Kian's rulings K5 and K6 of 2026-10-17). A key left out keeps what is stored.
- * Response:       200 `{ success: true, data: { record: PropertyManagementView | null } }`
+ * Response:       200 `{ success: true, data: { record: PropertyManagementView | null, tracking } }` — `tracking` is what
+ *                 the save did to the unit's jobs when it turned tracking on or off (Kian's ruling of 2026-11-10;
+ *                 server-tracking.ts), null when it did neither
  *                 404 PROPERTY_NOT_FOUND when no property has that ID
  *                 422 VALIDATION_ERROR, also when the stored months and the sent ones end before they start
  *
@@ -43,7 +45,7 @@ export const GET = adminRoute(async function GET(request: NextRequest, context: 
   }
 });
 
-export const PUT = adminRoute(async function PUT(request: NextRequest, context: RouteContext) {
+export const PUT = adminRoute(async function PUT(request: NextRequest, context: RouteContext, { actor }) {
   const crossSite = refuseCrossSite(request);
   if (crossSite) return crossSite;
   const wrongType = requireMediaType(request, 'application/json');
@@ -66,11 +68,14 @@ export const PUT = adminRoute(async function PUT(request: NextRequest, context: 
     input = result.data;
   }
   try {
-    const outcome = await setManagement(id, input);
+    // A save that flips `excludedFromReporting` turns the unit's tracking on or off (Kian's ruling of 2026-11-10): the
+    // jobs' side of it happens in the same transaction, and the answer says what it did (`tracking`).
+    const outcome = await setManagement(id, input, actor);
     if (outcome.kind === 'no-such-property') return noStore(apiFailure(NOT_FOUND));
     if (outcome.kind === 'invalid') return noStore(apiValidationError([{ path: outcome.path, message: outcome.message }]));
-    console.log(`[management] ${outcome.kind} for property ${id}`);
-    return noStore(apiSuccess({ record: outcome.kind === 'set' ? outcome.record : null }));
+    const t = outcome.tracking;
+    console.log(`[management] ${outcome.kind} for property ${id}${t ? ` · tracking ${t.tracked ? 'on' : 'off'} (jobs removed ${t.jobsRemoved}, markers written ${t.markersWritten}, cleared ${t.markersCleared})` : ''}`);
+    return noStore(apiSuccess({ record: outcome.kind === 'set' ? outcome.record : null, tracking: t }));
   } catch (err) {
     console.error(`[management] write for ${id} failed: grpc code ${grpcCode(err)}`);
     return noStore(apiFailure({ message: 'Could not save the owners record.', status: 502, code: 'MANAGEMENT_WRITE_FAILED', hint: 'It may or may not have been saved. Open the property again to see what is stored.' }));

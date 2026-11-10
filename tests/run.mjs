@@ -55,6 +55,8 @@ export const CHECKS = [
   { name: 'signin-budget', script: 'admins/budget.mjs', args: [] },
   { name: 'code-context', script: 'security/code-context.mjs', args: [] },
   { name: 'code-duplicates', script: 'security/duplicates.mjs', args: [] },
+  // "Not tracked by Nubnb" (Kian's ruling of 2026-11-10): the switch, the sync, the lists, Add a job, Finish, the income gaps.
+  { name: 'tracking', script: 'schedule/tracking.mjs', args: [] },
 ];
 
 const argv = process.argv.slice(2);

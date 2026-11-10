@@ -411,6 +411,8 @@ export interface IncomeMonth {
   calendar: { days: string[]; checkIns: { propertyId: string; days: string[] }[]; stays: { propertyId: string; count: number }[] };
   /** The properties an admin marked "not paid through Nubnb's files" (Kian's ruling K2 of 2026-10-17). */
   notThroughFiles: string[];
+  /** The units not tracked by Nubnb (Kian's ruling of 2026-11-10): no income gap is raised for them. */
+  untracked: string[];
   /** The month's titles, "platform|title", already in an earlier month's file: not new (the missing-and-new pair). */
   seenBefore: string[];
   /**
@@ -438,7 +440,7 @@ export interface IncomeMonth {
  * lines in it is owed whenever the property was added (2026-10-04), so the created month plays no part here.
  */
 function noStatementWhy(record: PropertyManagementView | null, month: string): string | null {
-  if (isExcludedFromReporting(record)) return 'It is excluded from reporting: no statement is asked for.';
+  if (isExcludedFromReporting(record)) return 'It is not tracked by Nubnb: no statement is asked for.';
   if (record && record.statementsUntil !== null && month > record.statementsUntil) return `Its statements ended with ${monthLabel(record.statementsUntil)}: no statement is asked for.`;
   const { from } = statementMonths(record);
   if (month < from) return `Its statements start in ${monthLabel(from)}: no statement is asked for ${monthLabel(month)}.`;
@@ -622,6 +624,8 @@ export async function readIncomeMonth(month: string): Promise<IncomeMonth> {
   const renames = renameSuggestions({ lines, earlier, links, properties, calendar: [...stays].map(([propertyId, list]) => ({ propertyId, stays: list })) });
 
   const noStatement = properties.map((p) => ({ propertyId: p.id, why: noStatementWhy(records.get(p.id) ?? null, month) })).filter((row): row is { propertyId: string; why: string } => row.why !== null);
+  // The units not tracked by Nubnb (Kian's ruling of 2026-11-10): no income gap is raised for them.
+  const untracked = properties.filter((p) => isExcludedFromReporting(records.get(p.id) ?? null)).map((p) => p.id).sort();
 
   // ── Standings (the one function): each property with a statement or lines to review, as it would stand accepted ──
   const today = torontoDayOf(new Date());
@@ -651,6 +655,7 @@ export async function readIncomeMonth(month: string): Promise<IncomeMonth> {
     statements,
     calendar: { days: days.sort(), checkIns: [...checkIns.entries()].map(([propertyId, set]) => ({ propertyId, days: [...set].sort() })), stays: [...stays].map(([propertyId, list]) => ({ propertyId, count: list.filter((stay) => stay.start >= firstDay).length })) },
     notThroughFiles,
+    untracked,
     standings,
     seenBefore: [...new Set(lines.map((line) => `${line.platform}|${line.listingTitle}`))].filter((key) => allUploads.some((u) => u.month < month && u.titles.some((t) => `${u.platform}|${normaliseTitle(t.title)}` === key))).sort(),
     noStatement,

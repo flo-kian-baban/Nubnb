@@ -28,11 +28,15 @@ import { z } from 'zod';
 import { getAdminDb } from './admin';
 import { isDocumentId } from './server-leads';
 import { toCents } from './server-cost-entries';
+import { applyTrackingChange } from './server-tracking';
+import { ADMIN_ACTOR, type Actor } from '@/app/lib/cleaners/model';
+import type { TrackingChange } from '@/app/lib/schedule/tracking';
 import {
   PROPERTY_MANAGEMENT_COLLECTION,
   PROPERTY_MANAGEMENT_SCHEMA_VERSION,
   STATEMENTS_FROM_DEFAULT,
   STATEMENT_LIMITS,
+  isExcludedFromReporting,
   isMonth,
   readPropertyManagement,
   stemProblem,
@@ -165,7 +169,8 @@ export async function listManagement(): Promise<PropertyManagementView[]> {
   return records;
 }
 
-export type SetManagementResult = { kind: 'set'; record: PropertyManagementView } | { kind: 'cleared' } | { kind: 'no-such-property' } | { kind: 'invalid'; path: string; message: string };
+/** `tracking`: what the save did to the unit's jobs when it turned tracking on or off (Kian's ruling of 2026-11-10); null when it did neither. */
+export type SetManagementResult = { kind: 'set'; record: PropertyManagementView; tracking: TrackingChange | null } | { kind: 'cleared'; tracking: TrackingChange | null } | { kind: 'no-such-property' } | { kind: 'invalid'; path: string; message: string };
 
 /**
  * The record as stored, from the input: every field the input leaves out keeps what is stored, and a record made here
@@ -196,31 +201,43 @@ export function storedManagement(propertyId: string, input: ManagementInput, was
  * Set a property's record whole, or clear it (`null`). The property must
  * exist; the property document is never touched.
  *
+ * When the save turns the unit's tracking on or off (the form's "Tracked by
+ * Nubnb" switch; Kian's ruling of 2026-11-10), the switch's work goes in the
+ * same transaction (server-tracking.ts): off removes its open, unmarked
+ * jobs, on clears the markers that left for future checkouts. Clearing the
+ * record of a unit that was not tracked turns its tracking on. `actor` names
+ * who did it on the markers.
+ *
  * @throws if a read or write fails.
  */
-export async function setManagement(propertyId: string, input: ManagementInput | null): Promise<SetManagementResult> {
+export async function setManagement(propertyId: string, input: ManagementInput | null, actor: Actor = ADMIN_ACTOR, now: Date = new Date()): Promise<SetManagementResult> {
   if (!isDocumentId(propertyId)) return { kind: 'no-such-property' };
   const db = getAdminDb();
   const [property] = await db.getAll(db.collection('properties').doc(propertyId), { fieldMask: ['name'] });
   if (!property.exists) return { kind: 'no-such-property' };
   const ref = db.collection(PROPERTY_MANAGEMENT_COLLECTION).doc(propertyId);
-  if (input === null) {
-    await ref.delete();
-    return { kind: 'cleared' };
-  }
   // Read and written together: a save that sends only some fields (the Report For sheet's) keeps the rest as stored,
   // even when another save lands between.
   const outcome = await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     const was = snap.exists ? readPropertyManagement(snap.id, snap.data() ?? {}) : null;
     if (snap.exists && was === null) throw new Error(`property_management/${propertyId} is not in the written shape`);
-    const record = storedManagement(propertyId, input, was, new Date().toISOString());
+    const wasTracked = !isExcludedFromReporting(was);
+    if (input === null) {
+      const tracking = wasTracked ? null : await applyTrackingChange(tx, db, propertyId, true, actor, now);
+      tx.delete(ref);
+      return { invalid: false as const, cleared: true as const, tracking };
+    }
+    const record = storedManagement(propertyId, input, was, now.toISOString());
     if (record.statementsUntil !== null && record.statementsUntil < record.statementsFrom) return { invalid: true as const };
+    const nowTracked = record.excludedFromReporting !== true;
+    const tracking = wasTracked === nowTracked ? null : await applyTrackingChange(tx, db, propertyId, nowTracked, actor, now);
     tx.set(ref, record);
-    return { invalid: false as const, record };
+    return { invalid: false as const, cleared: false as const, record, tracking };
   });
   if (outcome.invalid) return { kind: 'invalid', path: 'statementsUntil', message: 'The last month is before the first' };
-  return { kind: 'set', record: readPropertyManagement(propertyId, outcome.record as unknown as Record<string, unknown>)! };
+  if (outcome.cleared) return { kind: 'cleared', tracking: outcome.tracking };
+  return { kind: 'set', record: readPropertyManagement(propertyId, outcome.record as unknown as Record<string, unknown>)!, tracking: outcome.tracking };
 }
 
 export type SetReportForResult = { kind: 'set'; record: PropertyManagementView } | { kind: 'no-such-property' };

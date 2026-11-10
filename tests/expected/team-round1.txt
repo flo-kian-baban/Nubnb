@@ -81,7 +81,7 @@
    ok   P2, P3 and P4: untouched (P2 still names Ana, deactivated: it assigns nobody)
    ok   existing jobs follow round 1: Ana comes off, nobody is put on in her place
    ok   Ana is deactivated, her sessions ended
-  the sync: {"created":3,"changed":1,"watched":1,"unreadable":0,"failed":null} · P1's new job: on it TESTCLEANERteamr1ben (regular cleaner) · P2's (Ana, deactivated): on it nobody · P5's (nobody named): on it nobody · reads 8 (cleaners 2, cleaning_jobs 2, deleted_cleaning_jobs 1, property_regular_cleaners 3)
+  the sync: {"created":3,"changed":1,"watched":1,"unreadable":0,"failed":null} · P1's new job: on it TESTCLEANERteamr1ben (regular cleaner) · P2's (Ana, deactivated): on it nobody · P5's (nobody named): on it nobody · reads 9 (cleaners 2, cleaning_jobs 2, deleted_cleaning_jobs 1, property_management 1, property_regular_cleaners 3)
    ok   the next job on P1 goes to Ben by "regular cleaner"; P2's (a deactivated regular cleaner) and P5's (nobody) to nobody
   the schedule read after: {"today":"2026-10-19","regular":{"TESTCLEANERteamr1ben":[{"propertyId":"TESTPROPteamr1aaaaa1","name":"Test 1 Round St"},{"propertyId":"TESTPROPteamr1aaaaa3","name":"Test Three"}],"TESTCLEANERteamr1ana":[{"propertyId":"TESTPROPteamr1aaaaa2","name":"Test Two"}],"TESTCLEANERteamr1dee":[{"propertyId":"TESTPROPteamr1aaaaa4","name":"Test Four"}]},"upcoming":{"TESTCLEANERteamr1ben":1}} · reads 16
    ok   after: Ben is the regular cleaner for P1 and P3, with one job ahead; Ana only for P2 (left as it was), with no job ahead

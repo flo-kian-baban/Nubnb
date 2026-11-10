@@ -429,6 +429,8 @@ export interface DeletedJobMarker {
   reservation: { uid: string; start: string };
   deletedAt: string;
   deletedBy: JobActor;
+  /** Why, when it was not an admin's own delete: `tracking-off` (Kian's ruling of 2026-11-10), which turning tracking on clears for future checkouts. Absent on an admin's delete. */
+  reason?: string;
 }
 
 export const DELETED_JOB_SCHEMA_VERSION = 1;
@@ -438,7 +440,7 @@ export function readDeletedJob(id: string, fields: Record<string, unknown>): (De
   const { propertyId, checkout, reservation, deletedAt, deletedBy } = fields;
   if (typeof fields.schemaVersion !== 'number' || !isText(propertyId) || !isDay(checkout) || id !== jobIdOf(propertyId, checkout)) return null;
   if (!isRecord(reservation) || !isText(reservation.uid) || !isDay(reservation.start) || !isText(deletedAt) || !isActor(deletedBy)) return null;
-  return { id, schemaVersion: fields.schemaVersion, propertyId, checkout, reservation: { uid: reservation.uid, start: reservation.start }, deletedAt, deletedBy };
+  return { id, schemaVersion: fields.schemaVersion, propertyId, checkout, reservation: { uid: reservation.uid, start: reservation.start }, deletedAt, deletedBy, ...(isText(fields.reason) ? { reason: fields.reason } : {}) };
 }
 
 /** The cleaners a Take off takes off the job: those on it and no longer ticked. None: NOBODY_TAKEN_OFF, nothing sent. */
@@ -645,6 +647,8 @@ export interface ScheduleRead {
   unreadable: number;
   /** The cleaning prices of the units on the page, by property (admin-only; the row's price and the dialogs', 2026-11-06). A unit with none is absent. */
   prices: Record<string, CleaningPrices>;
+  /** The units not tracked by Nubnb (Kian's ruling of 2026-11-10): Add a job refuses them, and only their marked jobs are listed. */
+  untracked: string[];
 }
 
 /** One job a cleaner is on and has not marked: what the Team page's dialog names before deactivating or deleting them. */

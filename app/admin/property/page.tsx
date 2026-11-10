@@ -88,9 +88,11 @@ import { AdminHeader } from "../components/AdminHeader";
 import { AdminSelect } from "../components/AdminSelect";
 import { PinGate } from "../components/PinGate";
 import { NoticeBanner, useNotice, type Notice } from "../components/Notice";
+import { useAsk } from "../components/AskDialog";
 import { ReportingStatusLine, StandingBadge } from "../components/StatementStatus";
 import { fetchCosts } from "@/app/lib/costs-client";
-import { deleteStatement, fetchPropertyStatements, fetchStatementLink, finishStatement, saveDraft, setReportFor as saveReportFor, type PropertyStatements, type StatementDeleted } from "@/app/lib/reports-client";
+import { deleteStatement, fetchPropertyStatements, fetchStatementLink, finishStatement, saveDraft, setReportFor as saveReportFor, setTracking, type PropertyStatements, type StatementDeleted } from "@/app/lib/reports-client";
+import { NOT_TRACKED_BANNER, trackingWords } from "@/app/lib/schedule/tracking";
 import { fetchPropertyIncome, type PropertyIncome } from "@/app/lib/income-client";
 import { isCopied, platformLinesOf } from "@/app/lib/income/model";
 import { printedPlatformLines, type PlatformLineInput } from "@/app/lib/reports/statement";
@@ -118,7 +120,7 @@ import {
   type ReportFor,
   type StatementDraftView,
 } from "@/app/lib/reports/model";
-import { STANDING_LABELS, laterReferences, moneyMonthsByProperty, previousStatement, propertyMonthState, propertyMonths, reportingStatus, statementOf, type FinishClaim, type PlacedRow, type PropertyMonthRow } from "@/app/lib/reports/statement";
+import { laterReferences, moneyMonthsByProperty, previousStatement, propertyMonthState, propertyMonths, reportingStatus, standingInWords, statementOf, type FinishClaim, type PlacedRow, type PropertyMonthRow } from "@/app/lib/reports/statement";
 import { airbnbLineIdsOf, costCharges, frozenStatement, monthMoney, placedRowsOf, type Charge } from "@/app/lib/money/month";
 import { statementPdf } from "@/app/lib/reports/statement-pdf";
 import { checkoutsInMonth, finishChecks, uncoveredStays, type IncomeFacts } from "@/app/lib/reports/checks";
@@ -128,7 +130,7 @@ import { DetailsTab } from "./DetailsTab";
 import { FinishTab, type ReleaseRow, type SaveState } from "./FinishTab";
 import { IncomeTab } from "./IncomeTab";
 import { PdfPages } from "./PdfPages";
-import { Dialog, Tick } from "./editor/controls";
+import { Dialog, Switch, Tick } from "./editor/controls";
 import { fromReport, fromStored, heldPartsOf, savablePayload, sha256Hex, suggestedTyped, toDraft, toPayload, type HeldParts, type ReportForDraft, type Typed } from "./statement-form";
 import shared from "../page.module.css";
 import styles from "./page.module.css";
@@ -180,7 +182,7 @@ function OneProperty() {
 /** A month in a few words, for the month list: its standing, then what is stored ("due · draft", "finished · # Sep-321-John"). */
 function monthWords(row: Pick<PropertyMonthRow, "state" | "standing" | "reports">): string {
   const live = row.reports.find((r) => r.replacedBy === null)?.report;
-  const standing = row.standing === "finished" && live ? `finished · ${displayRef(live)}` : STANDING_LABELS[row.standing].toLowerCase();
+  const standing = row.standing === "finished" && live ? `finished · ${displayRef(live)}` : standingInWords(row.standing);
   if (row.state.kind !== "draft") return standing;
   return `${standing} · ${row.state.superseding ? "correction in progress" : "draft"}`;
 }
@@ -233,6 +235,9 @@ function PropertyPageInner() {
   const { notice, show, clear } = useNotice();
   /** Each month's typing, kept while another month is open (dispatch 34, S10); keyed by property and month. */
   const [keptMonths] = useState(() => new Map<string, KeptMonth>());
+  /** The tracking switch beside the banner (Kian's ruling of 2026-11-10): asks first in Nubnb's own dialog, then turns tracking on. */
+  const { ask, dialog: askDialog } = useAsk();
+  const [switching, setSwitching] = useState(false);
 
   // ── The two reads ──
   useEffect(() => {
@@ -430,6 +435,28 @@ function PropertyPageInner() {
   // The address heads the page (Kian's rulings of 2026-10-15, evening): the cleaner-facing name, else the public title, which shows under it.
   const propertyName = data?.propertyName ?? internalLabel(costData?.properties?.find((p) => p.id === propertyId)) ?? null;
   const publicName = data?.publicName ?? null;
+  /** Whether the unit is tracked by Nubnb (Kian's ruling of 2026-11-10): the banner and its switch show when it is not. */
+  const tracked = data ? !isExcludedFromReporting(data.management) : true;
+  const turnTrackingOn = async () => {
+    if (switching || !data) return;
+    const name = propertyName ?? "this unit";
+    const yes = await ask({
+      title: `Track ${name} again?`,
+      lines: ["Cleaning resumes from today: the next calendar read makes jobs for future checkouts only. Nothing is backfilled.", "Income gaps and statements are asked for again, and the unit is back in the cleaners’ app."],
+      confirm: "Turn tracking on",
+    });
+    if (!yes) return;
+    setSwitching(true);
+    const result = await setTracking(propertyId, true);
+    setSwitching(false);
+    if (!result.ok) {
+      show({ tone: result.unknown ? "warning" : "error", title: result.unknown ? "Tracking may or may not have been turned on. Reload to see." : result.title, detail: result.detail });
+      return;
+    }
+    if (result.data.record) onManagement(result.data.record);
+    else setStatements((prev) => (prev.kind === "ready" ? { kind: "ready", data: { ...prev.data, management: null } } : prev));
+    show({ tone: "success", title: trackingWords(name, result.data.change, true) });
+  };
 
   if (!valid) {
     return (
@@ -518,6 +545,15 @@ function PropertyPageInner() {
             </Link>
           </div>
         </div>
+
+        {/* ── Not tracked by Nubnb (Kian's ruling of 2026-11-10): the banner, with the switch beside it ── */}
+        {data && !tracked && (
+          <div className={styles.untrackedBanner} role="status" data-untracked>
+            <span className={styles.untrackedText}>{NOT_TRACKED_BANNER}</span>
+            <Switch bare label="Tracked by Nubnb" field="tracking" checked={false} disabled={switching} onChange={() => void turnTrackingOn()} description={switching ? "Turning tracking on…" : "Turn it on to resume cleaning jobs, income gaps and statements from today."} />
+          </div>
+        )}
+        {askDialog}
 
         <NoticeBanner notice={notice} onDismiss={clear} className={shared.pageNotice} />
 
@@ -1177,6 +1213,7 @@ function MonthWork(props: MonthWorkProps) {
               reportForState={reportForState}
               payableCents={figures ? figures.payableCents : null}
               buildable={built?.kind === "ok"}
+              tracked={!isExcludedFromReporting(management)}
               finishing={finishing}
               onFinish={finish}
               onCorrect={correct}

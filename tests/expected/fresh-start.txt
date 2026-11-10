@@ -51,15 +51,15 @@
    ok   an office cost for October is refused, for November accepted
 ═══ 6. The Income page: who owes no statement (I5) ═══
   2026-10:
-    TESTPROPfresh0000004: It is excluded from reporting: no statement is asked for.
+    TESTPROPfresh0000004: It is not tracked by Nubnb: no statement is asked for.
     TESTPROPfresh0000001: Its statements start in November 2026: no statement is asked for October 2026.
     TESTPROPfresh0000003: Its statements start in December 2026: no statement is asked for October 2026.
     TESTPROPfresh0000002: Its statements start in November 2026: no statement is asked for October 2026.
   2026-11:
-    TESTPROPfresh0000004: It is excluded from reporting: no statement is asked for.
+    TESTPROPfresh0000004: It is not tracked by Nubnb: no statement is asked for.
     TESTPROPfresh0000003: Its statements start in December 2026: no statement is asked for November 2026.
   2026-12:
-    TESTPROPfresh0000004: It is excluded from reporting: no statement is asked for.
+    TESTPROPfresh0000004: It is not tracked by Nubnb: no statement is asked for.
    ok   in October, all four owe no statement: no record, a record from 2026-09, one from 2026-12, one excluded
    ok   in November, only the record from 2026-12 and the excluded property owe none
 ═══ 7. A month before the first statement month: one line, on the Income page and the Costs Month tab ═══

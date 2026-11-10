@@ -35,6 +35,8 @@ const isCalendar = (c: unknown) => isRecord(c) && FEED_STATES.includes(c.status 
 
 function isAnswer(data: unknown): data is PropertyStatusRead {
   if (!isRecord(data) || typeof data.today !== 'string' || !isRecord(data.income) || !isRecord(data.cleaning) || !isRecord(data.calendar) || !isCount(data.unreadable)) return false;
+  // The units not tracked by Nubnb (Kian's ruling of 2026-11-10): a list of IDs.
+  if (!Array.isArray(data.untracked) || !data.untracked.every((id) => typeof id === 'string')) return false;
   const { income, cleaning, calendar } = data;
   return (
     typeof income.month === 'string' && typeof income.uploaded === 'boolean' && isRecord(income.properties) && Object.values(income.properties).every(isFacts) && isRecord(income.direct) && Object.values(income.direct).every(isDirect) &&

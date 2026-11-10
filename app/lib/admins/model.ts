@@ -452,6 +452,8 @@ const ACTION_WORDS: [method: string, path: RegExp, words: string][] = [
   ['DELETE', new RegExp(`^/api/admin/cleaners/${ID}$`), 'Deleted a team member'],
   ['POST', new RegExp(`^/api/admin/cleaners/${ID}/code$`), 'Changed a team member’s code'],
   ['PUT', new RegExp(`^/api/admin/cleaners/${ID}/rate$`), 'Set a cleaner’s default rate'],
+  // Not tracked by Nubnb (Kian's ruling of 2026-11-10): the property page's switch; the form's Save goes through …/management.
+  ['PUT', new RegExp(`^/api/admin/properties/${ID}/tracking$`), 'Turned a unit’s tracking on or off'],
   // Cleaning prices per property (Kian's ruling of 2026-10-19): set one property's, or many from the sheet's import.
   ['PUT', new RegExp(`^/api/admin/properties/${ID}/cleaning-prices$`), 'Set a property’s cleaning prices'],
   ['POST', new RegExp(`^/api/admin/cleaning-prices$`), 'Imported cleaning prices'],

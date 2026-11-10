@@ -304,7 +304,10 @@ no checkout. Do not build toward one unless asked.
   excluded property owes no statements: it leaves the Statement column's
   due and past-due counts, the tile, the home panel and the backup button's
   check. It still has costs, income and a property page; nothing about it
-  is deleted. Stored server-side, never on the property document.
+  is deleted. Stored server-side, never on the property document. Widened
+  by Kian's ruling of 2026-11-10 (Not tracked by Nubnb, below): the same
+  mark now takes the unit out of cleaning and income too, and reads "Not
+  tracked by Nubnb".
 - **Unlisted:** a toggle in the property edit form. An unlisted property
   does not appear anywhere on the public site — the homepage, the map, its
   own page, the property API, the sitemap. It stays fully usable inside:
@@ -1160,6 +1163,31 @@ Kian's review of 2026-11-01 (after the report):
   entirely: no `CLEANER_CODE_DENYLIST`, no check at code generation, typing
   or PIN setting, no generator script. **"Uniqueness, the budget and the
   context-aware commit-tree scan stay."**
+
+## Not tracked by Nubnb — Kian's ruling of 2026-11-10
+
+- **"Not tracked by Nubnb" — one switch per unit.** The existing mark
+  (Exclude from reporting, dispatch 24) is the switch: **"an excluded unit
+  is not part of cleaning at all, and the home row and property page must
+  say clearly that it is not tracked."**
+- **A unit not tracked:**
+  - **Calendar sync creates no jobs for it. Its open, unmarked jobs are
+    removed, with the existing "don't recreate" marker. Counted cleanings
+    and paid or printed history stay untouched.**
+  - **No cleaning warning or count anywhere: Needs a cleaner, Not marked,
+    Calendar not read, Needs a decision for cleanings, home chips and Next
+    step, Schedule.**
+  - **No income gap, no statement due, nothing in Finish.**
+  - **Not in the cleaner or handyman apps (jobs, All properties, Recent).**
+  - **Add a job refuses it: "This unit isn't tracked. Turn tracking on
+    first."**
+- **Display: the home row shows a grey "Not tracked by Nubnb" in place of
+  its cells, and is left out of every count. The property page shows a
+  clear banner, "Not tracked by Nubnb: no cleaning, income or statements",
+  with the switch beside it. The edit page holds the switch with one line
+  explaining it.**
+- **Turning tracking back on resumes from that day: the next calendar read
+  makes jobs for future checkouts only; nothing is backfilled.**
 
 ## Security rules (not Kian's rulings; the developer's, 2026-10-19; contexts by Kian's ruling of 2026-11-06)
 

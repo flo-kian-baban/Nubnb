@@ -1006,7 +1006,7 @@ export interface CleanerProperty {
 export interface CleanerStart {
   /** `role` (dispatch 24) tells the app which flow to show: receipts for a cleaner, work for a handyman. */
   cleaner: { id: string; name: string | null; role: string };
-  /** Every property, delisted ones included, by name. */
+  /** Every property tracked by Nubnb, delisted ones included, by name; a unit not tracked is left out (Kian's ruling of 2026-11-10). */
   properties: CleanerProperty[];
   /** The properties this cleaner has logged against, most recent first. */
   recentPropertyIds: string[];

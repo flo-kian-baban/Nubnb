@@ -7,7 +7,8 @@
  *
  * Reads: one query, the jobs from today on (a few days' checkouts), one query
  * for the deleted jobs' markers from today on (Build 2: one read when there
- * are none), one read
+ * are none), one query for the units not tracked by Nubnb (Kian's ruling of
+ * 2026-11-10: no job is made for them, and theirs are left as they are), one read
  * per property this run did not read that has an open job from today on — its
  * own document, the only ground for "property deleted" or "calendar removed"
  * (Kian's ruling of 2026-10-17); none when every calendar was read — one
@@ -30,6 +31,7 @@ import type { AvailabilitySnapshot } from '../availability/types';
 import { CLEANING_JOBS_COLLECTION, DELETED_JOBS_COLLECTION, readDeletedJob, readJob, type StoredJob } from './model';
 import { PROPERTY_REGULAR_CLEANERS_COLLECTION, readRegularCleaner, withRegularCleaner, type RegularCandidate } from './regular';
 import { planCreates, planJob, readThisRun, type KnownProperty } from './sync';
+import { readUntracked } from './tracking';
 
 /** A calendar link's key: the first ten hex of its SHA-256. Tells a changed link apart; never the link. '' for none. */
 export function calendarKeyOf(url: string | null | undefined): string {
@@ -128,7 +130,9 @@ export async function syncJobs(db: Firestore, snapshot: AvailabilitySnapshot, lo
       const marker = readDeletedJob(doc.id, doc.data());
       if (marker) deleted.set(marker.id, marker.reservation);
     }
-    const planned = planCreates({ snapshot, existing: new Set(stored.docs.map((doc) => doc.id)), keys, nowIso, deleted });
+    // The units not tracked by Nubnb (Kian's ruling of 2026-11-10; one query): no job is made for them, and their jobs are left as they are.
+    const untracked = await readUntracked(db);
+    const planned = planCreates({ snapshot, existing: new Set(stored.docs.map((doc) => doc.id)), keys, nowIso, deleted, untracked });
     // Each new job goes to its property's regular cleaner, when they are an active cleaner (Kian's ruling R5).
     const regulars = await regularCleanersOf(db, [...new Set(planned.map(({ job }) => job.propertyId))]);
     for (const { id, job } of planned) {
@@ -143,10 +147,12 @@ export async function syncJobs(db: Firestore, snapshot: AvailabilitySnapshot, lo
 
     // A property this run did not read is judged only from its own document (Kian's ruling of 2026-10-17).
     // A job added by hand is never judged (ruling C), so its property is not looked up for it.
-    const unread = [...new Set(jobs.filter((job) => job.status === 'open' && job.origin !== 'admin' && !readThisRun(snapshot, job.propertyId)).map((job) => job.propertyId))];
+    const unread = [...new Set(jobs.filter((job) => job.status === 'open' && job.origin !== 'admin' && !untracked.has(job.propertyId) && !readThisRun(snapshot, job.propertyId)).map((job) => job.propertyId))];
     const known = await knownProperties(db, unread);
 
     for (const job of jobs) {
+      // A unit that is not tracked keeps its jobs exactly as they are (Kian's ruling of 2026-11-10).
+      if (untracked.has(job.propertyId)) continue;
       if (!planJob(job, snapshot, keys.get(job.propertyId) ?? null, nowIso, known.get(job.propertyId))) continue;
       const ref = jobsRef.doc(job.id);
       const wrote = await db.runTransaction(async (tx) => {

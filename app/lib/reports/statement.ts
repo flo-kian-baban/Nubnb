@@ -944,7 +944,7 @@ export type Standing =
   | 'open'
   /** Outside the property's statement months, and not finished. */
   | 'notExpected'
-  /** The property is excluded from reporting (Kian's ruling of 2026-10-03), and the month is not finished: owed by nobody, counted nowhere. */
+  /** The property is not tracked by Nubnb (Kian's ruling of 2026-10-03, "excluded from reporting"; the words since his ruling of 2026-11-10), and the month is not finished: owed by nobody, counted nowhere. */
   | 'excluded';
 
 /** The words for each standing, the same everywhere a statement's status is shown. */
@@ -954,8 +954,14 @@ export const STANDING_LABELS: Record<Standing, string> = {
   pastDue: 'Past due',
   open: 'Open, not yet due',
   notExpected: 'No statement expected',
-  excluded: 'Excluded from reporting',
+  excluded: 'Not tracked by Nubnb',
 };
+
+/** A standing's words inside a sentence or a menu line ("open, not yet due", "not tracked by Nubnb"): the first letter lowered, the rest as written. */
+export function standingInWords(standing: Standing): string {
+  const label = STANDING_LABELS[standing];
+  return label.charAt(0).toLowerCase() + label.slice(1);
+}
 
 /**
  * The rule, for one property-month. `today` is yyyy-mm-dd in Toronto; `owed`:

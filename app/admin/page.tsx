@@ -17,7 +17,8 @@ import { reportingStatuses, type ReportingTone } from "@/app/lib/reports/stateme
 import { fetchPropertyStatus, type PropertyStatusResult } from "@/app/lib/property-status-client";
 import { incomeStanding, type IncomeStanding, type IncomeTone } from "@/app/lib/income/standing";
 import { cleaningStanding, type CleaningStanding, type CleaningTone, type HomeJob } from "@/app/lib/schedule/standing";
-import { byAttention, byNextCheckout, CHIPS, rowView, statementFigures, turnoverFigures, type ChipKey, type RowView } from "@/app/lib/home/next-step";
+import { byAttention, byNextCheckout, CHIPS, rowView, statementFigures, turnoverFigures, type ChipKey, type NextStep, type RowView } from "@/app/lib/home/next-step";
+import { NOT_TRACKED, NOT_TRACKED_BANNER } from "@/app/lib/schedule/tracking";
 import { entryHref, queueLabel, writeQueue } from "@/app/lib/home/property-queue";
 import { useCalendarsRefreshed } from "@/app/lib/calendar-refresh-client";
 import { Dialog } from "./property/editor/controls";
@@ -49,6 +50,9 @@ function searchText(p: Property, internalName: string | undefined): string {
       .join(" "),
   );
 }
+
+/** A unit not tracked by Nubnb (Kian's ruling of 2026-11-10) has no Next step: it sorts after "Up to date" under Needs attention. */
+const UNTRACKED_STEP: NextStep = { key: "none", label: NOT_TRACKED, href: null, title: NOT_TRACKED_BANNER, when: null };
 
 /** Every word typed must appear somewhere in the property's text, in any order: "basement markham" finds a basement in Markham. */
 function matchesSearch(text: string, query: string): boolean {
@@ -195,11 +199,13 @@ function AdminHome() {
   const rows = useMemo(() => {
     if (!statusData) return null;
     const { income, cleaning, calendar, today: day } = statusData;
+    // The units not tracked by Nubnb (Kian's ruling of 2026-11-10): one grey cell in place of their four, no Next step, counted nowhere.
+    const untracked = new Set(statusData.untracked);
     const jobs = new Map<string, HomeJob[]>();
     for (const job of cleaning.jobs) jobs.set(job.propertyId, [...(jobs.get(job.propertyId) ?? []), job]);
     const extras = new Map<string, (typeof cleaning.extras)[number][]>();
     for (const extra of cleaning.extras) extras.set(extra.propertyId, [...(extras.get(extra.propertyId) ?? []), extra]);
-    return new Map<string, { income: IncomeStanding; cleaning: CleaningStanding; nextCheckout: string | null; view: RowView | null }>(
+    return new Map<string, { income: IncomeStanding; cleaning: CleaningStanding; nextCheckout: string | null; view: RowView | null; untracked: boolean }>(
       properties.map((p) => {
         const hasCalendarLink = (p.icalUrl ?? "").trim() !== "";
         const copy = calendar.properties[p.id];
@@ -214,8 +220,9 @@ function AdminHome() {
             income: incomeStanding(income, p.id),
             cleaning: cleaningStanding(own, { today: day, hasCalendar: hasCalendarLink, calendarRead }),
             nextCheckout: copy?.nextCheckout ?? null,
+            untracked: untracked.has(p.id),
             view:
-              status && withReportFor
+              status && withReportFor && !untracked.has(p.id)
                 ? rowView({ propertyId: p.id, today: day, status, hasReportFor: withReportFor.has(p.id), incomeMonth: income.month, review: income.properties[p.id]?.review ?? 0, direct: income.direct[p.id] ?? null, jobs: own, hasCalendarLink, calendarRead, extras: extras.get(p.id) ?? [] })
                 : null,
           },
@@ -223,6 +230,8 @@ function AdminHome() {
       }),
     );
   }, [statusData, properties, statuses, withReportFor]);
+  /** How many of the listed units are not tracked by Nubnb: said beside the units count. */
+  const untrackedCount = useMemo(() => (statusData ? properties.filter((p) => statusData.untracked.includes(p.id)).length : 0), [statusData, properties]);
   /** Why a Next step is not known: the read that failed. */
   const viewsFailed = statusFailed ?? (statementsRead.statements.kind === "error" ? statementsRead.statements.title : null);
   const viewsReady = rows !== null && statuses !== null && withReportFor !== null;
@@ -314,7 +323,8 @@ function AdminHome() {
       const ranked = new Map(
         result.map((p) => {
           const row = rows!.get(p.id)!;
-          return [p.id, { step: row.view!.step, worst: worstOf([statuses!.get(p.id)?.tone, row.income.tone, row.cleaning.tone]), name: nameOf(p) }];
+          // A unit not tracked by Nubnb has no step and no cells: it sorts last, by name.
+          return [p.id, row.untracked || !row.view ? { step: UNTRACKED_STEP, worst: -1, name: nameOf(p) } : { step: row.view.step, worst: worstOf([statuses!.get(p.id)?.tone, row.income.tone, row.cleaning.tone]), name: nameOf(p) }];
         }),
       );
       result.sort((a, b) => byAttention(ranked.get(a.id)!, ranked.get(b.id)!));
@@ -359,7 +369,7 @@ function AdminHome() {
     if (result.ok) {
       showNotice({ tone: "success", title: `Deleted "${name}".` });
     } else if (result.code === "PROPERTY_HOLDS_RECORDS") {
-      // Kian's ruling of 2026-10-12 (dispatch 34): it is never deleted; the way is Unlisted and Exclude from reporting.
+      // Kian's ruling of 2026-10-12 (dispatch 34): it is never deleted; the way is Unlisted and "Not tracked by Nubnb" (his ruling of 2026-11-10).
       showNotice({ tone: "warning", title: `"${name}" was not deleted. ${result.error}`, detail: result.hint, action: { label: "Open its Status", href: `${editHref(id)}&section=status` } });
     } else {
       // Previously the return value was dropped, so an expired session looked
@@ -552,7 +562,10 @@ function AdminHome() {
               <thead>
                 <tr>
                   {/* The units count (Kian's rulings of 2026-10-17: it moved here from the tiles). */}
-                  <th aria-live="polite">{narrowed ? `${filteredProperties.length} of ${units(properties.length)}` : units(properties.length)}</th>
+                  <th aria-live="polite">
+                    {narrowed ? `${filteredProperties.length} of ${units(properties.length)}` : units(properties.length)}
+                    {untrackedCount > 0 && <span className={styles.locationText}>{` · ${untrackedCount} not tracked`}</span>}
+                  </th>
                   <th className={styles.colFit}>Statement</th>
                   <th className={styles.colFit}>Income</th>
                   <th className={styles.colFit}>Cleaning</th>
@@ -583,21 +596,32 @@ function AdminHome() {
                           )}
                         </Link>
                       </td>
-                      {/* The reporting cycle's status for the property, a link to its page at the month in question (dispatch 23G). */}
-                      <td className={styles.colFit}>
-                        {statuses?.get(p.id) ? (
-                          <ReportingStatusCell propertyId={p.id} status={statuses.get(p.id)!} />
-                        ) : statementsRead.statements.kind === "error" ? (
-                          <span className={styles.locationText} title={statementsRead.statements.title}>—</span>
-                        ) : (
-                          <span className={styles.locationText} aria-busy>…</span>
-                        )}
-                      </td>
-                      {/* The month due's income and the most pressing cleaning job (Kian's rulings of 2026-10-15), each a link to where the work is. */}
-                      <td className={styles.colFit}>{row ? <IncomeCell propertyId={p.id} standing={row.income} /> : <UnknownCell failed={statusFailed} />}</td>
-                      <td className={styles.colFit}>{row && statusData ? <CleaningCell propertyId={p.id} standing={row.cleaning} today={statusData.today} /> : <UnknownCell failed={statusFailed} />}</td>
-                      {/* The one most pressing action (Kian's rulings of 2026-10-17). */}
-                      <td className={styles.colFit}>{row?.view ? <NextStepCell step={(chip && row.view.chipSteps[chip]) || row.view.step} /> : <UnknownCell failed={viewsFailed} />}</td>
+                      {row?.untracked ? (
+                        /* Not tracked by Nubnb (Kian's ruling of 2026-11-10): one grey cell in place of the four, and the row counts nowhere. */
+                        <td className={styles.colFit} colSpan={4} data-untracked>
+                          <span className={`${styles.stateBadge} ${styles.stateOpen}`} title={`${NOT_TRACKED_BANNER}. Turn tracking on from its page, or its edit page.`}>
+                            {NOT_TRACKED}
+                          </span>
+                        </td>
+                      ) : (
+                        <>
+                          {/* The reporting cycle's status for the property, a link to its page at the month in question (dispatch 23G). */}
+                          <td className={styles.colFit}>
+                            {statuses?.get(p.id) ? (
+                              <ReportingStatusCell propertyId={p.id} status={statuses.get(p.id)!} />
+                            ) : statementsRead.statements.kind === "error" ? (
+                              <span className={styles.locationText} title={statementsRead.statements.title}>—</span>
+                            ) : (
+                              <span className={styles.locationText} aria-busy>…</span>
+                            )}
+                          </td>
+                          {/* The month due's income and the most pressing cleaning job (Kian's rulings of 2026-10-15), each a link to where the work is. */}
+                          <td className={styles.colFit}>{row ? <IncomeCell propertyId={p.id} standing={row.income} /> : <UnknownCell failed={statusFailed} />}</td>
+                          <td className={styles.colFit}>{row && statusData ? <CleaningCell propertyId={p.id} standing={row.cleaning} today={statusData.today} /> : <UnknownCell failed={statusFailed} />}</td>
+                          {/* The one most pressing action (Kian's rulings of 2026-10-17). */}
+                          <td className={styles.colFit}>{row?.view ? <NextStepCell step={(chip && row.view.chipSteps[chip]) || row.view.step} /> : <UnknownCell failed={viewsFailed} />}</td>
+                        </>
+                      )}
                       {/* A click in this cell that misses a control does nothing: it is beside Delete. */}
                       <td className={`${styles.actionsCell} ${styles.colFit}`} onClick={(event) => event.stopPropagation()} title="">
                         <div className={styles.actionsFlex}>
@@ -641,7 +665,7 @@ function AdminHome() {
           }
         >
           <p>Its listing, its owner record and its name for cleaners are deleted with it.</p>
-          <p>A property with statements, drafts, income, Airbnb title links or costs is never deleted: mark it Unlisted and exclude it from reporting instead.</p>
+          <p>A property with statements, drafts, income, Airbnb title links or costs is never deleted: mark it Unlisted and turn its tracking off instead.</p>
         </Dialog>
       )}
     </div>

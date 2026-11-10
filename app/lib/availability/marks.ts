@@ -4,7 +4,7 @@
  *
  *   "Not on Airbnb · checked Sep 30"   the property's Airbnb page answered gone when it was last checked (Kian's ruling
  *                                      K3: the mark shows its check date; the check itself is not revived)
- *   "Not on the site"                  the property is unlisted (Kian's ruling K5); excluded-from-reporting is not marked
+ *   "Not on the site"                  the property is unlisted (Kian's ruling K5); "Not tracked by Nubnb" is not marked here
  *   "calendar read Oct 18, 12:13"      the row's calendar copy is older than the run that wrote the copy, or its last
  *                                      read failed: what the row shows is from that earlier read
  *
